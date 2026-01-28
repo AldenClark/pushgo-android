@@ -1,0 +1,161 @@
+<resources>
+    <string name="app_name">PushGo</string>
+
+    <string name="tab_messages">메시지</string>
+    <string name="tab_push">푸시</string>
+    <string name="tab_settings">설정</string><string name="action_mark_read">읽음으로 표시</string>
+    <string name="action_mark_all_read">모두 읽음으로 표시</string>
+    <string name="action_delete">삭제</string>
+    <string name="action_copy">복사</string>
+    <string name="label_more_actions">추가 작업</string><string name="filter_unread">읽지 않음</string><string name="label_server_address">서버 주소</string>
+    <string name="label_server_token">인증 토큰 (선택)</string>
+    <string name="label_save">저장</string>
+    <string name="label_save_gateway">게이트웨이 설정 저장</string>
+    <string name="label_save_decryption">복호화 설정 저장</string>
+    <string name="label_show_key">키 표시</string>
+    <string name="label_hide_key">키 숨기기</string>
+    <string name="label_back">뒤로</string>
+    <string name="label_add_custom_ringtone">사용자 지정 벨소리 추가</string>
+    <string name="label_image_attachment">이미지 첨부</string><string name="label_gateway_settings">게이트웨이 설정</string>
+    <string name="label_gateway_settings_hint">서버 주소 구성</string><string name="label_channel_name">채널 이름</string>
+    <string name="label_channel_alias">채널 별칭</string>
+    <string name="label_channel_id">채널 ID</string><string name="label_channel_id_copied">채널 ID 복사됨</string>
+    <string name="label_channel_actions">채널 작업</string><string name="label_channel_option">%1$s (%2$s)</string>
+    <string name="label_channel_empty_hint">구독 중인 채널이 없습니다.</string>
+    <string name="label_channel_empty_action">구독하기</string>
+    <string name="label_channel_password">채널 비밀번호</string><string name="label_create_channel">채널 생성</string>
+    <string name="label_subscribe_channel">채널 구독</string>
+    <string name="label_add_channel">채널 추가</string><string name="label_rename_channel">이름 변경</string>
+    <string name="label_enable_auto_cleanup">자동 정리 허용</string>
+    <string name="label_disable_auto_cleanup">자동 정리 금지</string>
+    <string name="label_rename_channel_title">%1$s 이름 변경</string>
+    <string name="label_rename_channel_hint">이 채널의 새 별칭을 설정하세요.</string>
+    <string name="label_unsubscribe_channel">구독 취소</string>
+    <string name="label_unsubscribe_channel_title">%1$s 구독을 취소하시겠습니까?</string>
+    <string name="label_unsubscribe_channel_hint">로컬 기록도 삭제할지 선택하세요.</string>
+    <string name="label_unsubscribe_delete_history">구독 취소 및 기록 삭제</string>
+    <string name="label_unsubscribe_keep_history">구독 취소하지만 기록 유지</string><string name="label_channel_select_hint">먼저 채널을 생성하거나 구독하세요.</string>
+    <string name="label_channel_manage">구독 관리</string>
+    <string name="message_list_empty_title">메시지 없음</string>
+    <string name="message_list_empty_hint">푸시를 받으려면 먼저 채널을 만들거나 구독하세요.</string>
+    <string name="channel_list_empty_title">구독 중인 채널 없음</string>
+    <string name="channel_list_empty_hint">푸시를 받으려면 먼저 채널을 만들거나 구독하세요.</string><string name="label_notification_key">알림 키 (Base64)</string>
+    <string name="label_key_strength">키 강도</string>
+    <string name="label_key_strength_hint">비트 강도가 높을수록 보안은 강화되지만 복호화 속도에 영향을 줄 수 있습니다.</string>
+    <string name="label_configuration">구성</string><string name="label_key_encoding_base64">Base64</string>
+    <string name="label_key_encoding_hex">Hex</string>
+    <string name="label_key_encoding_plaintext">일반 텍스트</string>
+    <string name="label_language">앱 언어</string><string name="label_app_version">앱 버전</string><string name="label_app_version_format">%1$s build %2$d</string>
+    <string name="label_language_system">시스템 기본값</string>
+    <string name="label_language_english">English</string>
+    <string name="label_language_simplified_chinese">简体中文</string>
+    <string name="label_language_traditional_chinese">繁體中文</string>
+    <string name="label_language_japanese">日本語</string>
+    <string name="label_language_korean">한국어</string>
+    <string name="label_language_german">Deutsch</string>
+    <string name="label_language_french">Français</string>
+    <string name="label_language_spanish">Español</string>
+    <string name="label_yesterday">어제</string><string name="auto_cleanup_messages">읽은 메시지 자동 정리</string>
+    <string name="auto_cleanup_messages_hint">조회가 느려지면 가장 오래된 읽음 메시지를 자동으로 정리합니다. 충분한 기록을 유지하므로 최근 메시지는 일반적으로 삭제되지 않습니다. 보관이 필요한 채널은 채널 설정에서 자동 정리를 끌 수 있습니다.</string><string name="label_confirm">확인</string>
+    <string name="confirm_cleanup_messages">지우기 확인</string><string name="confirm_cleanup_read_messages_channel">현재 채널의 읽은 메시지를 삭제합니다. 되돌릴 수 없습니다.</string><string name="confirm_cleanup_read_messages_all">모든 읽은 메시지를 삭제합니다. 되돌릴 수 없습니다.</string><string name="auto_cleanup_suggestion">메시지 표시가 느립니다. 기록을 정리하거나 자동 정리를 켜주세요.</string>
+    <string name="auto_cleanup_manual_suggestion">메시지 표시가 느립니다. 오래된 메시지를 수동으로 정리할 수 있습니다.</string>
+    <string name="clean_channel_messages">읽은 메시지 정리</string>
+    <string name="clean_channel_messages_hint">현재 채널에서 정리할 항목을 선택하세요.</string>
+    <string name="clean_channel_all">채널 전체 삭제</string>
+    <string name="clean_channel_read">채널 읽은 메시지 삭제</string>
+    <string name="confirm_cleanup_channel_placeholder">현재 채널의 메시지를 삭제합니다. 되돌릴 수 없습니다.</string>
+    <string name="label_open_url">링크 열기</string>
+    <string name="label_raw_payload">원본 데이터</string>
+    <string name="action_expand">펼치기</string>
+    <string name="action_collapse">접기</string>
+    <string name="label_search">메시지 검색</string>
+    <string name="label_no_messages">메시지 없음</string>
+    <string name="label_no_search_results">검색 결과 없음</string>
+    <string name="label_no_title">(제목 없음)</string>
+    <string name="label_group_ungrouped">그룹 없음</string>
+    <string name="label_loading">로딩 중…</string><string name="label_send_test_notification">테스트 알림 전송</string><string name="label_send_local_notification">로컬 알림 전송</string><string name="section_ringtone">벨소리 라이브러리</string>
+    <string name="section_language">언어</string>
+    <string name="section_push_form">푸시 테스트</string>
+    <string name="section_appearance">외관</string>
+    <string name="label_theme">테마</string>
+    <string name="label_theme_system">시스템 설정</string>
+    <string name="label_theme_light">라이트 모드</string>
+    <string name="label_theme_dark">다크 모드</string>
+
+    <string name="section_connection_device">연결 및 기기</string><string name="section_channels">채널</string>
+    <string name="section_decryption">메시지 복호화</string>
+    <string name="section_security">보안</string>
+    <string name="section_notifications_sounds">알림 및 소리</string>
+    <string name="section_storage">저장소</string>
+    <string name="section_personalization">개인 설정</string><string name="label_decryption_configured">복호화 설정됨</string>
+    <string name="label_decryption_configured_updated">복호화 설정됨 · 업데이트: %1$s</string>
+    <string name="label_decryption_not_configured">복호화 설정 안 됨</string>
+    <string name="label_decryption_hint">AES-GCM만 지원됩니다. IV는 암호문에 포함되어야 합니다.</string>
+    <string name="label_decryption_subtitle">키 및 인코딩</string><string name="label_preview_ringtone">미리듣기</string>
+    <string name="title_select_audio">오디오 선택</string>
+    <string name="label_close">닫기</string>
+    <string name="label_cancel">취소</string>
+    <string name="label_enable_notifications">알림이 꺼져 있습니다</string>
+    <string name="label_enable_notifications_hint">알림이 꺼져 있으면 PushGo 푸시 메시지를 받을 수 없습니다. 설정에서 켜주세요.</string>
+    <string name="label_turn_on">켜기</string>
+    <string name="label_export_messages_hint">기기에 저장</string><string name="label_title">제목</string>
+    <string name="label_body">본문</string>
+    <string name="label_url">URL</string><string name="label_icon_url">아이콘 URL</string>
+    <string name="label_image_url">이미지 URL</string>
+    <string name="label_ciphertext">암호문</string>
+    <string name="label_sound">소리</string><string name="label_sound_none">설정 안 함</string>
+    <string name="label_custom_sound">사용자 지정 소리</string>
+    <string name="label_custom_sound_hint">사용자 지정 소리는 그대로 전송됩니다. Android는 내장 벨소리만 일치시킵니다.</string>
+    <string name="label_gateway_payload">게이트웨이 JSON</string>
+    <string name="label_copy_json">JSON 복사</string>
+
+    <string name="push_default_title">PushGo 테스트 알림</string>
+    <string name="push_default_body">푸시 표시 효과를 확인하기 위한 로컬 테스트 알림입니다.</string>
+
+    <string name="export_all_messages_json">모든 메시지 내보내기 (JSON)</string>
+    <string name="message_json_exported_successfully">메시지 내보냄</string>
+    <string name="no_messages_available_to_export">내보낼 메시지 없음</string>
+    <string name="export_messages">메시지 내보내기</string>
+
+    <string name="message_gateway_saved">게이트웨이 저장됨</string>
+    <string name="message_ringtone_added">벨소리 추가됨</string>
+    <string name="message_decryption_saved">복호화 설정 저장됨</string><string name="message_channel_created_and_subscribed">채널 생성 및 구독됨</string>
+    <string name="message_channel_subscribed">채널 구독됨</string>
+    <string name="message_channel_renamed">채널 이름 변경됨</string>
+    <string name="message_channel_unsubscribed">채널 구독 취소됨</string>
+    <plurals name="message_channel_unsubscribed_deleted">
+        <item quantity="other">구독 취소 및 메시지 %1$d개 삭제됨</item>
+    </plurals>
+    <string name="message_messages_cleared">메시지 지워짐</string>
+    <string name="message_no_messages_to_clear">지울 메시지 없음</string>
+
+    <string name="error_invalid_server_address">유효하지 않은 서버 주소 (https 필요)</string>
+    <string name="error_key_required">먼저 키를 입력하세요</string>
+    <string name="error_key_already_saved">키가 이미 저장되었습니다. 덮어쓰려면 새 값을 입력하세요</string>
+    <string name="error_invalid_base64">유효하지 않은 Base64</string>
+    <string name="error_invalid_hex">유효하지 않은 Hex</string>
+    <plurals name="error_key_length_mismatch">
+        <item quantity="other">키 길이 불일치: %1$d 바이트 (%2$d 비트) 필요, 실제 %3$d 바이트</item>
+    </plurals>
+    <string name="error_unable_to_get_fcm_token">FCM 토큰을 가져올 수 없습니다</string>
+    <string name="error_fcm_not_supported">이 기기는 FCM을 지원하지 않습니다</string>
+    <string name="error_fcm_token_timeout">FCM 토큰 요청 시간이 초과되었습니다</string>
+    <string name="error_channel_name_required">채널 이름을 입력하세요</string>
+    <string name="error_channel_name_too_long">채널 이름이 너무 깁니다 (최대 %1$d자)</string>
+    <string name="error_channel_name_invalid_character">유효하지 않은 문자: %1$s</string>
+    <string name="error_channel_id_required">채널 ID를 입력하세요</string>
+    <string name="error_channel_id_invalid">유효하지 않은 채널 ID</string>
+    <string name="error_channel_password_length">채널 비밀번호는 8&#8211;128자여야 합니다</string>
+
+    <string name="ringtone_default">기본</string>
+    <string name="ringtone_notification">알림</string>
+    <string name="ringtone_alert">경고</string>
+    <string name="ringtone_quick_whoosh">퀵 우쉬</string>
+    <string name="ringtone_pop">팝</string>
+    <string name="ringtone_bubble_pop">버블 팝</string>
+    <string name="ringtone_arcade">아케이드</string>
+    <string name="ringtone_cartoon_blink">카툰 깜빡임</string>
+    <string name="ringtone_cute_chime">귀여운 차임</string>
+    <string name="ringtone_level_up">레벨 업</string>
+    <string name="ringtone_festive_chime">축제 차임</string>
+</resources>

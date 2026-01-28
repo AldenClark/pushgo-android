@@ -1,0 +1,163 @@
+<resources>
+    <string name="app_name">PushGo</string>
+
+    <string name="tab_messages">Messages</string>
+    <string name="tab_push">Push</string>
+    <string name="tab_settings">Settings</string><string name="action_mark_read">Mark read</string>
+    <string name="action_mark_all_read">Mark all as read</string>
+    <string name="action_delete">Delete</string>
+    <string name="action_copy">Copy</string>
+    <string name="label_more_actions">More actions</string><string name="filter_unread">Unread</string><string name="label_server_address">Server address</string>
+    <string name="label_server_token">Token (optional)</string>
+    <string name="label_save">Save</string>
+    <string name="label_save_gateway">Save gateway</string>
+    <string name="label_save_decryption">Save decryption</string>
+    <string name="label_show_key">Show key</string>
+    <string name="label_hide_key">Hide key</string>
+    <string name="label_back">Back</string>
+    <string name="label_add_custom_ringtone">Add custom ringtone</string>
+    <string name="label_image_attachment">Image attachment</string><string name="label_gateway_settings">Gateway settings</string>
+    <string name="label_gateway_settings_hint">Configure server address</string><string name="label_channel_name">Channel name</string>
+    <string name="label_channel_alias">Channel alias</string>
+    <string name="label_channel_id">Channel ID</string><string name="label_channel_id_copied">Channel ID copied</string>
+    <string name="label_channel_actions">Channel actions</string><string name="label_channel_option">%1$s (%2$s)</string>
+    <string name="label_channel_empty_hint">No subscribed channels yet.</string>
+    <string name="label_channel_empty_action">Subscribe now</string>
+    <string name="label_channel_password">Channel password</string><string name="label_create_channel">Create channel</string>
+    <string name="label_subscribe_channel">Subscribe Channel</string>
+    <string name="label_add_channel">Add channel</string><string name="label_rename_channel">Rename</string>
+    <string name="label_enable_auto_cleanup">Enable auto cleanup</string>
+    <string name="label_disable_auto_cleanup">Disable auto cleanup</string>
+    <string name="label_rename_channel_title">Rename %1$s</string>
+    <string name="label_rename_channel_hint">Set a new alias for this channel.</string>
+    <string name="label_unsubscribe_channel">Unsubscribe</string>
+    <string name="label_unsubscribe_channel_title">Unsubscribe %1$s?</string>
+    <string name="label_unsubscribe_channel_hint">Choose whether to delete local history.</string>
+    <string name="label_unsubscribe_delete_history">Unsubscribe and delete history</string>
+    <string name="label_unsubscribe_keep_history">Unsubscribe and keep history</string><string name="label_channel_select_hint">Create or subscribe to a channel first.</string>
+    <string name="label_channel_manage">Manage subscriptions</string>
+    <string name="message_list_empty_title">No messages yet</string>
+    <string name="message_list_empty_hint">Create or subscribe to a channel first to receive pushes.</string>
+    <string name="channel_list_empty_title">No channels subscribed</string>
+    <string name="channel_list_empty_hint">Create or subscribe to a channel first to receive pushes.</string><string name="label_notification_key">Notification key (Base64)</string>
+    <string name="label_key_strength">Key strength</string>
+    <string name="label_key_strength_hint">Higher bit strength increases security but may impact decryption speed.</string>
+    <string name="label_configuration">Configuration</string><string name="label_key_encoding_base64">Base64</string>
+    <string name="label_key_encoding_hex">Hex</string>
+    <string name="label_key_encoding_plaintext">Plain text</string>
+    <string name="label_language">App language</string><string name="label_app_version">App version</string><string name="label_app_version_format">%1$s build %2$d</string>
+    <string name="label_language_system">System default</string>
+    <string name="label_language_english">English</string>
+    <string name="label_language_simplified_chinese">Simplified Chinese</string>
+    <string name="label_language_traditional_chinese">Traditional Chinese</string>
+    <string name="label_language_japanese">Japanese</string>
+    <string name="label_language_korean">Korean</string>
+    <string name="label_language_german">German</string>
+    <string name="label_language_french">French</string>
+    <string name="label_language_spanish">Spanish</string>
+    <string name="label_yesterday">Yesterday</string><string name="auto_cleanup_messages">Auto-clean read messages</string>
+    <string name="auto_cleanup_messages_hint">When queries slow down, auto cleanup removes the oldest read messages. It keeps a large history, so recent messages are safe. Disable auto cleanup per channel if you need to keep everything.</string><string name="label_confirm">Confirm</string>
+    <string name="confirm_cleanup_messages">Confirm cleanup</string><string name="confirm_cleanup_read_messages_channel">This will remove read messages in the current channel and cannot be undone.</string><string name="confirm_cleanup_read_messages_all">This will remove all read messages and cannot be undone.</string><string name="auto_cleanup_suggestion">Messages are getting slow. Clear history or enable auto-cleanup.</string>
+    <string name="auto_cleanup_manual_suggestion">Messages are getting slow. You can manually clean up older messages.</string>
+    <string name="clean_channel_messages">Clean read messages</string>
+    <string name="clean_channel_messages_hint">Choose what to clean in the current channel.</string>
+    <string name="clean_channel_all">Clear all in channel</string>
+    <string name="clean_channel_read">Clear read in channel</string>
+    <string name="confirm_cleanup_channel_placeholder">This will clear messages in the current channel. This action cannot be undone.</string>
+    <string name="label_open_url">Open URL</string>
+    <string name="label_raw_payload">Raw payload</string>
+    <string name="action_expand">Expand</string>
+    <string name="action_collapse">Collapse</string>
+    <string name="label_search">Search messages</string>
+    <string name="label_no_messages">No messages</string>
+    <string name="label_no_search_results">No results</string>
+    <string name="label_no_title">(No title)</string>
+    <string name="label_group_ungrouped">No channel</string>
+    <string name="label_loading">Loading…</string><string name="label_send_test_notification">Send test notification</string><string name="label_send_local_notification">Send local notification</string><string name="section_ringtone">Ringtone Library</string>
+    <string name="section_language">Language</string>
+    <string name="section_push_form">Push test form</string>
+    <string name="section_appearance">Appearance</string>
+    <string name="label_theme">Theme</string>
+    <string name="label_theme_system">System default</string>
+    <string name="label_theme_light">Light</string>
+    <string name="label_theme_dark">Dark</string>
+
+    <string name="section_connection_device">Connection &amp; Device</string><string name="section_channels">Channels</string>
+    <string name="section_decryption">Message decryption</string>
+    <string name="section_security">Security</string>
+    <string name="section_notifications_sounds">Notifications &amp; Sounds</string>
+    <string name="section_storage">Storage</string>
+    <string name="section_personalization">Personalization</string><string name="label_decryption_configured">Decryption configured</string>
+    <string name="label_decryption_configured_updated">Decryption configured · Updated %1$s</string>
+    <string name="label_decryption_not_configured">Decryption not configured</string>
+    <string name="label_decryption_hint">Only AES-GCM is supported; IV must be included in ciphertext.</string>
+    <string name="label_decryption_subtitle">Keys and encoding</string><string name="label_preview_ringtone">Preview</string>
+    <string name="title_select_audio">Select audio</string>
+    <string name="label_close">Close</string>
+    <string name="label_cancel">Cancel</string>
+    <string name="label_enable_notifications">Notifications are off</string>
+    <string name="label_enable_notifications_hint">PushGo cannot deliver push messages while notifications are disabled. Turn them on in system settings.</string>
+    <string name="label_turn_on">Turn on</string>
+    <string name="label_export_messages_hint">Save to device</string><string name="label_title">Title</string>
+    <string name="label_body">Body</string>
+    <string name="label_url">URL</string><string name="label_icon_url">Icon URL</string>
+    <string name="label_image_url">Image URL</string>
+    <string name="label_ciphertext">Ciphertext</string>
+    <string name="label_sound">Sound</string><string name="label_sound_none">Not set</string>
+    <string name="label_custom_sound">Custom sound</string>
+    <string name="label_custom_sound_hint">Custom sound is sent as-is. Android only matches built-in tones.</string>
+    <string name="label_gateway_payload">Gateway JSON</string>
+    <string name="label_copy_json">Copy JSON</string>
+
+    <string name="push_default_title">PushGo test notification</string>
+    <string name="push_default_body">This is a local test notification used to verify the push display effect.</string>
+
+    <string name="export_all_messages_json">Export all messages (JSON)</string>
+    <string name="message_json_exported_successfully">Messages exported</string>
+    <string name="no_messages_available_to_export">No messages to export</string>
+    <string name="export_messages">Export messages</string>
+
+    <string name="message_gateway_saved">Gateway saved</string>
+    <string name="message_ringtone_added">Ringtone added</string>
+    <string name="message_decryption_saved">Decryption settings saved</string><string name="message_channel_created_and_subscribed">Channel created and subscribed</string>
+    <string name="message_channel_subscribed">Channel subscribed</string>
+    <string name="message_channel_renamed">Channel renamed</string>
+    <string name="message_channel_unsubscribed">Channel unsubscribed</string>
+    <plurals name="message_channel_unsubscribed_deleted">
+        <item quantity="one">Channel unsubscribed; deleted %1$d message</item>
+        <item quantity="other">Channel unsubscribed; deleted %1$d messages</item>
+    </plurals>
+    <string name="message_messages_cleared">Messages cleared</string>
+    <string name="message_no_messages_to_clear">No messages to clear</string>
+
+    <string name="error_invalid_server_address">Invalid server address (https required)</string>
+    <string name="error_key_required">Please enter the key first</string>
+    <string name="error_key_already_saved">Key already saved; enter a new value to overwrite</string>
+    <string name="error_invalid_base64">Invalid Base64</string>
+    <string name="error_invalid_hex">Invalid hex</string>
+    <plurals name="error_key_length_mismatch">
+        <item quantity="one">Key length mismatch: need %1$d byte (%2$d-bit), got %3$d</item>
+        <item quantity="other">Key length mismatch: need %1$d bytes (%2$d-bit), got %3$d</item>
+    </plurals>
+    <string name="error_unable_to_get_fcm_token">Unable to get FCM token</string>
+    <string name="error_fcm_not_supported">This device does not support FCM</string>
+    <string name="error_fcm_token_timeout">FCM token request timed out</string>
+    <string name="error_channel_name_required">Channel name required</string>
+    <string name="error_channel_name_too_long">Channel name too long (max %1$d)</string>
+    <string name="error_channel_name_invalid_character">Invalid character: %1$s</string>
+    <string name="error_channel_id_required">Channel ID required</string>
+    <string name="error_channel_id_invalid">Invalid channel ID</string>
+    <string name="error_channel_password_length">Channel password must be 8&#8211;128 characters</string>
+
+    <string name="ringtone_default">Default</string>
+    <string name="ringtone_notification">Notification</string>
+    <string name="ringtone_alert">Alert</string>
+    <string name="ringtone_quick_whoosh">Quick Whoosh</string>
+    <string name="ringtone_pop">Pop</string>
+    <string name="ringtone_bubble_pop">Bubble Pop</string>
+    <string name="ringtone_arcade">Arcade</string>
+    <string name="ringtone_cartoon_blink">Cartoon Blink</string>
+    <string name="ringtone_cute_chime">Cute Chime</string>
+    <string name="ringtone_level_up">Level Up</string>
+    <string name="ringtone_festive_chime">Festive Chime</string>
+</resources>

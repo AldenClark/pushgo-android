@@ -1,0 +1,163 @@
+<resources>
+    <string name="app_name">PushGo</string>
+
+    <string name="tab_messages">Nachrichten</string>
+    <string name="tab_push">Push</string>
+    <string name="tab_settings">Einstellungen</string><string name="action_mark_read">Als gelesen markieren</string>
+    <string name="action_mark_all_read">Alle als gelesen markieren</string>
+    <string name="action_delete">Löschen</string>
+    <string name="action_copy">Kopieren</string>
+    <string name="label_more_actions">Mehr Aktionen</string><string name="filter_unread">Ungelesen</string><string name="label_server_address">Serveradresse</string>
+    <string name="label_server_token">Token (optional)</string>
+    <string name="label_save">Speichern</string>
+    <string name="label_save_gateway">Gateway speichern</string>
+    <string name="label_save_decryption">Entschlüsselung speichern</string>
+    <string name="label_show_key">Schlüssel anzeigen</string>
+    <string name="label_hide_key">Schlüssel verbergen</string>
+    <string name="label_back">Zurück</string>
+    <string name="label_add_custom_ringtone">Benutzerdefinierten Klingelton hinzufügen</string>
+    <string name="label_image_attachment">Bildanhang</string><string name="label_gateway_settings">Gateway-Einstellungen</string>
+    <string name="label_gateway_settings_hint">Serveradresse konfigurieren</string><string name="label_channel_name">Kanalname</string>
+    <string name="label_channel_alias">Kanalalias</string>
+    <string name="label_channel_id">Kanal-ID</string><string name="label_channel_id_copied">Kanal-ID kopiert</string>
+    <string name="label_channel_actions">Kanalaktionen</string><string name="label_channel_option">%1$s (%2$s)</string>
+    <string name="label_channel_empty_hint">Keine abonnierten Kanäle.</string>
+    <string name="label_channel_empty_action">Jetzt abonnieren</string>
+    <string name="label_channel_password">Kanalpasswort</string><string name="label_create_channel">Kanal erstellen</string>
+    <string name="label_subscribe_channel">Kanal abonnieren</string>
+    <string name="label_add_channel">Kanal hinzufügen</string><string name="label_rename_channel">Umbenennen</string>
+    <string name="label_enable_auto_cleanup">Automatisches Bereinigen aktivieren</string>
+    <string name="label_disable_auto_cleanup">Automatisches Bereinigen deaktivieren</string>
+    <string name="label_rename_channel_title">%1$s umbenennen</string>
+    <string name="label_rename_channel_hint">Neuen Alias für diesen Kanal festlegen.</string>
+    <string name="label_unsubscribe_channel">Deabonnieren</string>
+    <string name="label_unsubscribe_channel_title">%1$s deabonnieren?</string>
+    <string name="label_unsubscribe_channel_hint">Wählen Sie, ob der lokale Verlauf gelöscht werden soll.</string>
+    <string name="label_unsubscribe_delete_history">Deabonnieren und Verlauf löschen</string>
+    <string name="label_unsubscribe_keep_history">Deabonnieren, Verlauf behalten</string><string name="label_channel_select_hint">Zuerst einen Kanal erstellen oder abonnieren.</string>
+    <string name="label_channel_manage">Abonnements verwalten</string>
+    <string name="message_list_empty_title">Keine Nachrichten</string>
+    <string name="message_list_empty_hint">Erstellen oder abonnieren Sie zuerst einen Kanal, um Push-Benachrichtigungen zu erhalten.</string>
+    <string name="channel_list_empty_title">Keine Kanäle abonniert</string>
+    <string name="channel_list_empty_hint">Erstellen oder abonnieren Sie zuerst einen Kanal, um Push-Benachrichtigungen zu erhalten.</string><string name="label_notification_key">Benachrichtigungsschlüssel (Base64)</string>
+    <string name="label_key_strength">Schlüsselstärke</string>
+    <string name="label_key_strength_hint">Höhere Bitstärke erhöht die Sicherheit, kann aber die Entschlüsselung verlangsamen.</string>
+    <string name="label_configuration">Konfiguration</string><string name="label_key_encoding_base64">Base64</string>
+    <string name="label_key_encoding_hex">Hex</string>
+    <string name="label_key_encoding_plaintext">Klartext</string>
+    <string name="label_language">App-Sprache</string><string name="label_app_version">App-Version</string><string name="label_app_version_format">%1$s build %2$d</string>
+    <string name="label_language_system">Systemstandard</string>
+    <string name="label_language_english">English</string>
+    <string name="label_language_simplified_chinese">简体中文</string>
+    <string name="label_language_traditional_chinese">繁體中文</string>
+    <string name="label_language_japanese">日本語</string>
+    <string name="label_language_korean">한국어</string>
+    <string name="label_language_german">Deutsch</string>
+    <string name="label_language_french">Français</string>
+    <string name="label_language_spanish">Español</string>
+    <string name="label_yesterday">Gestern</string><string name="auto_cleanup_messages">Gelesene Nachrichten automatisch bereinigen</string>
+    <string name="auto_cleanup_messages_hint">Wenn Abfragen langsamer werden, löscht die automatische Bereinigung die ältesten gelesenen Nachrichten. Es bleibt ein großer Verlauf erhalten, sodass aktuelle Nachrichten in der Regel nicht gelöscht werden. Für Kanäle, die Sie behalten möchten, können Sie die automatische Bereinigung dort deaktivieren.</string><string name="label_confirm">Bestätigen</string>
+    <string name="confirm_cleanup_messages">Löschen bestätigen</string><string name="confirm_cleanup_read_messages_channel">Gelesene Nachrichten im aktuellen Kanal werden gelöscht und können nicht wiederhergestellt werden.</string><string name="confirm_cleanup_read_messages_all">Alle gelesenen Nachrichten werden gelöscht und können nicht wiederhergestellt werden.</string><string name="auto_cleanup_suggestion">Nachrichten werden langsamer. Verlauf bereinigen oder Auto-Bereinigung aktivieren.</string>
+    <string name="auto_cleanup_manual_suggestion">Nachrichten werden langsamer. Ältere Nachrichten kannst du manuell bereinigen.</string>
+    <string name="clean_channel_messages">Gelesene Nachrichten bereinigen</string>
+    <string name="clean_channel_messages_hint">Wähle aus, was im aktuellen Kanal bereinigt werden soll.</string>
+    <string name="clean_channel_all">Alles im Kanal löschen</string>
+    <string name="clean_channel_read">Gelesene im Kanal löschen</string>
+    <string name="confirm_cleanup_channel_placeholder">Dies löscht Nachrichten im aktuellen Kanal. Das kann nicht rückgängig gemacht werden.</string>
+    <string name="label_open_url">Link öffnen</string>
+    <string name="label_raw_payload">Rohdaten</string>
+    <string name="action_expand">Erweitern</string>
+    <string name="action_collapse">Einklappen</string>
+    <string name="label_search">Nachrichten suchen</string>
+    <string name="label_no_messages">Keine Nachrichten</string>
+    <string name="label_no_search_results">Keine Ergebnisse</string>
+    <string name="label_no_title">(Kein Titel)</string>
+    <string name="label_group_ungrouped">Keine Gruppe</string>
+    <string name="label_loading">Laden…</string><string name="label_send_test_notification">Testbenachrichtigung senden</string><string name="label_send_local_notification">Lokale Benachrichtigung senden</string><string name="section_ringtone">Klingelton-Bibliothek</string>
+    <string name="section_language">Sprache</string>
+    <string name="section_push_form">Push-Test</string>
+    <string name="section_appearance">Erscheinungsbild</string>
+    <string name="label_theme">Thema</string>
+    <string name="label_theme_system">Systemstandard</string>
+    <string name="label_theme_light">Hell</string>
+    <string name="label_theme_dark">Dunkel</string>
+
+    <string name="section_connection_device">Verbindung &amp; Gerät</string><string name="section_channels">Kanäle</string>
+    <string name="section_decryption">Entschlüsselung</string>
+    <string name="section_security">Sicherheit</string>
+    <string name="section_notifications_sounds">Benachrichtigungen &amp; Töne</string>
+    <string name="section_storage">Speicher</string>
+    <string name="section_personalization">Personalisierung</string><string name="label_decryption_configured">Entschlüsselung konfiguriert</string>
+    <string name="label_decryption_configured_updated">Konfiguriert · Aktualisiert %1$s</string>
+    <string name="label_decryption_not_configured">Nicht konfiguriert</string>
+    <string name="label_decryption_hint">Nur AES-GCM unterstützt; IV muss im Chiffretext enthalten sein.</string>
+    <string name="label_decryption_subtitle">Schlüssel und Kodierung</string><string name="label_preview_ringtone">Vorschau</string>
+    <string name="title_select_audio">Audio auswählen</string>
+    <string name="label_close">Schließen</string>
+    <string name="label_cancel">Abbrechen</string>
+    <string name="label_enable_notifications">Benachrichtigungen sind deaktiviert</string>
+    <string name="label_enable_notifications_hint">PushGo kann keine Push-Nachrichten zustellen, solange Benachrichtigungen deaktiviert sind. Bitte in den Systemeinstellungen aktivieren.</string>
+    <string name="label_turn_on">Einschalten</string>
+    <string name="label_export_messages_hint">Auf Gerät speichern</string><string name="label_title">Titel</string>
+    <string name="label_body">Inhalt</string>
+    <string name="label_url">URL</string><string name="label_icon_url">Symbol-URL</string>
+    <string name="label_image_url">Bild-URL</string>
+    <string name="label_ciphertext">Chiffretext</string>
+    <string name="label_sound">Ton</string><string name="label_sound_none">Nicht festgelegt</string>
+    <string name="label_custom_sound">Eigener Ton</string>
+    <string name="label_custom_sound_hint">Eigener Ton wird unverändert gesendet. Android nutzt nur integrierte Töne.</string>
+    <string name="label_gateway_payload">Gateway-JSON</string>
+    <string name="label_copy_json">JSON kopieren</string>
+
+    <string name="push_default_title">PushGo Testbenachrichtigung</string>
+    <string name="push_default_body">Dies ist eine lokale Testbenachrichtigung zur Überprüfung der Anzeige.</string>
+
+    <string name="export_all_messages_json">Alle Nachrichten exportieren (JSON)</string>
+    <string name="message_json_exported_successfully">Nachrichten exportiert</string>
+    <string name="no_messages_available_to_export">Keine Nachrichten zum Exportieren</string>
+    <string name="export_messages">Nachrichten exportieren</string>
+
+    <string name="message_gateway_saved">Gateway gespeichert</string>
+    <string name="message_ringtone_added">Klingelton hinzugefügt</string>
+    <string name="message_decryption_saved">Entschlüsselungseinstellungen gespeichert</string><string name="message_channel_created_and_subscribed">Kanal erstellt und abonniert</string>
+    <string name="message_channel_subscribed">Kanal abonniert</string>
+    <string name="message_channel_renamed">Kanal umbenannt</string>
+    <string name="message_channel_unsubscribed">Kanal abbestellt</string>
+    <plurals name="message_channel_unsubscribed_deleted">
+        <item quantity="one">Kanal abbestellt und %1$d Nachrichten gelöscht</item>
+        <item quantity="other">Kanal abbestellt und %1$d Nachrichten gelöscht</item>
+    </plurals>
+    <string name="message_messages_cleared">Nachrichten gelöscht</string>
+    <string name="message_no_messages_to_clear">Keine Nachrichten zum Löschen</string>
+
+    <string name="error_invalid_server_address">Ungültige Serveradresse (https erforderlich)</string>
+    <string name="error_key_required">Bitte zuerst Schlüssel eingeben</string>
+    <string name="error_key_already_saved">Schlüssel bereits gespeichert; neuen Wert eingeben zum Überschreiben</string>
+    <string name="error_invalid_base64">Ungültiges Base64</string>
+    <string name="error_invalid_hex">Ungültiges Hex</string>
+    <plurals name="error_key_length_mismatch">
+        <item quantity="one">Schlüssellänge falsch: %1$d Bytes (%2$d Bits) benötigt, %3$d Bytes erhalten</item>
+        <item quantity="other">Schlüssellänge falsch: %1$d Bytes (%2$d Bits) benötigt, %3$d Bytes erhalten</item>
+    </plurals>
+    <string name="error_unable_to_get_fcm_token">FCM-Token konnte nicht abgerufen werden</string>
+    <string name="error_fcm_not_supported">Dieses Gerät unterstützt FCM nicht</string>
+    <string name="error_fcm_token_timeout">Zeitüberschreitung beim Abrufen des FCM-Tokens</string>
+    <string name="error_channel_name_required">Kanalname erforderlich</string>
+    <string name="error_channel_name_too_long">Kanalname zu lang (max. %1$d)</string>
+    <string name="error_channel_name_invalid_character">Ungültiges Zeichen: %1$s</string>
+    <string name="error_channel_id_required">Kanal-ID erforderlich</string>
+    <string name="error_channel_id_invalid">Ungültige Kanal-ID</string>
+    <string name="error_channel_password_length">Kanalpasswort muss 8&#8211;128 Zeichen lang sein</string>
+
+    <string name="ringtone_default">Standard</string>
+    <string name="ringtone_notification">Benachrichtigung</string>
+    <string name="ringtone_alert">Alarm</string>
+    <string name="ringtone_quick_whoosh">Quick Whoosh</string>
+    <string name="ringtone_pop">Pop</string>
+    <string name="ringtone_bubble_pop">Bubble Pop</string>
+    <string name="ringtone_arcade">Arcade</string>
+    <string name="ringtone_cartoon_blink">Cartoon Blink</string>
+    <string name="ringtone_cute_chime">Niedlicher Gong</string>
+    <string name="ringtone_level_up">Level Up</string>
+    <string name="ringtone_festive_chime">Festlicher Gong</string>
+</resources>

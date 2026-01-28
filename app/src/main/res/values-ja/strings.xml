@@ -1,0 +1,161 @@
+<resources>
+    <string name="app_name">PushGo</string>
+
+    <string name="tab_messages">メッセージ</string>
+    <string name="tab_push">プッシュ</string>
+    <string name="tab_settings">設定</string><string name="action_mark_read">既読にする</string>
+    <string name="action_mark_all_read">すべて既読にする</string>
+    <string name="action_delete">削除</string>
+    <string name="action_copy">コピー</string>
+    <string name="label_more_actions">その他の操作</string><string name="filter_unread">未読</string><string name="label_server_address">サーバーアドレス</string>
+    <string name="label_server_token">認証トークン（任意）</string>
+    <string name="label_save">保存</string>
+    <string name="label_save_gateway">ゲートウェイ設定を保存</string>
+    <string name="label_save_decryption">復号設定を保存</string>
+    <string name="label_show_key">キーを表示</string>
+    <string name="label_hide_key">キーを非表示</string>
+    <string name="label_back">戻る</string>
+    <string name="label_add_custom_ringtone">カスタム着信音を追加</string>
+    <string name="label_image_attachment">画像の添付</string><string name="label_gateway_settings">ゲートウェイ設定</string>
+    <string name="label_gateway_settings_hint">サーバーアドレスを設定</string><string name="label_channel_name">チャンネル名</string>
+    <string name="label_channel_alias">チャンネルのエイリアス</string>
+    <string name="label_channel_id">チャンネル ID</string><string name="label_channel_id_copied">チャンネル ID をコピーしました</string>
+    <string name="label_channel_actions">チャンネル操作</string><string name="label_channel_option">%1$s (%2$s)</string>
+    <string name="label_channel_empty_hint">購読中のチャンネルがありません。</string>
+    <string name="label_channel_empty_action">購読する</string>
+    <string name="label_channel_password">チャンネルのパスワード</string><string name="label_create_channel">チャンネルを作成</string>
+    <string name="label_subscribe_channel">チャンネルを購読</string>
+    <string name="label_add_channel">チャンネルを追加</string><string name="label_rename_channel">名前を変更</string>
+    <string name="label_enable_auto_cleanup">自動クリーンアップを有効化</string>
+    <string name="label_disable_auto_cleanup">自動クリーンアップを無効化</string>
+    <string name="label_rename_channel_title">%1$s の名前を変更</string>
+    <string name="label_rename_channel_hint">このチャンネルの新しいエイリアスを設定します。</string>
+    <string name="label_unsubscribe_channel">購読解除</string>
+    <string name="label_unsubscribe_channel_title">%1$s の購読を解除しますか？</string>
+    <string name="label_unsubscribe_channel_hint">ローカルの履歴も削除するか選択してください。</string>
+    <string name="label_unsubscribe_delete_history">購読解除して履歴を削除</string>
+    <string name="label_unsubscribe_keep_history">購読解除するが履歴は残す</string><string name="label_channel_select_hint">まずはチャンネルを作成または購読してください。</string>
+    <string name="label_channel_manage">購読管理</string>
+    <string name="message_list_empty_title">メッセージはありません</string>
+    <string name="message_list_empty_hint">プッシュを受け取るには、先にチャンネルを作成または購読してください。</string>
+    <string name="channel_list_empty_title">購読中のチャンネルはありません</string>
+    <string name="channel_list_empty_hint">プッシュを受け取るには、先にチャンネルを作成または購読してください。</string><string name="label_notification_key">通知キー (Base64)</string>
+    <string name="label_key_strength">キー強度</string>
+    <string name="label_key_strength_hint">ビット強度が高いほどセキュリティは向上しますが、復号速度に影響する可能性があります。</string>
+    <string name="label_configuration">設定</string><string name="label_key_encoding_base64">Base64</string>
+    <string name="label_key_encoding_hex">Hex</string>
+    <string name="label_key_encoding_plaintext">プレーンテキスト</string>
+    <string name="label_language">アプリの言語</string><string name="label_app_version">アプリのバージョン</string><string name="label_app_version_format">%1$s build %2$d</string>
+    <string name="label_language_system">システム設定</string>
+    <string name="label_language_english">English</string>
+    <string name="label_language_simplified_chinese">简体中文</string>
+    <string name="label_language_traditional_chinese">繁體中文</string>
+    <string name="label_language_japanese">日本語</string>
+    <string name="label_language_korean">한국어</string>
+    <string name="label_language_german">Deutsch</string>
+    <string name="label_language_french">Français</string>
+    <string name="label_language_spanish">Español</string>
+    <string name="label_yesterday">昨日</string><string name="auto_cleanup_messages">既読メッセージを自動整理</string>
+    <string name="auto_cleanup_messages_hint">検索が遅くなると、最も古い既読メッセージを自動で整理します。十分な履歴は保持され、最近のメッセージは基本的に削除されません。特定のチャンネルを残したい場合は、そのチャンネルで自動整理をオフにできます。</string><string name="label_confirm">確認</string>
+    <string name="confirm_cleanup_messages">消去の確認</string><string name="confirm_cleanup_read_messages_channel">現在のチャンネルの既読メッセージを削除します。元に戻せません。</string><string name="confirm_cleanup_read_messages_all">すべての既読メッセージを削除します。元に戻せません。</string><string name="auto_cleanup_suggestion">表示が遅くなっています。履歴を整理するか自動整理を有効にしてください。</string>
+    <string name="auto_cleanup_manual_suggestion">表示が遅くなっています。古いメッセージを手動で整理できます。</string>
+    <string name="clean_channel_messages">既読メッセージを削除</string>
+    <string name="clean_channel_messages_hint">現在のチャンネルで整理する内容を選択してください。</string>
+    <string name="clean_channel_all">チャンネル内をすべて削除</string>
+    <string name="clean_channel_read">チャンネル内の既読を削除</string>
+    <string name="confirm_cleanup_channel_placeholder">現在のチャンネルのメッセージを削除します。元に戻せません。</string>
+    <string name="label_open_url">リンクを開く</string>
+    <string name="label_raw_payload">生データ</string>
+    <string name="action_expand">展開</string>
+    <string name="action_collapse">折りたたむ</string>
+    <string name="label_search">メッセージを検索</string>
+    <string name="label_no_messages">メッセージはありません</string>
+    <string name="label_no_search_results">検索結果なし</string>
+    <string name="label_no_title">(タイトルなし)</string>
+    <string name="label_group_ungrouped">グループなし</string>
+    <string name="label_loading">読み込み中…</string><string name="label_send_test_notification">テスト通知を送信</string><string name="label_send_local_notification">ローカル通知を送信</string><string name="section_ringtone">着信音ライブラリ</string>
+    <string name="section_language">言語</string>
+    <string name="section_push_form">プッシュテスト</string>
+    <string name="section_appearance">外観</string>
+    <string name="label_theme">テーマ</string>
+    <string name="label_theme_system">システム設定</string>
+    <string name="label_theme_light">ライトモード</string>
+    <string name="label_theme_dark">ダークモード</string>
+
+    <string name="section_connection_device">接続とデバイス</string><string name="section_channels">チャンネル</string>
+    <string name="section_decryption">メッセージ復号</string>
+    <string name="section_security">セキュリティ</string>
+    <string name="section_notifications_sounds">通知とサウンド</string>
+    <string name="section_storage">ストレージ</string>
+    <string name="section_personalization">個人設定</string><string name="label_decryption_configured">復号設定済み</string>
+    <string name="label_decryption_configured_updated">復号設定済み · 更新: %1$s</string>
+    <string name="label_decryption_not_configured">復号未設定</string>
+    <string name="label_decryption_hint">AES-GCM のみサポートされています。IV は暗号文に含まれている必要があります。</string>
+    <string name="label_decryption_subtitle">キーとエンコーディング</string><string name="label_preview_ringtone">プレビュー</string>
+    <string name="title_select_audio">オーディオを選択</string>
+    <string name="label_close">閉じる</string>
+    <string name="label_cancel">キャンセル</string>
+    <string name="label_enable_notifications">通知がオフです</string>
+    <string name="label_enable_notifications_hint">通知が無効だと PushGo のプッシュを受け取れません。設定で有効にしてください。</string>
+    <string name="label_turn_on">オンにする</string>
+    <string name="label_export_messages_hint">デバイスに保存</string><string name="label_title">タイトル</string>
+    <string name="label_body">本文</string>
+    <string name="label_url">URL</string><string name="label_icon_url">アイコン URL</string>
+    <string name="label_image_url">画像 URL</string>
+    <string name="label_ciphertext">暗号文</string>
+    <string name="label_sound">サウンド</string><string name="label_sound_none">設定しない</string>
+    <string name="label_custom_sound">カスタムサウンド</string>
+    <string name="label_custom_sound_hint">カスタムサウンドはそのまま送信されます。Android は組み込みの着信音のみ一致します。</string>
+    <string name="label_gateway_payload">ゲートウェイ JSON</string>
+    <string name="label_copy_json">JSON をコピー</string>
+
+    <string name="push_default_title">PushGo テスト通知</string>
+    <string name="push_default_body">これはプッシュ表示効果を確認するためのローカルテスト通知です。</string>
+
+    <string name="export_all_messages_json">全メッセージをエクスポート (JSON)</string>
+    <string name="message_json_exported_successfully">メッセージをエクスポートしました</string>
+    <string name="no_messages_available_to_export">エクスポートするメッセージがありません</string>
+    <string name="export_messages">メッセージをエクスポート</string>
+
+    <string name="message_gateway_saved">ゲートウェイを保存しました</string>
+    <string name="message_ringtone_added">着信音を追加しました</string>
+    <string name="message_decryption_saved">復号設定を保存しました</string><string name="message_channel_created_and_subscribed">チャンネルを作成し、購読しました</string>
+    <string name="message_channel_subscribed">チャンネルを購読しました</string>
+    <string name="message_channel_renamed">チャンネル名を変更しました</string>
+    <string name="message_channel_unsubscribed">チャンネルの購読を解除しました</string>
+    <plurals name="message_channel_unsubscribed_deleted">
+        <item quantity="other">購読を解除し、%1$d 件のメッセージを削除しました</item>
+    </plurals>
+    <string name="message_messages_cleared">メッセージを消去しました</string>
+    <string name="message_no_messages_to_clear">消去するメッセージがありません</string>
+
+    <string name="error_invalid_server_address">無効なサーバーアドレス (https が必要です)</string>
+    <string name="error_key_required">先にキーを入力してください</string>
+    <string name="error_key_already_saved">キーは既に保存されています。上書きするには新しい値を入力してください</string>
+    <string name="error_invalid_base64">無効な Base64 です</string>
+    <string name="error_invalid_hex">無効な Hex です</string>
+    <plurals name="error_key_length_mismatch">
+        <item quantity="other">キー長が一致しません: %1$d バイト (%2$d ビット) 必要ですが、実際は %3$d バイトです</item>
+    </plurals>
+    <string name="error_unable_to_get_fcm_token">FCM トークンを取得できません</string>
+    <string name="error_fcm_not_supported">この端末は FCM に対応していません</string>
+    <string name="error_fcm_token_timeout">FCM トークンの取得がタイムアウトしました</string>
+    <string name="error_channel_name_required">チャンネル名を入力してください</string>
+    <string name="error_channel_name_too_long">チャンネル名が長すぎます (最大 %1$d)</string>
+    <string name="error_channel_name_invalid_character">無効な文字: %1$s</string>
+    <string name="error_channel_id_required">チャンネル ID を入力してください</string>
+    <string name="error_channel_id_invalid">無効なチャンネル ID です</string>
+    <string name="error_channel_password_length">チャンネルのパスワードは 8 ～ 128 文字である必要があります</string>
+
+    <string name="ringtone_default">デフォルト</string>
+    <string name="ringtone_notification">通知</string>
+    <string name="ringtone_alert">アラート</string>
+    <string name="ringtone_quick_whoosh">クイック・ウッシュ</string>
+    <string name="ringtone_pop">ポップ</string>
+    <string name="ringtone_bubble_pop">バブル・ポップ</string>
+    <string name="ringtone_arcade">アーケード</string>
+    <string name="ringtone_cartoon_blink">アニメのまばたき</string>
+    <string name="ringtone_cute_chime">キュートなチャイム</string>
+    <string name="ringtone_level_up">レベルアップ</string>
+    <string name="ringtone_festive_chime">お祝いのチャイム</string>
+</resources>

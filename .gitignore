@@ -1,0 +1,38 @@
+# Gradle / Android Studio
+/.gradle/
+/.idea/
+/.kotlin/
+/.cxx/
+/.externalNativeBuild/
+/out/
+**/build/
+
+# Local config
+/local.properties
+/google-services.json
+/app/google-services.json
+/app/src/*/google-services.json
+
+# APK / AAB / outputs
+**/*.apk
+**/*.aab
+/app/release/
+/app/debug/
+
+# Keystores
+**/*.jks
+**/*.keystore
+
+# IDE
+/*.iml
+/.vscode/
+
+# OS / misc
+**/.DS_Store
+*.log
+*.hprof
+*.swp
+
+# Not expected to be committed
+/META-INF/
+/androidx/

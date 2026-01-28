@@ -1,0 +1,165 @@
+<resources>
+    <string name="app_name">PushGo</string>
+
+    <string name="tab_messages">Messages</string>
+    <string name="tab_push">Push</string>
+    <string name="tab_settings">Paramètres</string><string name="action_mark_read">Marquer comme lu</string>
+    <string name="action_mark_all_read">Tout marquer comme lu</string>
+    <string name="action_delete">Supprimer</string>
+    <string name="action_copy">Copier</string>
+    <string name="label_more_actions">Plus d\'actions</string><string name="filter_unread">Non lus</string><string name="label_server_address">Adresse du serveur</string>
+    <string name="label_server_token">Jeton (optionnel)</string>
+    <string name="label_save">Enregistrer</string>
+    <string name="label_save_gateway">Enregistrer la passerelle</string>
+    <string name="label_save_decryption">Enregistrer le déchiffrement</string>
+    <string name="label_show_key">Afficher la clé</string>
+    <string name="label_hide_key">Masquer la clé</string>
+    <string name="label_back">Retour</string>
+    <string name="label_add_custom_ringtone">Ajouter une sonnerie personnalisée</string>
+    <string name="label_image_attachment">Pièce jointe image</string><string name="label_gateway_settings">Paramètres de la passerelle</string>
+    <string name="label_gateway_settings_hint">Configurer l’adresse du serveur</string><string name="label_channel_name">Nom de la chaîne</string>
+    <string name="label_channel_alias">Alias de la chaîne</string>
+    <string name="label_channel_id">ID de la chaîne</string><string name="label_channel_id_copied">ID de chaîne copié</string>
+    <string name="label_channel_actions">Actions de la chaîne</string><string name="label_channel_option">%1$s (%2$s)</string>
+    <string name="label_channel_empty_hint">Aucune chaîne abonnée.</string>
+    <string name="label_channel_empty_action">S’abonner</string>
+    <string name="label_channel_password">Mot de passe de la chaîne</string><string name="label_create_channel">Créer une chaîne</string>
+    <string name="label_subscribe_channel">S’abonner à une chaîne</string>
+    <string name="label_add_channel">Ajouter une chaîne</string><string name="label_rename_channel">Renommer</string>
+    <string name="label_enable_auto_cleanup">Activer le nettoyage automatique</string>
+    <string name="label_disable_auto_cleanup">Désactiver le nettoyage automatique</string>
+    <string name="label_rename_channel_title">Renommer %1$s</string>
+    <string name="label_rename_channel_hint">Définir un nouvel alias pour cette chaîne.</string>
+    <string name="label_unsubscribe_channel">Se désabonner</string>
+    <string name="label_unsubscribe_channel_title">Se désabonner de %1$s ?</string>
+    <string name="label_unsubscribe_channel_hint">Choisir de supprimer ou non l’historique local.</string>
+    <string name="label_unsubscribe_delete_history">Se désabonner et supprimer l’historique</string>
+    <string name="label_unsubscribe_keep_history">Se désabonner mais garder l’historique</string><string name="label_channel_select_hint">Créez ou abonnez-vous d’abord à une chaîne.</string>
+    <string name="label_channel_manage">Gérer les abonnements</string>
+    <string name="message_list_empty_title">Aucun message</string>
+    <string name="message_list_empty_hint">Créez ou abonnez-vous d’abord à une chaîne pour recevoir des notifications push.</string>
+    <string name="channel_list_empty_title">Aucun abonnement</string>
+    <string name="channel_list_empty_hint">Créez ou abonnez-vous d’abord à une chaîne pour recevoir des notifications push.</string><string name="label_notification_key">Clé de notification (Base64)</string>
+    <string name="label_key_strength">Force de la clé</string>
+    <string name="label_key_strength_hint">Une force de bits plus élevée augmente la sécurité mais peut ralentir le déchiffrement.</string>
+    <string name="label_configuration">Configuration</string><string name="label_key_encoding_base64">Base64</string>
+    <string name="label_key_encoding_hex">Hex</string>
+    <string name="label_key_encoding_plaintext">Texte brut</string>
+    <string name="label_language">Langue de l’app</string><string name="label_app_version">Version de l’application</string><string name="label_app_version_format">%1$s build %2$d</string>
+    <string name="label_language_system">Système par défaut</string>
+    <string name="label_language_english">English</string>
+    <string name="label_language_simplified_chinese">简体中文</string>
+    <string name="label_language_traditional_chinese">繁體中文</string>
+    <string name="label_language_japanese">日本語</string>
+    <string name="label_language_korean">한국어</string>
+    <string name="label_language_german">Deutsch</string>
+    <string name="label_language_french">Français</string>
+    <string name="label_language_spanish">Español</string>
+    <string name="label_yesterday">Hier</string><string name="auto_cleanup_messages">Nettoyer automatiquement les messages lus</string>
+    <string name="auto_cleanup_messages_hint">Lorsque les requêtes ralentissent, le nettoyage automatique supprime les messages lus les plus anciens. Un historique important est conservé, donc les messages récents ne sont généralement pas supprimés. Pour les chaînes à conserver, désactivez le nettoyage automatique dans les paramètres de la chaîne.</string><string name="label_confirm">Confirmer</string>
+    <string name="confirm_cleanup_messages">Confirmer le nettoyage</string><string name="confirm_cleanup_read_messages_channel">Les messages lus du canal actuel seront supprimés et cette action est irréversible.</string><string name="confirm_cleanup_read_messages_all">Tous les messages lus seront supprimés et cette action est irréversible.</string><string name="auto_cleanup_suggestion">Les messages ralentissent. Nettoyez l’historique ou activez le nettoyage auto.</string>
+    <string name="auto_cleanup_manual_suggestion">Les messages ralentissent. Vous pouvez nettoyer manuellement les anciens messages.</string>
+    <string name="clean_channel_messages">Nettoyer les messages lus</string>
+    <string name="clean_channel_messages_hint">Choisissez quoi nettoyer dans le canal actuel.</string>
+    <string name="clean_channel_all">Tout supprimer dans le canal</string>
+    <string name="clean_channel_read">Supprimer les lus dans le canal</string>
+    <string name="confirm_cleanup_channel_placeholder">Cela supprimera les messages du canal actuel. Action irréversible.</string>
+    <string name="label_open_url">Ouvrir le lien</string>
+    <string name="label_raw_payload">Données brutes</string>
+    <string name="action_expand">Développer</string>
+    <string name="action_collapse">Réduire</string>
+    <string name="label_search">Rechercher des messages</string>
+    <string name="label_no_messages">Aucun message</string>
+    <string name="label_no_search_results">Aucun résultat</string>
+    <string name="label_no_title">(Sans titre)</string>
+    <string name="label_group_ungrouped">Sans groupe</string>
+    <string name="label_loading">Chargement…</string><string name="label_send_test_notification">Envoyer notif de test</string><string name="label_send_local_notification">Envoyer une notification locale</string><string name="section_ringtone">Sonneries</string>
+    <string name="section_language">Langue</string>
+    <string name="section_push_form">Test de push</string>
+    <string name="section_appearance">Apparence</string>
+    <string name="label_theme">Thème</string>
+    <string name="label_theme_system">Système par défaut</string>
+    <string name="label_theme_light">Clair</string>
+    <string name="label_theme_dark">Sombre</string>
+
+    <string name="section_connection_device">Connexion et appareil</string><string name="section_channels">Chaînes</string>
+    <string name="section_decryption">Déchiffrement</string>
+    <string name="section_security">Sécurité</string>
+    <string name="section_notifications_sounds">Notifications et sons</string>
+    <string name="section_storage">Stockage</string>
+    <string name="section_personalization">Personnalisation</string><string name="label_decryption_configured">Déchiffrement configuré</string>
+    <string name="label_decryption_configured_updated">Configuré · Mis à jour %1$s</string>
+    <string name="label_decryption_not_configured">Non configuré</string>
+    <string name="label_decryption_hint">Seul AES-GCM est supporté ; l’IV doit être inclus dans le texte chiffré.</string>
+    <string name="label_decryption_subtitle">Clés et encodage</string><string name="label_preview_ringtone">Aperçu</string>
+    <string name="title_select_audio">Sélectionner audio</string>
+    <string name="label_close">Fermer</string>
+    <string name="label_cancel">Annuler</string>
+    <string name="label_enable_notifications">Notifications désactivées</string>
+    <string name="label_enable_notifications_hint">PushGo ne peut pas recevoir de messages push tant que les notifications sont désactivées. Activez-les dans les réglages.</string>
+    <string name="label_turn_on">Activer</string>
+    <string name="label_export_messages_hint">Enregistrer sur l’appareil</string><string name="label_title">Titre</string>
+    <string name="label_body">Corps</string>
+    <string name="label_url">URL</string><string name="label_icon_url">URL de l’icône</string>
+    <string name="label_image_url">URL de l’image</string>
+    <string name="label_ciphertext">Texte chiffré</string>
+    <string name="label_sound">Son</string><string name="label_sound_none">Non défini</string>
+    <string name="label_custom_sound">Son personnalisé</string>
+    <string name="label_custom_sound_hint">Le son personnalisé est envoyé tel quel. Android ne correspond qu’aux sonneries intégrées.</string>
+    <string name="label_gateway_payload">JSON de la passerelle</string>
+    <string name="label_copy_json">Copier JSON</string>
+
+    <string name="push_default_title">Notification de test PushGo</string>
+    <string name="push_default_body">Ceci est une notification de test locale pour vérifier l’affichage.</string>
+
+    <string name="export_all_messages_json">Exporter tous les messages (JSON)</string>
+    <string name="message_json_exported_successfully">Messages exportés</string>
+    <string name="no_messages_available_to_export">Aucun message à exporter</string>
+    <string name="export_messages">Exporter les messages</string>
+
+    <string name="message_gateway_saved">Passerelle enregistrée</string>
+    <string name="message_ringtone_added">Sonnerie ajoutée</string>
+    <string name="message_decryption_saved">Paramètres de déchiffrement enregistrés</string><string name="message_channel_created_and_subscribed">Chaîne créée et abonnée</string>
+    <string name="message_channel_subscribed">Abonné à la chaîne</string>
+    <string name="message_channel_renamed">Chaîne renommée</string>
+    <string name="message_channel_unsubscribed">Désabonné de la chaîne</string>
+    <plurals name="message_channel_unsubscribed_deleted">
+        <item quantity="one">Désabonné et %1$d messages supprimés</item>
+        <item quantity="many">Désabonné et %1$d messages supprimés</item>
+        <item quantity="other">Désabonné et %1$d messages supprimés</item>
+    </plurals>
+    <string name="message_messages_cleared">Messages effacés</string>
+    <string name="message_no_messages_to_clear">Aucun message à effacer</string>
+
+    <string name="error_invalid_server_address">Adresse serveur invalide (https requis)</string>
+    <string name="error_key_required">Veuillez d’abord entrer la clé</string>
+    <string name="error_key_already_saved">Clé déjà enregistrée ; entrez une nouvelle valeur pour écraser</string>
+    <string name="error_invalid_base64">Base64 invalide</string>
+    <string name="error_invalid_hex">Hex invalide</string>
+    <plurals name="error_key_length_mismatch">
+        <item quantity="one">Longueur de clé incorrecte : %1$d octets (%2$d bits) requis, %3$d octets obtenus</item>
+        <item quantity="many">Longueur de clé incorrecte : %1$d octets (%2$d bits) requis, %3$d octets obtenus</item>
+        <item quantity="other">Longueur de clé incorrecte : %1$d octets (%2$d bits) requis, %3$d octets obtenus</item>
+    </plurals>
+    <string name="error_unable_to_get_fcm_token">Impossible d’obtenir le jeton FCM</string>
+    <string name="error_fcm_not_supported">Cet appareil ne prend pas en charge FCM</string>
+    <string name="error_fcm_token_timeout">Délai d’obtention du jeton FCM dépassé</string>
+    <string name="error_channel_name_required">Nom de chaîne requis</string>
+    <string name="error_channel_name_too_long">Nom de chaîne trop long (max %1$d)</string>
+    <string name="error_channel_name_invalid_character">Caractère invalide : %1$s</string>
+    <string name="error_channel_id_required">ID de chaîne requis</string>
+    <string name="error_channel_id_invalid">ID de chaîne invalide</string>
+    <string name="error_channel_password_length">Le mot de passe de la chaîne doit faire 8&#8211;128 caractères</string>
+
+    <string name="ringtone_default">Défaut</string>
+    <string name="ringtone_notification">Notification</string>
+    <string name="ringtone_alert">Alerte</string>
+    <string name="ringtone_quick_whoosh">Quick Whoosh</string>
+    <string name="ringtone_pop">Pop</string>
+    <string name="ringtone_bubble_pop">Bubble Pop</string>
+    <string name="ringtone_arcade">Arcade</string>
+    <string name="ringtone_cartoon_blink">Cartoon Blink</string>
+    <string name="ringtone_cute_chime">Cute Chime</string>
+    <string name="ringtone_level_up">Level Up</string>
+    <string name="ringtone_festive_chime">Festive Chime</string>
+</resources>

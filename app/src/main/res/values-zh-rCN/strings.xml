@@ -1,0 +1,161 @@
+<resources>
+    <string name="app_name">PushGo</string>
+
+    <string name="tab_messages">消息</string>
+    <string name="tab_push">推送</string>
+    <string name="tab_settings">设置</string><string name="action_mark_read">标记为已读</string>
+    <string name="action_mark_all_read">全部标记为已读</string>
+    <string name="action_delete">删除</string>
+    <string name="action_copy">复制</string>
+    <string name="label_more_actions">更多操作</string><string name="filter_unread">未读</string><string name="label_server_address">服务器地址</string>
+    <string name="label_server_token">认证令牌（可选）</string>
+    <string name="label_save">保存</string>
+    <string name="label_save_gateway">保存网关设置</string>
+    <string name="label_save_decryption">保存解密设置</string>
+    <string name="label_show_key">显示密钥</string>
+    <string name="label_hide_key">隐藏密钥</string>
+    <string name="label_back">返回</string>
+    <string name="label_add_custom_ringtone">添加自定义铃声</string>
+    <string name="label_image_attachment">图片附件</string><string name="label_gateway_settings">网关设置</string>
+    <string name="label_gateway_settings_hint">配置服务器地址</string><string name="label_channel_name">频道名称</string>
+    <string name="label_channel_alias">频道别名</string>
+    <string name="label_channel_id">频道 ID</string><string name="label_channel_id_copied">频道 ID 已复制</string>
+    <string name="label_channel_actions">频道操作</string><string name="label_channel_option">%1$s (%2$s)</string>
+    <string name="label_channel_empty_hint">还没有订阅频道。</string>
+    <string name="label_channel_empty_action">去订阅</string>
+    <string name="label_channel_password">频道密码</string><string name="label_create_channel">创建频道</string>
+    <string name="label_subscribe_channel">订阅频道</string>
+    <string name="label_add_channel">添加频道</string><string name="label_rename_channel">重命名</string>
+    <string name="label_enable_auto_cleanup">允许自动清理</string>
+    <string name="label_disable_auto_cleanup">禁止自动清理</string>
+    <string name="label_rename_channel_title">重命名 %1$s</string>
+    <string name="label_rename_channel_hint">为此频道设置一个新的别名。</string>
+    <string name="label_unsubscribe_channel">取消订阅</string>
+    <string name="label_unsubscribe_channel_title">取消订阅 %1$s？</string>
+    <string name="label_unsubscribe_channel_hint">请选择是否同时删除本地历史消息。</string>
+    <string name="label_unsubscribe_delete_history">取消订阅并删除历史消息</string>
+    <string name="label_unsubscribe_keep_history">取消订阅但保留历史消息</string><string name="label_channel_select_hint">请先创建或订阅一个频道。</string>
+    <string name="label_channel_manage">管理订阅</string>
+    <string name="message_list_empty_title">暂无消息</string>
+    <string name="message_list_empty_hint">请先创建或订阅频道以接收推送。</string>
+    <string name="channel_list_empty_title">暂无订阅</string>
+    <string name="channel_list_empty_hint">请先创建或订阅频道以接收推送。</string><string name="label_notification_key">通知密钥 (Base64)</string>
+    <string name="label_key_strength">密钥强度</string>
+    <string name="label_key_strength_hint">更高的位数可提高安全性，但可能会影响解密速度。</string>
+    <string name="label_configuration">配置</string><string name="label_key_encoding_base64">Base64</string>
+    <string name="label_key_encoding_hex">Hex</string>
+    <string name="label_key_encoding_plaintext">纯文本</string>
+    <string name="label_language">应用语言</string><string name="label_app_version">应用版本</string><string name="label_app_version_format">%1$s build %2$d</string>
+    <string name="label_language_system">系统默认</string>
+    <string name="label_language_english">English</string>
+    <string name="label_language_simplified_chinese">简体中文</string>
+    <string name="label_language_traditional_chinese">繁體中文</string>
+    <string name="label_language_japanese">日本語</string>
+    <string name="label_language_korean">한국어</string>
+    <string name="label_language_german">Deutsch</string>
+    <string name="label_language_french">Français</string>
+    <string name="label_language_spanish">Español</string>
+    <string name="label_yesterday">昨天</string><string name="auto_cleanup_messages">自动清理已读消息</string>
+    <string name="auto_cleanup_messages_hint">检测到查询变慢时，会自动清理最早的已读消息。系统会保留较大量的历史记录，近期消息通常不会被删除。如需保留某个频道的消息，可在频道设置中关闭自动清理。</string><string name="label_confirm">确认</string>
+    <string name="confirm_cleanup_messages">确认清除</string><string name="confirm_cleanup_read_messages_channel">将清理当前频道已读消息，且无法撤销。</string><string name="confirm_cleanup_read_messages_all">将清理全部已读消息，且无法撤销。</string><string name="auto_cleanup_suggestion">消息变慢了，请清理历史消息或开启自动清理。</string>
+    <string name="auto_cleanup_manual_suggestion">消息变慢了，你可以手动清理较早的消息。</string>
+    <string name="clean_channel_messages">清理已读消息</string>
+    <string name="clean_channel_messages_hint">请选择要清理的内容。</string>
+    <string name="clean_channel_all">清理当前频道全部消息</string>
+    <string name="clean_channel_read">清理当前频道已读消息</string>
+    <string name="confirm_cleanup_channel_placeholder">将清理当前频道消息，且无法撤销。</string>
+    <string name="label_open_url">打开链接</string>
+    <string name="label_raw_payload">原始数据</string>
+    <string name="action_expand">展开</string>
+    <string name="action_collapse">收起</string>
+    <string name="label_search">搜索消息</string>
+    <string name="label_no_messages">暂无消息</string>
+    <string name="label_no_search_results">无搜索结果</string>
+    <string name="label_no_title">(无标题)</string>
+    <string name="label_group_ungrouped">未分组</string>
+    <string name="label_loading">加载中…</string><string name="label_send_test_notification">发送测试通知</string><string name="label_send_local_notification">发送本地通知</string><string name="section_ringtone">铃声库</string>
+    <string name="section_language">语言</string>
+    <string name="section_push_form">推送测试</string>
+    <string name="section_appearance">外观</string>
+    <string name="label_theme">主题</string>
+    <string name="label_theme_system">跟随系统</string>
+    <string name="label_theme_light">浅色模式</string>
+    <string name="label_theme_dark">深色模式</string>
+
+    <string name="section_connection_device">连接与设备</string><string name="section_channels">频道</string>
+    <string name="section_decryption">消息解密</string>
+    <string name="section_security">安全</string>
+    <string name="section_notifications_sounds">通知与声音</string>
+    <string name="section_storage">存储</string>
+    <string name="section_personalization">个性化</string><string name="label_decryption_configured">解密已配置</string>
+    <string name="label_decryption_configured_updated">解密已配置 · 更新于 %1$s</string>
+    <string name="label_decryption_not_configured">解密未配置</string>
+    <string name="label_decryption_hint">仅支持 AES-GCM；IV 必须包含在密文中。</string>
+    <string name="label_decryption_subtitle">密钥与编码</string><string name="label_preview_ringtone">试听</string>
+    <string name="title_select_audio">选择音频</string>
+    <string name="label_close">关闭</string>
+    <string name="label_cancel">取消</string>
+    <string name="label_enable_notifications">通知已关闭</string>
+    <string name="label_enable_notifications_hint">未开启通知将无法接收推送消息，请在系统设置中开启。</string>
+    <string name="label_turn_on">开启</string>
+    <string name="label_export_messages_hint">保存到设备</string><string name="label_title">标题</string>
+    <string name="label_body">正文</string>
+    <string name="label_url">链接</string><string name="label_icon_url">图标 URL</string>
+    <string name="label_image_url">图片 URL</string>
+    <string name="label_ciphertext">密文</string>
+    <string name="label_sound">声音</string><string name="label_sound_none">不设置</string>
+    <string name="label_custom_sound">自定义声音</string>
+    <string name="label_custom_sound_hint">自定义声音按原样发送。Android 仅匹配内置铃声。</string>
+    <string name="label_gateway_payload">网关 JSON</string>
+    <string name="label_copy_json">复制 JSON</string>
+
+    <string name="push_default_title">PushGo 测试通知</string>
+    <string name="push_default_body">这是一条本地测试通知，用于验证推送显示效果。</string>
+
+    <string name="export_all_messages_json">导出所有消息 (JSON)</string>
+    <string name="message_json_exported_successfully">消息已导出</string>
+    <string name="no_messages_available_to_export">没有可导出的消息</string>
+    <string name="export_messages">导出消息</string>
+
+    <string name="message_gateway_saved">网关已保存</string>
+    <string name="message_ringtone_added">铃声已添加</string>
+    <string name="message_decryption_saved">解密设置已保存</string><string name="message_channel_created_and_subscribed">频道已创建并订阅</string>
+    <string name="message_channel_subscribed">频道已订阅</string>
+    <string name="message_channel_renamed">频道已重命名</string>
+    <string name="message_channel_unsubscribed">频道已取消订阅</string>
+    <plurals name="message_channel_unsubscribed_deleted">
+        <item quantity="other">频道已取消订阅，并删除了 %1$d 条消息</item>
+    </plurals>
+    <string name="message_messages_cleared">消息已清除</string>
+    <string name="message_no_messages_to_clear">没有可清除的消息</string>
+
+    <string name="error_invalid_server_address">无效的服务器地址 (需要 https)</string>
+    <string name="error_key_required">请先输入密钥</string>
+    <string name="error_key_already_saved">密钥已保存；输入新值以覆盖</string>
+    <string name="error_invalid_base64">无效的 Base64</string>
+    <string name="error_invalid_hex">无效的 Hex</string>
+    <plurals name="error_key_length_mismatch">
+        <item quantity="other">密钥长度不匹配：需要 %1$d 字节 (%2$d 位)，实际 %3$d 字节</item>
+    </plurals>
+    <string name="error_unable_to_get_fcm_token">无法获取 FCM 令牌</string>
+    <string name="error_fcm_not_supported">该设备不支持 FCM</string>
+    <string name="error_fcm_token_timeout">获取 FCM 令牌超时</string>
+    <string name="error_channel_name_required">请输入频道名称</string>
+    <string name="error_channel_name_too_long">频道名称太长 (最大 %1$d)</string>
+    <string name="error_channel_name_invalid_character">无效字符: %1$s</string>
+    <string name="error_channel_id_required">请输入频道 ID</string>
+    <string name="error_channel_id_invalid">无效的频道 ID</string>
+    <string name="error_channel_password_length">频道密码长度必须在 8&#8211;128 个字符之间</string>
+
+    <string name="ringtone_default">默认</string>
+    <string name="ringtone_notification">通知</string>
+    <string name="ringtone_alert">警报</string>
+    <string name="ringtone_quick_whoosh">快速呼啸</string>
+    <string name="ringtone_pop">气泡</string>
+    <string name="ringtone_bubble_pop">气泡破裂</string>
+    <string name="ringtone_arcade">街机</string>
+    <string name="ringtone_cartoon_blink">卡通眨眼</string>
+    <string name="ringtone_cute_chime">可爱铃声</string>
+    <string name="ringtone_level_up">升级</string>
+    <string name="ringtone_festive_chime">节日铃声</string>
+</resources>
