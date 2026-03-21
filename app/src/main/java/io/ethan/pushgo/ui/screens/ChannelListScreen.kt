@@ -13,17 +13,15 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.automirrored.outlined.Logout
 import androidx.compose.material.icons.outlined.Add
-import androidx.compose.material.icons.outlined.AutoFixHigh
 import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.Group
 import androidx.compose.material.icons.outlined.MoreVert
+import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -31,9 +29,14 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -43,32 +46,28 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalClipboard
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
 import io.ethan.pushgo.R
 import io.ethan.pushgo.data.ChannelPasswordValidator
 import io.ethan.pushgo.data.model.ChannelSubscription
-import io.ethan.pushgo.ui.PushGoViewModelFactory
 import io.ethan.pushgo.ui.viewmodel.SettingsViewModel
 import io.ethan.pushgo.ui.announceForAccessibility
+import io.ethan.pushgo.ui.theme.PushGoSheetContainerColor
 import kotlinx.coroutines.launch
-import kotlin.math.roundToInt
 
 @Composable
+@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 fun ChannelListScreen(
     navController: NavController,
-    factory: PushGoViewModelFactory,
     viewModel: SettingsViewModel
 ) {
     val context = LocalContext.current
@@ -85,7 +84,7 @@ fun ChannelListScreen(
         }
     }
     LaunchedEffect(Unit) {
-        viewModel.notifyIfFcmUnsupported(context)
+        viewModel.syncSubscriptionsOnChannelListEntry(context)
     }
     LaunchedEffect(viewModel.successMessage) {
         val message = viewModel.successMessage
@@ -98,8 +97,8 @@ fun ChannelListScreen(
     }
     var pendingChannelRemoval by remember { mutableStateOf<ChannelSubscription?>(null) }
     var pendingChannelRename by remember { mutableStateOf<ChannelSubscription?>(null) }
-    var showCreateChannelDialog by remember { mutableStateOf(false) }
-    var showSubscribeChannelDialog by remember { mutableStateOf(false) }
+    var showChannelEntrySheet by remember { mutableStateOf(false) }
+    var channelEntryMode by remember { mutableStateOf(ChannelEntryMode.Create) }
     var createChannelName by remember { mutableStateOf("") }
     var createChannelPassword by remember { mutableStateOf("") }
     var subscribeChannelId by remember { mutableStateOf("") }
@@ -110,9 +109,20 @@ fun ChannelListScreen(
         runCatching { ChannelPasswordValidator.normalize(createChannelPassword) }.isFailure
     val isSubscribePasswordInvalid = subscribeChannelPassword.trim().isNotEmpty() &&
         runCatching { ChannelPasswordValidator.normalize(subscribeChannelPassword) }.isFailure
-    
+    val canSubmitCreate = !viewModel.isSavingChannel &&
+        createChannelName.trim().isNotEmpty() &&
+        createChannelPassword.trim().isNotEmpty() &&
+        !isCreatePasswordInvalid
+    val canSubmitSubscribe = !viewModel.isSavingChannel &&
+        subscribeChannelId.trim().isNotEmpty() &&
+        subscribeChannelPassword.trim().isNotEmpty() &&
+        !isSubscribePasswordInvalid
+    val canSubmitChannelEntry = when (channelEntryMode) {
+        ChannelEntryMode.Create -> canSubmitCreate
+        ChannelEntryMode.Subscribe -> canSubmitSubscribe
+    }
+
     val channelIdCopiedText = stringResource(R.string.label_channel_id_copied)
-    var menuExpanded by remember { mutableStateOf(false) }
 
     Column(
         modifier = Modifier
@@ -125,49 +135,40 @@ fun ChannelListScreen(
                 .padding(horizontal = 4.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            IconButton(onClick = { navController.popBackStack() }) {
-                Icon(
-                    imageVector = Icons.AutoMirrored.Outlined.ArrowBack,
-                    contentDescription = stringResource(R.string.label_back),
-                    tint = MaterialTheme.colorScheme.onSurface
-                )
-            }
             Text(
                 text = stringResource(R.string.section_channels),
                 style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Normal),
                 modifier = Modifier
+                    .padding(start = 12.dp)
                     .weight(1f)
                     .semantics { heading() },
                 color = MaterialTheme.colorScheme.onSurface
             )
-            
-            Box {
-                IconButton(onClick = { menuExpanded = true }) {
-                    Icon(
-                        imageVector = Icons.Outlined.Add,
-                        contentDescription = stringResource(R.string.label_add_channel),
-                        tint = MaterialTheme.colorScheme.primary
-                    )
+
+            IconButton(onClick = {
+                channelEntryMode = ChannelEntryMode.Create
+                createChannelName = ""
+                createChannelPassword = ""
+                subscribeChannelId = ""
+                subscribeChannelPassword = ""
+                showChannelEntrySheet = true
+            }) {
+                Icon(
+                    imageVector = Icons.Outlined.Add,
+                    contentDescription = stringResource(R.string.label_add_channel),
+                    tint = MaterialTheme.colorScheme.primary
+                )
+            }
+            IconButton(onClick = {
+                navController.navigate("settings") {
+                    launchSingleTop = true
                 }
-                DropdownMenu(
-                    expanded = menuExpanded,
-                    onDismissRequest = { menuExpanded = false },
-                ) {
-                    DropdownMenuItem(
-                        text = { Text(stringResource(R.string.label_create_channel)) },
-                        onClick = {
-                            menuExpanded = false
-                            showCreateChannelDialog = true
-                        },
-                    )
-                    DropdownMenuItem(
-                        text = { Text(stringResource(R.string.label_subscribe_channel)) },
-                        onClick = {
-                            menuExpanded = false
-                            showSubscribeChannelDialog = true
-                        },
-                    )
-                }
+            }) {
+                Icon(
+                    imageVector = Icons.Outlined.Settings,
+                    contentDescription = stringResource(R.string.tab_settings),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                )
             }
         }
         
@@ -179,40 +180,16 @@ fun ChannelListScreen(
         ) {
             if (viewModel.channelSubscriptions.isEmpty()) {
                 item {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(top = 64.dp, start = 32.dp, end = 32.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.Center
-                    ) {
-                        Icon(
-                            imageVector = Icons.Outlined.Group,
-                            contentDescription = null,
-                            modifier = Modifier
-                                .size(72.dp)
-                                .padding(bottom = 16.dp),
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
-                        )
-                        Text(
-                            text = stringResource(R.string.channel_list_empty_title),
-                            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(bottom = 8.dp)
-                        )
-                        Text(
-                            text = stringResource(R.string.channel_list_empty_hint),
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
-                            textAlign = androidx.compose.ui.text.style.TextAlign.Center
-                        )
-                    }
+                    AppEmptyState(
+                        icon = Icons.Outlined.Group,
+                        title = stringResource(R.string.channel_list_empty_title),
+                        description = stringResource(R.string.channel_list_empty_hint),
+                    )
                 }
             } else {
                 items(viewModel.channelSubscriptions, key = { it.channelId }) { subscription ->
                     ChannelRow(
                         subscription = subscription,
-                        autoCleanupEnabled = viewModel.autoCleanupEnabled,
                         onRename = {
                             pendingChannelRename = subscription
                             renameAlias = subscription.displayName
@@ -225,14 +202,6 @@ fun ChannelListScreen(
                             Toast.makeText(context, channelIdCopiedText, Toast.LENGTH_SHORT).show()
                             announceForAccessibility(context, channelIdCopiedText)
                         },
-                        onToggleAutoCleanup = { enabled ->
-                            scope.launch {
-                                viewModel.updateChannelAutoCleanupEnabled(
-                                    channelId = subscription.channelId,
-                                    enabled = enabled,
-                                )
-                            }
-                        }
                     )
                     HorizontalDivider(
                         color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.1f)
@@ -337,132 +306,152 @@ fun ChannelListScreen(
         )
     }
 
-    if (showCreateChannelDialog) {
-        AlertDialog(
-            onDismissRequest = { showCreateChannelDialog = false },
-            title = { Text(stringResource(R.string.label_create_channel)) },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedTextField(
-                        value = createChannelName,
-                        onValueChange = { createChannelName = it },
-                        label = { Text(stringResource(R.string.label_channel_name)) },
-                        modifier = Modifier.fillMaxWidth(),
-                        singleLine = true,
-                    )
-                    OutlinedTextField(
-                        value = createChannelPassword,
-                        onValueChange = { createChannelPassword = it },
-                        label = { Text(stringResource(R.string.label_channel_password)) },
-                        modifier = Modifier.fillMaxWidth(),
-                        singleLine = true,
-                        isError = isCreatePasswordInvalid,
-                        supportingText = {
-                            if (isCreatePasswordInvalid) {
-                                Text(stringResource(R.string.error_channel_password_length))
-                            }
-                        },
-                    )
-                }
-            },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        val alias = createChannelName
-                        val password = createChannelPassword
-                        scope.launch {
-                            val success = viewModel.createChannel(context, alias, password)
-                            if (success) {
-                                createChannelName = ""
-                                createChannelPassword = ""
-                                showCreateChannelDialog = false
-                            }
-                        }
-                    },
-                    enabled = !viewModel.isSavingChannel
-                        && createChannelName.trim().isNotEmpty()
-                        && createChannelPassword.trim().isNotEmpty()
-                        && !isCreatePasswordInvalid,
-                ) {
-                    Text(stringResource(R.string.label_confirm))
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showCreateChannelDialog = false }) {
-                    Text(stringResource(R.string.label_cancel))
-                }
-            }
-        )
-    }
+    if (showChannelEntrySheet) {
+        val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+        ModalBottomSheet(
+            modifier = Modifier.testTag("sheet.channels.entry"),
+            onDismissRequest = { showChannelEntrySheet = false },
+            sheetState = sheetState,
+            containerColor = PushGoSheetContainerColor(),
+            tonalElevation = 0.dp,
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 24.dp, vertical = 16.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                Text(
+                    text = stringResource(R.string.label_add_channel),
+                    style = MaterialTheme.typography.titleLarge,
+                )
 
-    if (showSubscribeChannelDialog) {
-        AlertDialog(
-            onDismissRequest = { showSubscribeChannelDialog = false },
-            title = { Text(stringResource(R.string.label_subscribe_channel)) },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedTextField(
-                        value = subscribeChannelId,
-                        onValueChange = { subscribeChannelId = it },
-                        label = { Text(stringResource(R.string.label_channel_id)) },
-                        modifier = Modifier.fillMaxWidth(),
-                        singleLine = true,
-                    )
-                    OutlinedTextField(
-                        value = subscribeChannelPassword,
-                        onValueChange = { subscribeChannelPassword = it },
-                        label = { Text(stringResource(R.string.label_channel_password)) },
-                        modifier = Modifier.fillMaxWidth(),
-                        singleLine = true,
-                        isError = isSubscribePasswordInvalid,
-                        supportingText = {
-                            if (isSubscribePasswordInvalid) {
-                                Text(stringResource(R.string.error_channel_password_length))
+                SingleChoiceSegmentedButtonRow(
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    ChannelEntryMode.entries.forEachIndexed { index, mode ->
+                        SegmentedButton(
+                            selected = channelEntryMode == mode,
+                            onClick = { channelEntryMode = mode },
+                            shape = SegmentedButtonDefaults.itemShape(
+                                index = index,
+                                count = ChannelEntryMode.entries.size
+                            ),
+                        ) {
+                            Text(stringResource(mode.labelRes))
+                        }
+                    }
+                }
+
+                when (channelEntryMode) {
+                    ChannelEntryMode.Create -> {
+                        OutlinedTextField(
+                            value = createChannelName,
+                            onValueChange = { createChannelName = it },
+                            label = { Text(stringResource(R.string.label_channel_name)) },
+                            modifier = Modifier.fillMaxWidth(),
+                            singleLine = true,
+                        )
+                        OutlinedTextField(
+                            value = createChannelPassword,
+                            onValueChange = { createChannelPassword = it },
+                            label = { Text(stringResource(R.string.label_channel_password)) },
+                            modifier = Modifier.fillMaxWidth(),
+                            singleLine = true,
+                            isError = isCreatePasswordInvalid,
+                            supportingText = {
+                                if (isCreatePasswordInvalid) {
+                                    Text(stringResource(R.string.error_channel_password_length))
+                                }
+                            },
+                        )
+                    }
+
+                    ChannelEntryMode.Subscribe -> {
+                        OutlinedTextField(
+                            value = subscribeChannelId,
+                            onValueChange = { subscribeChannelId = it },
+                            label = { Text(stringResource(R.string.label_channel_id)) },
+                            modifier = Modifier.fillMaxWidth(),
+                            singleLine = true,
+                        )
+                        OutlinedTextField(
+                            value = subscribeChannelPassword,
+                            onValueChange = { subscribeChannelPassword = it },
+                            label = { Text(stringResource(R.string.label_channel_password)) },
+                            modifier = Modifier.fillMaxWidth(),
+                            singleLine = true,
+                            isError = isSubscribePasswordInvalid,
+                            supportingText = {
+                                if (isSubscribePasswordInvalid) {
+                                    Text(stringResource(R.string.error_channel_password_length))
+                                }
+                            },
+                        )
+                    }
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End,
+                ) {
+                    TextButton(onClick = { showChannelEntrySheet = false }) {
+                        Text(stringResource(R.string.label_cancel))
+                    }
+                    TextButton(
+                        onClick = {
+                            scope.launch {
+                                when (channelEntryMode) {
+                                    ChannelEntryMode.Create -> {
+                                        val success = viewModel.createChannel(
+                                            context,
+                                            createChannelName,
+                                            createChannelPassword
+                                        )
+                                        if (success) {
+                                            createChannelName = ""
+                                            createChannelPassword = ""
+                                            showChannelEntrySheet = false
+                                        }
+                                    }
+
+                                    ChannelEntryMode.Subscribe -> {
+                                        val success = viewModel.subscribeChannel(
+                                            context,
+                                            subscribeChannelId,
+                                            subscribeChannelPassword
+                                        )
+                                        if (success) {
+                                            subscribeChannelId = ""
+                                            subscribeChannelPassword = ""
+                                            showChannelEntrySheet = false
+                                        }
+                                    }
+                                }
                             }
                         },
-                    )
-                }
-            },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        val channelId = subscribeChannelId
-                        val password = subscribeChannelPassword
-                        scope.launch {
-                            val success = viewModel.subscribeChannel(context, channelId, password)
-                            if (success) {
-                                subscribeChannelId = ""
-                                subscribeChannelPassword = ""
-                                showSubscribeChannelDialog = false
-                            }
-                        }
-                    },
-                    enabled = !viewModel.isSavingChannel
-                        && subscribeChannelId.trim().isNotEmpty()
-                        && subscribeChannelPassword.trim().isNotEmpty()
-                        && !isSubscribePasswordInvalid,
-                ) {
-                    Text(stringResource(R.string.label_confirm))
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showSubscribeChannelDialog = false }) {
-                    Text(stringResource(R.string.label_cancel))
+                        enabled = canSubmitChannelEntry,
+                    ) {
+                        Text(stringResource(channelEntryMode.labelRes))
+                    }
                 }
             }
-        )
+        }
     }
+}
+
+private enum class ChannelEntryMode(val labelRes: Int) {
+    Create(R.string.label_create_channel),
+    Subscribe(R.string.label_subscribe_channel),
 }
 
 @Composable
 
 private fun ChannelRow(
     subscription: ChannelSubscription,
-    autoCleanupEnabled: Boolean,
     onRename: () -> Unit,
     onDelete: () -> Unit,
     onCopy: () -> Unit,
-    onToggleAutoCleanup: (Boolean) -> Unit,
 ) {
     var menuExpanded by remember { mutableStateOf(false) }
 
@@ -528,26 +517,6 @@ private fun ChannelRow(
                         )
                     }
                 )
-                if (autoCleanupEnabled) {
-                    val autoCleanupLabel = if (subscription.autoCleanupEnabled) {
-                        R.string.label_disable_auto_cleanup
-                    } else {
-                        R.string.label_enable_auto_cleanup
-                    }
-                    DropdownMenuItem(
-                        text = { Text(stringResource(autoCleanupLabel)) },
-                        onClick = {
-                            menuExpanded = false
-                            onToggleAutoCleanup(!subscription.autoCleanupEnabled)
-                        },
-                        leadingIcon = {
-                            Icon(
-                                imageVector = Icons.Outlined.AutoFixHigh,
-                                contentDescription = null
-                            )
-                        }
-                    )
-                }
             }
         }
     }

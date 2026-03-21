@@ -1,8 +1,6 @@
 <resources>
     <string name="app_name">PushGo</string>
-
     <string name="tab_messages">Nachrichten</string>
-    <string name="tab_push">Push</string>
     <string name="tab_settings">Einstellungen</string><string name="action_mark_read">Als gelesen markieren</string>
     <string name="action_mark_all_read">Alle als gelesen markieren</string>
     <string name="action_delete">Löschen</string>
@@ -15,9 +13,8 @@
     <string name="label_show_key">Schlüssel anzeigen</string>
     <string name="label_hide_key">Schlüssel verbergen</string>
     <string name="label_back">Zurück</string>
-    <string name="label_add_custom_ringtone">Benutzerdefinierten Klingelton hinzufügen</string>
-    <string name="label_image_attachment">Bildanhang</string><string name="label_gateway_settings">Gateway-Einstellungen</string>
-    <string name="label_gateway_settings_hint">Serveradresse konfigurieren</string><string name="label_channel_name">Kanalname</string>
+    <string name="label_image_attachment">Bildanhang</string><string name="label_gateway_settings">Gateway</string>
+    <string name="label_channel_name">Kanalname</string>
     <string name="label_channel_alias">Kanalalias</string>
     <string name="label_channel_id">Kanal-ID</string><string name="label_channel_id_copied">Kanal-ID kopiert</string>
     <string name="label_channel_actions">Kanalaktionen</string><string name="label_channel_option">%1$s (%2$s)</string>
@@ -26,8 +23,6 @@
     <string name="label_channel_password">Kanalpasswort</string><string name="label_create_channel">Kanal erstellen</string>
     <string name="label_subscribe_channel">Kanal abonnieren</string>
     <string name="label_add_channel">Kanal hinzufügen</string><string name="label_rename_channel">Umbenennen</string>
-    <string name="label_enable_auto_cleanup">Automatisches Bereinigen aktivieren</string>
-    <string name="label_disable_auto_cleanup">Automatisches Bereinigen deaktivieren</string>
     <string name="label_rename_channel_title">%1$s umbenennen</string>
     <string name="label_rename_channel_hint">Neuen Alias für diesen Kanal festlegen.</string>
     <string name="label_unsubscribe_channel">Deabonnieren</string>
@@ -39,86 +34,52 @@
     <string name="message_list_empty_title">Keine Nachrichten</string>
     <string name="message_list_empty_hint">Erstellen oder abonnieren Sie zuerst einen Kanal, um Push-Benachrichtigungen zu erhalten.</string>
     <string name="channel_list_empty_title">Keine Kanäle abonniert</string>
-    <string name="channel_list_empty_hint">Erstellen oder abonnieren Sie zuerst einen Kanal, um Push-Benachrichtigungen zu erhalten.</string><string name="label_notification_key">Benachrichtigungsschlüssel (Base64)</string>
+    <string name="channel_list_empty_hint">Erstellen oder abonnieren Sie zuerst einen Kanal, um Push-Benachrichtigungen zu erhalten.</string><string name="label_notification_key">Benachrichtigungsschlüssel</string>
     <string name="label_key_strength">Schlüsselstärke</string>
     <string name="label_key_strength_hint">Höhere Bitstärke erhöht die Sicherheit, kann aber die Entschlüsselung verlangsamen.</string>
     <string name="label_configuration">Konfiguration</string><string name="label_key_encoding_base64">Base64</string>
     <string name="label_key_encoding_hex">Hex</string>
     <string name="label_key_encoding_plaintext">Klartext</string>
-    <string name="label_language">App-Sprache</string><string name="label_app_version">App-Version</string><string name="label_app_version_format">%1$s build %2$d</string>
-    <string name="label_language_system">Systemstandard</string>
-    <string name="label_language_english">English</string>
-    <string name="label_language_simplified_chinese">简体中文</string>
-    <string name="label_language_traditional_chinese">繁體中文</string>
-    <string name="label_language_japanese">日本語</string>
-    <string name="label_language_korean">한국어</string>
-    <string name="label_language_german">Deutsch</string>
-    <string name="label_language_french">Français</string>
-    <string name="label_language_spanish">Español</string>
-    <string name="label_yesterday">Gestern</string><string name="auto_cleanup_messages">Gelesene Nachrichten automatisch bereinigen</string>
-    <string name="auto_cleanup_messages_hint">Wenn Abfragen langsamer werden, löscht die automatische Bereinigung die ältesten gelesenen Nachrichten. Es bleibt ein großer Verlauf erhalten, sodass aktuelle Nachrichten in der Regel nicht gelöscht werden. Für Kanäle, die Sie behalten möchten, können Sie die automatische Bereinigung dort deaktivieren.</string><string name="label_confirm">Bestätigen</string>
-    <string name="confirm_cleanup_messages">Löschen bestätigen</string><string name="confirm_cleanup_read_messages_channel">Gelesene Nachrichten im aktuellen Kanal werden gelöscht und können nicht wiederhergestellt werden.</string><string name="confirm_cleanup_read_messages_all">Alle gelesenen Nachrichten werden gelöscht und können nicht wiederhergestellt werden.</string><string name="auto_cleanup_suggestion">Nachrichten werden langsamer. Verlauf bereinigen oder Auto-Bereinigung aktivieren.</string>
-    <string name="auto_cleanup_manual_suggestion">Nachrichten werden langsamer. Ältere Nachrichten kannst du manuell bereinigen.</string>
+    <string name="label_app_version">App-Version</string><string name="label_app_version_format">%1$s build %2$d</string>
+    <string name="label_yesterday">Gestern</string>
+    <string name="label_confirm">Bestätigen</string>
+    <string name="confirm_cleanup_messages">Löschen bestätigen</string><string name="confirm_cleanup_read_messages_channel">Gelesene Nachrichten im aktuellen Kanal werden gelöscht und können nicht wiederhergestellt werden.</string><string name="confirm_cleanup_read_messages_all">Alle gelesenen Nachrichten werden gelöscht und können nicht wiederhergestellt werden.</string>
     <string name="clean_channel_messages">Gelesene Nachrichten bereinigen</string>
     <string name="clean_channel_messages_hint">Wähle aus, was im aktuellen Kanal bereinigt werden soll.</string>
     <string name="clean_channel_all">Alles im Kanal löschen</string>
     <string name="clean_channel_read">Gelesene im Kanal löschen</string>
     <string name="confirm_cleanup_channel_placeholder">Dies löscht Nachrichten im aktuellen Kanal. Das kann nicht rückgängig gemacht werden.</string>
     <string name="label_open_url">Link öffnen</string>
-    <string name="label_raw_payload">Rohdaten</string>
-    <string name="action_expand">Erweitern</string>
-    <string name="action_collapse">Einklappen</string>
     <string name="label_search">Nachrichten suchen</string>
     <string name="label_no_messages">Keine Nachrichten</string>
     <string name="label_no_search_results">Keine Ergebnisse</string>
     <string name="label_no_title">(Kein Titel)</string>
     <string name="label_group_ungrouped">Keine Gruppe</string>
-    <string name="label_loading">Laden…</string><string name="label_send_test_notification">Testbenachrichtigung senden</string><string name="label_send_local_notification">Lokale Benachrichtigung senden</string><string name="section_ringtone">Klingelton-Bibliothek</string>
-    <string name="section_language">Sprache</string>
-    <string name="section_push_form">Push-Test</string>
-    <string name="section_appearance">Erscheinungsbild</string>
-    <string name="label_theme">Thema</string>
-    <string name="label_theme_system">Systemstandard</string>
-    <string name="label_theme_light">Hell</string>
-    <string name="label_theme_dark">Dunkel</string>
-
+    <string name="label_loading">Laden…</string>
     <string name="section_connection_device">Verbindung &amp; Gerät</string><string name="section_channels">Kanäle</string>
     <string name="section_decryption">Entschlüsselung</string>
     <string name="section_security">Sicherheit</string>
-    <string name="section_notifications_sounds">Benachrichtigungen &amp; Töne</string>
     <string name="section_storage">Speicher</string>
     <string name="section_personalization">Personalisierung</string><string name="label_decryption_configured">Entschlüsselung konfiguriert</string>
     <string name="label_decryption_configured_updated">Konfiguriert · Aktualisiert %1$s</string>
     <string name="label_decryption_not_configured">Nicht konfiguriert</string>
     <string name="label_decryption_hint">Nur AES-GCM unterstützt; IV muss im Chiffretext enthalten sein.</string>
-    <string name="label_decryption_subtitle">Schlüssel und Kodierung</string><string name="label_preview_ringtone">Vorschau</string>
-    <string name="title_select_audio">Audio auswählen</string>
+    <string name="label_decryption_subtitle">Schlüssel und Kodierung</string>
     <string name="label_close">Schließen</string>
     <string name="label_cancel">Abbrechen</string>
     <string name="label_enable_notifications">Benachrichtigungen sind deaktiviert</string>
-    <string name="label_enable_notifications_hint">PushGo kann keine Push-Nachrichten zustellen, solange Benachrichtigungen deaktiviert sind. Bitte in den Systemeinstellungen aktivieren.</string>
+    <string name="label_enable_notifications_hint">Du hast Benachrichtigungen für PushGo deaktiviert. Neue Nachrichten, Ereignisse und Objekt-Updates werden daher nicht rechtzeitig angezeigt. Öffne die Systemeinstellungen, aktiviere PushGo-Benachrichtigungen und kehre dann zur App zurück.</string>
     <string name="label_turn_on">Einschalten</string>
-    <string name="label_export_messages_hint">Auf Gerät speichern</string><string name="label_title">Titel</string>
     <string name="label_body">Inhalt</string>
-    <string name="label_url">URL</string><string name="label_icon_url">Symbol-URL</string>
+    <string name="label_url">URL</string>
     <string name="label_image_url">Bild-URL</string>
     <string name="label_ciphertext">Chiffretext</string>
-    <string name="label_sound">Ton</string><string name="label_sound_none">Nicht festgelegt</string>
-    <string name="label_custom_sound">Eigener Ton</string>
-    <string name="label_custom_sound_hint">Eigener Ton wird unverändert gesendet. Android nutzt nur integrierte Töne.</string>
     <string name="label_gateway_payload">Gateway-JSON</string>
     <string name="label_copy_json">JSON kopieren</string>
-
-    <string name="push_default_title">PushGo Testbenachrichtigung</string>
-    <string name="push_default_body">Dies ist eine lokale Testbenachrichtigung zur Überprüfung der Anzeige.</string>
-
-    <string name="export_all_messages_json">Alle Nachrichten exportieren (JSON)</string>
     <string name="message_json_exported_successfully">Nachrichten exportiert</string>
     <string name="no_messages_available_to_export">Keine Nachrichten zum Exportieren</string>
     <string name="export_messages">Nachrichten exportieren</string>
-
     <string name="message_gateway_saved">Gateway gespeichert</string>
-    <string name="message_ringtone_added">Klingelton hinzugefügt</string>
     <string name="message_decryption_saved">Entschlüsselungseinstellungen gespeichert</string><string name="message_channel_created_and_subscribed">Kanal erstellt und abonniert</string>
     <string name="message_channel_subscribed">Kanal abonniert</string>
     <string name="message_channel_renamed">Kanal umbenannt</string>
@@ -129,7 +90,6 @@
     </plurals>
     <string name="message_messages_cleared">Nachrichten gelöscht</string>
     <string name="message_no_messages_to_clear">Keine Nachrichten zum Löschen</string>
-
     <string name="error_invalid_server_address">Ungültige Serveradresse (https erforderlich)</string>
     <string name="error_key_required">Bitte zuerst Schlüssel eingeben</string>
     <string name="error_key_already_saved">Schlüssel bereits gespeichert; neuen Wert eingeben zum Überschreiben</string>
@@ -148,16 +108,137 @@
     <string name="error_channel_id_required">Kanal-ID erforderlich</string>
     <string name="error_channel_id_invalid">Ungültige Kanal-ID</string>
     <string name="error_channel_password_length">Kanalpasswort muss 8&#8211;128 Zeichen lang sein</string>
-
-    <string name="ringtone_default">Standard</string>
     <string name="ringtone_notification">Benachrichtigung</string>
     <string name="ringtone_alert">Alarm</string>
-    <string name="ringtone_quick_whoosh">Quick Whoosh</string>
-    <string name="ringtone_pop">Pop</string>
-    <string name="ringtone_bubble_pop">Bubble Pop</string>
     <string name="ringtone_arcade">Arcade</string>
-    <string name="ringtone_cartoon_blink">Cartoon Blink</string>
-    <string name="ringtone_cute_chime">Niedlicher Gong</string>
+    <string name="ringtone_bubble_pop">Bubble Pop</string>
     <string name="ringtone_level_up">Level Up</string>
     <string name="ringtone_festive_chime">Festlicher Gong</string>
+    <string name="error_invalid_key_length">Schlüssellänge muss 128/192/256 Bit sein.</string>
+
+    <string name="label_send_type_message">Message</string>
+    <string name="label_send_type_event">Event</string>
+    <string name="label_send_type_thing">Object</string>
+    <string name="label_event_id">Event ID</string>
+    <string name="label_event_state">Event Action</string>
+    <string name="label_event_thing_id">Object ID (Optional)</string>
+    <string name="label_event_description">Event Description</string>
+    <string name="label_event_tags">Event Tags (comma)</string>
+    <string name="label_event_impact">Event Severity</string>
+    <string name="label_event_attrs_json">Event Attrs JSON</string>
+    <string name="label_thing_id">Object ID</string>
+    <string name="label_thing_name">Object Name</string>
+    <string name="label_thing_description">Object Description</string>
+    <string name="label_thing_tags">Object Tags (comma)</string>
+    <string name="label_thing_attrs_json">Object Attrs JSON</string>
+    <string name="label_channel_all">All channels</string>
+    <string name="label_search_entities">Search</string>
+    <string name="label_no_events_title">No events yet</string>
+    <string name="label_no_events_hint">Event entries will appear after event payloads are received.</string>
+    <string name="label_no_things_title">No objects yet</string>
+    <string name="label_no_things_hint">Object entries will appear after object payloads are received.</string>
+    <string name="section_data_pages">Enable data pages</string>
+    <string name="label_data_page_toggle_hint">Hide from navigation only; auto re-enabled when new data arrives</string>
+    <string name="label_event_group_identity">Event Identity</string>
+    <string name="label_event_group_profile">Event Profile</string>
+    <string name="label_thing_group_identity">Object Identity</string>
+    <string name="label_thing_group_profile">Object Profile</string>
+    <string name="label_metadata_json">Metadata (JSON)</string>
+    <string name="label_event_links">Event Images (comma)</string>
+    <string name="label_event_started_at">Event Start Time (optional)</string>
+    <string name="label_event_ended_at">Event End Time (optional)</string>
+    <string name="label_thing_links">Object Images (comma)</string>
+    <string name="label_use_fcm_channel">Use FCM channel</string>
+    <string name="label_use_fcm_channel_hint">When off, notifications use private channel fallback.</string>
+    <string name="label_fcm_wakeup_pull_mode">Use wakeup pull mode</string>
+    <string name="label_fcm_wakeup_pull_mode_hint">Send wakeup via FCM, then pull full message over HTTP.</string>
+    <string name="label_private_transport_status">Private transport status</string>
+    <string name="error_request_failed">Request failed. Please retry.</string>
+    <string name="error_channel_create_requires_fcm">Creating a new channel requires FCM. Use an existing Channel ID on devices without FCM.</string>
+    <string name="error_private_channel_create_failed">Private channel create failed. Please retry.</string>
+    <string name="error_private_channel_subscribe_failed">Private channel subscribe failed. Check channel ID/password and try again.</string>
+    <string name="error_private_channel_unsubscribe_failed">Private channel unsubscribe failed. Please retry.</string>
+    <string name="error_channel_password_mismatch_removed">Channel password mismatch. Removed local subscriptions: %1$s</string>
+    <string name="action_close_event">Ereignis schliessen</string>
+    <string name="message_event_closed">Ereignis geschlossen</string>
+    <string name="error_channel_password_missing">Kanalpasswort fehlt</string>
+    <string name="error_event_missing_channel">Kanal-ID fuer dieses Ereignis fehlt</string>
+    <string name="error_event_close_failed">Ereignis konnte nicht geschlossen werden</string>
+    <string name="label_search_events">Ereignisse suchen</string>
+    <string name="label_search_things">Objekte suchen</string>
+    <string name="label_thing_created_at">Object Created Time (optional)</string>
+    <string name="entity_title_event_fallback">Event %1$s</string>
+    <string name="entity_title_thing_fallback">Object %1$s</string>
+    <string name="entity_body_event_open">Opened</string>
+    <string name="entity_body_event_ongoing">Ongoing</string>
+    <string name="entity_body_event_closed">Closed</string>
+    <string name="entity_body_updated">Updated</string>
+    <string name="entity_body_thing_attribute_update_template">Attributaktualisierung || %1$s</string>
+    <string name="entity_body_thing_attribute_pair_template">%1$s: %2$s</string>
+
+
+    <string name="clean_all_messages">Alle Nachrichten löschen</string>
+    <string name="confirm_cleanup_events_all">Dadurch werden alle Ereignisdatensätze gelöscht. Dieser Vorgang kann nicht rückgängig gemacht werden.</string>
+    <string name="confirm_cleanup_events_channel">Dadurch werden die Ereignisdatensätze im aktuellen Kanal gelöscht. Dieser Vorgang kann nicht rückgängig gemacht werden.</string>
+    <string name="confirm_cleanup_messages_all">Dadurch werden alle Nachrichten gelöscht. Dieser Vorgang kann nicht rückgängig gemacht werden.</string>
+    <string name="confirm_cleanup_messages_channel">Dadurch werden alle Nachrichten im aktuellen Kanal gelöscht. Dieser Vorgang kann nicht rückgängig gemacht werden.</string>
+    <string name="confirm_cleanup_things_all">Dadurch werden alle Objektdatensätze gelöscht. Dieser Vorgang kann nicht rückgängig gemacht werden.</string>
+    <string name="confirm_cleanup_things_channel">Dadurch werden die Objektdatensätze im aktuellen Kanal gelöscht. Dieser Vorgang kann nicht rückgängig gemacht werden.</string>
+    <string name="confirm_close_event">Dieses Ereignis wird geschlossen. Fortfahren?</string>
+    <string name="entity_body_unknown">Unbekannt</string>
+    <string name="event_detail_attachments">Bilder</string>
+    <string name="event_detail_attributes">Attribute</string>
+    <string name="event_detail_attrs_inline">Attribute: %1$s</string>
+    <string name="event_detail_current_state">Aktueller Status: %1$s</string>
+    <string name="event_detail_history_timeline">Verlauf</string>
+    <string name="event_detail_severity_tags">Schweregrad: %1$s · Tags: %2$d</string>
+    <string name="event_detail_state_inline">Status: %1$s</string>
+    <string name="event_message_closed_default">Ereignis wurde geschlossen.</string>
+    <string name="event_meta_severity">Schweregrad: %1$s</string>
+    <string name="event_meta_tags_count">Schlagwörter: %1$d</string>
+    <string name="event_meta_timeline_points">Zeitpunkte im Verlauf: %1$d</string>
+    <string name="event_meta_updated">Aktualisiert: %1$s</string>
+    <string name="event_status_closed_default">Geschlossen</string>
+    <string name="event_status_created_default">Erstellt</string>
+    <string name="label_clear">Zurücksetzen</string>
+    <string name="label_event_message">Statusmeldung</string>
+    <string name="label_event_status">Ereignisstatus</string>
+    <string name="label_message_tags">Nachrichten-Tags (Komma getrennt)</string>
+    <string name="label_select_date_time">Datum und Uhrzeit auswählen</string>
+    <string name="label_set_now">Jetzt setzen</string>
+    <string name="label_thing_action">Objektaktion</string>
+    <string name="message_events_cleaned">Ereignisse bereinigt</string>
+    <string name="message_events_exported">Ereignisse exportiert</string>
+    <string name="message_severity_critical">Kritisch</string>
+    <string name="message_severity_critical_compact">KRITISCH</string>
+    <string name="message_severity_critical_hint">Kritische Nachricht. Bitte so schnell wie möglich bearbeiten.</string>
+    <string name="message_severity_high">Hoch</string>
+    <string name="message_severity_high_compact">HOCH</string>
+    <string name="message_severity_low">Niedrig</string>
+    <string name="message_severity_medium">Mittel</string>
+    <string name="message_things_cleaned">Objekte bereinigt</string>
+    <string name="no_events_available_to_export">Keine Ereignisse zum Exportieren vorhanden</string>
+    <string name="section_about">Über</string>
+    <string name="thing_detail_attributes">Attribute</string>
+    <string name="thing_detail_created_updated">Erstellt: %1$s · Aktualisiert: %2$s</string>
+    <string name="thing_detail_event_state">Ereignis: %1$s · Status: %2$s</string>
+    <string name="thing_detail_images_count">Bilder: %1$d</string>
+    <string name="thing_detail_message_id">Nachricht: %1$s</string>
+    <string name="thing_detail_messages">Nachrichten</string>
+    <string name="thing_detail_metadata_button">Metadaten</string>
+    <string name="thing_detail_no_metadata">Keine Metadaten.</string>
+    <string name="thing_detail_no_related_events">Keine verknüpften Ereignisse.</string>
+    <string name="thing_detail_no_related_messages">Keine verknüpften Nachrichten.</string>
+    <string name="thing_detail_no_related_updates">Keine verknüpften Updates.</string>
+    <string name="thing_detail_related_events">Verknüpfte Ereignisse</string>
+    <string name="thing_detail_tab_events">Ereignisse</string>
+    <string name="thing_detail_tab_messages">Nachrichten</string>
+    <string name="thing_detail_tab_updates">Aktualisierungen</string>
+    <string name="thing_detail_tags_created">Tags: %1$d · Erstellt: %2$s</string>
+    <string name="thing_meta_attrs_count">Attribute: %1$d</string>
+    <string name="thing_meta_messages_count">Nachrichten: %1$d</string>
+    <string name="thing_meta_metadata_count">Metadaten: %1$d</string>
+    <string name="thing_meta_related_events_count">Verknüpfte Ereignisse: %1$d</string>
+    <string name="thing_meta_tags_count">Schlagwörter: %1$d</string>
+    <string name="thing_meta_updated">Aktualisiert: %1$s</string>
 </resources>

@@ -177,41 +177,6 @@ data class MarkdownRenderBudget(
     val maxTableRows: Int?,
 )
 
-object MarkdownRenderPayloadSizing {
-    fun listPayload(text: String, isMarkdown: Boolean): MarkdownRenderPayload? {
-        val budget = listBudget(text.length)
-        return MarkdownRenderPayload.buildIfMarkdown(text, isMarkdown, budget)
-    }
-
-    private fun listBudget(textCount: Int): MarkdownRenderBudget {
-        return MarkdownRenderBudget(
-            maxCharacters = listMaxCharacters(textCount),
-            maxListItems = 10,
-            maxTableRows = 8,
-        )
-    }
-
-    private fun listMaxCharacters(textCount: Int): Int {
-        val hardCap = io.ethan.pushgo.data.AppConstants.markdownRenderPayloadMaxCharacters
-        val softCap = minOf(io.ethan.pushgo.data.AppConstants.markdownRenderPayloadListSoftCap, hardCap)
-
-        return when {
-            textCount <= 600 -> minOf(textCount, hardCap)
-            textCount <= 1800 -> minOf(900, hardCap)
-            textCount <= 3600 -> minOf(1800, hardCap)
-            else -> minOf(softCap, hardCap)
-        }
-    }
-}
-
-fun extractMarkdownRenderPayload(rawPayloadJson: String): MarkdownRenderPayload? {
-    val json = runCatching { JSONObject(rawPayloadJson) }.getOrNull() ?: return null
-    val payloadText = json.optString(io.ethan.pushgo.data.AppConstants.markdownRenderPayloadKey)
-        .takeIf { it.isNotEmpty() }
-        ?: return null
-    return MarkdownRenderPayload.decode(payloadText)
-}
-
 private data class MarkdownRenderStyle(
     var isBold: Boolean = false,
     var isItalic: Boolean = false,
@@ -912,7 +877,7 @@ private object InlineRegex {
     val EMAIL = Regex("(?i)\\b([A-Z0-9._%+-]+@[A-Z0-9.-]+\\.[A-Z]{2,})")
     val PHONE = Regex("(?i)(?<!\\w)(\\+?[0-9][0-9\\-\\s]{6,}[0-9])(?!\\w)")
     val MENTION = Regex("(?<!\\w)@([A-Za-z0-9_]{1,30})")
-    val TAG = Regex("(?<!\\w)#([A-Za-z0-9_\\p{Han}]{1,30})")
+    val TAG = Regex("(?<!\\w)#([A-Za-z0-9_\\p{IsHan}]{1,30})")
 }
 
 private object BlockRegex {
@@ -934,32 +899,98 @@ data class ResolvedBody(
 )
 
 enum class BodySource {
-    CIPHERTEXT_BODY,
     BODY,
 }
 
 object MessageBodyResolver {
     fun resolve(rawPayloadJson: String, envelopeBody: String): ResolvedBody {
-        val json = runCatching { JSONObject(rawPayloadJson) }.getOrNull()
-        val ciphertextBody = json?.optString("ciphertext_body")?.trim()?.takeIf { it.isNotEmpty() }
-        val isMarkdownOverride = json?.takeIf { it.has("body_render_is_markdown") }
-            ?.optBoolean("body_render_is_markdown")
-        return resolve(ciphertextBody, envelopeBody, isMarkdownOverride)
+        return resolve(envelopeBody)
     }
 
-    fun resolve(
-        ciphertextBody: String?,
-        envelopeBody: String,
-        isMarkdownOverride: Boolean?,
-    ): ResolvedBody {
-        val trimmedCipher = ciphertextBody?.trim().takeIf { !it.isNullOrEmpty() }
-        if (!trimmedCipher.isNullOrEmpty()) {
-            val isMarkdown = isMarkdownOverride ?: PushGoMarkdownDetector.containsMarkdownSyntax(trimmedCipher)
-            return ResolvedBody(rawText = trimmedCipher, isMarkdown = isMarkdown, source = BodySource.CIPHERTEXT_BODY)
+    fun resolve(envelopeBody: String): ResolvedBody {
+        val rawText = envelopeBody.trim()
+        return ResolvedBody(rawText = rawText, isMarkdown = true, source = BodySource.BODY)
+    }
+}
+
+object MessagePreviewExtractor {
+    fun notificationPreview(markdown: String): String {
+        return preview(markdown = markdown, maxLines = 1, maxChars = 180)
+    }
+
+    fun listPreview(markdown: String): String {
+        return preview(markdown = markdown, maxLines = 6, maxChars = 1200)
+    }
+
+    private fun preview(markdown: String, maxLines: Int, maxChars: Int): String {
+        val normalized = markdown.replace("\r\n", "\n").replace('\r', '\n')
+        val lines = plainLines(normalized)
+        val selected = lines.take(maxLines).mapNotNull { line ->
+            val trimmed = line.trim()
+            trimmed.takeIf { it.isNotEmpty() }
+        }
+        val joined = selected.joinToString("\n")
+        if (joined.length <= maxChars) return joined
+        return joined.take(maxChars).trim()
+    }
+
+    private fun plainLines(markdown: String): List<String> {
+        val document = PushGoMarkdownParser().parse(markdown)
+        if (document.blocks.isEmpty()) {
+            return markdown
+                .split('\n')
+                .map { it.trim() }
+                .filter { it.isNotEmpty() }
         }
 
-        val rawText = envelopeBody.trim()
-        val isMarkdown = isMarkdownOverride ?: PushGoMarkdownDetector.containsMarkdownSyntax(rawText)
-        return ResolvedBody(rawText = rawText, isMarkdown = isMarkdown, source = BodySource.BODY)
+        return buildList {
+            document.blocks.forEach { block ->
+                plainLines(block).forEach { line ->
+                    val trimmed = line.trim()
+                    if (trimmed.isNotEmpty()) {
+                        add(trimmed)
+                    }
+                }
+            }
+        }
+    }
+
+    private fun plainLines(block: MarkdownBlock): List<String> {
+        return when (block) {
+            is MarkdownBlock.Heading -> listOf(plainText(block.content))
+            is MarkdownBlock.Paragraph -> listOf(plainText(block.content))
+            is MarkdownBlock.Blockquote -> listOf(plainText(block.content))
+            is MarkdownBlock.Callout -> listOf(plainText(block.content))
+            is MarkdownBlock.BulletList -> block.items.map { plainText(it.content) }
+            is MarkdownBlock.OrderedList -> block.items.map { plainText(it.content) }
+            is MarkdownBlock.Table -> buildList {
+                if (block.table.headers.isNotEmpty()) {
+                    add(block.table.headers.joinToString(" | ") { plainText(it) })
+                }
+                block.table.rows.forEach { row ->
+                    add(row.joinToString(" | ") { plainText(it) })
+                }
+            }
+            MarkdownBlock.HorizontalRule -> emptyList()
+        }
+    }
+
+    private fun plainText(inlines: List<MarkdownInline>): String {
+        return inlines.joinToString(separator = "") { plainText(it) }
+    }
+
+    private fun plainText(inline: MarkdownInline): String {
+        return when (inline) {
+            is MarkdownInline.Text -> inline.value
+            is MarkdownInline.Bold -> plainText(inline.content)
+            is MarkdownInline.Italic -> plainText(inline.content)
+            is MarkdownInline.Strikethrough -> plainText(inline.content)
+            is MarkdownInline.Highlight -> plainText(inline.content)
+            is MarkdownInline.Code -> inline.value
+            is MarkdownInline.Link -> plainText(inline.text)
+            is MarkdownInline.Mention -> "@${inline.value}"
+            is MarkdownInline.Tag -> "#${inline.value}"
+            is MarkdownInline.Autolink -> inline.link.value
+        }
     }
 }

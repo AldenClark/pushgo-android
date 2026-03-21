@@ -1,0 +1,5 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application
+        android:networkSecurityConfig="@xml/debug_network_security_config"
+        android:usesCleartextTraffic="true" />
+</manifest>

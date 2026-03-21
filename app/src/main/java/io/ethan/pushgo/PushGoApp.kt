@@ -1,37 +1,190 @@
 package io.ethan.pushgo
 
 import android.app.Application
+import android.os.Bundle
+import android.util.Log
 import coil.ImageLoader
 import coil.ImageLoaderFactory
 import coil.disk.DiskCache
 import coil.memory.MemoryCache
 import com.google.firebase.messaging.FirebaseMessaging
+import com.google.android.gms.common.ConnectionResult
+import com.google.android.gms.common.GoogleApiAvailability
 import io.ethan.pushgo.data.AppContainer
+import io.ethan.pushgo.automation.PushGoAutomation
 import io.ethan.pushgo.notifications.NotificationHelper
-import io.ethan.pushgo.notifications.RingtoneCatalog
+import io.ethan.pushgo.notifications.PrivateAckOutboxWorkScheduler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlin.coroutines.resume
+import kotlin.coroutines.resumeWithException
 
 class PushGoApp : Application(), ImageLoaderFactory {
-    lateinit var container: AppContainer
-        private set
+    companion object {
+        private const val TAG = "PushGoApp"
+        private const val FCM_TOKEN_MAX_ATTEMPTS = 3
+        private const val FCM_TOKEN_RETRY_BASE_DELAY_MS = 1_500L
+        private const val STORAGE_FAILURE_PREFS = "pushgo_storage_recovery"
+        private const val STORAGE_FAILURE_STREAK_KEY = "local_store_failure_streak"
+        private const val STORAGE_FAILURE_STREAK_THRESHOLD = 3
+    }
+
+    @Volatile
+    private var initializedContainer: AppContainer? = null
+    @Volatile
+    private var startupStorageError: String? = null
+    @Volatile
+    private var startupStorageCanRebuild: Boolean = false
+    @Volatile
+    private var startupSyncScheduled: Boolean = false
+
+    val container: AppContainer
+        get() = initializedContainer
+            ?: error(startupStorageError ?: "Local persistent storage is unavailable.")
+
+    fun containerOrNull(): AppContainer? = initializedContainer
+
+    fun startupStorageErrorMessage(): String? = startupStorageError
+    fun startupStorageCanRebuild(): Boolean = startupStorageCanRebuild
+
+    fun rebuildPersistentStorageForRecovery() {
+        // No compatibility path: drop local store and let Room recreate current schema.
+        deleteDatabase("pushgo-v18.db")
+        // Best-effort cleanup for prior filename before this no-compat cutover.
+        deleteDatabase("pushgo-v17.db")
+        clearStorageFailureStreak()
+    }
+
     private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private var startedActivities: Int = 0
 
     override fun onCreate() {
         super.onCreate()
-        container = AppContainer(this)
-        appScope.launch {
-            syncSubscriptionsOnLaunch()
+        val container = runCatching { AppContainer(this) }
+            .onFailure { error ->
+                val streak = incrementStorageFailureStreak()
+                startupStorageCanRebuild = streak >= STORAGE_FAILURE_STREAK_THRESHOLD
+                val reason = error.message.orEmpty().trim()
+                startupStorageError = if (startupStorageCanRebuild) {
+                    "Local persistent storage init failed: $reason\n该错误已连续出现多次，请上报错误，并可尝试重建数据库。".trim()
+                } else {
+                    "Local persistent storage init failed: $reason".trim()
+                }
+                io.ethan.pushgo.util.SilentSink.e(TAG, "AppContainer init failed", error)
+                PushGoAutomation.recordRuntimeError(
+                    source = "app.container.init",
+                    error = error,
+                    category = "storage",
+                )
+            }
+            .getOrNull()
+        initializedContainer = container
+        if (container == null) {
+            NotificationHelper.ensureChannel(this, "normal")
+            return
         }
+        startupStorageCanRebuild = false
+        clearStorageFailureStreak()
+        initializePushRuntime()
+        scheduleStartupSyncIfNeeded()
+        PrivateAckOutboxWorkScheduler.enqueue(this)
+        registerActivityLifecycleCallbacks(object : ActivityLifecycleCallbacks {
+            override fun onActivityStarted(activity: android.app.Activity) {
+                startedActivities += 1
+                val automationSession = PushGoAutomation.isSessionConfigured()
+                container.privateChannelClient.setForeground(startedActivities > 0 && !automationSession)
+                if (!automationSession) {
+                    scheduleStartupSyncIfNeeded()
+                }
+            }
+
+            override fun onActivityStopped(activity: android.app.Activity) {
+                startedActivities = (startedActivities - 1).coerceAtLeast(0)
+                container.privateChannelClient.setForeground(startedActivities > 0)
+            }
+
+            override fun onActivityCreated(activity: android.app.Activity, savedInstanceState: Bundle?) {}
+            override fun onActivityResumed(activity: android.app.Activity) {}
+            override fun onActivityPaused(activity: android.app.Activity) {}
+            override fun onActivitySaveInstanceState(activity: android.app.Activity, outState: Bundle) {}
+            override fun onActivityDestroyed(activity: android.app.Activity) {}
+        })
         appScope.launch {
             container.messageRepository.observeUnreadCount().collect { count ->
                 NotificationHelper.updateActiveNotificationNumbers(this@PushGoApp, count)
             }
         }
-        NotificationHelper.ensureChannel(this, RingtoneCatalog.DEFAULT_ID, null, null)
+        NotificationHelper.ensureChannel(this, "normal")
+    }
+
+    private fun scheduleStartupSyncIfNeeded() {
+        val container = containerOrNull() ?: return
+        if (PushGoAutomation.isSessionConfigured()) {
+            return
+        }
+        if (startupSyncScheduled) return
+        synchronized(this) {
+            if (startupSyncScheduled) return
+            startupSyncScheduled = true
+        }
+        appScope.launch {
+            applyAutomationGatewayOverrideIfNeeded(container)
+            syncSubscriptionsOnLaunch()
+        }
+    }
+
+    private suspend fun applyAutomationGatewayOverrideIfNeeded(container: AppContainer) {
+        val overrideBaseUrl = PushGoAutomation.startupGatewayBaseUrl()
+            ?.trim()
+            ?.ifEmpty { null }
+        val overrideToken = PushGoAutomation.startupGatewayToken()
+            ?.trim()
+            ?.ifEmpty { null }
+        if (overrideBaseUrl == null && overrideToken == null) {
+            return
+        }
+        runCatching {
+            container.automationController.setGatewayServer(
+                baseUrl = overrideBaseUrl,
+                token = overrideToken,
+            )
+        }.onFailure { error ->
+            io.ethan.pushgo.util.SilentSink.w(TAG, "applyAutomationGatewayOverrideIfNeeded failed: ${error.message}", error)
+            PushGoAutomation.recordRuntimeError(
+                source = "gateway.startup_override",
+                error = error,
+                category = "automation",
+            )
+        }
+    }
+
+    private fun initializePushRuntime() {
+        val container = containerOrNull() ?: return
+        appScope.launch {
+            val useFcmChannel = runCatching {
+                container.settingsRepository.getUseFcmChannel()
+            }.getOrDefault(true)
+            val cachedToken = if (useFcmChannel) {
+                runCatching {
+                    container.settingsRepository.getFcmToken()?.trim()?.ifEmpty { null }
+                }.getOrNull()
+            } else {
+                null
+            }
+            container.privateChannelClient.setRuntime(
+                fcmAvailable = useFcmChannel,
+                systemToken = cachedToken
+            )
+            if (!useFcmChannel) {
+                container.privateChannelClient.triggerWakeupPull()
+            }
+        }
     }
 
     override fun newImageLoader(): ImageLoader {
@@ -52,15 +205,157 @@ class PushGoApp : Application(), ImageLoaderFactory {
     }
 
     fun handlePushTokenUpdate(deviceToken: String) {
+        val container = containerOrNull()
+        if (container == null) {
+            io.ethan.pushgo.util.SilentSink.w(TAG, "handlePushTokenUpdate ignored: storage unavailable")
+            return
+        }
         appScope.launch {
-            runCatching { container.handlePushTokenUpdate(deviceToken) }
+            val normalizedToken = deviceToken.trim().ifEmpty { return@launch }
+            val useFcmChannel = runCatching { container.settingsRepository.getUseFcmChannel() }.getOrDefault(true)
+            if (useFcmChannel && isFcmSupported()) {
+                runCatching {
+                    container.channelRepository.syncProviderDeviceToken(normalizedToken)
+                }.onFailure { error ->
+                    io.ethan.pushgo.util.SilentSink.w(TAG, "syncProviderDeviceToken failed: ${error.message}", error)
+                    PushGoAutomation.recordRuntimeError(
+                        source = "provider.sync_device_token",
+                        error = error,
+                        category = "provider",
+                    )
+                }
+                runCatching {
+                    container.channelRepository.syncSubscriptionsIfNeeded(normalizedToken)
+                }.onFailure { error ->
+                    io.ethan.pushgo.util.SilentSink.w(TAG, "syncSubscriptionsIfNeeded after token update failed: ${error.message}", error)
+                    PushGoAutomation.recordRuntimeError(
+                        source = "channel.sync.after_token_update",
+                        error = error,
+                        category = "subscription",
+                    )
+                }
+            } else {
+                runCatching { container.handlePushTokenUpdate(normalizedToken) }
+            }
+            container.privateChannelClient.setRuntime(
+                fcmAvailable = useFcmChannel && isFcmSupported(),
+                systemToken = if (useFcmChannel) normalizedToken else null
+            )
         }
     }
 
-    private fun syncSubscriptionsOnLaunch() {
-        FirebaseMessaging.getInstance().token
-            .addOnSuccessListener { token ->
-                handlePushTokenUpdate(token)
+    private suspend fun syncSubscriptionsOnLaunch() {
+        val container = containerOrNull() ?: return
+        val useFcmChannel = runCatching { container.settingsRepository.getUseFcmChannel() }
+            .getOrDefault(true)
+        val fcmSupported = isFcmSupported()
+        if (!fcmSupported || !useFcmChannel) {
+            container.privateChannelClient.setRuntime(
+                fcmAvailable = false,
+                systemToken = null
+            )
+            container.privateChannelClient.triggerWakeupPull()
+            return
+        }
+        val cachedToken = runCatching {
+            container.settingsRepository.getFcmToken()?.trim()?.ifEmpty { null }
+        }.getOrNull()
+        container.privateChannelClient.setRuntime(
+            fcmAvailable = true,
+            systemToken = cachedToken
+        )
+        if (!cachedToken.isNullOrBlank()) {
+            handlePushTokenUpdate(cachedToken)
+        }
+        appScope.launch {
+            runCatching { requestFcmTokenWithRetry() }
+                .onSuccess { token ->
+                    io.ethan.pushgo.util.SilentSink.i(TAG, "startup FCM token fetch succeeded")
+                    handlePushTokenUpdate(token)
+                }
+                .onFailure { error ->
+                    io.ethan.pushgo.util.SilentSink.w(TAG, "startup FCM token fetch failed: ${error.message}", error)
+                    PushGoAutomation.recordRuntimeError(
+                        source = "provider.fcm_token.startup",
+                        error = error,
+                        category = "provider",
+                    )
+                    // Keep provider mode enabled; token fetch may recover on next retry/update.
+                }
+        }
+    }
+
+    private suspend fun requestFcmTokenWithRetry(): String {
+        var lastError: Throwable? = null
+        repeat(FCM_TOKEN_MAX_ATTEMPTS) { attempt ->
+            try {
+                return requestFcmTokenOnce()
+            } catch (error: Throwable) {
+                lastError = error
+                io.ethan.pushgo.util.SilentSink.w(
+                    TAG,
+                    "requestFcmToken attempt=${attempt + 1}/$FCM_TOKEN_MAX_ATTEMPTS failed: ${error.message}",
+                    error
+                )
+                if (!isRetriableFcmTokenError(error) || attempt == FCM_TOKEN_MAX_ATTEMPTS - 1) {
+                    throw error
+                }
+                delay((attempt + 1) * FCM_TOKEN_RETRY_BASE_DELAY_MS)
             }
+        }
+        throw lastError ?: IllegalStateException("Unable to get FCM token")
+    }
+
+    private fun isRetriableFcmTokenError(error: Throwable): Boolean {
+        val message = buildString {
+            append(error.message.orEmpty())
+            val cause = error.cause
+            if (cause != null) {
+                append(" ")
+                append(cause.message.orEmpty())
+            }
+        }.uppercase()
+        return message.contains("SERVICE_NOT_AVAILABLE")
+            || message.contains("INTERNAL_SERVER_ERROR")
+            || message.contains("TIMEOUT")
+    }
+
+    private suspend fun requestFcmTokenOnce(): String = withTimeout(io.ethan.pushgo.data.AppConstants.fcmTokenTimeoutMs) {
+        suspendCancellableCoroutine { cont ->
+            FirebaseMessaging.getInstance().token
+                .addOnSuccessListener { token ->
+                    if (cont.isActive) {
+                        cont.resume(token)
+                    }
+                }
+                .addOnFailureListener { error ->
+                    if (cont.isActive) {
+                        cont.resumeWithException(IllegalStateException("Unable to get FCM token", error))
+                    }
+                }
+                .addOnCanceledListener {
+                    if (cont.isActive) {
+                        cont.resumeWithException(IllegalStateException("FCM token task cancelled"))
+                    }
+                }
+        }
+    }
+
+    private fun isFcmSupported(): Boolean {
+        val status = GoogleApiAvailability.getInstance().isGooglePlayServicesAvailable(this)
+        return status == ConnectionResult.SUCCESS
+    }
+
+    private fun storageRecoveryPrefs() = getSharedPreferences(STORAGE_FAILURE_PREFS, MODE_PRIVATE)
+
+    private fun incrementStorageFailureStreak(): Int {
+        val prefs = storageRecoveryPrefs()
+        val next = prefs.getInt(STORAGE_FAILURE_STREAK_KEY, 0) + 1
+        prefs.edit().putInt(STORAGE_FAILURE_STREAK_KEY, next).apply()
+        return next
+    }
+
+    private fun clearStorageFailureStreak() {
+        storageRecoveryPrefs().edit().remove(STORAGE_FAILURE_STREAK_KEY).apply()
     }
 }

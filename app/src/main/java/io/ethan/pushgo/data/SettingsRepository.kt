@@ -3,40 +3,37 @@ package io.ethan.pushgo.data
 import io.ethan.pushgo.data.db.AppSettingsDao
 import io.ethan.pushgo.data.db.AppSettingsEntity
 import io.ethan.pushgo.data.model.KeyEncoding
-import io.ethan.pushgo.data.model.KeyLength
-import io.ethan.pushgo.data.model.ThemeMode
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import java.time.Instant
 
 class SettingsRepository(
     private val appSettingsDao: AppSettingsDao,
+    private val secretStore: SecureSecretStore,
 ) {
     private val settingsFlow = appSettingsDao.observe()
 
     val serverAddressFlow: Flow<String?> = settingsFlow.map { it?.serverAddress }
-    val ringtoneIdFlow: Flow<String?> = settingsFlow.map { it?.ringtoneId }
-    val themeModeFlow: Flow<ThemeMode> = settingsFlow.map { settings ->
-        val raw = settings?.themeMode
-        if (raw != null) {
-            runCatching { ThemeMode.valueOf(raw) }.getOrNull() ?: ThemeMode.SYSTEM
-        } else {
-            ThemeMode.SYSTEM
-        }
-    }
-    val autoCleanupEnabledFlow: Flow<Boolean> = settingsFlow.map { it?.autoCleanupEnabled ?: true }
+    val messagePageEnabledFlow: Flow<Boolean> =
+        settingsFlow.map { it?.isMessagePageEnabled ?: true }
+    val eventPageEnabledFlow: Flow<Boolean> =
+        settingsFlow.map { it?.isEventPageEnabled ?: true }
+    val thingPageEnabledFlow: Flow<Boolean> =
+        settingsFlow.map { it?.isThingPageEnabled ?: true }
+    val useFcmChannelFlow: Flow<Boolean> =
+        settingsFlow.map { it?.useFcmChannel ?: true }
 
     private fun defaultSettings(): AppSettingsEntity {
         return AppSettingsEntity(
             id = 1,
             serverAddress = null,
             token = null,
-            notificationKeyBase64 = null,
             notificationKeyUpdatedAt = null,
             fcmToken = null,
-            ringtoneId = null,
-            themeMode = null,
-            autoCleanupEnabled = true,
+            useFcmChannel = true,
+            isMessagePageEnabled = true,
+            isEventPageEnabled = true,
+            isThingPageEnabled = true,
         )
     }
 
@@ -54,26 +51,40 @@ class SettingsRepository(
 
     suspend fun getServerAddress(): String? = loadSettings().serverAddress
 
-    suspend fun getGatewayToken(): String? = loadSettings().token
-
-    suspend fun setGatewayToken(token: String?) {
-        updateSettings { it.copy(token = token) }
+    suspend fun getGatewayToken(): String? {
+        return secretStore.gatewayToken()
     }
 
-    suspend fun getNotificationKeyBase64(): String? = loadSettings().notificationKeyBase64
+    suspend fun setGatewayToken(token: String?) {
+        val normalized = token?.trim()?.ifEmpty { null }
+        secretStore.setGatewayToken(normalized)
+        updateSettings { it.copy(token = null) }
+    }
 
-    suspend fun setNotificationKeyBase64(value: String?) {
-        val trimmed = value?.trim().orEmpty()
+    suspend fun getNotificationKeyBytes(): ByteArray? =
+        secretStore.notificationKeyBytes()
+
+    suspend fun setNotificationKeyBytes(value: ByteArray?) {
+        val trimmed = value?.takeIf { it.isNotEmpty() }
+        secretStore.setNotificationKeyBytes(trimmed)
         updateSettings { current ->
-            if (trimmed.isEmpty()) {
-                current.copy(notificationKeyBase64 = null, notificationKeyUpdatedAt = null)
+            if (trimmed == null) {
+                current.copy(notificationKeyUpdatedAt = null)
             } else {
                 current.copy(
-                    notificationKeyBase64 = trimmed,
                     notificationKeyUpdatedAt = System.currentTimeMillis()
                 )
             }
         }
+    }
+
+    suspend fun getProviderDeviceKey(platform: String): String? {
+        return secretStore.providerDeviceKey(platform)
+    }
+
+    suspend fun setProviderDeviceKey(platform: String, deviceKey: String?) {
+        val normalized = deviceKey?.trim()?.ifEmpty { null }
+        secretStore.setProviderDeviceKey(platform, normalized)
     }
 
     suspend fun getNotificationKeyUpdatedAt(): Instant? {
@@ -90,34 +101,57 @@ class SettingsRepository(
         updateSettings { it.copy(keyEncoding = encoding.name) }
     }
 
-    suspend fun getKeyLength(): KeyLength {
-        val raw = loadSettings().keyLength
-        return runCatching { KeyLength.valueOf(raw) }.getOrNull() ?: KeyLength.BITS_256
+    suspend fun getFcmToken(): String? {
+        return secretStore.fcmToken()
     }
-
-    suspend fun setKeyLength(length: KeyLength) {
-        updateSettings { it.copy(keyLength = length.name) }
-    }
-
-    suspend fun setRingtoneId(id: String?) {
-        updateSettings { it.copy(ringtoneId = id) }
-    }
-
-    suspend fun getRingtoneId(): String? = loadSettings().ringtoneId
-
-    suspend fun setThemeMode(mode: ThemeMode) {
-        updateSettings { it.copy(themeMode = mode.name) }
-    }
-
-    suspend fun getFcmToken(): String? = loadSettings().fcmToken
 
     suspend fun setFcmToken(token: String?) {
-        updateSettings { it.copy(fcmToken = token) }
+        val normalized = token?.trim()?.ifEmpty { null }
+        secretStore.setFcmToken(normalized)
+        updateSettings { it.copy(fcmToken = null) }
     }
 
-    suspend fun getAutoCleanupEnabled(): Boolean = loadSettings().autoCleanupEnabled
+    suspend fun getUseFcmChannel(): Boolean = loadSettings().useFcmChannel
 
-    suspend fun setAutoCleanupEnabled(enabled: Boolean) {
-        updateSettings { it.copy(autoCleanupEnabled = enabled) }
+    suspend fun getMessagePageEnabled(): Boolean = loadSettings().isMessagePageEnabled
+
+    suspend fun getEventPageEnabled(): Boolean = loadSettings().isEventPageEnabled
+
+    suspend fun getThingPageEnabled(): Boolean = loadSettings().isThingPageEnabled
+
+    suspend fun setUseFcmChannel(enabled: Boolean) {
+        updateSettings { it.copy(useFcmChannel = enabled) }
+    }
+
+    suspend fun setMessagePageEnabled(enabled: Boolean) {
+        updateSettings { it.copy(isMessagePageEnabled = enabled) }
+    }
+
+    suspend fun setEventPageEnabled(enabled: Boolean) {
+        updateSettings { it.copy(isEventPageEnabled = enabled) }
+    }
+
+    suspend fun setThingPageEnabled(enabled: Boolean) {
+        updateSettings { it.copy(isThingPageEnabled = enabled) }
+    }
+
+    suspend fun reenablePageForEntity(entityType: String) {
+        when (entityType.trim().lowercase()) {
+            "message" -> setMessagePageEnabled(true)
+            "event" -> setEventPageEnabled(true)
+            "thing" -> setThingPageEnabled(true)
+        }
+    }
+
+    suspend fun resetForAutomation(defaultServerAddress: String?) {
+        secretStore.clearAll()
+        appSettingsDao.deleteAll()
+        val normalizedAddress = defaultServerAddress?.trim()?.ifEmpty { null }
+        appSettingsDao.upsert(
+            defaultSettings().copy(
+                serverAddress = normalizedAddress,
+                useFcmChannel = false,
+            )
+        )
     }
 }

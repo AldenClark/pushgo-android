@@ -3,49 +3,73 @@ package io.ethan.pushgo.ui.export
 import android.content.Context
 import android.net.Uri
 import io.ethan.pushgo.data.model.PushMessage
-import org.json.JSONArray
-import org.json.JSONObject
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import java.io.BufferedWriter
 import java.io.OutputStreamWriter
 import java.time.format.DateTimeFormatter
 
 object ExportUtils {
     fun writeMessagesJson(context: Context, uri: Uri, messages: List<PushMessage>) {
-        val payload = buildMessagesJson(messages)
         context.contentResolver.openOutputStream(uri)?.use { stream ->
             OutputStreamWriter(stream, Charsets.UTF_8).use { writer ->
-                writer.write(payload)
+                BufferedWriter(writer).use { buffered ->
+                    val arrayWriter = MessageJsonArrayWriter(buffered)
+                    messages.forEach(arrayWriter::append)
+                    arrayWriter.finish()
+                }
             }
         }
     }
 
-    fun buildMessagesJson(messages: List<PushMessage>): String {
-        val formatter = DateTimeFormatter.ISO_INSTANT
-        val array = JSONArray()
-        for (message in messages) {
-            val obj = JSONObject()
-            obj.put("id", message.id)
-            obj.put("messageId", message.messageId)
-            obj.put("title", message.title)
-            obj.put("body", message.body)
-            obj.put("channel_id", message.channel)
-            obj.put("url", message.url)
-            obj.put("isRead", message.isRead)
-            obj.put("receivedAt", formatter.format(message.receivedAt))
-            obj.put("status", message.status.name)
-            obj.put("decryptionState", message.decryptionState?.name)
-            obj.put("notificationId", message.notificationId)
-            obj.put("serverId", message.serverId)
-            obj.put("rawPayload", parseRawPayload(message.rawPayloadJson))
-            array.put(obj)
+    suspend fun writeMessagesJsonStream(
+        context: Context,
+        uri: Uri,
+        producer: suspend (MessageJsonArrayWriter) -> Unit,
+    ): Int {
+        return withContext(Dispatchers.IO) {
+            context.contentResolver.openOutputStream(uri)?.use { stream ->
+                OutputStreamWriter(stream, Charsets.UTF_8).use { writer ->
+                    BufferedWriter(writer).use { buffered ->
+                        val arrayWriter = MessageJsonArrayWriter(buffered)
+                        producer(arrayWriter)
+                        arrayWriter.finish()
+                        arrayWriter.count
+                    }
+                }
+            } ?: 0
         }
-        return array.toString(2)
     }
 
-    private fun parseRawPayload(raw: String): Any {
-        return try {
-            JSONObject(raw)
-        } catch (ex: Exception) {
-            raw
+    class MessageJsonArrayWriter(
+        private val writer: BufferedWriter,
+        private val formatter: DateTimeFormatter = DateTimeFormatter.ISO_INSTANT,
+    ) {
+        var count: Int = 0
+            private set
+
+        init {
+            writer.write("[")
         }
+
+        fun append(message: PushMessage) {
+            if (count > 0) {
+                writer.write(",")
+            }
+            writer.write(MessageExportJsonSemantics.buildMessageMap(message, formatter).let(io.ethan.pushgo.util.JsonCompat::stringify))
+            count += 1
+        }
+
+        fun finish() {
+            writer.write("]")
+            writer.flush()
+        }
+    }
+
+    fun buildMessagesJson(messages: List<PushMessage>): String {
+        return MessageExportJsonSemantics.buildMessagesJson(
+            messages = messages,
+            formatter = DateTimeFormatter.ISO_INSTANT,
+        )
     }
 }

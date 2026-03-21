@@ -7,7 +7,6 @@ data class ChannelSubscription(
     val displayName: String,
     val updatedAt: Long,
     val lastSyncedAt: Long?,
-    val autoCleanupEnabled: Boolean = true,
 ) {
     fun lastSyncedInstant(): Instant? = lastSyncedAt?.let { Instant.ofEpochMilli(it) }
 }

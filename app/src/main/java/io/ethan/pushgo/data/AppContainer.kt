@@ -3,37 +3,79 @@ package io.ethan.pushgo.data
 import android.content.Context
 import io.ethan.pushgo.data.db.PushGoDatabase
 import io.ethan.pushgo.notifications.MessageStateCoordinator
+import io.ethan.pushgo.notifications.PrivateChannelClient
 
 class AppContainer(context: Context) {
     val appContext = context.applicationContext
-    private val database = PushGoDatabase.build(appContext)
+    internal val database = PushGoDatabase.build(appContext)
+    internal val secureSecretStore: SecureSecretStore = AndroidKeystoreSecretStore(appContext)
 
-    val settingsRepository = SettingsRepository(database.appSettingsDao())
-    private val channelStore = ChannelSubscriptionStore(database.channelSubscriptionDao())
-    private val performanceCoordinator = PerformanceDegradationCoordinator(
-        context = appContext,
-        settingsRepository = settingsRepository,
-        messageDao = database.messageDao(),
-        channelStore = channelStore,
+    val messageImageStore = MessageImageStore(appContext)
+    val settingsRepository = SettingsRepository(
+        appSettingsDao = database.appSettingsDao(),
+        secretStore = secureSecretStore,
+    )
+    val inboundDeliveryLedgerRepository = InboundDeliveryLedgerRepository(
+        inboundDeliveryLedgerDao = database.inboundDeliveryLedgerDao(),
+        inboundDeliveryAckOutboxDao = database.inboundDeliveryAckOutboxDao(),
+    )
+    internal val channelStore = ChannelSubscriptionStore(
+        dao = database.channelSubscriptionDao(),
+        secretStore = secureSecretStore,
     )
     val messageRepository = MessageRepository(
+        database = database,
         dao = database.messageDao(),
-        performanceCoordinator = performanceCoordinator,
+        channelStatsDao = database.messageChannelStatsDao(),
+        metadataIndexDao = database.messageMetadataIndexDao(),
+        inboundDeliveryLedgerDao = database.inboundDeliveryLedgerDao(),
+        operationLedgerDao = database.operationLedgerDao(),
+        thingHeadDao = database.thingHeadDao(),
+        thingSubMessageDao = database.thingSubMessageDao(),
+    )
+    val entityRepository = EntityRepository(
+        database = database,
+        inboundDeliveryLedgerDao = database.inboundDeliveryLedgerDao(),
+        operationLedgerDao = database.operationLedgerDao(),
+        eventChangeLogDao = database.eventChangeLogDao(),
+        thingChangeLogDao = database.thingChangeLogDao(),
+        thingSubEventDao = database.thingSubEventDao(),
+        topLevelEventHeadDao = database.topLevelEventHeadDao(),
+        thingHeadDao = database.thingHeadDao(),
+        thingSubMessageDao = database.thingSubMessageDao(),
     )
     val messageStateCoordinator = MessageStateCoordinator(
         context = appContext,
         repository = messageRepository,
     )
-    init {
-        performanceCoordinator.attachMessageStateCoordinator(messageStateCoordinator)
-    }
     val channelRepository = ChannelSubscriptionRepository(
         store = channelStore,
         settingsRepository = settingsRepository,
         messageStateCoordinator = messageStateCoordinator,
     )
+    val privateChannelClient = PrivateChannelClient(
+        appContext = appContext,
+        channelRepository = channelRepository,
+        inboundDeliveryLedgerRepository = inboundDeliveryLedgerRepository,
+        messageRepository = messageRepository,
+        entityRepository = entityRepository,
+        settingsRepository = settingsRepository,
+    )
+    val automationController = AppAutomationController(
+        appContext = appContext,
+        operationLedgerDao = database.operationLedgerDao(),
+        settingsRepository = settingsRepository,
+        channelStore = channelStore,
+        messageRepository = messageRepository,
+        entityRepository = entityRepository,
+        messageStateCoordinator = messageStateCoordinator,
+        channelRepository = channelRepository,
+        privateChannelClient = privateChannelClient,
+        inboundDeliveryLedgerRepository = inboundDeliveryLedgerRepository,
+        messageImageStore = messageImageStore,
+    )
 
     suspend fun handlePushTokenUpdate(deviceToken: String) {
-        channelRepository.handleTokenUpdate(deviceToken)
+        settingsRepository.setFcmToken(deviceToken.trim().ifEmpty { null })
     }
 }

@@ -3,9 +3,13 @@ package io.ethan.pushgo.ui.screens
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import android.os.SystemClock
+import android.util.Log
 import androidx.core.net.toUri
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -14,9 +18,9 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.ContentCopy
@@ -35,7 +39,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.rememberModalBottomSheetState
@@ -51,9 +54,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalClipboard
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
@@ -64,15 +68,17 @@ import androidx.navigation.NavHostController
 import coil.compose.AsyncImage
 import io.ethan.pushgo.R
 import io.ethan.pushgo.data.ChannelSubscriptionRepository
+import io.ethan.pushgo.data.MessageImageStore
 import io.ethan.pushgo.data.MessageRepository
+import io.ethan.pushgo.data.model.PushMessage
+import io.ethan.pushgo.data.model.MessageSeverity
 import io.ethan.pushgo.markdown.MessageBodyResolver
 import io.ethan.pushgo.notifications.MessageStateCoordinator
 import io.ethan.pushgo.ui.MessageDetailViewModelFactory
-import io.ethan.pushgo.ui.MessagePayloadUtils
-import io.ethan.pushgo.ui.markdown.MarkdownRenderer
+import io.ethan.pushgo.ui.markdown.FullMarkdownRenderer
+import io.ethan.pushgo.ui.theme.PushGoSheetContainerColor
 import io.ethan.pushgo.ui.viewmodel.MessageDetailViewModel
 import kotlinx.coroutines.launch
-import org.json.JSONObject
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.Locale
@@ -86,8 +92,10 @@ fun MessageDetailScreen(
     repository: MessageRepository,
     stateCoordinator: MessageStateCoordinator,
     channelRepository: ChannelSubscriptionRepository,
+    imageStore: MessageImageStore,
     onDismiss: () -> Unit,
 ) {
+    val initialRenderStartedAtMs = remember(messageId) { SystemClock.elapsedRealtime() }
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val viewModel: MessageDetailViewModel = viewModel(
         key = messageId,
@@ -98,14 +106,9 @@ fun MessageDetailScreen(
     val context = LocalContext.current
     val clipboard = LocalClipboard.current
     val scope = rememberCoroutineScope()
-    var channelNameMap by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
 
     LaunchedEffect(messageId) {
         viewModel.load()
-    }
-
-    LaunchedEffect(messageId) {
-        channelNameMap = channelRepository.loadSubscriptionLookup(includeDeleted = true)
     }
 
     if (isLoading) {
@@ -126,206 +129,305 @@ fun MessageDetailScreen(
 
     val current = message
     if (current == null) {
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(24.dp),
-            contentAlignment = Alignment.Center
-        ) {
-            Text(
-                text = stringResource(R.string.label_no_messages),
-                style = MaterialTheme.typography.bodyLarge,
-                color = MaterialTheme.colorScheme.error
-            )
-        }
+        AppEmptyState(
+            icon = Icons.Outlined.MarkEmailRead,
+            title = stringResource(R.string.label_no_messages),
+            description = stringResource(R.string.message_list_empty_hint),
+            modifier = Modifier.fillMaxWidth(),
+            topPadding = 32.dp,
+            iconSize = 44.dp,
+        )
         return
     }
 
-    val timeText = remember(current.receivedAt, context.resources.configuration) {
+    LaunchedEffect(isLoading, current.id) {
+        if (!isLoading) {
+            val elapsedMs = SystemClock.elapsedRealtime() - initialRenderStartedAtMs
+            io.ethan.pushgo.util.SilentSink.i(
+                "PushGoPerf",
+                "android_detail_visible message_id=${current.id} elapsed_ms=$elapsedMs"
+            )
+        }
+    }
+
+    val configuration = LocalConfiguration.current
+    val timeText = remember(current.receivedAt, configuration) {
         formatDetailTime(context, current.receivedAt, ZoneId.systemDefault())
     }
-    val imageUrl = remember(current.rawPayloadJson) { MessagePayloadUtils.extractImageUrl(current.rawPayloadJson) }
-    val prettyPayload = remember(current.rawPayloadJson) { prettyJson(current.rawPayloadJson) }
-    val channelLabel = current.channel?.trim()?.let { channelNameMap[it] ?: it }
+    val severity = current.severity
+    val imageModels = remember(current.rawPayloadJson) {
+        imageStore.resolveDetailImageModels(current.rawPayloadJson)
+    }
+    var previewImageModel by remember(current.id) { mutableStateOf<Any?>(null) }
     val resolvedBody = remember(current.rawPayloadJson, current.body) {
         MessageBodyResolver.resolve(current.rawPayloadJson, current.body)
     }
-    val bodyStyle = MaterialTheme.typography.bodyLarge.copy(
-        lineHeight = MaterialTheme.typography.bodyLarge.lineHeight * 1.4
-    )
-
-    var rawExpanded by remember { mutableStateOf(false) }
-
     ModalBottomSheet(
+        modifier = Modifier.testTag("sheet.message.detail"),
         onDismissRequest = { onDismiss() },
         sheetState = sheetState,
+        containerColor = PushGoSheetContainerColor(),
+        tonalElevation = 0.dp,
         dragHandle = null,
     ) {
-        Column(
-            modifier = Modifier
-                .verticalScroll(rememberScrollState())
-                .padding(horizontal = 16.dp)
-                .padding(bottom = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp),
-        ) {
+        MessageDetailCoreContent(
+            message = current,
+            timeText = timeText,
+            imageModels = imageModels,
+            resolvedBodyText = resolvedBody.rawText,
+            onDelete = {
+                viewModel.delete()
+                onDismiss()
+            },
+            onOpenImage = { model -> previewImageModel = model },
+            onOpenUrl = { url ->
+                val intent = Intent(Intent.ACTION_VIEW, url.toUri())
+                context.startActivity(intent)
+            },
+        )
+    }
+    if (previewImageModel != null) {
+        ZoomableImagePreviewDialog(
+            model = previewImageModel,
+            onDismiss = { previewImageModel = null },
+        )
+    }
+}
+
+@Composable
+internal fun MessageDetailCoreContent(
+    message: PushMessage,
+    timeText: String,
+    imageModels: List<Any>,
+    resolvedBodyText: String,
+    onDelete: (() -> Unit)?,
+    onOpenImage: (Any) -> Unit,
+    onOpenUrl: (String) -> Unit,
+) {
+    Column(
+        modifier = Modifier
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = 16.dp)
+            .padding(bottom = 16.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp),
+    ) {
+        if (onDelete != null) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.End,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                if (!current.isRead) {
-                    IconButton(onClick = { viewModel.markRead() }) {
-                        Icon(
-                            imageVector = Icons.Outlined.MarkEmailRead,
-                            contentDescription = stringResource(R.string.action_mark_read),
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                }
-                IconButton(onClick = {
-                    val text = buildString {
-                        append(current.title)
-                        if (current.body.isNotBlank()) {
-                            append("\n")
-                            append(current.body)
-                        }
-                    }
-                    scope.launch { clipboard.setText(AnnotatedString(text)) }
-                }) {
-                    Icon(Icons.Outlined.ContentCopy, contentDescription = stringResource(R.string.action_copy), tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-                IconButton(onClick = {
-                    viewModel.delete()
-                    onDismiss()
-                }) {
-                    Icon(Icons.Outlined.Delete, contentDescription = stringResource(R.string.action_delete), tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-                IconButton(onClick = onDismiss) {
-                    Icon(Icons.Outlined.KeyboardArrowDown, contentDescription = stringResource(R.string.label_close), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                IconButton(
+                    modifier = Modifier.testTag("action.message.delete"),
+                    onClick = onDelete,
+                ) {
+                    Icon(
+                        Icons.Outlined.Delete,
+                        contentDescription = stringResource(R.string.action_delete),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
                 }
             }
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(16.dp),
-                    colors = CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.surface
-                    ),
-                    elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
-                ) {
-                    Column(
-                        modifier = Modifier.padding(24.dp),
-                        verticalArrangement = Arrangement.spacedBy(16.dp)
+        }
+        Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .testTag("panel.message.detail"),
+            shape = RoundedCornerShape(16.dp),
+            colors = CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.surface
+            ),
+            elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+        ) {
+            Column(
+                modifier = Modifier.padding(24.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                Column {
+                    Text(
+                        text = message.title,
+                        style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Bold),
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        modifier = Modifier.fillMaxWidth()
                     ) {
-                        Column {
-                            Text(
-                                text = current.title,
-                                style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Bold),
-                                color = MaterialTheme.colorScheme.onSurface
-                            )
-                            Spacer(modifier = Modifier.height(8.dp))
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                if (!channelLabel.isNullOrBlank()) {
-                                    Text(
-                                        text = "#$channelLabel",
-                                        style = MaterialTheme.typography.labelMedium.copy(fontFamily = FontFamily.Monospace),
-                                        color = MaterialTheme.colorScheme.primary,
-                                    )
-                                }
-                                Text(
-                                    text = timeText,
-                                    style = MaterialTheme.typography.labelMedium.copy(fontFamily = FontFamily.Monospace),
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-                        }
-
-                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
-                        MarkdownRenderer(
-                            text = resolvedBody.rawText,
-                            textStyle = bodyStyle,
-                            modifier = Modifier.fillMaxWidth(),
-                        )
-                        if (!imageUrl.isNullOrBlank()) {
-                            AsyncImage(
-                                model = imageUrl,
-                                contentDescription = stringResource(R.string.label_image_attachment),
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clip(RoundedCornerShape(12.dp))
-                                    .background(MaterialTheme.colorScheme.surfaceVariant),
-                            )
-                        }
-                        if (!current.url.isNullOrBlank()) {
-                            Button(
-                                onClick = {
-                                    val intent = Intent(Intent.ACTION_VIEW, current.url.toUri())
-                                    context.startActivity(intent)
-                                },
-                                modifier = Modifier.fillMaxWidth(),
-                                shape = RoundedCornerShape(8.dp)
-                            ) {
-                                Text(stringResource(R.string.label_open_url))
-                            }
-                        }
-                    }
-                }
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(16.dp),
-                    colors = CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
-                    ),
-                ) {
-                    Column(modifier = Modifier.padding(16.dp)) {
                         Row(
-                            modifier = Modifier.fillMaxWidth(),
+                            modifier = Modifier.weight(1f),
                             verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
                         ) {
                             Text(
-                                text = stringResource(R.string.label_raw_payload),
-                                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                                text = timeText,
+                                style = MaterialTheme.typography.labelMedium.copy(fontFamily = FontFamily.Monospace),
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
-                            TextButton(onClick = { rawExpanded = !rawExpanded }) {
-                                Text(
-                                    if (rawExpanded) {
-                                        stringResource(R.string.action_collapse)
-                                    } else {
-                                        stringResource(R.string.action_expand)
-                                    }
-                                )
-                            }
                         }
-                        if (rawExpanded) {
-                            Spacer(modifier = Modifier.height(8.dp))
-                            SelectionContainer {
-                                Box(
+                        MessageSeverityDetailBadge(severity = message.severity)
+                    }
+                }
+
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+                if (message.tags.isNotEmpty()) {
+                    Text(
+                        text = message.tags.joinToString(separator = " · "),
+                        style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                if (message.metadata.isNotEmpty()) {
+                    MetadataSection(items = message.metadata)
+                }
+                if (imageModels.isNotEmpty()) {
+                    if (imageModels.size == 1) {
+                        val model = imageModels.first()
+                        AsyncImage(
+                            model = model,
+                            contentDescription = stringResource(R.string.label_image_attachment),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(220.dp)
+                                .clip(RoundedCornerShape(12.dp))
+                                .clickable { onOpenImage(model) },
+                        )
+                    } else {
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier.horizontalScroll(rememberScrollState())
+                        ) {
+                            imageModels.forEach { model ->
+                                AsyncImage(
+                                    model = model,
+                                    contentDescription = stringResource(R.string.label_image_attachment),
                                     modifier = Modifier
-                                        .fillMaxWidth()
-                                        .clip(RoundedCornerShape(8.dp))
-                                        .background(Color(0xFF0F172A))
-                                        .padding(12.dp)
-                                ) {
-                                    Text(
-                                        text = prettyPayload,
-                                        style = MaterialTheme.typography.bodySmall.copy(
-                                            fontFamily = FontFamily.Monospace,
-                                            color = Color(0xFFE2E8F0)
-                                        ),
-                                    )
-                                }
+                                        .size(88.dp)
+                                        .clip(RoundedCornerShape(10.dp))
+                                        .clickable { onOpenImage(model) },
+                                )
                             }
                         }
                     }
                 }
-
-                Spacer(modifier = Modifier.height(24.dp))
+                if (message.severity == MessageSeverity.CRITICAL) {
+                    CriticalSeverityHintCard()
+                }
+                FullMarkdownRenderer(
+                    text = resolvedBodyText,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                if (!message.url.isNullOrBlank()) {
+                    Button(
+                        onClick = { onOpenUrl(message.url.orEmpty()) },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("action.message.open_url"),
+                        shape = RoundedCornerShape(8.dp)
+                    ) {
+                        Text(stringResource(R.string.label_open_url))
+                    }
+                }
+            }
         }
+        Spacer(modifier = Modifier.height(24.dp))
+    }
+}
+
+@Composable
+private fun MetadataSection(items: Map<String, String>) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag("section.message.metadata"),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(12.dp))
+                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f))
+                .padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            items.toSortedMap(String.CASE_INSENSITIVE_ORDER).forEach { (key, value) ->
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.Top,
+                ) {
+                    Text(
+                        text = key,
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Text(
+                        text = value,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurface,
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun MessageSeverityDetailBadge(severity: MessageSeverity?) {
+    val resolved = severity ?: return
+    val text = when (resolved) {
+        MessageSeverity.LOW -> stringResource(R.string.message_severity_low)
+        MessageSeverity.MEDIUM -> stringResource(R.string.message_severity_medium)
+        MessageSeverity.HIGH -> stringResource(R.string.message_severity_high)
+        MessageSeverity.CRITICAL -> stringResource(R.string.message_severity_critical)
+    }
+    val bgColor = when (resolved) {
+        MessageSeverity.LOW -> Color(0xFF93C5FD).copy(alpha = 0.18f)
+        MessageSeverity.MEDIUM -> Color(0xFFFDE68A).copy(alpha = 0.20f)
+        MessageSeverity.HIGH -> Color(0xFFF59E0B).copy(alpha = 0.18f)
+        MessageSeverity.CRITICAL -> Color(0xFFDC2626).copy(alpha = 0.18f)
+    }
+    val fgColor = when (resolved) {
+        MessageSeverity.LOW -> Color(0xFF1D4ED8)
+        MessageSeverity.MEDIUM -> Color(0xFFB45309)
+        MessageSeverity.HIGH -> Color(0xFFB45309)
+        MessageSeverity.CRITICAL -> Color(0xFFB91C1C)
+    }
+    Box(
+        modifier = Modifier
+            .clip(RoundedCornerShape(999.dp))
+            .background(bgColor)
+            .padding(horizontal = 10.dp, vertical = 4.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            text = text,
+            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
+            color = fgColor,
+            maxLines = 1,
+        )
+    }
+}
+
+@Composable
+private fun CriticalSeverityHintCard() {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag("banner.message.severity.critical"),
+        shape = RoundedCornerShape(10.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = Color(0xFFFEE2E2).copy(alpha = 0.6f),
+        ),
+        border = BorderStroke(1.dp, Color(0xFFFCA5A5).copy(alpha = 0.6f)),
+    ) {
+        Text(
+            text = stringResource(R.string.message_severity_critical_hint),
+            style = MaterialTheme.typography.bodySmall,
+            color = Color(0xFF991B1B),
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+        )
     }
 }
 
@@ -349,8 +451,4 @@ private fun localeFrom(context: Context): Locale {
         @Suppress("DEPRECATION")
         context.resources.configuration.locale
     }
-}
-
-private fun prettyJson(rawPayload: String): String {
-    return runCatching { JSONObject(rawPayload).toString(2) }.getOrDefault(rawPayload)
 }

@@ -6,6 +6,7 @@ import io.ethan.pushgo.data.db.ChannelSubscriptionEntity
 
 class ChannelSubscriptionStore(
     private val dao: ChannelSubscriptionDao,
+    private val secretStore: SecureSecretStore,
 ) {
     suspend fun loadSubscriptions(gatewayUrl: String, includeDeleted: Boolean = false): List<ChannelSubscription> {
         val entities = if (includeDeleted) {
@@ -24,19 +25,18 @@ class ChannelSubscriptionStore(
         lastSyncedAt: Long? = null,
     ): ChannelSubscription {
         val now = System.currentTimeMillis()
-        val existing = dao.getById(gatewayUrl, channelId)
-        val resolvedAutoCleanupEnabled = existing?.autoCleanupEnabled ?: true
         val record = ChannelSubscriptionEntity(
             gatewayUrl = gatewayUrl,
             channelId = channelId,
             displayName = displayName,
             updatedAt = now,
             lastSyncedAt = lastSyncedAt,
-            autoCleanupEnabled = resolvedAutoCleanupEnabled,
-            password = password,
             isDeleted = false,
             deletedAt = null,
         )
+        val normalizedPassword = password.trim().ifEmpty { null }
+        secretStore.setChannelPassword(gatewayUrl, channelId, normalizedPassword)
+        val existing = dao.getById(gatewayUrl, channelId)
         if (existing == null) {
             dao.insert(record)
         } else {
@@ -53,29 +53,38 @@ class ChannelSubscriptionStore(
         dao.updateDisplayName(gatewayUrl, channelId, displayName, System.currentTimeMillis())
     }
 
-    suspend fun updateAutoCleanupEnabled(gatewayUrl: String, channelId: String, enabled: Boolean) {
-        dao.updateAutoCleanupEnabled(gatewayUrl, channelId, enabled, System.currentTimeMillis())
-    }
-
     suspend fun softDeleteSubscription(gatewayUrl: String, channelId: String) {
         dao.softDelete(gatewayUrl, channelId, System.currentTimeMillis())
+        secretStore.removeChannelPassword(gatewayUrl, channelId)
     }
 
     suspend fun passwordFor(gatewayUrl: String, channelId: String): String? {
         val entry = dao.getById(gatewayUrl, channelId) ?: return null
         if (entry.isDeleted) return null
-        return entry.password
+        return secretStore.channelPassword(gatewayUrl, channelId)
+            ?.trim()
+            ?.ifEmpty { null }
     }
 
     suspend fun loadActiveCredentials(gatewayUrl: String): List<Pair<String, String>> {
-        return dao.getActive(gatewayUrl).mapNotNull { entry ->
-            val password = entry.password?.trim().orEmpty()
-            if (password.isEmpty()) {
-                null
-            } else {
-                entry.channelId to password
+        val entries = dao.getActive(gatewayUrl)
+        val credentials = mutableListOf<Pair<String, String>>()
+        for (entry in entries) {
+            val secret = secretStore.channelPassword(gatewayUrl, entry.channelId)
+                ?.trim()
+                ?.ifEmpty { null }
+            if (secret != null) {
+                credentials += entry.channelId to secret
             }
         }
+        return credentials
     }
 
+    suspend fun countActive(gatewayUrl: String): Int {
+        return dao.countActive(gatewayUrl)
+    }
+
+    suspend fun clearAll() {
+        dao.deleteAll()
+    }
 }

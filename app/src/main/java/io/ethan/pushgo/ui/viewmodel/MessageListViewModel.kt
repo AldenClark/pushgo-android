@@ -12,6 +12,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
@@ -26,6 +27,7 @@ class MessageListViewModel(
     private val stateCoordinator: MessageStateCoordinator,
 ) : ViewModel() {
     private val filter = MutableStateFlow(MessageFilter())
+    private val channelCountsEnabled = MutableStateFlow(false)
 
     val messages: Flow<PagingData<PushMessage>> = filter
         .flatMapLatest { repository.observeMessages(it) }
@@ -34,8 +36,21 @@ class MessageListViewModel(
     val filterState: StateFlow<MessageFilter> = filter
         .stateIn(viewModelScope, SharingStarted.Lazily, MessageFilter())
 
-    val channelCounts = repository.observeChannelCounts()
+    val channelCounts = channelCountsEnabled
+        .flatMapLatest { enabled ->
+            if (enabled) {
+                repository.observeChannelCounts()
+            } else {
+                flowOf(emptyList())
+            }
+        }
         .stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
+
+    fun enableChannelCounts() {
+        if (!channelCountsEnabled.value) {
+            channelCountsEnabled.value = true
+        }
+    }
 
     fun setReadFilter(readFilter: ReadFilter) {
         filter.value = filter.value.copy(readFilter = readFilter)
@@ -67,10 +82,10 @@ class MessageListViewModel(
         }
     }
 
-    fun cleanupReadMessagesForCurrentFilter(): Job {
+    fun cleanupMessagesForCurrentFilter(): Job {
         val channel = filter.value.channel
         return viewModelScope.launch {
-            stateCoordinator.deleteMessagesByChannelRead(channel, true)
+            stateCoordinator.deleteMessagesByChannelRead(channel, null)
         }
     }
 }

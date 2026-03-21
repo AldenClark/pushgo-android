@@ -4,7 +4,7 @@ import java.time.Instant
 
 data class NotificationKeyMaterial(
     val algorithm: String,
-    val keyBase64: String,
+    val keyBytes: ByteArray,
     val updatedAt: Instant,
 )
 

@@ -1,7 +1,7 @@
 package io.ethan.pushgo.notifications
 
 import io.ethan.pushgo.data.model.DecryptionState
-import org.json.JSONObject
+import io.ethan.pushgo.util.JsonCompat
 import java.util.Base64
 import javax.crypto.Cipher
 import javax.crypto.spec.GCMParameterSpec
@@ -14,50 +14,43 @@ object NotificationDecryptor {
     data class Result(
         val title: String,
         val body: String,
-        val image: String?,
-        val icon: String?,
-        val decryptedBody: String?,
+        val images: List<String>,
         val decryptionState: DecryptionState?,
-    )
+    ) {
+        val image: String?
+            get() = images.firstOrNull()
+    }
 
     fun decryptIfNeeded(
         data: Map<String, String>,
         title: String,
         body: String,
-        keyBase64: String?,
+        keyBytes: ByteArray?,
     ): Result {
         val ciphertext = data["ciphertext"]
         val likelyEncrypted = !ciphertext.isNullOrBlank()
             || InlineCipherEnvelope.looksLikeCiphertext(title)
             || InlineCipherEnvelope.looksLikeCiphertext(body)
 
-        if (likelyEncrypted && keyBase64.isNullOrBlank()) {
-            return Result(title, body, null, null, null, DecryptionState.NOT_CONFIGURED)
+        if (likelyEncrypted && (keyBytes == null || keyBytes.isEmpty())) {
+            return Result(title, body, emptyList(), DecryptionState.NOT_CONFIGURED)
         }
 
-        val keyBytes = keyBase64?.let { runCatching { Base64.getDecoder().decode(it) }.getOrNull() }
         if (keyBytes != null && keyBytes.isNotEmpty() && keyBytes.size !in VALID_KEY_LENGTHS) {
             return Result(
                 title,
                 body,
-                null,
-                null,
-                null,
+                emptyList(),
                 if (likelyEncrypted) DecryptionState.DECRYPT_FAILED else null,
             )
         }
-        if (likelyEncrypted && (keyBytes == null || keyBytes.isEmpty())) {
-            return Result(title, body, null, null, null, DecryptionState.DECRYPT_FAILED)
-        }
         if (keyBytes == null || keyBytes.isEmpty()) {
-            return Result(title, body, null, null, null, null)
+            return Result(title, body, emptyList(), null)
         }
 
         var resolvedTitle = title
         var resolvedBody = body
-        var image: String? = null
-        var icon: String? = null
-        var decryptedBody: String? = null
+        var images: List<String> = emptyList()
         var inlineStatus: DecryptStatus = DecryptStatus.NONE
         var cipherStatus: DecryptStatus = DecryptStatus.NONE
 
@@ -88,10 +81,8 @@ object NotificationDecryptor {
                 cipherResult.title?.let { resolvedTitle = it }
                 cipherResult.body?.let {
                     resolvedBody = it
-                    decryptedBody = it
                 }
-                image = cipherResult.image
-                icon = cipherResult.icon
+                images = cipherResult.images
             }
         }
 
@@ -102,7 +93,7 @@ object NotificationDecryptor {
             else -> null
         }
 
-        return Result(resolvedTitle, resolvedBody, image, icon, decryptedBody, state)
+        return Result(resolvedTitle, resolvedBody, images, state)
     }
 
     private fun decryptInlineField(value: String, key: ByteArray): InlineDecryptResult {
@@ -119,13 +110,12 @@ object NotificationDecryptor {
         val envelope = InlineCipherEnvelope.from(ciphertext) ?: return CipherDecryptResult(DecryptStatus.NONE)
         return try {
             val plaintext = aesGcmDecrypt(envelope.ciphertextAndTag, key, envelope.iv)
-            val json = JSONObject(plaintext)
+            val json = JsonCompat.parseObject(plaintext) ?: return CipherDecryptResult(DecryptStatus.FAILURE)
             CipherDecryptResult(
                 status = DecryptStatus.SUCCESS,
-                title = json.optString("title", "").trim().takeUnless { it.isEmpty() },
-                body = json.optString("body", "").trim().takeUnless { it.isEmpty() },
-                image = json.optString("image", "").trim().takeUnless { it.isEmpty() },
-                icon = json.optString("icon", "").trim().takeUnless { it.isEmpty() },
+                title = json.stringValue("title"),
+                body = json.stringValue("body"),
+                images = decodeImages(json),
             )
         } catch (ex: Exception) {
             CipherDecryptResult(DecryptStatus.FAILURE)
@@ -176,13 +166,52 @@ object NotificationDecryptor {
         val status: DecryptStatus,
         val title: String? = null,
         val body: String? = null,
-        val image: String? = null,
-        val icon: String? = null,
+        val images: List<String> = emptyList(),
     )
 
     private enum class DecryptStatus {
         NONE,
         SUCCESS,
         FAILURE,
+    }
+
+    private fun decodeImages(json: Map<String, Any?>): List<String> {
+        val results = linkedSetOf<String>()
+        val image = json.stringValue("image").orEmpty()
+        if (image.isNotEmpty()) {
+            results += image
+        }
+        val rawImages = json["images"]
+        when (rawImages) {
+            is List<*> -> {
+                for (entry in rawImages) {
+                    val value = entry?.toString()?.trim().orEmpty()
+                    if (value.isNotEmpty()) {
+                        results += value
+                    }
+                }
+            }
+            is String -> {
+                val trimmed = rawImages.trim()
+                if (trimmed.isNotEmpty()) {
+                    val parsed = runCatching { JsonCompat.parseArray(trimmed) }.getOrNull()
+                    if (parsed != null) {
+                        for (entry in parsed) {
+                            val value = entry?.toString()?.trim().orEmpty()
+                            if (value.isNotEmpty()) {
+                                results += value
+                            }
+                        }
+                    } else {
+                        results += trimmed
+                    }
+                }
+            }
+        }
+        return results.toList()
+    }
+
+    private fun Map<String, Any?>.stringValue(key: String): String? {
+        return this[key]?.toString()?.trim()?.ifEmpty { null }
     }
 }

@@ -26,16 +26,35 @@ data class ChannelRenameResult(
     val channelName: String,
 )
 
-data class PushSummary(
+data class ChannelSyncItem(
     val channelId: String,
-    val channelName: String,
-    val messageId: String,
-    val total: Int,
-    val accepted: Int,
-    val rejected: Int,
+    val password: String,
+)
+
+data class ChannelSyncResult(
+    val channelId: String,
+    val channelName: String?,
+    val subscribed: Boolean,
+    val errorCode: String?,
+    val error: String?,
+)
+
+data class ChannelSyncSummary(
+    val success: Int,
+    val failed: Int,
+    val channels: List<ChannelSyncResult>,
+)
+
+data class DeviceChannelUpsertResult(
+    val deviceKey: String,
 )
 
 class ChannelSubscriptionService {
+    data class EventSendResult(
+        val eventId: String,
+        val thingId: String?,
+    )
+
     suspend fun channelExists(
         baseUrl: String,
         token: String?,
@@ -60,14 +79,14 @@ class ChannelSubscriptionService {
     suspend fun subscribe(
         baseUrl: String,
         token: String?,
+        deviceKey: String,
         channelId: String?,
         channelName: String?,
         password: String,
-        deviceToken: String,
-        platform: String,
     ): ChannelSubscribeResult = withContext(Dispatchers.IO) {
         val endpoint = buildUrl(baseUrl, "/channel/subscribe")
         val payload = JSONObject().apply {
+            put("device_key", deviceKey)
             if (!channelId.isNullOrBlank()) {
                 put("channel_id", channelId)
             }
@@ -75,8 +94,6 @@ class ChannelSubscriptionService {
                 put("channel_name", channelName)
             }
             put("password", password)
-            put("device_token", deviceToken)
-            put("platform", platform)
         }
         val response = execute(endpoint, token, "POST", payload)
         val data = response.data ?: throw ChannelSubscriptionException("Invalid response")
@@ -95,19 +112,76 @@ class ChannelSubscriptionService {
     suspend fun unsubscribe(
         baseUrl: String,
         token: String?,
+        deviceKey: String,
         channelId: String,
-        deviceToken: String,
-        platform: String,
     ): Boolean = withContext(Dispatchers.IO) {
         val endpoint = buildUrl(baseUrl, "/channel/unsubscribe")
         val payload = JSONObject().apply {
+            put("device_key", deviceKey)
             put("channel_id", channelId)
-            put("device_token", deviceToken)
-            put("platform", platform)
         }
         val response = execute(endpoint, token, "POST", payload)
         val data = response.data ?: return@withContext false
         return@withContext data.optBoolean("removed", false)
+    }
+
+    suspend fun registerDevice(
+        baseUrl: String,
+        token: String?,
+        platform: String,
+        existingDeviceKey: String?,
+    ): String = withContext(Dispatchers.IO) {
+        val endpoint = buildUrl(baseUrl, "/device/register")
+        val payload = JSONObject().apply {
+            put("platform", platform)
+            if (!existingDeviceKey.isNullOrBlank()) {
+                put("device_key", existingDeviceKey.trim())
+            }
+        }
+        val response = execute(endpoint, token, "POST", payload)
+        val data = response.data ?: throw ChannelSubscriptionException("Invalid response")
+        val deviceKey = data.optString("device_key", "").trim()
+        if (deviceKey.isEmpty()) {
+            throw ChannelSubscriptionException("gateway response missing device_key")
+        }
+        return@withContext deviceKey
+    }
+
+    suspend fun upsertDeviceChannel(
+        baseUrl: String,
+        token: String?,
+        deviceKey: String,
+        channelType: String,
+        providerToken: String?,
+    ): DeviceChannelUpsertResult = withContext(Dispatchers.IO) {
+        val endpoint = buildUrl(baseUrl, "/channel/device")
+        val payload = JSONObject().apply {
+            put("device_key", deviceKey)
+            put("channel_type", channelType.trim().lowercase())
+            if (!providerToken.isNullOrBlank()) {
+                put("provider_token", providerToken.trim())
+            }
+        }
+        val response = execute(endpoint, token, "POST", payload)
+        val data = response.data
+        val returnedKey = data?.optString("device_key", "")?.trim().orEmpty()
+        val resolved = if (returnedKey.isEmpty()) deviceKey.trim() else returnedKey
+        DeviceChannelUpsertResult(deviceKey = resolved)
+    }
+
+    suspend fun deleteDeviceChannel(
+        baseUrl: String,
+        token: String?,
+        deviceKey: String,
+        channelType: String,
+    ) = withContext(Dispatchers.IO) {
+        val endpoint = buildUrl(baseUrl, "/channel/device/delete")
+        val payload = JSONObject().apply {
+            put("device_key", deviceKey)
+            put("channel_type", channelType.trim().lowercase())
+        }
+        execute(endpoint, token, "POST", payload)
+        Unit
     }
 
     suspend fun renameChannel(
@@ -133,38 +207,72 @@ class ChannelSubscriptionService {
         )
     }
 
-    suspend fun retireDevice(
+    suspend fun sync(
         baseUrl: String,
         token: String?,
-        deviceToken: String,
-        platform: String,
-    ): Int = withContext(Dispatchers.IO) {
-        val endpoint = buildUrl(baseUrl, "/device/retire")
+        deviceKey: String,
+        channels: List<ChannelSyncItem>,
+    ): ChannelSyncSummary = withContext(Dispatchers.IO) {
+        val endpoint = buildUrl(baseUrl, "/channel/sync")
         val payload = JSONObject().apply {
-            put("device_token", deviceToken)
-            put("platform", platform)
+            put("device_key", deviceKey)
+            put("channels", org.json.JSONArray().apply {
+                channels.forEach { item ->
+                    put(
+                        JSONObject().apply {
+                            put("channel_id", item.channelId)
+                            put("password", item.password)
+                        }
+                    )
+                }
+            })
         }
         val response = execute(endpoint, token, "POST", payload)
-        val data = response.data ?: return@withContext 0
-        return@withContext data.optInt("removed_subscriptions", 0)
+        val data = response.data ?: throw ChannelSubscriptionException("Invalid response")
+        val channelArray = data.optJSONArray("channels")
+        val parsedChannels = buildList {
+            if (channelArray != null) {
+                for (index in 0 until channelArray.length()) {
+                    val item = channelArray.optJSONObject(index) ?: continue
+                    val channelId = item.optString("channel_id", "").trim()
+                    if (channelId.isEmpty()) continue
+                    add(
+                        ChannelSyncResult(
+                            channelId = channelId,
+                            channelName = item.optString("channel_name", "").trim().ifEmpty { null },
+                            subscribed = item.optBoolean("subscribed", false),
+                            errorCode = item.optString("error_code", "").trim().ifEmpty { null },
+                            error = item.optString("error", "").trim().ifEmpty { null },
+                        )
+                    )
+                }
+            }
+        }
+        return@withContext ChannelSyncSummary(
+            success = data.optInt("success", 0),
+            failed = data.optInt("failed", 0),
+            channels = parsedChannels,
+        )
     }
 
-    suspend fun pushToChannel(
+    suspend fun eventToChannel(
         baseUrl: String,
         token: String?,
         payload: JSONObject,
-    ): PushSummary = withContext(Dispatchers.IO) {
-        val endpoint = buildUrl(baseUrl, "/push")
+        endpointPath: String = "/event/update",
+    ): EventSendResult = withContext(Dispatchers.IO) {
+        val endpoint = buildUrl(baseUrl, endpointPath)
         val response = execute(endpoint, token, "POST", payload)
         val data = response.data ?: throw ChannelSubscriptionException("Invalid response")
-        return@withContext PushSummary(
-            channelId = data.optString("channel_id", ""),
-            channelName = data.optString("channel_name", ""),
-            messageId = data.optString("message_id", ""),
-            total = data.optInt("total", 0),
-            accepted = data.optInt("accepted", 0),
-            rejected = data.optInt("rejected", 0),
-        )
+        val eventId = data.optString("event_id", "").trim()
+        if (eventId.isEmpty()) {
+            throw ChannelSubscriptionException("gateway response missing event_id")
+        }
+        if (!data.optBoolean("accepted", false)) {
+            throw ChannelSubscriptionException("Request failed")
+        }
+        val thingId = data.optString("thing_id", "").trim().ifEmpty { null }
+        EventSendResult(eventId = eventId, thingId = thingId)
     }
 
     private fun execute(
@@ -204,21 +312,33 @@ class ChannelSubscriptionService {
             if (code == 401 || code == 403) {
                 throw ChannelSubscriptionException("Auth failed")
             }
-            if (code !in 200..299) {
-                throw ChannelSubscriptionException("Server error: $code")
-            }
             val json = runCatching { JSONObject(body) }.getOrNull()
             if (json != null) {
                 val success = json.optBoolean("success", false)
                 val error = json.optString("error", "").trim()
+                val errorCode = json.optString("error_code", "").trim()
                 val data = json.optJSONObject("data")
-                if (!success && error.isNotEmpty()) {
-                    throw ChannelSubscriptionException(error)
+                if (errorCode.isNotEmpty() || error.isNotEmpty()) {
+                    val message = when {
+                        errorCode.isNotEmpty() && error.isNotEmpty() -> "$errorCode: $error"
+                        errorCode.isNotEmpty() -> errorCode
+                        else -> error
+                    }
+                    throw ChannelSubscriptionException(message)
+                }
+                if (!success && code !in 200..299) {
+                    throw ChannelSubscriptionException("Server error: $code")
                 }
                 if (!success) {
                     throw ChannelSubscriptionException("Request failed")
                 }
+                if (code !in 200..299) {
+                    throw ChannelSubscriptionException("Server error: $code")
+                }
                 return StatusResponse(success = success, data = data)
+            }
+            if (code !in 200..299) {
+                throw ChannelSubscriptionException("Server error: $code")
             }
             throw ChannelSubscriptionException("Invalid response")
         } finally {

@@ -19,49 +19,53 @@ import io.ethan.pushgo.MainActivity
 import io.ethan.pushgo.R
 import io.ethan.pushgo.data.AppConstants
 import io.ethan.pushgo.data.model.PushMessage
+import io.ethan.pushgo.markdown.MessagePreviewExtractor
 
 object NotificationHelper {
     private const val LEGACY_SUMMARY_NOTIFICATION_ID = 10_001
     const val EXTRA_MESSAGE_ID = "extra_message_id"
+    const val EXTRA_ENTITY_TYPE = "extra_entity_type"
+    const val EXTRA_ENTITY_ID = "extra_entity_id"
     const val ACTION_MARK_READ = "io.ethan.pushgo.action.MARK_READ"
     const val ACTION_DELETE = "io.ethan.pushgo.action.DELETE"
     const val ACTION_COPY = "io.ethan.pushgo.action.COPY"
 
     fun ensureChannel(
         context: Context,
-        ringtoneId: String?,
-        ringMode: String?,
         level: String?,
     ): String {
-        val ringtone = RingtoneCatalog.findById(ringtoneId)
-        val normalizedLevel = level?.trim()?.lowercase()
-        val isCritical = normalizedLevel == "critical"
-        val useLongSound = ringMode?.trim()?.equals("long", ignoreCase = true) == true
-        val longSoundUri = if (useLongSound) {
-            LongRingtoneManager.getExistingLongSoundUri(context, ringtone.id)
-        } else {
-            null
+        val profile = resolveLevelProfile(level)
+        val isSilent = profile.isSilent
+        val ringtoneId = if (isSilent) "silent" else RingtoneCatalog.idForLevel(level)
+        val ringtone = if (isSilent) null else RingtoneCatalog.findById(ringtoneId)
+        val priorityTag = when {
+            profile.isCritical -> "critical"
+            profile.isHighPriority -> "high"
+            else -> "normal"
         }
-        val soundVariant = if (longSoundUri != null) "long" else "short"
-        val channelId = "${AppConstants.notificationChannelBaseId}_${ringtone.id}_${soundVariant}_${if (isCritical) "critical" else "normal"}"
+        val channelId = "${AppConstants.notificationChannelBaseId}_${ringtoneId}_${priorityTag}"
         val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         val existing = manager.getNotificationChannel(channelId)
         if (existing != null) return channelId
         val channel = NotificationChannel(
             channelId,
             AppConstants.notificationChannelName,
-            if (isCritical) NotificationManager.IMPORTANCE_HIGH else NotificationManager.IMPORTANCE_DEFAULT,
+            if (profile.isHighPriority) NotificationManager.IMPORTANCE_HIGH else NotificationManager.IMPORTANCE_DEFAULT,
         ).apply {
             description = AppConstants.notificationChannelDescription
             setShowBadge(true)
-            val attributes = AudioAttributes.Builder()
-                .setUsage(AudioAttributes.USAGE_NOTIFICATION)
-                .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
-                .build()
-            val soundUri = longSoundUri ?: ringtone.rawResId?.let { id ->
-                "android.resource://${context.packageName}/$id".toUri()
-            } ?: Settings.System.DEFAULT_NOTIFICATION_URI
-            setSound(soundUri, attributes)
+            if (isSilent) {
+                setSound(null, null)
+            } else {
+                val attributes = AudioAttributes.Builder()
+                    .setUsage(AudioAttributes.USAGE_NOTIFICATION)
+                    .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                    .build()
+                val soundUri = ringtone?.rawResId?.let { id ->
+                    "android.resource://${context.packageName}/$id".toUri()
+                } ?: Settings.System.DEFAULT_NOTIFICATION_URI
+                setSound(soundUri, attributes)
+            }
         }
         manager.createNotificationChannel(channel)
         return channelId
@@ -71,13 +75,11 @@ object NotificationHelper {
     fun showMessageNotification(
         context: Context,
         message: PushMessage,
-        ringtoneId: String?,
-        ringMode: String?,
         level: String?,
         unreadCount: Int?,
     ) {
         if (!canPostNotifications(context)) return
-        val channelId = ensureChannel(context, ringtoneId, ringMode, level)
+        val channelId = ensureChannel(context, level)
         val intent = Intent(context, MainActivity::class.java).apply {
             putExtra(EXTRA_MESSAGE_ID, message.id)
             addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
@@ -124,18 +126,19 @@ object NotificationHelper {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
 
-        val normalizedLevel = level?.trim()?.lowercase()
-        val isCritical = normalizedLevel == "critical"
+        val profile = resolveLevelProfile(level)
+        val isCritical = profile.isCritical
+        val bodyPreview = MessagePreviewExtractor.notificationPreview(message.body)
         val builder = NotificationCompat.Builder(context, channelId)
-            .setSmallIcon(R.mipmap.ic_launcher)
+            .setSmallIcon(R.drawable.ic_stat_pushgo)
             .setContentTitle(message.title.ifBlank { context.getString(R.string.app_name) })
-            .setContentText(message.body)
-            .setStyle(NotificationCompat.BigTextStyle().bigText(message.body))
+            .setContentText(bodyPreview)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(bodyPreview))
             .setContentIntent(contentIntent)
             .setDeleteIntent(markReadPending)
             .setAutoCancel(true)
             .setOnlyAlertOnce(true)
-            .setPriority(if (isCritical) NotificationCompat.PRIORITY_HIGH else NotificationCompat.PRIORITY_DEFAULT)
+            .setPriority(if (profile.isHighPriority) NotificationCompat.PRIORITY_HIGH else NotificationCompat.PRIORITY_DEFAULT)
             .setCategory(if (isCritical) NotificationCompat.CATEGORY_ALARM else NotificationCompat.CATEGORY_MESSAGE)
             .setBadgeIconType(NotificationCompat.BADGE_ICON_SMALL)
             .addAction(0, context.getString(R.string.action_mark_read), markReadPending)
@@ -143,6 +146,50 @@ object NotificationHelper {
             .addAction(0, context.getString(R.string.action_delete), deletePending)
 
         unreadCount?.takeIf { it >= 0 }?.let { builder.setNumber(it) }
+
+        runCatching {
+            NotificationManagerCompat.from(context).notify(notificationId, builder.build())
+        }
+    }
+
+    @SuppressLint("MissingPermission")
+    fun showEntityNotification(
+        context: Context,
+        entityType: String,
+        entityId: String,
+        title: String,
+        body: String,
+        level: String?,
+    ) {
+        if (!canPostNotifications(context)) return
+        if (entityType != "event" && entityType != "thing") return
+        val channelId = ensureChannel(context, level)
+        val intent = Intent(context, MainActivity::class.java).apply {
+            putExtra(EXTRA_ENTITY_TYPE, entityType)
+            putExtra(EXTRA_ENTITY_ID, entityId)
+            addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+        }
+        val requestCode = "$entityType:$entityId".hashCode()
+        val contentIntent = PendingIntent.getActivity(
+            context,
+            requestCode,
+            intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
+        val notificationId = requestCode
+        val profile = resolveLevelProfile(level)
+        val isCritical = profile.isCritical
+        val builder = NotificationCompat.Builder(context, channelId)
+            .setSmallIcon(R.drawable.ic_stat_pushgo)
+            .setContentTitle(title.ifBlank { context.getString(R.string.app_name) })
+            .setContentText(body)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(body))
+            .setContentIntent(contentIntent)
+            .setAutoCancel(true)
+            .setOnlyAlertOnce(true)
+            .setPriority(if (profile.isHighPriority) NotificationCompat.PRIORITY_HIGH else NotificationCompat.PRIORITY_DEFAULT)
+            .setCategory(if (isCritical) NotificationCompat.CATEGORY_ALARM else NotificationCompat.CATEGORY_STATUS)
+            .setBadgeIconType(NotificationCompat.BADGE_ICON_SMALL)
 
         runCatching {
             NotificationManagerCompat.from(context).notify(notificationId, builder.build())
@@ -197,5 +244,21 @@ object NotificationHelper {
             context,
             Manifest.permission.POST_NOTIFICATIONS,
         ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+    }
+
+    private data class LevelProfile(
+        val isCritical: Boolean,
+        val isHighPriority: Boolean,
+        val isSilent: Boolean,
+    )
+
+    private fun resolveLevelProfile(level: String?): LevelProfile {
+        val normalized = level?.trim()?.lowercase().orEmpty()
+        return when (normalized) {
+            "critical" -> LevelProfile(isCritical = true, isHighPriority = true, isSilent = false)
+            "high" -> LevelProfile(isCritical = false, isHighPriority = true, isSilent = false)
+            "low" -> LevelProfile(isCritical = false, isHighPriority = false, isSilent = true)
+            else -> LevelProfile(isCritical = false, isHighPriority = false, isSilent = false)
+        }
     }
 }

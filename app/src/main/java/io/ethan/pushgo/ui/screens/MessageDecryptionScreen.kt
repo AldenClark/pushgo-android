@@ -51,14 +51,13 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import io.ethan.pushgo.R
 import io.ethan.pushgo.data.model.KeyEncoding
-import io.ethan.pushgo.data.model.KeyLength
 import io.ethan.pushgo.ui.PushGoViewModelFactory
 import io.ethan.pushgo.ui.viewmodel.SettingsViewModel
 import io.ethan.pushgo.ui.announceForAccessibility
 
 import android.widget.Toast
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.platform.testTag
 
 @Composable
 fun MessageDecryptionScreen(
@@ -67,7 +66,6 @@ fun MessageDecryptionScreen(
     viewModel: SettingsViewModel
 ) {
     val context = LocalContext.current
-    var showKey by remember { mutableStateOf(false) }
 
     LaunchedEffect(viewModel.errorMessage) {
         val message = viewModel.errorMessage
@@ -91,6 +89,7 @@ fun MessageDecryptionScreen(
     Column(
         modifier = Modifier
             .fillMaxSize()
+            .testTag("screen.settings.decryption")
             .background(MaterialTheme.colorScheme.background)
     ) {
         Row(
@@ -124,145 +123,147 @@ fun MessageDecryptionScreen(
                 .verticalScroll(rememberScrollState())
                 .padding(24.dp)
         ) {
-            Text(
-                text = stringResource(R.string.label_key_strength).uppercase(),
-                style = MaterialTheme.typography.labelMedium.copy(
-                    color = MaterialTheme.colorScheme.primary,
-                    fontWeight = FontWeight.Bold,
-                    letterSpacing = 1.0.sp
-                ),
-                modifier = Modifier.padding(bottom = 12.dp)
-            )
-            
-            SingleChoiceSegmentedButtonRow(
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                KeyLength.entries.forEachIndexed { index, option ->
-                    SegmentedButton(
-                        selected = option == viewModel.keyLength,
-                        onClick = { viewModel.updateKeyLength(option) },
-                        shape = SegmentedButtonDefaults.itemShape(index = index, count = KeyLength.entries.size),
-                    ) {
-                        Text("${option.bytes * 8}-bit")
-                    }
-                }
-            }
-            
-            Spacer(modifier = Modifier.height(32.dp))
-            Text(
-                text = "ENCODING",
-                style = MaterialTheme.typography.labelMedium.copy(
-                    color = MaterialTheme.colorScheme.primary,
-                    fontWeight = FontWeight.Bold,
-                    letterSpacing = 1.0.sp
-                ),
-                modifier = Modifier.padding(bottom = 12.dp)
-            )
-            
-            SingleChoiceSegmentedButtonRow(
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                KeyEncoding.entries.forEachIndexed { index, option ->
-                    SegmentedButton(
-                        selected = option == viewModel.keyEncoding,
-                        onClick = { viewModel.updateKeyEncoding(option) },
-                        shape = SegmentedButtonDefaults.itemShape(index = index, count = KeyEncoding.entries.size),
-                    ) {
-                        Text(stringResource(keyEncodingLabel(option)))
-                    }
-                }
-            }
-
-            Spacer(modifier = Modifier.height(32.dp))
-            Text(
-                text = stringResource(R.string.label_notification_key).uppercase(),
-                style = MaterialTheme.typography.labelMedium.copy(
-                    color = MaterialTheme.colorScheme.primary,
-                    fontWeight = FontWeight.Bold,
-                    letterSpacing = 1.0.sp
-                ),
-                modifier = Modifier.padding(bottom = 12.dp)
-            )
-
-            OutlinedTextField(
-                value = viewModel.decryptionKeyInput,
-                onValueChange = viewModel::updateDecryptionKeyInput,
-                placeholder = { Text("Enter key") },
-                modifier = Modifier.fillMaxWidth(),
-                singleLine = true,
-                visualTransformation = if (showKey) VisualTransformation.None else PasswordVisualTransformation(),
-                trailingIcon = {
-                    IconButton(onClick = { showKey = !showKey }) {
-                        Icon(
-                            imageVector = if (showKey) Icons.Outlined.VisibilityOff else Icons.Outlined.Visibility,
-                            contentDescription = if (showKey) {
-                                stringResource(R.string.label_hide_key)
-                            } else {
-                                stringResource(R.string.label_show_key)
-                            },
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                },
-                shape = RoundedCornerShape(12.dp),
-                colors = OutlinedTextFieldDefaults.colors(
-                    focusedBorderColor = MaterialTheme.colorScheme.primary,
-                    unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant,
-                    focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
-                    unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
-                )
-            )
-            
-            Row(
-                modifier = Modifier.padding(top = 8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(4.dp)
-            ) {
-                Icon(
-                    imageVector = Icons.Outlined.Info,
-                    contentDescription = null,
-                    modifier = Modifier.size(16.dp),
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                Text(
-                    text = stringResource(R.string.label_decryption_hint),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-
-            Spacer(modifier = Modifier.weight(1f))
-            Spacer(modifier = Modifier.height(32.dp))
-            Button(
-                onClick = { 
-                    viewModel.saveDecryptionConfig() 
+            DecryptionKeyForm(
+                viewModel = viewModel,
+                onSave = {
+                    viewModel.saveDecryptionConfig()
                     navController.popBackStack()
                 },
-                enabled = !viewModel.isSavingDecryption,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(56.dp),
-                shape = RoundedCornerShape(28.dp),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = MaterialTheme.colorScheme.primary,
-                    contentColor = MaterialTheme.colorScheme.onPrimary
-                ),
-                elevation = ButtonDefaults.buttonElevation(
-                    defaultElevation = 4.dp,
-                    pressedElevation = 2.dp
-                )
-            ) {
-                Icon(
-                    imageVector = Icons.Outlined.Save,
-                    contentDescription = null,
-                    modifier = Modifier.size(20.dp)
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(
-                    text = stringResource(R.string.label_save_decryption),
-                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
-                )
+                fillRemaining = true,
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
+    }
+}
+
+@Composable
+fun DecryptionKeyForm(
+    viewModel: SettingsViewModel,
+    onSave: () -> Unit,
+    modifier: Modifier = Modifier,
+    fillRemaining: Boolean,
+) {
+    var showKey by remember { mutableStateOf(false) }
+
+    Column(modifier = modifier) {
+        Text(
+            text = "ENCODING",
+            style = MaterialTheme.typography.labelMedium.copy(
+                color = MaterialTheme.colorScheme.primary,
+                fontWeight = FontWeight.Bold,
+                letterSpacing = 1.0.sp
+            ),
+            modifier = Modifier.padding(bottom = 12.dp)
+        )
+
+        SingleChoiceSegmentedButtonRow(
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            KeyEncoding.entries.forEachIndexed { index, option ->
+                SegmentedButton(
+                    selected = option == viewModel.keyEncoding,
+                    onClick = { viewModel.updateKeyEncoding(option) },
+                    shape = SegmentedButtonDefaults.itemShape(index = index, count = KeyEncoding.entries.size),
+                ) {
+                    Text(stringResource(keyEncodingLabel(option)))
+                }
             }
+        }
+
+        Spacer(modifier = Modifier.height(32.dp))
+        Text(
+            text = stringResource(R.string.label_notification_key).uppercase(),
+            style = MaterialTheme.typography.labelMedium.copy(
+                color = MaterialTheme.colorScheme.primary,
+                fontWeight = FontWeight.Bold,
+                letterSpacing = 1.0.sp
+            ),
+            modifier = Modifier.padding(bottom = 12.dp)
+        )
+
+        OutlinedTextField(
+            value = viewModel.decryptionKeyInput,
+            onValueChange = viewModel::updateDecryptionKeyInput,
+            placeholder = { Text("Enter key") },
+            modifier = Modifier
+                .fillMaxWidth()
+                .testTag("field.settings.decryption.key"),
+            singleLine = true,
+            visualTransformation = if (showKey) VisualTransformation.None else PasswordVisualTransformation(),
+            trailingIcon = {
+                IconButton(
+                    modifier = Modifier.testTag("action.settings.decryption.toggle_visibility"),
+                    onClick = { showKey = !showKey },
+                ) {
+                    Icon(
+                        imageVector = if (showKey) Icons.Outlined.VisibilityOff else Icons.Outlined.Visibility,
+                        contentDescription = if (showKey) {
+                            stringResource(R.string.label_hide_key)
+                        } else {
+                            stringResource(R.string.label_show_key)
+                        },
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            },
+            shape = RoundedCornerShape(12.dp),
+            colors = OutlinedTextFieldDefaults.colors(
+                focusedBorderColor = MaterialTheme.colorScheme.primary,
+                unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant,
+                focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
+                unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
+            )
+        )
+
+        Row(
+            modifier = Modifier.padding(top = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            Icon(
+                imageVector = Icons.Outlined.Info,
+                contentDescription = null,
+                modifier = Modifier.size(16.dp),
+                tint = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Text(
+                text = stringResource(R.string.label_decryption_hint),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+
+        if (fillRemaining) {
+            Spacer(modifier = Modifier.weight(1f))
+        }
+        Spacer(modifier = Modifier.height(32.dp))
+        Button(
+            onClick = onSave,
+            enabled = !viewModel.isSavingDecryption,
+            modifier = Modifier
+                .fillMaxWidth()
+                .testTag("action.settings.decryption.save")
+                .height(56.dp),
+            shape = RoundedCornerShape(28.dp),
+            colors = ButtonDefaults.buttonColors(
+                containerColor = MaterialTheme.colorScheme.primary,
+                contentColor = MaterialTheme.colorScheme.onPrimary
+            ),
+            elevation = ButtonDefaults.buttonElevation(
+                defaultElevation = 4.dp,
+                pressedElevation = 2.dp
+            )
+        ) {
+            Icon(
+                imageVector = Icons.Outlined.Save,
+                contentDescription = null,
+                modifier = Modifier.size(20.dp)
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            Text(
+                text = stringResource(R.string.label_save_decryption),
+                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
+            )
         }
     }
 }

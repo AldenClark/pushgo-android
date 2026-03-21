@@ -1,7 +1,5 @@
 package io.ethan.pushgo.ui.screens
 
-import androidx.compose.animation.core.Animatable
-import android.animation.ValueAnimator
 import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.gestures.draggable
 import androidx.compose.foundation.gestures.rememberDraggableState
@@ -12,6 +10,7 @@ import androidx.compose.material.icons.outlined.DeleteSweep
 import androidx.compose.material.icons.outlined.MarkEmailRead
 import androidx.compose.material.icons.outlined.MarkEmailUnread
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.IntOffset
 import kotlin.math.roundToInt
 import android.content.Context
@@ -29,6 +28,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -38,24 +38,18 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.FilterList as FilledFilterList
 import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.outlined.Group
-import androidx.compose.material.icons.outlined.IosShare
-import androidx.compose.material.icons.outlined.MarkEmailRead
-import androidx.compose.material.icons.outlined.MoreVert
-import androidx.compose.material.icons.outlined.Person
-import androidx.compose.material.icons.outlined.Tune
-import androidx.compose.material.icons.outlined.Verified
-import androidx.compose.material.icons.outlined.Warning
+import androidx.compose.material.icons.filled.MarkEmailUnread
+import androidx.compose.material.icons.outlined.Check
+import androidx.compose.material.icons.outlined.FilterList as OutlinedFilterList
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
@@ -63,6 +57,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -72,15 +67,15 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalClipboard
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.semantics.CustomAccessibilityAction
-import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
@@ -90,23 +85,20 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavHostController
 import io.ethan.pushgo.R
+import io.ethan.pushgo.automation.PushGoAutomation
 import io.ethan.pushgo.data.AppContainer
-import io.ethan.pushgo.data.model.DecryptionState
 import io.ethan.pushgo.data.model.MessageChannelCount
-import io.ethan.pushgo.data.model.MessageStatus
 import io.ethan.pushgo.data.model.PushMessage
-import io.ethan.pushgo.markdown.MarkdownRenderPayloadSizing
-import io.ethan.pushgo.markdown.MessageBodyResolver
-import io.ethan.pushgo.markdown.extractMarkdownRenderPayload
-import io.ethan.pushgo.ui.MessagePayloadUtils
+import io.ethan.pushgo.data.model.MessageSeverity
+import io.ethan.pushgo.markdown.MessagePreviewExtractor
 import io.ethan.pushgo.ui.PushGoViewModelFactory
 import io.ethan.pushgo.ui.announceForAccessibility
-import io.ethan.pushgo.ui.export.ExportUtils
-import io.ethan.pushgo.ui.markdown.MarkdownRenderPayloadText
 import io.ethan.pushgo.ui.viewmodel.MessageListViewModel
 import io.ethan.pushgo.ui.viewmodel.MessageSearchViewModel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import coil.compose.AsyncImage
+import androidx.compose.ui.layout.ContentScale
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -115,6 +107,10 @@ import java.util.Locale
 import android.os.Build
 import android.text.format.DateFormat
 import android.text.format.DateUtils
+import io.ethan.pushgo.data.model.ReadFilter
+
+private val ScreenHorizontalPadding = 12.dp
+private const val MessageListImagePreviewMaxItems = 3
 
 @Composable
 fun MessageListScreen(
@@ -134,12 +130,11 @@ fun MessageListScreen(
     val scope = rememberCoroutineScope()
     val lifecycleOwner = LocalLifecycleOwner.current
     var channelNameMap by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
-    val noMessagesExportText = stringResource(R.string.no_messages_available_to_export)
-    val exportSuccessText = stringResource(R.string.message_json_exported_successfully)
-    var showChannelCleanupConfirmation by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
         channelNameMap = container.channelRepository.loadSubscriptionLookup(includeDeleted = true)
+        delay(180)
+        viewModel.enableChannelCounts()
     }
 
     DisposableEffect(lifecycleOwner) {
@@ -154,58 +149,19 @@ fun MessageListScreen(
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
-    val totalUnread = remember(channelCounts) { channelCounts.sumOf { it.unreadCount } }
-    val totalCount = remember(channelCounts) { channelCounts.sumOf { it.totalCount } }
-    val hasChannels = remember(channelCounts) { channelCounts.any { it.channel.isNotBlank() } }
-    var showFilters by remember { mutableStateOf(true) }
-    val canExport = if (query.isBlank()) {
-        messages.itemSnapshotList.items.isNotEmpty()
-    } else {
-        searchResults.isNotEmpty()
+    val unreadOnlySelected = filterState.readFilter == ReadFilter.UNREAD
+    val channelOptions = remember(channelCounts) {
+        channelCounts.map { it.channel.trim() }.distinct()
     }
-    val hasListContent = if (query.isBlank()) {
-        messages.itemSnapshotList.items.isNotEmpty()
-    } else {
-        searchResults.isNotEmpty()
-    }
-    val readCount = remember(channelCounts, totalCount, totalUnread, filterState.channel) {
-        val channel = filterState.channel
-        if (channel == null) {
-            (totalCount - totalUnread).coerceAtLeast(0)
-        } else {
-            val normalized = channel.trim()
-            val count = channelCounts.firstOrNull { it.channel == normalized }
-            val total = count?.totalCount ?: 0
-            val unread = count?.unreadCount ?: 0
-            (total - unread).coerceAtLeast(0)
-        }
-    }
-    val canCleanRead = hasListContent && readCount > 0
 
-    val exportLauncher = rememberLauncherForActivityResult(
-        contract = object : ActivityResultContracts.CreateDocument("application/json") {
-            override fun createIntent(context: Context, input: String): Intent {
-                val intent = super.createIntent(context, input)
-                return Intent.createChooser(intent, context.getString(R.string.export_messages))
-            }
-        },
-    ) { uri ->
-        if (uri == null) return@rememberLauncherForActivityResult
-        scope.launch {
-            val listToExport = if (query.isBlank()) {
-                messages.itemSnapshotList.items
-            } else {
-                searchResults
-            }
-            if (listToExport.isEmpty()) {
-                Toast.makeText(context, noMessagesExportText, Toast.LENGTH_SHORT).show()
-                announceForAccessibility(context, noMessagesExportText)
-                return@launch
-            }
-            ExportUtils.writeMessagesJson(context, uri, listToExport)
-            Toast.makeText(context, exportSuccessText, Toast.LENGTH_SHORT).show()
-            announceForAccessibility(context, exportSuccessText)
-        }
+    LaunchedEffect(query, searchResults.size) {
+        PushGoAutomation.writeEvent(
+            type = "search.results_updated",
+            command = null,
+            details = org.json.JSONObject()
+                .put("search_query", query)
+                .put("result_count", searchResults.size),
+        )
     }
 
     LazyColumn(
@@ -219,15 +175,14 @@ fun MessageListScreen(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 16.dp),
+                        .padding(horizontal = ScreenHorizontalPadding, vertical = 16.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     var searchMenuExpanded by remember { mutableStateOf(false) }
-                    
                     Row(
                         modifier = Modifier
                             .weight(1f)
-                            .height(48.dp)
+                            .heightIn(min = 56.dp)
                             .clip(RoundedCornerShape(24.dp))
                             .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
                         verticalAlignment = Alignment.CenterVertically,
@@ -242,14 +197,16 @@ fun MessageListScreen(
                         TextField(
                             value = query,
                             onValueChange = searchViewModel::updateQuery,
-                            placeholder = { 
+                            placeholder = {
                                 Text(
                                     stringResource(R.string.label_search),
                                     style = MaterialTheme.typography.bodyLarge,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
-                                ) 
+                                )
                             },
-                            modifier = Modifier.weight(1f),
+                            modifier = Modifier
+                                .weight(1f)
+                                .testTag("field.message.search"),
                             colors = TextFieldDefaults.colors(
                                 focusedContainerColor = Color.Transparent,
                                 unfocusedContainerColor = Color.Transparent,
@@ -259,47 +216,67 @@ fun MessageListScreen(
                             ),
                             singleLine = true,
                         )
-                        
+
                         Box {
-                            IconButton(onClick = { searchMenuExpanded = true }) {
+                            IconButton(
+                                modifier = Modifier.testTag("action.message.list.channel_filter"),
+                                onClick = { searchMenuExpanded = true },
+                            ) {
                                 Icon(
-                                    Icons.Outlined.MoreVert,
-                                    contentDescription = stringResource(R.string.label_more_actions),
-                                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                                    imageVector = if (filterState.channel == null) Icons.Outlined.OutlinedFilterList else Icons.Filled.FilledFilterList,
+                                    contentDescription = stringResource(R.string.label_channel_id),
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
                                 )
                             }
                             DropdownMenu(
                                 expanded = searchMenuExpanded,
                                 onDismissRequest = { searchMenuExpanded = false }
                             ) {
-                            DropdownMenuItem(
-                                text = { Text(stringResource(R.string.action_mark_all_read)) },
-                                leadingIcon = { Icon(Icons.Outlined.MarkEmailRead, null) },
-                                onClick = {
-                                    viewModel.markAllRead()
-                                    searchMenuExpanded = false
-                                },
-                                enabled = totalUnread > 0
-                            )
-                            DropdownMenuItem(
-                                text = { Text(stringResource(R.string.clean_channel_messages)) },
-                                leadingIcon = { Icon(Icons.Outlined.DeleteSweep, null) },
-                                onClick = {
-                                    showChannelCleanupConfirmation = true
-                                    searchMenuExpanded = false
-                                },
-                                enabled = canCleanRead
-                            )
-                            DropdownMenuItem(
-                                text = { Text(stringResource(R.string.export_messages)) },
-                                leadingIcon = { Icon(Icons.Outlined.IosShare, null) },
-                                onClick = {
-                                    exportLauncher.launch(exportFilename(filterState.channel))
-                                    searchMenuExpanded = false
-                                },
-                                enabled = canExport
-                            )
+                                ChannelFilterMenuOption(
+                                    title = stringResource(R.string.label_channel_all),
+                                    isSelected = filterState.channel == null,
+                                    modifier = Modifier.testTag("filter.message.channel.all"),
+                                ) {
+                                        viewModel.setChannel(null)
+                                        searchMenuExpanded = false
+                                    }
+                                val ungroupedLabel = stringResource(R.string.label_group_ungrouped)
+                                channelOptions.forEach { channel ->
+                                    val displayName = if (channel.isBlank()) {
+                                        ungroupedLabel
+                                    } else {
+                                        channelNameMap[channel] ?: channel
+                                    }
+                                    ChannelFilterMenuOption(
+                                        title = displayName,
+                                        isSelected = filterState.channel == channel,
+                                        modifier = Modifier.testTag(
+                                            "filter.message.channel.${channel.ifBlank { "ungrouped" }}"
+                                        ),
+                                    ) {
+                                            viewModel.setChannel(channel)
+                                            searchMenuExpanded = false
+                                        }
+                                }
                             }
+                        }
+                        IconButton(
+                            modifier = Modifier.testTag("action.message.list.unread_only"),
+                            onClick = {
+                                viewModel.setReadFilter(
+                                    if (unreadOnlySelected) ReadFilter.ALL else ReadFilter.UNREAD
+                                )
+                            },
+                        ) {
+                            Icon(
+                                imageVector = if (unreadOnlySelected) {
+                                    Icons.Filled.MarkEmailUnread
+                                } else {
+                                    Icons.Outlined.MarkEmailUnread
+                                },
+                                contentDescription = stringResource(R.string.filter_unread),
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                            )
                         }
                     }
                 }
@@ -312,60 +289,27 @@ fun MessageListScreen(
                     ),
                     color = MaterialTheme.colorScheme.onBackground,
                     modifier = Modifier
-                        .padding(start = 20.dp, top = 8.dp, bottom = 12.dp)
+                        .padding(start = ScreenHorizontalPadding, top = 8.dp, bottom = 12.dp)
                         .semantics { heading() },
                 )
 
-                if (hasChannels && showFilters) {
-                    ChannelFilterRow(
-                        selectedChannel = filterState.channel,
-                        channelCounts = channelCounts,
-                        channelNameMap = channelNameMap,
-                        totalUnread = totalUnread,
-                        totalCount = totalCount,
-                        onChannelChange = viewModel::setChannel,
-                    )
-                }
             }
         }
 
         if (query.isBlank() && messages.itemCount == 0 || query.isNotBlank() && searchResults.isEmpty()) {
             item {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(top = 64.dp, start = 32.dp, end = 32.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.Center
-                ) {
-                    if (query.isBlank()) {
-                        Icon(
-                            imageVector = Icons.Outlined.MarkEmailUnread,
-                            contentDescription = null,
-                            modifier = Modifier
-                                .size(72.dp)
-                                .padding(bottom = 16.dp),
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
-                        )
-                        Text(
-                            text = stringResource(R.string.message_list_empty_title),
-                            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(bottom = 8.dp)
-                        )
-                        Text(
-                            text = stringResource(R.string.message_list_empty_hint),
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
-                            textAlign = androidx.compose.ui.text.style.TextAlign.Center
-                        )
-                    } else {
-                        Text(
-                            text = stringResource(R.string.label_no_search_results),
-                            style = MaterialTheme.typography.bodyLarge,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
+                if (query.isBlank()) {
+                    AppEmptyState(
+                        icon = Icons.Outlined.MarkEmailUnread,
+                        title = stringResource(R.string.message_list_empty_title),
+                        description = stringResource(R.string.message_list_empty_hint),
+                    )
+                } else {
+                    AppEmptyState(
+                        icon = Icons.Default.Search,
+                        title = stringResource(R.string.label_no_search_results),
+                        description = stringResource(R.string.message_list_empty_hint),
+                    )
                 }
             }
         } else {
@@ -376,11 +320,16 @@ fun MessageListScreen(
                 }) { index ->
                     val message = messages[index]
                     if (message != null) {
-                        val normalizedChannel = message.channel?.trim()
-                        val channelDisplayName = normalizedChannel?.let { channelNameMap[it] ?: it }
+                        val listImageModels = remember(message.rawPayloadJson) {
+                            container.messageImageStore.resolveListImageModels(
+                                rawPayloadJson = message.rawPayloadJson,
+                                maxItems = MessageListImagePreviewMaxItems,
+                            )
+                        }
                         MessageRow(
+                            modifier = Modifier.testTag("message.row.${message.id}"),
                             message = message,
-                            channelDisplayName = channelDisplayName,
+                            imageModels = listImageModels,
                             onClick = { onMessageClick(message.id) },
                             onMarkRead = {
                                 viewModel.markRead(message.id)
@@ -393,11 +342,16 @@ fun MessageListScreen(
                 }
             } else {
                 items(searchResults, key = { it.id }) { message ->
-                    val normalizedChannel = message.channel?.trim()
-                    val channelDisplayName = normalizedChannel?.let { channelNameMap[it] ?: it }
+                    val listImageModels = remember(message.rawPayloadJson) {
+                        container.messageImageStore.resolveListImageModels(
+                            rawPayloadJson = message.rawPayloadJson,
+                            maxItems = MessageListImagePreviewMaxItems,
+                        )
+                    }
                     MessageRow(
+                        modifier = Modifier.testTag("message.row.${message.id}"),
                         message = message,
-                        channelDisplayName = channelDisplayName,
+                        imageModels = listImageModels,
                         onClick = { onMessageClick(message.id) },
                         onMarkRead = {
                             viewModel.markRead(message.id)
@@ -412,86 +366,25 @@ fun MessageListScreen(
         item { Spacer(modifier = Modifier.height(24.dp)) }
     }
 
-    if (showChannelCleanupConfirmation) {
-        val confirmTextRes = if (filterState.channel == null) {
-            R.string.confirm_cleanup_read_messages_all
-        } else {
-            R.string.confirm_cleanup_read_messages_channel
-        }
-        AlertDialog(
-            onDismissRequest = { showChannelCleanupConfirmation = false },
-            title = { Text(stringResource(R.string.confirm_cleanup_messages)) },
-            text = { Text(stringResource(confirmTextRes)) },
-            confirmButton = {
-                TextButton(onClick = {
-                    viewModel.cleanupReadMessagesForCurrentFilter()
-                    showChannelCleanupConfirmation = false
-                }) {
-                    Text(stringResource(R.string.label_confirm))
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = {
-                    showChannelCleanupConfirmation = false
-                }) {
-                    Text(stringResource(R.string.label_cancel))
-                }
-            },
-        )
-    }
-}
-
-@Composable
-private fun ChannelFilterRow(
-    selectedChannel: String?,
-    channelCounts: List<MessageChannelCount>,
-    channelNameMap: Map<String, String>,
-    totalUnread: Int,
-    totalCount: Int,
-    onChannelChange: (String?) -> Unit,
-) {
-    Column(modifier = Modifier.padding(bottom = 8.dp)) {
-        LazyRow(
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 16.dp)
-        ) {
-            item {
-                TechFilterChip(
-                    selected = selectedChannel == null,
-                    onClick = { onChannelChange(null) },
-                    label = "All"
-                )
-            }
-            items(channelCounts) { channelCount ->
-                val channel = channelCount.channel.trim()
-                val displayName = if (channel.isBlank()) {
-                    stringResource(R.string.label_group_ungrouped)
-                } else {
-                    channelNameMap[channel] ?: channel
-                }
-                TechFilterChip(
-                    selected = selectedChannel == channel,
-                    onClick = { onChannelChange(channel) },
-                    label = displayName
-                )
-            }
-        }
-    }
 }
 
 @Composable
 private fun TechFilterChip(
+    modifier: Modifier = Modifier,
     selected: Boolean,
     onClick: () -> Unit,
     label: String
 ) {
     Box(
-        modifier = Modifier
+        modifier = modifier
             .height(32.dp)
             .clip(RoundedCornerShape(8.dp))
             .background(
-                if (selected) MaterialTheme.colorScheme.primaryContainer 
-                else MaterialTheme.colorScheme.background
+                if (selected) {
+                    MaterialTheme.colorScheme.surfaceVariant
+                } else {
+                    MaterialTheme.colorScheme.surface
+                }
             )
             .clickable(onClick = onClick)
             .then(
@@ -505,15 +398,39 @@ private fun TechFilterChip(
         Text(
             text = label,
             style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Medium),
-            color = if (selected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant
+            color = MaterialTheme.colorScheme.onSurface,
         )
     }
 }
 
 @Composable
+private fun ChannelFilterMenuOption(
+    title: String,
+    isSelected: Boolean,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit,
+) {
+    DropdownMenuItem(
+        modifier = modifier
+            .fillMaxWidth(),
+        text = { Text(text = title) },
+        leadingIcon = {
+            if (isSelected) {
+                Icon(
+                    imageVector = Icons.Outlined.Check,
+                    contentDescription = null
+                )
+            }
+        },
+        onClick = onClick,
+    )
+}
+
+@Composable
 private fun MessageRow(
+    modifier: Modifier = Modifier,
     message: PushMessage,
-    channelDisplayName: String?,
+    imageModels: List<Any>,
     onClick: () -> Unit,
     onMarkRead: () -> Unit,
     onDelete: () -> Unit,
@@ -522,285 +439,246 @@ private fun MessageRow(
     val hasMarkReadAction = !message.isRead
     val actionWidth = if (hasMarkReadAction) 140.dp else 72.dp
     val actionWidthPx = with(density) { actionWidth.toPx() }
-    val offsetX = remember { Animatable(0f) }
-    val animationsEnabled = remember { ValueAnimator.areAnimatorsEnabled() }
-    val scope = rememberCoroutineScope()
+    var offsetX by remember { mutableFloatStateOf(0f) }
 
     val appName = stringResource(R.string.app_name)
     val context = LocalContext.current
-    val timeText = remember(message.receivedAt, context.resources.configuration) {
+    val configuration = LocalConfiguration.current
+    val timeText = remember(message.receivedAt, configuration) {
         formatMessageTime(context, message.receivedAt, ZoneId.systemDefault())
     }
     
-    val resolvedBody = remember(message.rawPayloadJson, message.body) {
-        MessageBodyResolver.resolve(message.rawPayloadJson, message.body)
+    val bodyPreview = remember(message.bodyPreview, message.body) {
+        message.bodyPreview?.trim()?.takeIf { it.isNotEmpty() }
+            ?: MessagePreviewExtractor.listPreview(message.body)
     }
-        val renderPayload = remember(message.rawPayloadJson, resolvedBody.rawText, resolvedBody.isMarkdown) {
-            extractMarkdownRenderPayload(message.rawPayloadJson)
-                ?: MarkdownRenderPayloadSizing.listPayload(resolvedBody.rawText, resolvedBody.isMarkdown)
-        }
-        val imageUrl = remember(message.rawPayloadJson) {
-            MessagePayloadUtils.extractImageUrl(message.rawPayloadJson)
-        }
-        val iconUrl = remember(message.rawPayloadJson) {
-            MessagePayloadUtils.extractIconUrl(message.rawPayloadJson)
-        }
-        val markActionLabel = stringResource(R.string.action_mark_read)
-        val deleteActionLabel = stringResource(R.string.action_delete)
-        val unreadStateLabel = stringResource(R.string.filter_unread)
-    
-        val iconStyle = resolveMessageIconStyle(
-            message = message,
-            channelDisplayName = channelDisplayName,
-            colorScheme = MaterialTheme.colorScheme,
-        )
-    
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f))
-        ) {
-            Row(
-                modifier = Modifier
-                    .matchParentSize()
-                    .padding(end = 16.dp),
-                horizontalArrangement = Arrangement.End,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                if (hasMarkReadAction) {
-                    Box(
-                        modifier = Modifier
-                            .size(40.dp)
-                            .clip(CircleShape)
-                            .background(MaterialTheme.colorScheme.secondaryContainer)
-                            .clickable {
-                                scope.launch {
-                                    if (animationsEnabled) {
-                                        offsetX.animateTo(0f)
-                                    } else {
-                                        offsetX.snapTo(0f)
-                                    }
-                                }
-                                onMarkRead()
-                            },
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            imageVector = Icons.Outlined.MarkEmailRead,
-                            contentDescription = stringResource(R.string.action_mark_read),
-                            tint = MaterialTheme.colorScheme.onSecondaryContainer,
-                            modifier = Modifier.size(20.dp)
-                        )
-                    }
+    val unreadStateLabel = stringResource(R.string.filter_unread)
 
-                    Spacer(modifier = Modifier.width(12.dp))
-                }
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f))
+    ) {
+        Row(
+            modifier = Modifier
+                .matchParentSize()
+                .padding(end = 16.dp),
+            horizontalArrangement = Arrangement.End,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            if (hasMarkReadAction) {
                 Box(
                     modifier = Modifier
+                        .testTag("action.message.row.${message.id}.mark_read")
                         .size(40.dp)
                         .clip(CircleShape)
-                        .background(MaterialTheme.colorScheme.errorContainer)
+                        .background(MaterialTheme.colorScheme.secondaryContainer)
                         .clickable {
-                            scope.launch {
-                                if (animationsEnabled) {
-                                    offsetX.animateTo(0f)
-                                } else {
-                                    offsetX.snapTo(0f)
-                                }
-                            }
-                            onDelete()
+                            offsetX = 0f
+                            onMarkRead()
                         },
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
-                        imageVector = Icons.Outlined.Delete,
-                        contentDescription = stringResource(R.string.action_delete),
-                        tint = MaterialTheme.colorScheme.onErrorContainer,
+                        imageVector = Icons.Outlined.MarkEmailRead,
+                        contentDescription = stringResource(R.string.action_mark_read),
+                        tint = MaterialTheme.colorScheme.onSecondaryContainer,
                         modifier = Modifier.size(20.dp)
                     )
                 }
+
+                Spacer(modifier = Modifier.width(12.dp))
             }
-            Column(
+            Box(
                 modifier = Modifier
-                    .offset { IntOffset(offsetX.value.roundToInt(), 0) }
-                    .fillMaxWidth()
-                    .background(MaterialTheme.colorScheme.surface)
-                    .clickable { onClick() }
-                    .semantics(mergeDescendants = true) {
-                        if (!message.isRead) {
-                            stateDescription = unreadStateLabel
-                        }
-                        customActions = buildList {
-                            if (hasMarkReadAction) {
-                                add(CustomAccessibilityAction(markActionLabel) {
-                                    scope.launch {
-                                        if (animationsEnabled) {
-                                            offsetX.animateTo(0f)
-                                        } else {
-                                            offsetX.snapTo(0f)
-                                        }
-                                    }
-                                    onMarkRead()
-                                    true
-                                })
-                            }
-                            add(CustomAccessibilityAction(deleteActionLabel) {
-                                scope.launch {
-                                    if (animationsEnabled) {
-                                        offsetX.animateTo(0f)
-                                    } else {
-                                        offsetX.snapTo(0f)
-                                    }
-                                }
-                                onDelete()
-                                true
-                            })
-                        }
-                    }
-                    .draggable(
-                        orientation = Orientation.Horizontal,
-                        state = rememberDraggableState { delta ->
-                            scope.launch {
-                                val newOffset = (offsetX.value + delta).coerceIn(-actionWidthPx, 0f)
-                                offsetX.snapTo(newOffset)
-                            }
-                        },
-                        onDragStopped = {
-                            val targetOffset = if (offsetX.value < -actionWidthPx / 2) -actionWidthPx else 0f
-                            scope.launch {
-                                if (animationsEnabled) {
-                                    offsetX.animateTo(targetOffset)
-                                } else {
-                                    offsetX.snapTo(targetOffset)
-                                }
-                            }
-                        }
-                    )
-                    .padding(horizontal = 16.dp, vertical = 12.dp)
+                    .testTag("action.message.row.${message.id}.delete")
+                    .size(40.dp)
+                    .clip(CircleShape)
+                    .background(MaterialTheme.colorScheme.errorContainer)
+                    .clickable {
+                        offsetX = 0f
+                        onDelete()
+                    },
+                contentAlignment = Alignment.Center
             ) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                if (!iconUrl.isNullOrBlank()) {
-                                    AsyncImage(
-                                        model = iconUrl,
-                                        contentDescription = null,
-                                        modifier = Modifier
-                                            .size(18.dp)
-                                            .clip(CircleShape)
-                                            .background(MaterialTheme.colorScheme.surfaceVariant),
-                                        contentScale = androidx.compose.ui.layout.ContentScale.Crop
-                                    )
-                                    Spacer(modifier = Modifier.width(8.dp))
-                                }
-                
-                    Column(
-                        modifier = Modifier.weight(1f),
-                        verticalArrangement = Arrangement.Center
-                    ) {
-                        Text(
-                            text = message.title.ifBlank { appName },
-                            style = MaterialTheme.typography.titleMedium.copy(
-                                fontWeight = if (message.isRead) FontWeight.SemiBold else FontWeight.ExtraBold
-                            ),
-                            color = if (message.isRead) MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f) else MaterialTheme.colorScheme.onSurface,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                        if (!channelDisplayName.isNullOrBlank()) {
-                            Text(
-                                text = "#$channelDisplayName",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = if (message.isRead) MaterialTheme.colorScheme.primary.copy(alpha = 0.7f) else MaterialTheme.colorScheme.primary,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                        }
-                    }
-                    
-                    Spacer(modifier = Modifier.width(8.dp))
-                    if (!message.isRead) {
-                        Box(
-                            modifier = Modifier
-                                .padding(horizontal = 4.dp)
-                                .size(8.dp)
-                                .clip(CircleShape)
-                                .background(MaterialTheme.colorScheme.primary)
-                        )
-                        Spacer(modifier = Modifier.width(6.dp))
-                    }
-                    Text(
-                        text = timeText,
-                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Medium),
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-            Column(
-                modifier = Modifier
-                    .padding(top = 6.dp)
-                    .fillMaxWidth()
-            ) {
-                 if (renderPayload != null) {
-                    MarkdownRenderPayloadText(
-                        payload = renderPayload,
-                        textStyle = MaterialTheme.typography.bodyMedium.copy(
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        ),
-                        maxLines = 8,
-                        overflow = TextOverflow.Clip,
-                    )
-                } else {
-                    Text(
-                        text = resolvedBody.rawText,
-                        style = MaterialTheme.typography.bodyMedium,
-                        maxLines = 8,
-                        overflow = TextOverflow.Clip,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-                
-                if (!imageUrl.isNullOrBlank()) {
-                    Spacer(modifier = Modifier.height(8.dp))
-                    AsyncImage(
-                        model = imageUrl,
-                        contentDescription = stringResource(R.string.label_image_attachment),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(8.dp))
-                            .background(MaterialTheme.colorScheme.surfaceVariant),
-                        contentScale = androidx.compose.ui.layout.ContentScale.FillWidth
-                    )
-                }
+                Icon(
+                    imageVector = Icons.Outlined.Delete,
+                    contentDescription = stringResource(R.string.action_delete),
+                    tint = MaterialTheme.colorScheme.onErrorContainer,
+                    modifier = Modifier.size(20.dp)
+                )
             }
         }
+        Column(
+            modifier = Modifier
+                .offset { IntOffset(offsetX.roundToInt(), 0) }
+                .fillMaxWidth()
+                .background(MaterialTheme.colorScheme.surface)
+                .testTag("message.row.content.${message.id}")
+                .clickable { onClick() }
+                .semantics(mergeDescendants = true) {
+                    if (!message.isRead) {
+                        stateDescription = unreadStateLabel
+                    }
+                }
+                .draggable(
+                    orientation = Orientation.Horizontal,
+                    state = rememberDraggableState { delta ->
+                        val newOffset = (offsetX + delta).coerceIn(-actionWidthPx, 0f)
+                        offsetX = newOffset
+                    },
+                    onDragStopped = {
+                        val targetOffset = if (offsetX < -actionWidthPx / 2) -actionWidthPx else 0f
+                        offsetX = targetOffset
+                    }
+                )
+                .padding(horizontal = ScreenHorizontalPadding, vertical = 12.dp)
+        ) {
+            MessageRowContent(
+                message = message,
+                imageModels = imageModels,
+                appName = appName,
+                timeText = timeText,
+                bodyPreview = bodyPreview,
+            )
+        }
     }
-    
+
     HorizontalDivider(
         thickness = 1.dp,
         color = MaterialTheme.colorScheme.surfaceVariant,
     )
 }
 
-private fun exportFilename(channel: String?): String {
-    val base = "pushgo-messages"
-    val suffix = when {
-        channel == null -> null
-        channel.isBlank() -> "no-channel"
-        else -> channel.trim()
-            .lowercase()
-            .replace("\\s+".toRegex(), "-")
-            .replace("[^a-z0-9_-]".toRegex(), "")
+@Composable
+fun MessageRowContent(
+    message: PushMessage,
+    imageModels: List<Any>,
+    appName: String,
+    timeText: String,
+    bodyPreview: String,
+) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(
+            modifier = Modifier.weight(1f),
+            verticalArrangement = Arrangement.Center
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                Text(
+                    text = message.title.ifBlank { appName },
+                    style = MaterialTheme.typography.titleMedium.copy(
+                        fontWeight = if (message.isRead) FontWeight.SemiBold else FontWeight.ExtraBold
+                    ),
+                    color = if (message.isRead) {
+                        MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f)
+                    } else {
+                        MaterialTheme.colorScheme.onSurface
+                    },
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                MessageSeverityListBadge(severity = message.severity)
+            }
+        }
+
+        Spacer(modifier = Modifier.width(8.dp))
+        if (!message.isRead) {
+            Box(
+                modifier = Modifier
+                    .padding(horizontal = 4.dp)
+                    .size(8.dp)
+                    .clip(CircleShape)
+                    .background(MaterialTheme.colorScheme.primary)
+            )
+            Spacer(modifier = Modifier.width(6.dp))
+        }
+        Text(
+            text = timeText,
+            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Medium),
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
     }
-    return if (suffix.isNullOrBlank()) {
-        "$base-all.json"
-    } else {
-        "$base-$suffix.json"
+
+    val hasBodyText = bodyPreview.isNotBlank()
+    val hasImages = imageModels.isNotEmpty()
+    if (hasBodyText || hasImages) {
+        Column(
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = Modifier
+                .padding(top = 6.dp)
+                .fillMaxWidth()
+        ) {
+            if (hasBodyText) {
+                Text(
+                    text = bodyPreview,
+                    style = MaterialTheme.typography.bodyMedium,
+                    maxLines = 6,
+                    overflow = TextOverflow.Clip,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            if (message.tags.isNotEmpty()) {
+                Text(
+                    text = message.tags.joinToString(separator = " · "),
+                    style = MaterialTheme.typography.labelSmall.copy(fontFamily = FontFamily.Monospace),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            if (hasImages) {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    imageModels.forEach { imageModel ->
+                        AsyncImage(
+                            model = imageModel,
+                            contentDescription = stringResource(R.string.label_image_attachment),
+                            modifier = Modifier
+                                .size(56.dp)
+                                .clip(RoundedCornerShape(8.dp)),
+                            contentScale = ContentScale.Crop
+                        )
+                    }
+                }
+            }
+        }
     }
 }
 
-private fun formatChannelLabel(name: String, unreadCount: Int, totalCount: Int): String {
-    return name
+@Composable
+private fun MessageSeverityListBadge(severity: MessageSeverity?) {
+    val label = when (severity) {
+        MessageSeverity.HIGH -> stringResource(R.string.message_severity_high_compact)
+        MessageSeverity.CRITICAL -> stringResource(R.string.message_severity_critical_compact)
+        else -> return
+    }
+    val bgColor = when (severity) {
+        MessageSeverity.HIGH -> Color(0xFFF59E0B).copy(alpha = 0.14f)
+        MessageSeverity.CRITICAL -> Color(0xFFDC2626).copy(alpha = 0.16f)
+    }
+    val fgColor = when (severity) {
+        MessageSeverity.HIGH -> Color(0xFFB45309)
+        MessageSeverity.CRITICAL -> Color(0xFFB91C1C)
+    }
+    Box(
+        modifier = Modifier
+            .clip(RoundedCornerShape(999.dp))
+            .background(bgColor)
+            .padding(horizontal = 8.dp, vertical = 2.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
+            color = fgColor,
+            maxLines = 1,
+        )
+    }
 }
 
 internal fun formatMessageTime(
@@ -847,47 +725,5 @@ private fun localeFrom(context: Context): Locale {
     } else {
         @Suppress("DEPRECATION")
         context.resources.configuration.locale
-    }
-}
-
-private data class MessageIconStyle(
-    val icon: androidx.compose.ui.graphics.vector.ImageVector,
-    val tint: Color,
-    val background: Color,
-)
-
-@Composable
-private fun resolveMessageIconStyle(
-    message: PushMessage,
-    channelDisplayName: String?,
-    colorScheme: androidx.compose.material3.ColorScheme,
-): MessageIconStyle {
-    val isWarning = message.status == MessageStatus.MISSING
-        || message.status == MessageStatus.PARTIALLY_DECRYPTED
-        || message.decryptionState == DecryptionState.ALG_MISMATCH
-        || message.decryptionState == DecryptionState.DECRYPT_FAILED
-    val isVerified = message.status == MessageStatus.DECRYPTED
-        || message.decryptionState == DecryptionState.DECRYPT_OK
-    return when {
-        isWarning -> MessageIconStyle(
-            icon = Icons.Outlined.Warning,
-            tint = colorScheme.error,
-            background = Color.Transparent,
-        )
-        isVerified -> MessageIconStyle(
-            icon = Icons.Outlined.Verified,
-            tint = colorScheme.primary,
-            background = Color.Transparent,
-        )
-        !channelDisplayName.isNullOrBlank() -> MessageIconStyle(
-            icon = Icons.Outlined.Group,
-            tint = colorScheme.secondary,
-            background = Color.Transparent,
-        )
-        else -> MessageIconStyle(
-            icon = Icons.Outlined.Person,
-            tint = colorScheme.primary,
-            background = Color.Transparent,
-        )
     }
 }

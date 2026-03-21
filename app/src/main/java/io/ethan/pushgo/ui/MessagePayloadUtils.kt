@@ -1,30 +1,36 @@
 package io.ethan.pushgo.ui
 
 import io.ethan.pushgo.util.UrlValidators
+import org.json.JSONArray
 import org.json.JSONObject
 
 object MessagePayloadUtils {
-    private val imageKeys = listOf("image", "image_url", "imageUrl", "picture", "pic")
-    private val iconKeys = listOf("icon", "icon_url", "iconUrl", "avatar")
-
     fun extractImageUrl(rawPayload: String): String? {
-        val json = parseJson(rawPayload) ?: return null
-        return extractHttpsUrl(json, imageKeys)
-            ?: json.optJSONObject("meta")?.let { extractHttpsUrl(it, imageKeys) }
+        return extractImageUrls(rawPayload).firstOrNull()
     }
 
-    fun extractIconUrl(rawPayload: String): String? {
-        val json = parseJson(rawPayload) ?: return null
-        return extractHttpsUrl(json, iconKeys)
-            ?: json.optJSONObject("meta")?.let { extractHttpsUrl(it, iconKeys) }
+    fun extractImageUrls(rawPayload: String): List<String> {
+        val json = parseJson(rawPayload) ?: return emptyList()
+        val urls = linkedSetOf<String>()
+        appendUrls(json.opt("images"), urls)
+        return urls.toList()
     }
 
-    private fun extractHttpsUrl(json: JSONObject, keys: List<String>): String? {
-        for (key in keys) {
-            val value = UrlValidators.normalizeHttpsUrl(json.optString(key, ""))
-            if (value != null) return value
+    private fun appendUrls(raw: Any?, urls: MutableSet<String>) {
+        when (raw) {
+            is String -> {
+                val trimmed = raw.trim()
+                if (trimmed.isEmpty()) {
+                    return
+                }
+                val parsed = runCatching { JSONArray(trimmed) }.getOrNull()
+                if (parsed != null) {
+                    for (index in 0 until parsed.length()) {
+                        UrlValidators.normalizeHttpsUrl(parsed.optString(index, ""))?.let { urls += it }
+                    }
+                }
+            }
         }
-        return null
     }
 
     private fun parseJson(rawPayload: String): JSONObject? {

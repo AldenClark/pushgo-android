@@ -1,8 +1,6 @@
 <resources>
     <string name="app_name">PushGo</string>
-
     <string name="tab_messages">メッセージ</string>
-    <string name="tab_push">プッシュ</string>
     <string name="tab_settings">設定</string><string name="action_mark_read">既読にする</string>
     <string name="action_mark_all_read">すべて既読にする</string>
     <string name="action_delete">削除</string>
@@ -15,9 +13,8 @@
     <string name="label_show_key">キーを表示</string>
     <string name="label_hide_key">キーを非表示</string>
     <string name="label_back">戻る</string>
-    <string name="label_add_custom_ringtone">カスタム着信音を追加</string>
-    <string name="label_image_attachment">画像の添付</string><string name="label_gateway_settings">ゲートウェイ設定</string>
-    <string name="label_gateway_settings_hint">サーバーアドレスを設定</string><string name="label_channel_name">チャンネル名</string>
+    <string name="label_image_attachment">画像の添付</string><string name="label_gateway_settings">ゲートウェイ</string>
+    <string name="label_channel_name">チャンネル名</string>
     <string name="label_channel_alias">チャンネルのエイリアス</string>
     <string name="label_channel_id">チャンネル ID</string><string name="label_channel_id_copied">チャンネル ID をコピーしました</string>
     <string name="label_channel_actions">チャンネル操作</string><string name="label_channel_option">%1$s (%2$s)</string>
@@ -26,8 +23,6 @@
     <string name="label_channel_password">チャンネルのパスワード</string><string name="label_create_channel">チャンネルを作成</string>
     <string name="label_subscribe_channel">チャンネルを購読</string>
     <string name="label_add_channel">チャンネルを追加</string><string name="label_rename_channel">名前を変更</string>
-    <string name="label_enable_auto_cleanup">自動クリーンアップを有効化</string>
-    <string name="label_disable_auto_cleanup">自動クリーンアップを無効化</string>
     <string name="label_rename_channel_title">%1$s の名前を変更</string>
     <string name="label_rename_channel_hint">このチャンネルの新しいエイリアスを設定します。</string>
     <string name="label_unsubscribe_channel">購読解除</string>
@@ -39,86 +34,52 @@
     <string name="message_list_empty_title">メッセージはありません</string>
     <string name="message_list_empty_hint">プッシュを受け取るには、先にチャンネルを作成または購読してください。</string>
     <string name="channel_list_empty_title">購読中のチャンネルはありません</string>
-    <string name="channel_list_empty_hint">プッシュを受け取るには、先にチャンネルを作成または購読してください。</string><string name="label_notification_key">通知キー (Base64)</string>
+    <string name="channel_list_empty_hint">プッシュを受け取るには、先にチャンネルを作成または購読してください。</string><string name="label_notification_key">通知キー</string>
     <string name="label_key_strength">キー強度</string>
     <string name="label_key_strength_hint">ビット強度が高いほどセキュリティは向上しますが、復号速度に影響する可能性があります。</string>
     <string name="label_configuration">設定</string><string name="label_key_encoding_base64">Base64</string>
     <string name="label_key_encoding_hex">Hex</string>
     <string name="label_key_encoding_plaintext">プレーンテキスト</string>
-    <string name="label_language">アプリの言語</string><string name="label_app_version">アプリのバージョン</string><string name="label_app_version_format">%1$s build %2$d</string>
-    <string name="label_language_system">システム設定</string>
-    <string name="label_language_english">English</string>
-    <string name="label_language_simplified_chinese">简体中文</string>
-    <string name="label_language_traditional_chinese">繁體中文</string>
-    <string name="label_language_japanese">日本語</string>
-    <string name="label_language_korean">한국어</string>
-    <string name="label_language_german">Deutsch</string>
-    <string name="label_language_french">Français</string>
-    <string name="label_language_spanish">Español</string>
-    <string name="label_yesterday">昨日</string><string name="auto_cleanup_messages">既読メッセージを自動整理</string>
-    <string name="auto_cleanup_messages_hint">検索が遅くなると、最も古い既読メッセージを自動で整理します。十分な履歴は保持され、最近のメッセージは基本的に削除されません。特定のチャンネルを残したい場合は、そのチャンネルで自動整理をオフにできます。</string><string name="label_confirm">確認</string>
-    <string name="confirm_cleanup_messages">消去の確認</string><string name="confirm_cleanup_read_messages_channel">現在のチャンネルの既読メッセージを削除します。元に戻せません。</string><string name="confirm_cleanup_read_messages_all">すべての既読メッセージを削除します。元に戻せません。</string><string name="auto_cleanup_suggestion">表示が遅くなっています。履歴を整理するか自動整理を有効にしてください。</string>
-    <string name="auto_cleanup_manual_suggestion">表示が遅くなっています。古いメッセージを手動で整理できます。</string>
+    <string name="label_app_version">アプリのバージョン</string><string name="label_app_version_format">%1$s build %2$d</string>
+    <string name="label_yesterday">昨日</string>
+    <string name="label_confirm">確認</string>
+    <string name="confirm_cleanup_messages">消去の確認</string><string name="confirm_cleanup_read_messages_channel">現在のチャンネルの既読メッセージを削除します。元に戻せません。</string><string name="confirm_cleanup_read_messages_all">すべての既読メッセージを削除します。元に戻せません。</string>
     <string name="clean_channel_messages">既読メッセージを削除</string>
     <string name="clean_channel_messages_hint">現在のチャンネルで整理する内容を選択してください。</string>
     <string name="clean_channel_all">チャンネル内をすべて削除</string>
     <string name="clean_channel_read">チャンネル内の既読を削除</string>
     <string name="confirm_cleanup_channel_placeholder">現在のチャンネルのメッセージを削除します。元に戻せません。</string>
     <string name="label_open_url">リンクを開く</string>
-    <string name="label_raw_payload">生データ</string>
-    <string name="action_expand">展開</string>
-    <string name="action_collapse">折りたたむ</string>
     <string name="label_search">メッセージを検索</string>
     <string name="label_no_messages">メッセージはありません</string>
     <string name="label_no_search_results">検索結果なし</string>
     <string name="label_no_title">(タイトルなし)</string>
     <string name="label_group_ungrouped">グループなし</string>
-    <string name="label_loading">読み込み中…</string><string name="label_send_test_notification">テスト通知を送信</string><string name="label_send_local_notification">ローカル通知を送信</string><string name="section_ringtone">着信音ライブラリ</string>
-    <string name="section_language">言語</string>
-    <string name="section_push_form">プッシュテスト</string>
-    <string name="section_appearance">外観</string>
-    <string name="label_theme">テーマ</string>
-    <string name="label_theme_system">システム設定</string>
-    <string name="label_theme_light">ライトモード</string>
-    <string name="label_theme_dark">ダークモード</string>
-
+    <string name="label_loading">読み込み中…</string>
     <string name="section_connection_device">接続とデバイス</string><string name="section_channels">チャンネル</string>
     <string name="section_decryption">メッセージ復号</string>
     <string name="section_security">セキュリティ</string>
-    <string name="section_notifications_sounds">通知とサウンド</string>
     <string name="section_storage">ストレージ</string>
     <string name="section_personalization">個人設定</string><string name="label_decryption_configured">復号設定済み</string>
     <string name="label_decryption_configured_updated">復号設定済み · 更新: %1$s</string>
     <string name="label_decryption_not_configured">復号未設定</string>
     <string name="label_decryption_hint">AES-GCM のみサポートされています。IV は暗号文に含まれている必要があります。</string>
-    <string name="label_decryption_subtitle">キーとエンコーディング</string><string name="label_preview_ringtone">プレビュー</string>
-    <string name="title_select_audio">オーディオを選択</string>
+    <string name="label_decryption_subtitle">キーとエンコーディング</string>
     <string name="label_close">閉じる</string>
     <string name="label_cancel">キャンセル</string>
     <string name="label_enable_notifications">通知がオフです</string>
-    <string name="label_enable_notifications_hint">通知が無効だと PushGo のプッシュを受け取れません。設定で有効にしてください。</string>
+    <string name="label_enable_notifications_hint">通知がオフのため、新着メッセージ・イベント・オブジェクト更新を PushGo が知らせられません。システム設定で PushGo 通知をオンにして、この画面に戻ってください。</string>
     <string name="label_turn_on">オンにする</string>
-    <string name="label_export_messages_hint">デバイスに保存</string><string name="label_title">タイトル</string>
     <string name="label_body">本文</string>
-    <string name="label_url">URL</string><string name="label_icon_url">アイコン URL</string>
+    <string name="label_url">URL</string>
     <string name="label_image_url">画像 URL</string>
     <string name="label_ciphertext">暗号文</string>
-    <string name="label_sound">サウンド</string><string name="label_sound_none">設定しない</string>
-    <string name="label_custom_sound">カスタムサウンド</string>
-    <string name="label_custom_sound_hint">カスタムサウンドはそのまま送信されます。Android は組み込みの着信音のみ一致します。</string>
     <string name="label_gateway_payload">ゲートウェイ JSON</string>
     <string name="label_copy_json">JSON をコピー</string>
-
-    <string name="push_default_title">PushGo テスト通知</string>
-    <string name="push_default_body">これはプッシュ表示効果を確認するためのローカルテスト通知です。</string>
-
-    <string name="export_all_messages_json">全メッセージをエクスポート (JSON)</string>
     <string name="message_json_exported_successfully">メッセージをエクスポートしました</string>
     <string name="no_messages_available_to_export">エクスポートするメッセージがありません</string>
     <string name="export_messages">メッセージをエクスポート</string>
-
     <string name="message_gateway_saved">ゲートウェイを保存しました</string>
-    <string name="message_ringtone_added">着信音を追加しました</string>
     <string name="message_decryption_saved">復号設定を保存しました</string><string name="message_channel_created_and_subscribed">チャンネルを作成し、購読しました</string>
     <string name="message_channel_subscribed">チャンネルを購読しました</string>
     <string name="message_channel_renamed">チャンネル名を変更しました</string>
@@ -128,7 +89,6 @@
     </plurals>
     <string name="message_messages_cleared">メッセージを消去しました</string>
     <string name="message_no_messages_to_clear">消去するメッセージがありません</string>
-
     <string name="error_invalid_server_address">無効なサーバーアドレス (https が必要です)</string>
     <string name="error_key_required">先にキーを入力してください</string>
     <string name="error_key_already_saved">キーは既に保存されています。上書きするには新しい値を入力してください</string>
@@ -146,16 +106,137 @@
     <string name="error_channel_id_required">チャンネル ID を入力してください</string>
     <string name="error_channel_id_invalid">無効なチャンネル ID です</string>
     <string name="error_channel_password_length">チャンネルのパスワードは 8 ～ 128 文字である必要があります</string>
-
-    <string name="ringtone_default">デフォルト</string>
     <string name="ringtone_notification">通知</string>
     <string name="ringtone_alert">アラート</string>
-    <string name="ringtone_quick_whoosh">クイック・ウッシュ</string>
-    <string name="ringtone_pop">ポップ</string>
-    <string name="ringtone_bubble_pop">バブル・ポップ</string>
     <string name="ringtone_arcade">アーケード</string>
-    <string name="ringtone_cartoon_blink">アニメのまばたき</string>
-    <string name="ringtone_cute_chime">キュートなチャイム</string>
+    <string name="ringtone_bubble_pop">バブルポップ</string>
     <string name="ringtone_level_up">レベルアップ</string>
     <string name="ringtone_festive_chime">お祝いのチャイム</string>
+    <string name="error_invalid_key_length">キー長は 128/192/256 ビットである必要があります。</string>
+
+    <string name="label_send_type_message">Message</string>
+    <string name="label_send_type_event">Event</string>
+    <string name="label_send_type_thing">Object</string>
+    <string name="label_event_id">Event ID</string>
+    <string name="label_event_state">Event Action</string>
+    <string name="label_event_thing_id">Object ID (Optional)</string>
+    <string name="label_event_description">Event Description</string>
+    <string name="label_event_tags">Event Tags (comma)</string>
+    <string name="label_event_impact">Event Severity</string>
+    <string name="label_event_attrs_json">Event Attrs JSON</string>
+    <string name="label_thing_id">Object ID</string>
+    <string name="label_thing_name">Object Name</string>
+    <string name="label_thing_description">Object Description</string>
+    <string name="label_thing_tags">Object Tags (comma)</string>
+    <string name="label_thing_attrs_json">Object Attrs JSON</string>
+    <string name="label_channel_all">All channels</string>
+    <string name="label_search_entities">Search</string>
+    <string name="label_no_events_title">No events yet</string>
+    <string name="label_no_events_hint">Event entries will appear after event payloads are received.</string>
+    <string name="label_no_things_title">No objects yet</string>
+    <string name="label_no_things_hint">Object entries will appear after object payloads are received.</string>
+    <string name="section_data_pages">Enable data pages</string>
+    <string name="label_data_page_toggle_hint">Hide from navigation only; auto re-enabled when new data arrives</string>
+    <string name="label_event_group_identity">Event Identity</string>
+    <string name="label_event_group_profile">Event Profile</string>
+    <string name="label_thing_group_identity">Object Identity</string>
+    <string name="label_thing_group_profile">Object Profile</string>
+    <string name="label_metadata_json">Metadata (JSON)</string>
+    <string name="label_event_links">Event Images (comma)</string>
+    <string name="label_event_started_at">Event Start Time (optional)</string>
+    <string name="label_event_ended_at">Event End Time (optional)</string>
+    <string name="label_thing_links">Object Images (comma)</string>
+    <string name="label_use_fcm_channel">FCM チャンネルを使う</string>
+    <string name="label_use_fcm_channel_hint">オフの場合、通知はプライベートチャンネルへフォールバックします。</string>
+    <string name="label_fcm_wakeup_pull_mode">ウェイクアップ Pull モードを使う</string>
+    <string name="label_fcm_wakeup_pull_mode_hint">FCM でウェイクアップを送り、本文は HTTP で取得します。</string>
+    <string name="label_private_transport_status">プライベート転送ステータス</string>
+    <string name="error_request_failed">リクエストに失敗しました。再試行してください。</string>
+    <string name="error_channel_create_requires_fcm">新しいチャンネル作成には FCM が必要です。FCM 非対応端末では既存のチャンネル ID を使用してください。</string>
+    <string name="error_private_channel_create_failed">プライベートチャンネルの作成に失敗しました。再試行してください。</string>
+    <string name="error_private_channel_subscribe_failed">プライベートチャンネルの購読に失敗しました。チャンネル ID/パスワードを確認して再試行してください。</string>
+    <string name="error_private_channel_unsubscribe_failed">プライベートチャンネルの購読解除に失敗しました。再試行してください。</string>
+    <string name="error_channel_password_mismatch_removed">チャンネルパスワードが一致しないため、ローカル購読を削除しました: %1$s</string>
+    <string name="action_close_event">イベントをクローズ</string>
+    <string name="message_event_closed">イベントをクローズしました</string>
+    <string name="error_channel_password_missing">チャンネルパスワードがありません</string>
+    <string name="error_event_missing_channel">このイベントのチャンネル ID がありません</string>
+    <string name="error_event_close_failed">イベントをクローズできませんでした</string>
+    <string name="label_search_events">イベントを検索</string>
+    <string name="label_search_things">オブジェクトを検索</string>
+    <string name="label_thing_created_at">Object Created Time (optional)</string>
+    <string name="entity_title_event_fallback">Event %1$s</string>
+    <string name="entity_title_thing_fallback">Object %1$s</string>
+    <string name="entity_body_event_open">Opened</string>
+    <string name="entity_body_event_ongoing">Ongoing</string>
+    <string name="entity_body_event_closed">Closed</string>
+    <string name="entity_body_updated">Updated</string>
+    <string name="entity_body_thing_attribute_update_template">属性更新 || %1$s</string>
+    <string name="entity_body_thing_attribute_pair_template">%1$s: %2$s</string>
+
+
+    <string name="clean_all_messages">すべてのメッセージを削除</string>
+    <string name="confirm_cleanup_events_all">すべてのイベント記録を削除します。この操作は元に戻せません。</string>
+    <string name="confirm_cleanup_events_channel">現在のチャンネルのイベント記録を削除します。この操作は元に戻せません。</string>
+    <string name="confirm_cleanup_messages_all">すべてのメッセージを削除します。この操作は元に戻せません。</string>
+    <string name="confirm_cleanup_messages_channel">現在のチャンネルのメッセージをすべて削除します。この操作は元に戻せません。</string>
+    <string name="confirm_cleanup_things_all">すべてのオブジェクト記録を削除します。この操作は元に戻せません。</string>
+    <string name="confirm_cleanup_things_channel">現在のチャンネルのオブジェクト記録を削除します。この操作は元に戻せません。</string>
+    <string name="confirm_close_event">このイベントをクローズします。続行しますか？</string>
+    <string name="entity_body_unknown">不明</string>
+    <string name="event_detail_attachments">画像</string>
+    <string name="event_detail_attributes">属性</string>
+    <string name="event_detail_attrs_inline">属性: %1$s</string>
+    <string name="event_detail_current_state">現在の状態: %1$s</string>
+    <string name="event_detail_history_timeline">履歴タイムライン</string>
+    <string name="event_detail_severity_tags">重要度: %1$s · タグ: %2$d</string>
+    <string name="event_detail_state_inline">状態: %1$s</string>
+    <string name="event_message_closed_default">イベントをクローズしました。</string>
+    <string name="event_meta_severity">重要度: %1$s</string>
+    <string name="event_meta_tags_count">タグ: %1$d</string>
+    <string name="event_meta_timeline_points">タイムライン数: %1$d</string>
+    <string name="event_meta_updated">更新: %1$s</string>
+    <string name="event_status_closed_default">クローズ</string>
+    <string name="event_status_created_default">作成済み</string>
+    <string name="label_clear">クリア</string>
+    <string name="label_event_message">ステータスメッセージ</string>
+    <string name="label_event_status">イベント状態</string>
+    <string name="label_message_tags">メッセージタグ（カンマ区切り）</string>
+    <string name="label_select_date_time">日時を選択</string>
+    <string name="label_set_now">現在時刻を設定</string>
+    <string name="label_thing_action">オブジェクト操作</string>
+    <string name="message_events_cleaned">イベントを削除しました</string>
+    <string name="message_events_exported">イベントをエクスポートしました</string>
+    <string name="message_severity_critical">重大</string>
+    <string name="message_severity_critical_compact">重大</string>
+    <string name="message_severity_critical_hint">重大なメッセージです。できるだけ早く対応してください。</string>
+    <string name="message_severity_high">高</string>
+    <string name="message_severity_high_compact">高</string>
+    <string name="message_severity_low">低</string>
+    <string name="message_severity_medium">中</string>
+    <string name="message_things_cleaned">オブジェクトを削除しました</string>
+    <string name="no_events_available_to_export">エクスポートできるイベントがありません</string>
+    <string name="section_about">このアプリについて</string>
+    <string name="thing_detail_attributes">属性</string>
+    <string name="thing_detail_created_updated">作成: %1$s · 更新: %2$s</string>
+    <string name="thing_detail_event_state">イベント: %1$s · 状態: %2$s</string>
+    <string name="thing_detail_images_count">画像: %1$d</string>
+    <string name="thing_detail_message_id">メッセージ: %1$s</string>
+    <string name="thing_detail_messages">メッセージ</string>
+    <string name="thing_detail_metadata_button">メタデータ</string>
+    <string name="thing_detail_no_metadata">メタデータがありません。</string>
+    <string name="thing_detail_no_related_events">関連イベントはありません。</string>
+    <string name="thing_detail_no_related_messages">関連メッセージはありません。</string>
+    <string name="thing_detail_no_related_updates">関連更新はありません。</string>
+    <string name="thing_detail_related_events">関連イベント</string>
+    <string name="thing_detail_tab_events">イベント</string>
+    <string name="thing_detail_tab_messages">メッセージ</string>
+    <string name="thing_detail_tab_updates">更新</string>
+    <string name="thing_detail_tags_created">タグ: %1$d · 作成: %2$s</string>
+    <string name="thing_meta_attrs_count">属性: %1$d</string>
+    <string name="thing_meta_messages_count">メッセージ: %1$d</string>
+    <string name="thing_meta_metadata_count">メタデータ: %1$d</string>
+    <string name="thing_meta_related_events_count">関連イベント: %1$d</string>
+    <string name="thing_meta_tags_count">タグ: %1$d</string>
+    <string name="thing_meta_updated">更新: %1$s</string>
 </resources>

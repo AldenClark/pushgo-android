@@ -18,6 +18,10 @@ val releaseStoreFile = project.resolveSigningProperty("PUSHGO_RELEASE_STORE_FILE
 val releaseStorePassword = project.resolveSigningProperty("PUSHGO_RELEASE_STORE_PASSWORD")
 val releaseKeyAlias = project.resolveSigningProperty("PUSHGO_RELEASE_KEY_ALIAS")
 val releaseKeyPassword = project.resolveSigningProperty("PUSHGO_RELEASE_KEY_PASSWORD")
+val privateCertPinSha256 = project.resolveSigningProperty("PUSHGO_PRIVATE_CERT_PIN_SHA256")
+    ?.trim()
+    ?.replace("\"", "")
+    ?: ""
 
 android {
     namespace = "io.ethan.pushgo"
@@ -44,6 +48,7 @@ android {
         minSdk = 31
         versionCode = 9
         versionName = "1.0.0"
+        buildConfigField("String", "PRIVATE_CERT_PIN_SHA256", "\"$privateCertPinSha256\"")
 
         vectorDrawables {
             useSupportLibrary = true
@@ -139,10 +144,17 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")
     implementation("androidx.work:work-runtime-ktx:2.11.0")
     implementation("io.coil-kt:coil-compose:2.7.0")
-
+    implementation("io.noties.markwon:core:4.6.2")
+    implementation("io.noties.markwon:ext-strikethrough:4.6.2")
+    implementation("io.noties.markwon:ext-tables:4.6.2")
+    implementation("io.noties.markwon:ext-tasklist:4.6.2")
+    implementation("io.noties.markwon:html:4.6.2")
+    implementation("io.noties.markwon:linkify:4.6.2")
+    implementation("io.noties.markwon:image-coil:4.6.2")
     implementation(platform("com.google.firebase:firebase-bom:34.8.0"))
     implementation("com.google.firebase:firebase-messaging")
     implementation("com.google.android.gms:play-services-base:18.5.0")
 
     debugImplementation("androidx.compose.ui:ui-tooling")
+
 }

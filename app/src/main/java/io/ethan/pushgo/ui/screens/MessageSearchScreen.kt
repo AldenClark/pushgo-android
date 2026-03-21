@@ -13,23 +13,24 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavHostController
 import io.ethan.pushgo.R
+import io.ethan.pushgo.automation.PushGoAutomation
 import io.ethan.pushgo.data.model.PushMessage
 import io.ethan.pushgo.markdown.MessageBodyResolver
-import io.ethan.pushgo.markdown.MarkdownRenderPayloadSizing
-import io.ethan.pushgo.markdown.extractMarkdownRenderPayload
+import io.ethan.pushgo.markdown.MessagePreviewExtractor
 import io.ethan.pushgo.ui.PushGoViewModelFactory
-import io.ethan.pushgo.ui.markdown.MarkdownRenderPayloadText
 import io.ethan.pushgo.ui.viewmodel.MessageSearchViewModel
 import java.time.ZoneId
 
@@ -41,6 +42,16 @@ fun MessageSearchScreen(
     val viewModel: MessageSearchViewModel = viewModel(factory = factory)
     val query by viewModel.queryState.collectAsState()
     val results by viewModel.results.collectAsState()
+
+    LaunchedEffect(query, results.size) {
+        PushGoAutomation.writeEvent(
+            type = "search.results_updated",
+            command = null,
+            details = org.json.JSONObject()
+                .put("search_query", query)
+                .put("result_count", results.size),
+        )
+    }
 
     Column(modifier = Modifier.padding(16.dp)) {
         OutlinedTextField(
@@ -65,16 +76,17 @@ fun MessageSearchScreen(
 @Composable
 private fun SearchResultRow(message: PushMessage, onClick: () -> Unit) {
     val context = LocalContext.current
-    val timeText = remember(message.receivedAt, context.resources.configuration) {
+    val configuration = LocalConfiguration.current
+    val timeText = remember(message.receivedAt, configuration) {
         formatMessageTime(context, message.receivedAt, ZoneId.systemDefault())
     }
     val resolvedBody = remember(message.rawPayloadJson, message.body) {
         MessageBodyResolver.resolve(message.rawPayloadJson, message.body)
     }
-    val renderPayload = remember(message.rawPayloadJson, resolvedBody.rawText, resolvedBody.isMarkdown) {
-        extractMarkdownRenderPayload(message.rawPayloadJson)
-            ?: MarkdownRenderPayloadSizing.listPayload(resolvedBody.rawText, resolvedBody.isMarkdown)
+    val bodyPreview = remember(resolvedBody.rawText) {
+        MessagePreviewExtractor.listPreview(resolvedBody.rawText)
     }
+    val hasBodyText = bodyPreview.isNotBlank()
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -87,16 +99,9 @@ private fun SearchResultRow(message: PushMessage, onClick: () -> Unit) {
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
-        if (renderPayload != null) {
-            MarkdownRenderPayloadText(
-                payload = renderPayload,
-                textStyle = MaterialTheme.typography.bodySmall,
-                maxLines = 2,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        } else {
+        if (hasBodyText) {
             Text(
-                text = resolvedBody.rawText,
+                text = bodyPreview,
                 style = MaterialTheme.typography.bodySmall,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,

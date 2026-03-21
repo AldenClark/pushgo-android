@@ -1,8 +1,6 @@
 <resources>
     <string name="app_name">PushGo</string>
-
     <string name="tab_messages">訊息</string>
-    <string name="tab_push">推播</string>
     <string name="tab_settings">設定</string><string name="action_mark_read">標示為已讀</string>
     <string name="action_mark_all_read">全部標示為已讀</string>
     <string name="action_delete">刪除</string>
@@ -15,9 +13,8 @@
     <string name="label_show_key">顯示金鑰</string>
     <string name="label_hide_key">隱藏金鑰</string>
     <string name="label_back">返回</string>
-    <string name="label_add_custom_ringtone">新增自訂鈴聲</string>
-    <string name="label_image_attachment">圖片附件</string><string name="label_gateway_settings">網關設定</string>
-    <string name="label_gateway_settings_hint">設定伺服器位址</string><string name="label_channel_name">頻道名稱</string>
+    <string name="label_image_attachment">圖片附件</string><string name="label_gateway_settings">網關</string>
+    <string name="label_channel_name">頻道名稱</string>
     <string name="label_channel_alias">頻道別名</string>
     <string name="label_channel_id">頻道 ID</string><string name="label_channel_id_copied">頻道 ID 已複製</string>
     <string name="label_channel_actions">頻道操作</string><string name="label_channel_option">%1$s (%2$s)</string>
@@ -26,8 +23,6 @@
     <string name="label_channel_password">頻道密碼</string><string name="label_create_channel">建立頻道</string>
     <string name="label_subscribe_channel">訂閱頻道</string>
     <string name="label_add_channel">新增頻道</string><string name="label_rename_channel">重新命名</string>
-    <string name="label_enable_auto_cleanup">允許自動清理</string>
-    <string name="label_disable_auto_cleanup">禁止自動清理</string>
     <string name="label_rename_channel_title">重新命名 %1$s</string>
     <string name="label_rename_channel_hint">為此頻道設定一個新的別名。</string>
     <string name="label_unsubscribe_channel">取消訂閱</string>
@@ -39,86 +34,55 @@
     <string name="message_list_empty_title">暫無訊息</string>
     <string name="message_list_empty_hint">請先建立或訂閱頻道以接收推送。</string>
     <string name="channel_list_empty_title">暫無訂閱</string>
-    <string name="channel_list_empty_hint">請先建立或訂閱頻道以接收推送。</string><string name="label_notification_key">通知金鑰 (Base64)</string>
+    <string name="channel_list_empty_hint">請先建立或訂閱頻道以接收推送。</string><string name="label_notification_key">通知金鑰</string>
     <string name="label_key_strength">金鑰強度</string>
     <string name="label_key_strength_hint">較高的位元強度可提高安全性，但可能會影響解密速度。</string>
     <string name="label_configuration">設定</string><string name="label_key_encoding_base64">Base64</string>
     <string name="label_key_encoding_hex">Hex</string>
     <string name="label_key_encoding_plaintext">純文字</string>
-    <string name="label_language">應用程式語言</string><string name="label_app_version">應用版本</string><string name="label_app_version_format">%1$s build %2$d</string>
-    <string name="label_language_system">系統預設</string>
-    <string name="label_language_english">English</string>
-    <string name="label_language_simplified_chinese">简体中文</string>
-    <string name="label_language_traditional_chinese">繁體中文</string>
-    <string name="label_language_japanese">日本語</string>
-    <string name="label_language_korean">한국어</string>
-    <string name="label_language_german">Deutsch</string>
-    <string name="label_language_french">Français</string>
-    <string name="label_language_spanish">Español</string>
-    <string name="label_yesterday">昨天</string><string name="auto_cleanup_messages">自動清理已讀訊息</string>
-    <string name="auto_cleanup_messages_hint">偵測到查詢變慢時，會自動清理最早的已讀訊息。系統會保留較大量的歷史記錄，近期訊息通常不會被刪除。如需保留某個頻道的訊息，可在頻道設定中關閉自動清理。</string><string name="label_confirm">確認</string>
-    <string name="confirm_cleanup_messages">確認清除</string><string name="confirm_cleanup_read_messages_channel">將清理目前頻道已讀消息，且無法撤銷。</string><string name="confirm_cleanup_read_messages_all">將清理全部已讀消息，且無法撤銷。</string><string name="auto_cleanup_suggestion">訊息變慢了，請清理歷史訊息或開啟自動清理。</string>
-    <string name="auto_cleanup_manual_suggestion">訊息變慢了，你可以手動清理較早的訊息。</string>
+    <string name="label_app_version">應用版本</string><string name="label_app_version_format">%1$s build %2$d</string>
+    <string name="label_yesterday">昨天</string>
+    <string name="label_confirm">確認</string>
+    <string name="confirm_cleanup_messages">確認清除</string><string name="confirm_cleanup_read_messages_channel">將清理目前頻道已讀消息，且無法撤銷。</string><string name="confirm_cleanup_read_messages_all">將清理全部已讀消息，且無法撤銷。</string>
     <string name="clean_channel_messages">清理已讀消息</string>
     <string name="clean_channel_messages_hint">請選擇要清理的內容。</string>
     <string name="clean_channel_all">清理目前頻道全部訊息</string>
     <string name="clean_channel_read">清理目前頻道已讀訊息</string>
     <string name="confirm_cleanup_channel_placeholder">將清理目前頻道訊息，且無法復原。</string>
     <string name="label_open_url">開啟連結</string>
-    <string name="label_raw_payload">原始資料</string>
-    <string name="action_expand">展開</string>
-    <string name="action_collapse">收起</string>
     <string name="label_search">搜尋訊息</string>
+    <string name="label_search_entities">搜尋</string>
+    <string name="label_search_events">搜尋事件</string>
+    <string name="label_search_things">搜尋物件</string>
     <string name="label_no_messages">暫無訊息</string>
     <string name="label_no_search_results">無搜尋結果</string>
     <string name="label_no_title">(無標題)</string>
     <string name="label_group_ungrouped">未分組</string>
-    <string name="label_loading">載入中…</string><string name="label_send_test_notification">發送測試通知</string><string name="label_send_local_notification">發送本地通知</string><string name="section_ringtone">鈴聲庫</string>
-    <string name="section_language">語言</string>
-    <string name="section_push_form">推播測試</string>
-    <string name="section_appearance">外觀</string>
-    <string name="label_theme">主題</string>
-    <string name="label_theme_system">跟隨系統</string>
-    <string name="label_theme_light">淺色模式</string>
-    <string name="label_theme_dark">深色模式</string>
-
+    <string name="label_loading">載入中…</string>
     <string name="section_connection_device">連線與裝置</string><string name="section_channels">頻道</string>
     <string name="section_decryption">訊息解密</string>
     <string name="section_security">安全</string>
-    <string name="section_notifications_sounds">通知與音效</string>
     <string name="section_storage">儲存空間</string>
     <string name="section_personalization">個人化</string><string name="label_decryption_configured">解密已設定</string>
     <string name="label_decryption_configured_updated">解密已設定 · 更新於 %1$s</string>
     <string name="label_decryption_not_configured">解密未設定</string>
     <string name="label_decryption_hint">僅支援 AES-GCM；IV 必須包含在密文中。</string>
-    <string name="label_decryption_subtitle">金鑰與編碼</string><string name="label_preview_ringtone">試聽</string>
-    <string name="title_select_audio">選擇音訊</string>
+    <string name="label_decryption_subtitle">金鑰與編碼</string>
     <string name="label_close">關閉</string>
     <string name="label_cancel">取消</string>
     <string name="label_enable_notifications">通知已關閉</string>
-    <string name="label_enable_notifications_hint">未開啟通知將無法接收推送訊息，請在系統設定中開啟。</string>
+    <string name="label_enable_notifications_hint">我們發現你已關閉 PushGo 通知，可能會錯過新的訊息、事件與物件更新。到系統設定開啟通知後，回來就能第一時間收到提醒。</string>
     <string name="label_turn_on">開啟</string>
-    <string name="label_export_messages_hint">儲存到裝置</string><string name="label_title">標題</string>
     <string name="label_body">內文</string>
-    <string name="label_url">連結</string><string name="label_icon_url">圖示 URL</string>
+    <string name="label_url">連結</string>
     <string name="label_image_url">圖片 URL</string>
     <string name="label_ciphertext">密文</string>
-    <string name="label_sound">音效</string><string name="label_sound_none">不設定</string>
-    <string name="label_custom_sound">自訂音效</string>
-    <string name="label_custom_sound_hint">自訂音效按原樣發送。Android 僅匹配內建鈴聲。</string>
     <string name="label_gateway_payload">網關 JSON</string>
     <string name="label_copy_json">複製 JSON</string>
-
-    <string name="push_default_title">PushGo 測試通知</string>
-    <string name="push_default_body">這是一條本機測試通知，用於驗證推播顯示效果。</string>
-
-    <string name="export_all_messages_json">匯出所有訊息 (JSON)</string>
     <string name="message_json_exported_successfully">訊息已匯出</string>
     <string name="no_messages_available_to_export">沒有可匯出的訊息</string>
     <string name="export_messages">匯出訊息</string>
-
     <string name="message_gateway_saved">網關已儲存</string>
-    <string name="message_ringtone_added">鈴聲已新增</string>
     <string name="message_decryption_saved">解密設定已儲存</string><string name="message_channel_created_and_subscribed">頻道已建立並訂閱</string>
     <string name="message_channel_subscribed">頻道已訂閱</string>
     <string name="message_channel_renamed">頻道已重新命名</string>
@@ -128,12 +92,12 @@
     </plurals>
     <string name="message_messages_cleared">訊息已清除</string>
     <string name="message_no_messages_to_clear">沒有可清除的訊息</string>
-
     <string name="error_invalid_server_address">無效的伺服器位址 (需要 https)</string>
     <string name="error_key_required">請先輸入金鑰</string>
     <string name="error_key_already_saved">金鑰已儲存；輸入新值以覆寫</string>
     <string name="error_invalid_base64">無效的 Base64</string>
     <string name="error_invalid_hex">無效的 Hex</string>
+    <string name="error_invalid_key_length">金鑰長度必須為 128/192/256 位。</string>
     <plurals name="error_key_length_mismatch">
         <item quantity="other">金鑰長度不符：需要 %1$d 位元組 (%2$d 位元)，實際 %3$d 位元組</item>
     </plurals>
@@ -146,16 +110,133 @@
     <string name="error_channel_id_required">請輸入頻道 ID</string>
     <string name="error_channel_id_invalid">無效的頻道 ID</string>
     <string name="error_channel_password_length">頻道密碼長度必須在 8&#8211;128 個字元之間</string>
-
-    <string name="ringtone_default">預設</string>
     <string name="ringtone_notification">通知</string>
     <string name="ringtone_alert">警報</string>
-    <string name="ringtone_quick_whoosh">快速呼嘯</string>
-    <string name="ringtone_pop">氣泡</string>
-    <string name="ringtone_bubble_pop">氣泡破裂</string>
     <string name="ringtone_arcade">街機</string>
-    <string name="ringtone_cartoon_blink">卡通眨眼</string>
-    <string name="ringtone_cute_chime">可愛鈴聲</string>
+    <string name="ringtone_bubble_pop">泡泡彈出</string>
     <string name="ringtone_level_up">升級</string>
     <string name="ringtone_festive_chime">節日鈴聲</string>
+
+    <string name="label_send_type_message">訊息</string>
+    <string name="label_send_type_event">事件</string>
+    <string name="label_send_type_thing">對象</string>
+    <string name="label_event_id">事件 ID</string>
+    <string name="label_event_state">事件動作</string>
+    <string name="label_thing_action">對象動作</string>
+    <string name="label_event_thing_id">對象 ID（可選）</string>
+    <string name="label_event_description">事件描述</string>
+    <string name="label_event_tags">事件標籤（逗號分隔）</string>
+    <string name="label_event_impact">緊急程度</string>
+    <string name="label_event_attrs_json">事件 attrs JSON</string>
+    <string name="label_thing_id">對象 ID</string>
+    <string name="label_thing_name">對象標題</string>
+    <string name="label_thing_description">對象描述</string>
+    <string name="label_thing_tags">對象標籤（逗號分隔）</string>
+    <string name="label_thing_created_at">對象建立時間（可選）</string>
+    <string name="label_thing_attrs_json">對象 attrs JSON</string>
+    <string name="label_channel_all">All channels</string>
+    <string name="label_no_events_title">No events yet</string>
+    <string name="label_no_events_hint">Event entries will appear after event payloads are received.</string>
+    <string name="label_no_things_title">No objects yet</string>
+    <string name="label_no_things_hint">Object entries will appear after object payloads are received.</string>
+    <string name="section_data_pages">啟用資料頁面</string>
+    <string name="label_data_page_toggle_hint">Hide from navigation only; auto re-enabled when new data arrives</string>
+    <string name="label_event_group_identity">Event Identity</string>
+    <string name="label_event_group_profile">Event Profile</string>
+    <string name="label_thing_group_identity">Object Identity</string>
+    <string name="label_thing_group_profile">Object Profile</string>
+    <string name="label_metadata_json">Metadata (JSON)</string>
+    <string name="label_event_links">事件圖片（逗號分隔）</string>
+    <string name="label_event_started_at">事件開始時間（可選）</string>
+    <string name="label_event_ended_at">事件結束時間（可選）</string>
+    <string name="label_select_date_time">選擇日期與時間</string>
+    <string name="label_set_now">設為現在</string>
+    <string name="label_clear">清除</string>
+    <string name="label_thing_links">對象圖片（逗號分隔）</string>
+    <string name="label_use_fcm_channel">使用 FCM 通道</string>
+    <string name="label_use_fcm_channel_hint">關閉後，通知將回退到私有通道。</string>
+    <string name="label_fcm_wakeup_pull_mode">使用喚醒拉取模式</string>
+    <string name="label_fcm_wakeup_pull_mode_hint">先透過 FCM 發送喚醒，再透過 HTTP 拉取完整訊息。</string>
+    <string name="label_private_transport_status">私有傳輸狀態</string>
+    <string name="error_request_failed">請求失敗，請重試。</string>
+    <string name="error_channel_create_requires_fcm">建立新頻道需要 FCM。無 FCM 裝置請使用既有頻道 ID。</string>
+    <string name="error_private_channel_create_failed">私有頻道建立失敗，請重試。</string>
+    <string name="error_private_channel_subscribe_failed">私有頻道訂閱失敗，請檢查頻道 ID/密碼後重試。</string>
+    <string name="error_private_channel_unsubscribe_failed">私有頻道取消訂閱失敗，請重試。</string>
+    <string name="error_channel_password_mismatch_removed">頻道密碼不一致，已移除本地訂閱：%1$s</string>
+    <string name="action_close_event">關閉事件</string>
+    <string name="message_event_closed">事件已關閉</string>
+    <string name="error_channel_password_missing">缺少頻道密碼</string>
+    <string name="error_event_missing_channel">此事件缺少頻道 ID</string>
+    <string name="error_event_close_failed">關閉事件失敗</string>
+    <string name="entity_title_event_fallback">事件 %1$s</string>
+    <string name="entity_title_thing_fallback">對象 %1$s</string>
+    <string name="entity_body_event_open">已開啟</string>
+    <string name="entity_body_event_ongoing">進行中</string>
+    <string name="entity_body_event_closed">已關閉</string>
+    <string name="entity_body_unknown">未知</string>
+    <string name="entity_body_updated">已更新</string>
+    <string name="entity_body_thing_attribute_update_template">屬性更新 || %1$s</string>
+    <string name="entity_body_thing_attribute_pair_template">%1$s: %2$s</string>
+    <string name="thing_detail_metadata_button">中繼資料</string>
+
+
+    <string name="clean_all_messages">清除全部訊息</string>
+    <string name="confirm_cleanup_events_all">這將刪除全部事件紀錄，且無法復原。</string>
+    <string name="confirm_cleanup_events_channel">這將刪除目前頻道的事件紀錄，且無法復原。</string>
+    <string name="confirm_cleanup_messages_all">這將刪除全部訊息，且無法復原。</string>
+    <string name="confirm_cleanup_messages_channel">這將刪除目前頻道的全部訊息，且無法復原。</string>
+    <string name="confirm_cleanup_things_all">這將刪除全部對象紀錄，且無法復原。</string>
+    <string name="confirm_cleanup_things_channel">這將刪除目前頻道的對象紀錄，且無法復原。</string>
+    <string name="confirm_close_event">此事件將被關閉，是否繼續？</string>
+    <string name="event_detail_attachments">圖片</string>
+    <string name="event_detail_attributes">屬性</string>
+    <string name="event_detail_attrs_inline">屬性：%1$s</string>
+    <string name="event_detail_current_state">目前狀態：%1$s</string>
+    <string name="event_detail_history_timeline">歷史時間線</string>
+    <string name="event_detail_severity_tags">嚴重程度：%1$s · 標籤：%2$d</string>
+    <string name="event_detail_state_inline">狀態：%1$s</string>
+    <string name="event_message_closed_default">事件已關閉。</string>
+    <string name="event_meta_severity">嚴重程度：%1$s</string>
+    <string name="event_meta_tags_count">標籤：%1$d</string>
+    <string name="event_meta_timeline_points">時間線節點：%1$d</string>
+    <string name="event_meta_updated">更新時間：%1$s</string>
+    <string name="event_status_closed_default">已關閉</string>
+    <string name="event_status_created_default">已建立</string>
+    <string name="label_event_message">狀態訊息</string>
+    <string name="label_event_status">事件狀態</string>
+    <string name="label_message_tags">訊息標籤（逗號分隔）</string>
+    <string name="message_events_cleaned">事件已清理</string>
+    <string name="message_events_exported">事件已匯出</string>
+    <string name="message_severity_critical">緊急</string>
+    <string name="message_severity_critical_compact">緊急</string>
+    <string name="message_severity_critical_hint">緊急訊息，請盡快處理。</string>
+    <string name="message_severity_high">高</string>
+    <string name="message_severity_high_compact">高</string>
+    <string name="message_severity_low">低</string>
+    <string name="message_severity_medium">中</string>
+    <string name="message_things_cleaned">對象已清理</string>
+    <string name="no_events_available_to_export">沒有可匯出的事件</string>
+    <string name="section_about">關於</string>
+    <string name="thing_detail_attributes">屬性</string>
+    <string name="thing_detail_created_updated">建立：%1$s · 更新：%2$s</string>
+    <string name="thing_detail_event_state">事件：%1$s · 狀態：%2$s</string>
+    <string name="thing_detail_images_count">圖片：%1$d</string>
+    <string name="thing_detail_message_id">訊息：%1$s</string>
+    <string name="thing_detail_messages">訊息</string>
+    <string name="thing_detail_no_metadata">沒有中繼資料。</string>
+    <string name="thing_detail_no_related_events">沒有相關事件。</string>
+    <string name="thing_detail_no_related_messages">沒有相關訊息。</string>
+    <string name="thing_detail_no_related_updates">沒有相關更新。</string>
+    <string name="thing_detail_related_events">相關事件</string>
+    <string name="thing_detail_tab_events">事件</string>
+    <string name="thing_detail_tab_messages">訊息</string>
+    <string name="thing_detail_tab_updates">更新</string>
+    <string name="thing_detail_tags_created">標籤：%1$d · 建立：%2$s</string>
+    <string name="thing_meta_attrs_count">屬性：%1$d</string>
+    <string name="thing_meta_messages_count">訊息：%1$d</string>
+    <string name="thing_meta_metadata_count">中繼資料：%1$d</string>
+    <string name="thing_meta_related_events_count">相關事件：%1$d</string>
+    <string name="thing_meta_tags_count">標籤：%1$d</string>
+    <string name="thing_meta_updated">更新時間：%1$s</string>
 </resources>

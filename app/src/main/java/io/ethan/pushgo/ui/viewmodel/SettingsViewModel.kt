@@ -1,6 +1,8 @@
 package io.ethan.pushgo.ui.viewmodel
 
 import android.content.Context
+import android.util.Log
+import androidx.annotation.StringRes
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -12,30 +14,29 @@ import com.google.firebase.messaging.FirebaseMessaging
 import io.ethan.pushgo.R
 import io.ethan.pushgo.data.AppConstants
 import io.ethan.pushgo.data.ChannelIdException
+import io.ethan.pushgo.data.ChannelIdValidator
 import io.ethan.pushgo.data.ChannelNameException
 import io.ethan.pushgo.data.ChannelPasswordException
 import io.ethan.pushgo.data.ChannelSubscriptionException
 import io.ethan.pushgo.data.ChannelSubscriptionRepository
 import io.ethan.pushgo.data.MessageRepository
+import io.ethan.pushgo.data.NotificationKeyValidationException
+import io.ethan.pushgo.data.NotificationKeyValidator
 import io.ethan.pushgo.data.SettingsRepository
 import io.ethan.pushgo.data.model.ChannelSubscription
 import io.ethan.pushgo.data.model.KeyEncoding
-import io.ethan.pushgo.data.model.KeyLength
-import io.ethan.pushgo.data.model.ThemeMode
-import io.ethan.pushgo.notifications.RingtoneCatalog
 import io.ethan.pushgo.notifications.MessageStateCoordinator
+import io.ethan.pushgo.notifications.PrivateChannelClient
+import io.ethan.pushgo.util.UrlValidators
 import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeout
-import java.net.URI
 import java.time.Instant
 import java.time.temporal.ChronoUnit
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 
-import io.ethan.pushgo.notifications.CustomRingtone
-import io.ethan.pushgo.notifications.CustomRingtoneManager
-import android.net.Uri
 
 enum class ClearOption {
     ALL,
@@ -51,7 +52,14 @@ class SettingsViewModel(
     private val channelRepository: ChannelSubscriptionRepository,
     private val messageRepository: MessageRepository,
     private val messageStateCoordinator: MessageStateCoordinator,
+    private val privateChannelClient: PrivateChannelClient,
 ) : ViewModel() {
+    companion object {
+        private const val TAG = "SettingsViewModel"
+        private const val FCM_TOKEN_MAX_ATTEMPTS = 3
+        private const val FCM_TOKEN_RETRY_BASE_DELAY_MS = 1_500L
+    }
+
     var gatewayAddress by mutableStateOf("")
         private set
     var gatewayToken by mutableStateOf("")
@@ -59,27 +67,27 @@ class SettingsViewModel(
 
     var deviceToken by mutableStateOf<String?>(null)
         private set
-
-    var customRingtones by mutableStateOf<List<CustomRingtone>>(emptyList())
+    var useFcmChannel by mutableStateOf(true)
+        private set
+    var isChannelModeLoaded by mutableStateOf(false)
+        private set
+    var privateTransportStatus by mutableStateOf("未连接")
         private set
 
     var decryptionKeyInput by mutableStateOf("")
         private set
     var keyEncoding by mutableStateOf(KeyEncoding.BASE64)
         private set
-    var keyLength by mutableStateOf(KeyLength.BITS_256)
-        private set
     var decryptionUpdatedAt by mutableStateOf<Instant?>(null)
         private set
     var isDecryptionConfigured by mutableStateOf(false)
         private set
 
-    var ringtoneId by mutableStateOf(RingtoneCatalog.DEFAULT_ID)
+    var isMessagePageEnabled by mutableStateOf(true)
         private set
-    var themeMode by mutableStateOf(ThemeMode.SYSTEM)
+    var isEventPageEnabled by mutableStateOf(true)
         private set
-
-    var autoCleanupEnabled by mutableStateOf(true)
+    var isThingPageEnabled by mutableStateOf(true)
         private set
 
     var channelSubscriptions by mutableStateOf<List<ChannelSubscription>>(emptyList())
@@ -109,7 +117,6 @@ class SettingsViewModel(
         private set
 
     private var hasLoadedGatewayAddress = false
-
     init {
         viewModelScope.launch {
             settingsRepository.serverAddressFlow.collect { value ->
@@ -120,62 +127,183 @@ class SettingsViewModel(
             }
         }
         viewModelScope.launch {
-            settingsRepository.ringtoneIdFlow.collect { value ->
-                ringtoneId = value ?: RingtoneCatalog.DEFAULT_ID
-            }
-        }
-        viewModelScope.launch {
-            settingsRepository.themeModeFlow.collect { value ->
-                themeMode = value
-            }
-        }
-        viewModelScope.launch {
-            settingsRepository.autoCleanupEnabledFlow.collect { value ->
-                autoCleanupEnabled = value
-            }
-        }
-
-        viewModelScope.launch {
             gatewayToken = settingsRepository.getGatewayToken() ?: ""
             deviceToken = settingsRepository.getFcmToken()
-            val currentKey = settingsRepository.getNotificationKeyBase64()
-            isDecryptionConfigured = !currentKey.isNullOrBlank()
+            useFcmChannel = settingsRepository.getUseFcmChannel()
+            val currentKey = settingsRepository.getNotificationKeyBytes()
+            isDecryptionConfigured = currentKey?.isNotEmpty() == true
             decryptionUpdatedAt = settingsRepository.getNotificationKeyUpdatedAt()
             keyEncoding = settingsRepository.getKeyEncoding()
-            keyLength = settingsRepository.getKeyLength()
-            autoCleanupEnabled = settingsRepository.getAutoCleanupEnabled()
+            isChannelModeLoaded = true
+        }
+        viewModelScope.launch {
+            settingsRepository.useFcmChannelFlow.collect { useFcmChannel = it }
+        }
+        viewModelScope.launch {
+            settingsRepository.messagePageEnabledFlow.collect { isMessagePageEnabled = it }
+        }
+        viewModelScope.launch {
+            settingsRepository.eventPageEnabledFlow.collect { isEventPageEnabled = it }
+        }
+        viewModelScope.launch {
+            settingsRepository.thingPageEnabledFlow.collect { isThingPageEnabled = it }
         }
 
         viewModelScope.launch {
             refreshChannelSubscriptions()
         }
-    }
-
-    fun refreshCustomRingtones(context: android.content.Context) {
-        customRingtones = CustomRingtoneManager.getCustomRingtones(context.applicationContext)
-    }
-
-    fun addCustomRingtone(context: android.content.Context, uri: Uri) {
         viewModelScope.launch {
-            val result = CustomRingtoneManager.addRingtone(context.applicationContext, uri)
-            when (result) {
-                is CustomRingtoneManager.AddResult.Success -> {
-                    refreshCustomRingtones(context)
-                    updateRingtoneId(result.ringtone.id)
-                    successMessage = ResMessage(R.string.message_ringtone_added)
+            while (true) {
+                if (useFcmChannel) {
+                    privateTransportStatus = "未连接"
+                } else {
+                    val status = privateChannelClient.readTransportStatus()
+                    privateTransportStatus = simplifyPrivateTransportStatus(
+                        transport = status.transport,
+                        stage = status.stage,
+                    )
                 }
-                is CustomRingtoneManager.AddResult.Error -> {
-                    errorMessage = TextMessage(result.message)
-                }
+                delay(1_500L)
             }
         }
     }
 
-    fun deleteCustomRingtone(context: android.content.Context, id: String) {
-        CustomRingtoneManager.deleteRingtone(context.applicationContext, id)
-        refreshCustomRingtones(context)
-        if (ringtoneId == id) {
-            updateRingtoneId(RingtoneCatalog.DEFAULT_ID)
+    private suspend fun enableFcmProvider(context: Context, keepEnabledWhenTokenMissing: Boolean) {
+        settingsRepository.setUseFcmChannel(true)
+
+        val cachedToken = settingsRepository.getFcmToken()?.trim().takeUnless { it.isNullOrEmpty() }
+        if (cachedToken != null) {
+            privateChannelClient.setRuntime(fcmAvailable = true, systemToken = cachedToken)
+            runCatching {
+                channelRepository.syncProviderDeviceToken(cachedToken)
+            }.onFailure {
+                io.ethan.pushgo.util.SilentSink.w(TAG, "syncProviderDeviceToken failed with cached token: ${it.message}", it)
+            }
+        } else {
+            // Keep private loop disabled while waiting for token.
+            privateChannelClient.setRuntime(fcmAvailable = true, systemToken = null)
+        }
+
+        val token = requireFcmToken(context) ?: run {
+            if (!keepEnabledWhenTokenMissing) {
+                settingsRepository.setUseFcmChannel(false)
+                privateChannelClient.setRuntime(fcmAvailable = false, systemToken = null)
+            }
+            io.ethan.pushgo.util.SilentSink.w(TAG, "FCM enabled but token is unavailable now")
+            return
+        }
+        runCatching {
+            channelRepository.syncProviderDeviceToken(token)
+        }.onFailure {
+            io.ethan.pushgo.util.SilentSink.w(TAG, "syncProviderDeviceToken failed after token fetch: ${it.message}", it)
+        }
+        privateChannelClient.setRuntime(fcmAvailable = true, systemToken = token)
+    }
+
+    fun updateUseFcmChannel(context: Context, enabled: Boolean) {
+        viewModelScope.launch {
+            if (enabled) {
+                if (!isFcmSupported(context)) {
+                    settingsRepository.setUseFcmChannel(false)
+                    privateChannelClient.setRuntime(fcmAvailable = false, systemToken = null)
+                    errorMessage = ResMessage(R.string.error_fcm_not_supported)
+                    return@launch
+                }
+                enableFcmProvider(context, keepEnabledWhenTokenMissing = true)
+            } else {
+                val oldToken = settingsRepository.getFcmToken()
+                runCatching {
+                    privateChannelClient.switchToPrivateAndRetireProvider("fcm", oldToken)
+                }.onFailure {
+                    io.ethan.pushgo.util.SilentSink.w(TAG, "switchToPrivateAndRetireProvider failed: ${it.message}", it)
+                }
+                settingsRepository.setUseFcmChannel(false)
+                settingsRepository.setFcmToken(null)
+                privateChannelClient.setRuntime(fcmAvailable = false, systemToken = null)
+            }
+        }
+    }
+
+    private suspend fun requireFcmToken(context: Context): String? {
+        if (!isFcmSupported(context)) {
+            errorMessage = ResMessage(R.string.error_fcm_not_supported)
+            return null
+        }
+        return try {
+            fetchFcmTokenWithRetry()
+        } catch (ex: TimeoutCancellationException) {
+            io.ethan.pushgo.util.SilentSink.w(TAG, "FCM token request timed out", ex)
+            errorMessage = ResMessage(R.string.error_fcm_token_timeout)
+            null
+        } catch (ex: Exception) {
+            io.ethan.pushgo.util.SilentSink.e(TAG, "Unable to get FCM token: ${ex.message}", ex)
+            errorMessage = ResMessage(R.string.error_unable_to_get_fcm_token)
+            null
+        }
+    }
+
+    private fun isFcmSupported(context: Context): Boolean {
+        val availability = GoogleApiAvailability.getInstance()
+        return availability.isGooglePlayServicesAvailable(context) == ConnectionResult.SUCCESS
+    }
+
+    private fun shouldUseFcm(context: Context): Boolean {
+        return useFcmChannel && isFcmSupported(context)
+    }
+
+    private suspend fun fetchFcmTokenWithRetry(): String {
+        var lastError: Throwable? = null
+        repeat(FCM_TOKEN_MAX_ATTEMPTS) { attempt ->
+            try {
+                return fetchFcmTokenOnce()
+            } catch (ex: Throwable) {
+                lastError = ex
+                io.ethan.pushgo.util.SilentSink.w(
+                    TAG,
+                    "fetchFcmToken attempt=${attempt + 1}/$FCM_TOKEN_MAX_ATTEMPTS failed: ${ex.message}",
+                    ex
+                )
+                if (!isRetriableFcmTokenError(ex) || attempt == FCM_TOKEN_MAX_ATTEMPTS - 1) {
+                    throw ex
+                }
+                delay((attempt + 1) * FCM_TOKEN_RETRY_BASE_DELAY_MS)
+            }
+        }
+        throw lastError ?: IllegalStateException("Unable to get FCM token")
+    }
+
+    private fun isRetriableFcmTokenError(error: Throwable): Boolean {
+        val message = buildString {
+            append(error.message.orEmpty())
+            val cause = error.cause
+            if (cause != null) {
+                append(" ")
+                append(cause.message.orEmpty())
+            }
+        }.uppercase()
+        return message.contains("SERVICE_NOT_AVAILABLE")
+            || message.contains("INTERNAL_SERVER_ERROR")
+            || message.contains("TIMEOUT")
+    }
+
+    private suspend fun fetchFcmTokenOnce(): String = withTimeout(AppConstants.fcmTokenTimeoutMs) {
+        kotlinx.coroutines.suspendCancellableCoroutine { cont ->
+            FirebaseMessaging.getInstance().token
+                .addOnSuccessListener { token ->
+                    if (cont.isActive) {
+                        cont.resume(token)
+                    }
+                }
+                .addOnFailureListener { ex ->
+                    if (cont.isActive) {
+                        cont.resumeWithException(IllegalStateException("Unable to get FCM token", ex))
+                    }
+                }
+                .addOnCanceledListener {
+                    if (cont.isActive) {
+                        cont.resumeWithException(IllegalStateException("FCM token task cancelled"))
+                    }
+                }
         }
     }
 
@@ -195,49 +323,79 @@ class SettingsViewModel(
         keyEncoding = value
     }
 
-    fun updateKeyLength(value: KeyLength) {
-        keyLength = value
-    }
-
-    fun updateRingtoneId(value: String) {
-        ringtoneId = value
-        viewModelScope.launch {
-            settingsRepository.setRingtoneId(value)
-        }
-    }
-
-    fun updateThemeMode(mode: ThemeMode) {
-        themeMode = mode
-        viewModelScope.launch {
-            settingsRepository.setThemeMode(mode)
-        }
-    }
-
-    fun updateAutoCleanupEnabled(enabled: Boolean) {
-        autoCleanupEnabled = enabled
-        viewModelScope.launch {
-            settingsRepository.setAutoCleanupEnabled(enabled)
-        }
-    }
-
     fun saveGatewayConfig(context: Context) {
         viewModelScope.launch {
             isSavingGateway = true
             try {
-                val trimmed = gatewayAddress.trim().ifBlank { AppConstants.defaultServerAddress }
-                if (!isValidHttpsUrl(trimmed)) {
+                val previousAddress = settingsRepository.getServerAddress()
+                    ?.trim()
+                    ?.ifEmpty { null }
+                    ?: AppConstants.defaultServerAddress
+                val previousToken = settingsRepository.getGatewayToken()
+                    ?.trim()
+                    ?.ifEmpty { null }
+                val previousDeviceKey = settingsRepository.getProviderDeviceKey(platform = "android")
+                    ?.trim()
+                    ?.ifEmpty { null }
+                val rawAddress = gatewayAddress.trim().ifBlank { AppConstants.defaultServerAddress }
+                val normalizedAddress = UrlValidators.normalizeGatewayBaseUrl(rawAddress)
+                if (normalizedAddress == null) {
                     errorMessage = ResMessage(R.string.error_invalid_server_address)
                     return@launch
                 }
                 val token = gatewayToken.trim().ifBlank { null }
-                val fcmToken = requireFcmToken(context) ?: return@launch
-                settingsRepository.setServerAddress(trimmed)
+                settingsRepository.setServerAddress(normalizedAddress)
                 settingsRepository.setGatewayToken(token)
-                channelRepository.handleTokenUpdate(fcmToken)
+                gatewayAddress = normalizedAddress
+                var activeFcmToken: String? = null
+                if (shouldUseFcm(context)) {
+                    val fcmToken = requireFcmToken(context) ?: return@launch
+                    channelRepository.syncProviderDeviceToken(fcmToken)
+                    activeFcmToken = fcmToken
+                    privateChannelClient.setRuntime(fcmAvailable = true, systemToken = fcmToken)
+                } else {
+                    val previousFcmToken = settingsRepository.getFcmToken()
+                    settingsRepository.setFcmToken(null)
+                    privateChannelClient.setRuntime(fcmAvailable = false, systemToken = null)
+                    runCatching {
+                        privateChannelClient.switchToPrivateAndRetireProvider("fcm", previousFcmToken)
+                    }.onFailure {
+                        io.ethan.pushgo.util.SilentSink.w(
+                            TAG,
+                            "saveGatewayConfig route reconcile failed: ${it.message}",
+                            it,
+                        )
+                    }
+                }
+                activeFcmToken?.let {
+                    channelRepository.syncSubscriptionsIfNeeded(it)
+                }
+                val oldIdentity = "${previousAddress}|${previousToken.orEmpty()}"
+                val newIdentity = "${normalizedAddress}|${token.orEmpty()}"
+                if (oldIdentity != newIdentity && !previousDeviceKey.isNullOrBlank()) {
+                    val legacyAddress = previousAddress
+                    val legacyToken = previousToken
+                    val legacyDeviceKey = previousDeviceKey
+                    viewModelScope.launch {
+                        runCatching {
+                            channelRepository.cleanupLegacyGatewayDeviceRoute(
+                                legacyBaseUrl = legacyAddress,
+                                legacyToken = legacyToken,
+                                legacyDeviceKey = legacyDeviceKey,
+                            )
+                        }.onFailure {
+                            io.ethan.pushgo.util.SilentSink.w(
+                                TAG,
+                                "legacy gateway device cleanup failed: ${it.message}",
+                                it,
+                            )
+                        }
+                    }
+                }
                 refreshChannelSubscriptions()
                 successMessage = ResMessage(R.string.message_gateway_saved)
             } catch (ex: Exception) {
-                errorMessage = TextMessage(ex.localizedMessage ?: "")
+                errorMessage = ex.toUiErrorMessage(R.string.error_request_failed)
             } finally {
                 isSavingGateway = false
             }
@@ -246,6 +404,31 @@ class SettingsViewModel(
 
     suspend fun refreshChannelSubscriptions() {
         channelSubscriptions = channelRepository.loadSubscriptions()
+    }
+
+    suspend fun syncSubscriptionsOnChannelListEntry(context: Context) {
+        try {
+            if (shouldUseFcm(context)) {
+                val token = settingsRepository.getFcmToken()?.trim().takeUnless { it.isNullOrEmpty() }
+                    ?: requireFcmToken(context)
+                    ?: return
+                channelRepository.syncProviderDeviceToken(token)
+                val outcome = channelRepository.syncSubscriptionsIfNeeded(token)
+                if (outcome.passwordMismatchChannels.isNotEmpty()) {
+                    val sample = outcome.passwordMismatchChannels.take(3).joinToString(", ")
+                    val suffix = if (outcome.passwordMismatchChannels.size > 3) ", ..." else ""
+                    errorMessage = ResMessage(
+                        R.string.error_channel_password_mismatch_removed,
+                        listOf(sample + suffix),
+                    )
+                }
+            }
+            refreshChannelSubscriptions()
+        } catch (ex: ChannelSubscriptionException) {
+            errorMessage = ex.toUiErrorMessage(R.string.error_request_failed)
+        } catch (ex: Exception) {
+            errorMessage = ex.toUiErrorMessage(R.string.error_request_failed)
+        }
     }
 
     fun clearChannelExistsHint() {
@@ -265,9 +448,9 @@ class SettingsViewModel(
         } catch (ex: ChannelNameException) {
             errorMessage = ResMessage(ex.resId, ex.args)
         } catch (ex: ChannelSubscriptionException) {
-            errorMessage = TextMessage(ex.localizedMessage ?: "")
+            errorMessage = ex.toUiErrorMessage(R.string.error_request_failed)
         } catch (ex: Exception) {
-            errorMessage = TextMessage(ex.localizedMessage ?: "")
+            errorMessage = ex.toUiErrorMessage(R.string.error_request_failed)
         } finally {
             isCheckingChannel = false
         }
@@ -277,22 +460,42 @@ class SettingsViewModel(
         if (isSavingChannel) return false
         isSavingChannel = true
         return try {
-            val token = requireFcmToken(context) ?: return false
-            val result = channelRepository.createChannel(
-                rawAlias = alias,
-                password = password,
-                deviceToken = token,
-            )
-            channelExists = true
-            channelExistsName = result.channelName
-            refreshChannelSubscriptions()
-            val messageRes = if (result.created) {
-                R.string.message_channel_created_and_subscribed
+            if (shouldUseFcm(context)) {
+                val token = settingsRepository.getFcmToken()?.trim().takeUnless { it.isNullOrEmpty() }
+                    ?: requireFcmToken(context)
+                    ?: return false
+                channelRepository.syncProviderDeviceToken(token)
+                val created = channelRepository.createChannel(alias, password, token)
+                refreshChannelSubscriptions()
+                val messageRes = if (created.created) {
+                    R.string.message_channel_created_and_subscribed
+                } else {
+                    R.string.message_channel_subscribed
+                }
+                successMessage = ResMessage(messageRes)
+                true
             } else {
-                R.string.message_channel_subscribed
+                val created = privateChannelClient.privateCreateChannel(alias, password)
+                if (!created.subscribed || created.channelId.isBlank()) {
+                    errorMessage = ResMessage(R.string.error_private_channel_create_failed)
+                    return false
+                }
+                channelRepository.upsertLocalPrivateCredential(
+                    rawChannelId = created.channelId,
+                    password = password,
+                    displayName = created.channelName,
+                )
+                channelExists = created.channelId.isNotBlank()
+                channelExistsName = created.channelName
+                refreshChannelSubscriptions()
+                val messageRes = if (created.created) {
+                    R.string.message_channel_created_and_subscribed
+                } else {
+                    R.string.message_channel_subscribed
+                }
+                successMessage = ResMessage(messageRes)
+                true
             }
-            successMessage = ResMessage(messageRes)
-            true
         } catch (ex: ChannelIdException) {
             errorMessage = ResMessage(ex.resId)
             false
@@ -303,10 +506,12 @@ class SettingsViewModel(
             errorMessage = ResMessage(ex.resId)
             false
         } catch (ex: ChannelSubscriptionException) {
-            errorMessage = TextMessage(ex.localizedMessage ?: "")
+            io.ethan.pushgo.util.SilentSink.w(TAG, "createChannel failed (private) message=${ex.message}", ex)
+            errorMessage = ex.toUiErrorMessage(R.string.error_private_channel_create_failed)
             false
         } catch (ex: Exception) {
-            errorMessage = TextMessage(ex.localizedMessage ?: "")
+            io.ethan.pushgo.util.SilentSink.e(TAG, "createChannel unexpected failure (private)", ex)
+            errorMessage = ex.toUiErrorMessage(R.string.error_private_channel_create_failed)
             false
         } finally {
             isSavingChannel = false
@@ -317,17 +522,34 @@ class SettingsViewModel(
         if (isSavingChannel) return false
         isSavingChannel = true
         return try {
-            val token = requireFcmToken(context) ?: return false
-            val result = channelRepository.subscribeChannel(
-                rawChannelId = channelId,
-                password = password,
-                deviceToken = token,
-            )
-            channelExists = result.channelId.isNotBlank()
-            channelExistsName = result.channelName
-            refreshChannelSubscriptions()
-            successMessage = ResMessage(R.string.message_channel_subscribed)
-            true
+            if (shouldUseFcm(context)) {
+                val token = settingsRepository.getFcmToken()?.trim().takeUnless { it.isNullOrEmpty() }
+                    ?: requireFcmToken(context)
+                    ?: return false
+                channelRepository.syncProviderDeviceToken(token)
+                channelRepository.subscribeChannel(channelId, password, token)
+                refreshChannelSubscriptions()
+                successMessage = ResMessage(R.string.message_channel_subscribed)
+                true
+            } else {
+                val normalizedChannelId = ChannelIdValidator.normalize(channelId)
+                val subscribed = privateChannelClient.privateSubscribeChannel(normalizedChannelId, password)
+                if (!subscribed) {
+                    errorMessage = ResMessage(R.string.error_private_channel_subscribe_failed)
+                    return false
+                }
+                val existsResult = runCatching { channelRepository.channelExists(normalizedChannelId) }.getOrNull()
+                channelRepository.upsertLocalPrivateCredential(
+                    rawChannelId = normalizedChannelId,
+                    password = password,
+                    displayName = existsResult?.channelName
+                )
+                channelExists = true
+                channelExistsName = existsResult?.channelName
+                refreshChannelSubscriptions()
+                successMessage = ResMessage(R.string.message_channel_subscribed)
+                true
+            }
         } catch (ex: ChannelIdException) {
             errorMessage = ResMessage(ex.resId)
             false
@@ -335,10 +557,10 @@ class SettingsViewModel(
             errorMessage = ResMessage(ex.resId)
             false
         } catch (ex: ChannelSubscriptionException) {
-            errorMessage = TextMessage(ex.localizedMessage ?: "")
+            errorMessage = ex.toUiErrorMessage(R.string.error_private_channel_subscribe_failed)
             false
         } catch (ex: Exception) {
-            errorMessage = TextMessage(ex.localizedMessage ?: "")
+            errorMessage = ex.toUiErrorMessage(R.string.error_private_channel_subscribe_failed)
             false
         } finally {
             isSavingChannel = false
@@ -357,24 +579,11 @@ class SettingsViewModel(
         } catch (ex: ChannelNameException) {
             errorMessage = ResMessage(ex.resId, ex.args)
         } catch (ex: ChannelSubscriptionException) {
-            errorMessage = TextMessage(ex.localizedMessage ?: "")
+            errorMessage = ex.toUiErrorMessage(R.string.error_request_failed)
         } catch (ex: Exception) {
-            errorMessage = TextMessage(ex.localizedMessage ?: "")
+            errorMessage = ex.toUiErrorMessage(R.string.error_request_failed)
         } finally {
             isRenamingChannel = false
-        }
-    }
-
-    suspend fun updateChannelAutoCleanupEnabled(channelId: String, enabled: Boolean) {
-        try {
-            channelRepository.setChannelAutoCleanupEnabled(channelId, enabled)
-            refreshChannelSubscriptions()
-        } catch (ex: ChannelIdException) {
-            errorMessage = ResMessage(ex.resId)
-        } catch (ex: ChannelSubscriptionException) {
-            errorMessage = TextMessage(ex.localizedMessage ?: "")
-        } catch (ex: Exception) {
-            errorMessage = TextMessage(ex.localizedMessage ?: "")
         }
     }
 
@@ -382,12 +591,24 @@ class SettingsViewModel(
         if (isRemovingChannel) return
         isRemovingChannel = true
         try {
-            val token = requireFcmToken(context) ?: return
-            val removedCount = channelRepository.unsubscribeChannel(
-                rawChannelId = channelId,
-                deviceToken = token,
-                deleteLocalMessages = deleteLocalMessages,
-            )
+            val removedCount = if (shouldUseFcm(context)) {
+                val token = settingsRepository.getFcmToken()?.trim().takeUnless { it.isNullOrEmpty() }
+                    ?: requireFcmToken(context)
+                    ?: return
+                channelRepository.syncProviderDeviceToken(token)
+                channelRepository.unsubscribeChannel(channelId, token, deleteLocalMessages)
+            } else {
+                val normalizedChannelId = ChannelIdValidator.normalize(channelId)
+                val unsubscribed = privateChannelClient.privateUnsubscribeChannel(normalizedChannelId)
+                if (!unsubscribed) {
+                    errorMessage = ResMessage(R.string.error_private_channel_unsubscribe_failed)
+                    return
+                }
+                channelRepository.softDeleteLocalSubscription(
+                    rawChannelId = normalizedChannelId,
+                    deleteLocalMessages = deleteLocalMessages,
+                )
+            }
             refreshChannelSubscriptions()
             successMessage = if (deleteLocalMessages) {
                 PluralResMessage(
@@ -401,9 +622,9 @@ class SettingsViewModel(
         } catch (ex: ChannelIdException) {
             errorMessage = ResMessage(ex.resId)
         } catch (ex: ChannelSubscriptionException) {
-            errorMessage = TextMessage(ex.localizedMessage ?: "")
+            errorMessage = ex.toUiErrorMessage(R.string.error_private_channel_unsubscribe_failed)
         } catch (ex: Exception) {
-            errorMessage = TextMessage(ex.localizedMessage ?: "")
+            errorMessage = ex.toUiErrorMessage(R.string.error_private_channel_unsubscribe_failed)
         } finally {
             isRemovingChannel = false
         }
@@ -411,40 +632,35 @@ class SettingsViewModel(
 
     fun saveDecryptionConfig() {
         viewModelScope.launch {
-            if (decryptionKeyInput.isBlank()) {
-                errorMessage = if (isDecryptionConfigured) {
-                    ResMessage(R.string.error_key_already_saved)
-                } else {
-                    ResMessage(R.string.error_key_required)
-                }
-                return@launch
-            }
             isSavingDecryption = true
             try {
-                val normalized = normalizeKeyBase64(
-                    input = decryptionKeyInput.trim(),
+                val trimmed = decryptionKeyInput.trim()
+                if (trimmed.isEmpty()) {
+                    settingsRepository.setNotificationKeyBytes(null)
+                    decryptionUpdatedAt = null
+                    isDecryptionConfigured = false
+                    decryptionKeyInput = ""
+                    successMessage = ResMessage(R.string.message_decryption_saved)
+                    return@launch
+                }
+                val normalized = NotificationKeyValidator.normalizedKeyBytes(
+                    input = trimmed,
                     encoding = keyEncoding,
-                    keyLength = keyLength,
                 )
-                settingsRepository.setNotificationKeyBase64(normalized)
+                settingsRepository.setNotificationKeyBytes(normalized)
                 settingsRepository.setKeyEncoding(keyEncoding)
-                settingsRepository.setKeyLength(keyLength)
                 decryptionUpdatedAt = settingsRepository.getNotificationKeyUpdatedAt() ?: Instant.now()
                 isDecryptionConfigured = true
                 decryptionKeyInput = ""
                 successMessage = ResMessage(R.string.message_decryption_saved)
-            } catch (ex: KeyValidationError) {
+            } catch (ex: NotificationKeyValidationException) {
                 errorMessage = when (ex) {
-                    is KeyValidationError.InvalidBase64 -> ResMessage(R.string.error_invalid_base64)
-                    is KeyValidationError.InvalidHex -> ResMessage(R.string.error_invalid_hex)
-                    is KeyValidationError.InvalidLength -> PluralResMessage(
-                        R.plurals.error_key_length_mismatch,
-                        ex.expectedBytes,
-                        listOf(ex.expectedBytes, ex.expectedBytes * 8, ex.actualBytes),
-                    )
+                    is NotificationKeyValidationException.InvalidBase64 -> ResMessage(R.string.error_invalid_base64)
+                    is NotificationKeyValidationException.InvalidHex -> ResMessage(R.string.error_invalid_hex)
+                    is NotificationKeyValidationException.InvalidLength -> ResMessage(R.string.error_invalid_key_length)
                 }
             } catch (ex: Exception) {
-                errorMessage = TextMessage(ex.localizedMessage ?: "")
+                errorMessage = ex.toUiErrorMessage(R.string.error_request_failed)
             } finally {
                 isSavingDecryption = false
             }
@@ -469,7 +685,7 @@ class SettingsViewModel(
                 }
                 successMessage = ResMessage(R.string.message_messages_cleared)
             } catch (ex: Exception) {
-                errorMessage = TextMessage(ex.localizedMessage ?: "")
+                errorMessage = ex.toUiErrorMessage(R.string.error_request_failed)
             } finally {
                 isClearing = false
             }
@@ -477,6 +693,24 @@ class SettingsViewModel(
     }
 
     suspend fun loadAllMessages() = messageRepository.getAll()
+
+    fun updateMessagePageVisibility(enabled: Boolean) {
+        viewModelScope.launch {
+            settingsRepository.setMessagePageEnabled(enabled)
+        }
+    }
+
+    fun updateEventPageVisibility(enabled: Boolean) {
+        viewModelScope.launch {
+            settingsRepository.setEventPageEnabled(enabled)
+        }
+    }
+
+    fun updateThingPageVisibility(enabled: Boolean) {
+        viewModelScope.launch {
+            settingsRepository.setThingPageEnabled(enabled)
+        }
+    }
 
     private fun resolveClearFilter(option: ClearOption, now: Instant): ClearFilter {
         return when (option) {
@@ -494,43 +728,8 @@ class SettingsViewModel(
         val cutoff: Long?,
     )
 
-    private fun normalizeKeyBase64(
-        input: String,
-        encoding: KeyEncoding,
-        keyLength: KeyLength,
-    ): String {
-        val data = when (encoding) {
-            KeyEncoding.PLAINTEXT -> input.toByteArray()
-            KeyEncoding.BASE64 -> runCatching { java.util.Base64.getDecoder().decode(input) }
-                .getOrElse { throw KeyValidationError.InvalidBase64 }
-            KeyEncoding.HEX -> {
-                val clean = input.filterNot { it.isWhitespace() }
-                if (clean.length % 2 != 0) throw KeyValidationError.InvalidHex
-                val bytes = ByteArray(clean.length / 2)
-                var index = 0
-                while (index < clean.length) {
-                    val byteString = clean.substring(index, index + 2)
-                    val value = byteString.toInt(16)
-                    bytes[index / 2] = value.toByte()
-                    index += 2
-                }
-                bytes
-            }
-        }
-        if (data.size != keyLength.bytes) {
-            throw KeyValidationError.InvalidLength(keyLength.bytes, data.size)
-        }
-        return java.util.Base64.getEncoder().encodeToString(data)
-    }
-
     private fun isValidHttpsUrl(raw: String): Boolean {
-        return try {
-            val uri = URI(raw)
-            val scheme = uri.scheme?.lowercase()
-            scheme == "https" && !uri.host.isNullOrBlank()
-        } catch (ex: Exception) {
-            false
-        }
+        return UrlValidators.normalizeGatewayBaseUrl(raw) != null
     }
 
     fun consumeError() {
@@ -541,52 +740,31 @@ class SettingsViewModel(
         successMessage = null
     }
 
-    fun notifyIfFcmUnsupported(context: Context) {
-        if (!isFcmSupported(context)) {
-            errorMessage = ResMessage(R.string.error_fcm_not_supported)
+    private fun simplifyPrivateTransportStatus(transport: String, stage: String): String {
+        val normalizedTransport = transport.trim().lowercase()
+        val normalizedStage = stage.trim().lowercase()
+        val transportLabel = when (normalizedTransport) {
+            "wss" -> "WSS"
+            "tcp" -> "TCP"
+            "quic" -> "QUIC"
+            else -> null
         }
+        if (normalizedStage == "connected" && transportLabel != null) {
+            return "已连接($transportLabel)"
+        }
+        if (normalizedStage in setOf("connecting", "recovering", "backoff", "offline_wait")) {
+            return "正在连接"
+        }
+        return "未连接"
     }
 
-    private suspend fun requireFcmToken(context: Context): String? {
-        if (!isFcmSupported(context)) {
-            errorMessage = ResMessage(R.string.error_fcm_not_supported)
-            return null
-        }
-        return try {
-            fetchFcmToken()
-        } catch (ex: TimeoutCancellationException) {
-            errorMessage = ResMessage(R.string.error_fcm_token_timeout)
-            null
-        } catch (ex: Exception) {
-            errorMessage = ResMessage(R.string.error_unable_to_get_fcm_token)
-            null
+    private fun Throwable.toUiErrorMessage(@StringRes fallbackResId: Int): UiMessage {
+        val detail = message?.trim().takeUnless { it.isNullOrEmpty() }
+            ?: localizedMessage?.trim().takeUnless { it.isNullOrEmpty() }
+        return if (detail.isNullOrEmpty()) {
+            ResMessage(fallbackResId)
+        } else {
+            TextMessage(detail)
         }
     }
-
-    private fun isFcmSupported(context: Context): Boolean {
-        val availability = GoogleApiAvailability.getInstance()
-        return availability.isGooglePlayServicesAvailable(context) == ConnectionResult.SUCCESS
-    }
-
-    private suspend fun fetchFcmToken(): String = withTimeout(AppConstants.fcmTokenTimeoutMs) {
-        kotlinx.coroutines.suspendCancellableCoroutine { cont ->
-            FirebaseMessaging.getInstance().token
-                .addOnSuccessListener { token ->
-                    if (cont.isActive) {
-                        cont.resume(token)
-                    }
-                }
-                .addOnFailureListener { ex ->
-                    if (cont.isActive) {
-                        cont.resumeWithException(IllegalStateException("Unable to get FCM token", ex))
-                    }
-                }
-        }
-    }
-}
-
-private sealed class KeyValidationError : Exception() {
-    object InvalidBase64 : KeyValidationError()
-    object InvalidHex : KeyValidationError()
-    data class InvalidLength(val expectedBytes: Int, val actualBytes: Int) : KeyValidationError()
 }

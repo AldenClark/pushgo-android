@@ -16,4 +16,7 @@ interface AppSettingsDao {
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(entity: AppSettingsEntity)
+
+    @Query("DELETE FROM app_settings")
+    suspend fun deleteAll()
 }
