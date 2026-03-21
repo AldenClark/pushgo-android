@@ -46,7 +46,7 @@ android {
     defaultConfig {
         applicationId = "io.ethan.pushgo"
         minSdk = 31
-        versionCode = 9
+        versionCode = 22
         versionName = "1.0.0"
         buildConfigField("String", "PRIVATE_CERT_PIN_SHA256", "\"$privateCertPinSha256\"")
 
