@@ -126,7 +126,7 @@ android {
 
     sourceSets {
         getByName("main") {
-            jniLibs.setSrcDirs(listOf(generatedRustJniDir))
+            jniLibs.directories.add(generatedRustJniDir.absolutePath)
         }
     }
 }
