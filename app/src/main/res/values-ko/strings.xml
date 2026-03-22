@@ -151,6 +151,16 @@
     <string name="label_fcm_wakeup_pull_mode">웨이크업 Pull 모드 사용</string>
     <string name="label_fcm_wakeup_pull_mode_hint">FCM으로 웨이크업을 보낸 뒤, 전체 메시지를 HTTP로 가져옵니다.</string>
     <string name="label_private_transport_status">프라이빗 전송 상태</string>
+    <string name="private_transport_status_disconnected">연결 안 됨</string>
+    <string name="private_transport_status_connecting">연결 중</string>
+    <string name="private_transport_status_connected">연결됨</string>
+    <string name="private_transport_status_connected_with_transport">연결됨 (%1$s)</string>
+    <string name="private_transport_status_reconnecting">재연결 중</string>
+    <string name="private_transport_status_network_unavailable">네트워크를 사용할 수 없음</string>
+    <string name="private_transport_status_waiting_retry">재시도 대기 중</string>
+    <string name="private_channel_service_notification_title">프라이빗 채널 활성화됨</string>
+    <string name="private_channel_service_channel_name">프라이빗 채널 유지</string>
+    <string name="private_channel_service_channel_description">프라이빗 채널 연결을 유지하고 현재 연결 상태를 표시합니다.</string>
     <string name="error_request_failed">요청에 실패했습니다. 다시 시도해 주세요.</string>
     <string name="error_channel_create_requires_fcm">새 채널 생성에는 FCM이 필요합니다. FCM 미지원 기기에서는 기존 채널 ID를 사용하세요.</string>
     <string name="error_private_channel_create_failed">프라이빗 채널 생성에 실패했습니다. 다시 시도해 주세요.</string>

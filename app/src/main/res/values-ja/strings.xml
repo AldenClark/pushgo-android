@@ -151,6 +151,16 @@
     <string name="label_fcm_wakeup_pull_mode">ウェイクアップ Pull モードを使う</string>
     <string name="label_fcm_wakeup_pull_mode_hint">FCM でウェイクアップを送り、本文は HTTP で取得します。</string>
     <string name="label_private_transport_status">プライベート転送ステータス</string>
+    <string name="private_transport_status_disconnected">未接続</string>
+    <string name="private_transport_status_connecting">接続中</string>
+    <string name="private_transport_status_connected">接続済み</string>
+    <string name="private_transport_status_connected_with_transport">接続済み（%1$s）</string>
+    <string name="private_transport_status_reconnecting">再接続中</string>
+    <string name="private_transport_status_network_unavailable">ネットワークを利用できません</string>
+    <string name="private_transport_status_waiting_retry">再試行待ち</string>
+    <string name="private_channel_service_notification_title">プライベートチャンネル有効</string>
+    <string name="private_channel_service_channel_name">プライベートチャンネル常駐</string>
+    <string name="private_channel_service_channel_description">プライベートチャンネル接続を維持し、現在の接続状態を表示します。</string>
     <string name="error_request_failed">リクエストに失敗しました。再試行してください。</string>
     <string name="error_channel_create_requires_fcm">新しいチャンネル作成には FCM が必要です。FCM 非対応端末では既存のチャンネル ID を使用してください。</string>
     <string name="error_private_channel_create_failed">プライベートチャンネルの作成に失敗しました。再試行してください。</string>

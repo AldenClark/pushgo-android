@@ -86,6 +86,16 @@
     <string name="label_fcm_wakeup_pull_mode">Use wakeup pull mode</string>
     <string name="label_fcm_wakeup_pull_mode_hint">Send wakeup via FCM, then pull full message over HTTP.</string>
     <string name="label_private_transport_status">Private transport status</string>
+    <string name="private_transport_status_disconnected">Not connected</string>
+    <string name="private_transport_status_connecting">Connecting</string>
+    <string name="private_transport_status_connected">Connected</string>
+    <string name="private_transport_status_connected_with_transport">Connected (%1$s)</string>
+    <string name="private_transport_status_reconnecting">Reconnecting</string>
+    <string name="private_transport_status_network_unavailable">Network unavailable</string>
+    <string name="private_transport_status_waiting_retry">Waiting to retry</string>
+    <string name="private_channel_service_notification_title">Private channel active</string>
+    <string name="private_channel_service_channel_name">Private channel keepalive</string>
+    <string name="private_channel_service_channel_description">Keeps the private channel connection alive and shows its current status.</string>
     <string name="section_decryption">Message decryption</string>
     <string name="section_security">Security</string>
     <string name="section_data_pages">Enable data pages</string>

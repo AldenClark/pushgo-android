@@ -172,6 +172,16 @@
     <string name="label_fcm_wakeup_pull_mode">使用唤醒拉取模式</string>
     <string name="label_fcm_wakeup_pull_mode_hint">先通过 FCM 发送唤醒，再通过 HTTP 拉取完整消息。</string>
     <string name="label_private_transport_status">私有传输状态</string>
+    <string name="private_transport_status_disconnected">未连接</string>
+    <string name="private_transport_status_connecting">连接中</string>
+    <string name="private_transport_status_connected">已连接</string>
+    <string name="private_transport_status_connected_with_transport">已连接（%1$s）</string>
+    <string name="private_transport_status_reconnecting">重连中</string>
+    <string name="private_transport_status_network_unavailable">网络不可用</string>
+    <string name="private_transport_status_waiting_retry">等待重试</string>
+    <string name="private_channel_service_notification_title">私有通道已启用</string>
+    <string name="private_channel_service_channel_name">私有通道保活</string>
+    <string name="private_channel_service_channel_description">保持私有通道连接并显示当前连接状态。</string>
     <string name="error_request_failed">请求失败，请重试。</string>
     <string name="error_channel_create_requires_fcm">创建新频道需要 FCM。无 FCM 设备请使用已有频道 ID。</string>
     <string name="error_private_channel_create_failed">私有频道创建失败，请重试。</string>

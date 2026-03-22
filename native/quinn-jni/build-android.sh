@@ -3,7 +3,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 APP_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)/app"
-OUT_DIR="$APP_DIR/src/main/jniLibs"
+OUT_DIR="${PUSHGO_ANDROID_JNI_OUT_DIR:-$APP_DIR/src/main/jniLibs}"
 
 if ! command -v cargo-ndk >/dev/null 2>&1; then
   echo "cargo-ndk not found. install: cargo install cargo-ndk"
@@ -17,11 +17,14 @@ TARGETS=(
   "x86_64:x86_64-linux-android"
 )
 
+rm -rf "$OUT_DIR"
+mkdir -p "$OUT_DIR"
+
 for item in "${TARGETS[@]}"; do
   abi="${item%%:*}"
   target="${item##*:}"
   cargo ndk -t "$target" -P "$API_LEVEL" build --release
   mkdir -p "$OUT_DIR/$abi"
-  cp "$SCRIPT_DIR/target/$target/release/libpushgo_quinn_jni.so" "$OUT_DIR/$abi/libpushgo_quinn_jni.so"
+  install -m 0755 "$SCRIPT_DIR/target/$target/release/libpushgo_quinn_jni.so" "$OUT_DIR/$abi/libpushgo_quinn_jni.so"
   echo "built $abi -> $OUT_DIR/$abi/libpushgo_quinn_jni.so"
 done

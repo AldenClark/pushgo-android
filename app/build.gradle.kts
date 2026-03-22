@@ -1,4 +1,5 @@
 import java.io.File
+import org.gradle.api.tasks.Exec
 
 plugins {
     id("com.android.application")
@@ -18,10 +19,38 @@ val releaseStoreFile = project.resolveSigningProperty("PUSHGO_RELEASE_STORE_FILE
 val releaseStorePassword = project.resolveSigningProperty("PUSHGO_RELEASE_STORE_PASSWORD")
 val releaseKeyAlias = project.resolveSigningProperty("PUSHGO_RELEASE_KEY_ALIAS")
 val releaseKeyPassword = project.resolveSigningProperty("PUSHGO_RELEASE_KEY_PASSWORD")
+val appVersionCode = 23
+val appVersionName = "1.0.0"
+val enableAbiSplits = when (val value = providers.gradleProperty("pushgo.enableAbiSplits").orNull?.trim()?.lowercase()) {
+    null -> true
+    "true" -> true
+    "false" -> false
+    else -> error("Invalid pushgo.enableAbiSplits value: $value")
+}
+val rustBuildScript = rootProject.file("native/quinn-jni/build-android.sh")
+val generatedRustJniDir = layout.buildDirectory.dir("generated/rustJniLibs/main").get().asFile
 val privateCertPinSha256 = project.resolveSigningProperty("PUSHGO_PRIVATE_CERT_PIN_SHA256")
     ?.trim()
     ?.replace("\"", "")
     ?: ""
+
+val buildRustJniLibs by tasks.registering(Exec::class) {
+    group = "build"
+    description = "Build the Rust JNI libraries used by Android packaging."
+    workingDir = rustBuildScript.parentFile
+    commandLine("bash", rustBuildScript.absolutePath)
+    environment("PUSHGO_ANDROID_JNI_OUT_DIR", generatedRustJniDir.absolutePath)
+    inputs.file(rustBuildScript)
+    listOf(
+        rootProject.file("native/quinn-jni/Cargo.toml"),
+        rootProject.file("native/quinn-jni/Cargo.lock"),
+    ).filter(File::exists).forEach(inputs::file)
+    listOf(
+        rootProject.file("native/quinn-jni/src"),
+        rootProject.file("native/quinn-jni/include"),
+    ).filter(File::exists).forEach(inputs::dir)
+    outputs.dir(generatedRustJniDir)
+}
 
 android {
     namespace = "io.ethan.pushgo"
@@ -46,8 +75,8 @@ android {
     defaultConfig {
         applicationId = "io.ethan.pushgo"
         minSdk = 31
-        versionCode = 22
-        versionName = "1.0.0"
+        versionCode = appVersionCode
+        versionName = appVersionName
         buildConfigField("String", "PRIVATE_CERT_PIN_SHA256", "\"$privateCertPinSha256\"")
 
         vectorDrawables {
@@ -72,10 +101,10 @@ android {
 
     splits {
         abi {
-            isEnable = true
+            isEnable = enableAbiSplits
             reset()
             include("armeabi-v7a", "arm64-v8a", "x86_64")
-            isUniversalApk = true
+            isUniversalApk = enableAbiSplits
         }
     }
 
@@ -94,11 +123,32 @@ android {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
         }
     }
+
+    sourceSets {
+        getByName("main") {
+            jniLibs.setSrcDirs(listOf(generatedRustJniDir))
+        }
+    }
 }
 
 kotlin {
     compilerOptions {
         jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_21)
+    }
+}
+
+tasks.named("preBuild").configure {
+    dependsOn(buildRustJniLibs)
+}
+
+tasks.register("printReleaseVersionInfo") {
+    group = "help"
+    description = "Prints the Android release version metadata for CI."
+    doLast {
+        println("versionCode=$appVersionCode")
+        println("versionName=$appVersionName")
+        println("applicationId=io.ethan.pushgo")
+        println("abiSplitsEnabled=$enableAbiSplits")
     }
 }
 

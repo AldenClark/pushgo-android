@@ -14,6 +14,7 @@ import io.ethan.pushgo.data.AppContainer
 import io.ethan.pushgo.automation.PushGoAutomation
 import io.ethan.pushgo.notifications.NotificationHelper
 import io.ethan.pushgo.notifications.PrivateAckOutboxWorkScheduler
+import io.ethan.pushgo.notifications.PrivateChannelServiceManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -181,6 +182,7 @@ class PushGoApp : Application(), ImageLoaderFactory {
                 fcmAvailable = useFcmChannel,
                 systemToken = cachedToken
             )
+            PrivateChannelServiceManager.refresh(this@PushGoApp)
             if (!useFcmChannel) {
                 container.privateChannelClient.triggerWakeupPull()
             }
@@ -241,6 +243,7 @@ class PushGoApp : Application(), ImageLoaderFactory {
                 fcmAvailable = useFcmChannel && isFcmSupported(),
                 systemToken = if (useFcmChannel) normalizedToken else null
             )
+            PrivateChannelServiceManager.refresh(this@PushGoApp)
         }
     }
 
@@ -254,6 +257,7 @@ class PushGoApp : Application(), ImageLoaderFactory {
                 fcmAvailable = false,
                 systemToken = null
             )
+            PrivateChannelServiceManager.refresh(this@PushGoApp)
             container.privateChannelClient.triggerWakeupPull()
             return
         }
@@ -264,6 +268,7 @@ class PushGoApp : Application(), ImageLoaderFactory {
             fcmAvailable = true,
             systemToken = cachedToken
         )
+        PrivateChannelServiceManager.refresh(this@PushGoApp)
         if (!cachedToken.isNullOrBlank()) {
             handlePushTokenUpdate(cachedToken)
         }

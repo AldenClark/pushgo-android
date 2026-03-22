@@ -13,6 +13,7 @@ import io.ethan.pushgo.notifications.AckDrainOutcome
 import io.ethan.pushgo.notifications.MessageStateCoordinator
 import io.ethan.pushgo.notifications.NotificationHelper
 import io.ethan.pushgo.notifications.PrivateChannelClient
+import io.ethan.pushgo.notifications.PrivateChannelServiceManager
 import io.ethan.pushgo.util.UrlValidators
 import org.json.JSONArray
 import org.json.JSONObject
@@ -106,13 +107,24 @@ class AppAutomationController(
     }
 
     suspend fun setGatewayServer(baseUrl: String?, token: String?) {
+        val previousAddress = settingsRepository.getServerAddress()
+            ?.trim()
+            ?.ifEmpty { null }
+            ?: AppConstants.defaultServerAddress
+        val previousToken = settingsRepository.getGatewayToken()
+            ?.trim()
+            ?.ifEmpty { null }
         val normalizedAddress = baseUrl
             ?.trim()
             ?.ifEmpty { null }
             ?.let { normalizeAutomationGatewayBaseUrl(it) }
             ?: AppConstants.defaultServerAddress
+        val normalizedToken = token?.trim()?.ifEmpty { null }
         settingsRepository.setServerAddress(normalizedAddress)
-        settingsRepository.setGatewayToken(token?.trim()?.ifEmpty { null })
+        settingsRepository.setGatewayToken(normalizedToken)
+        if ("${previousAddress}|${previousToken.orEmpty()}" != "${normalizedAddress}|${normalizedToken.orEmpty()}") {
+            privateChannelClient.onGatewayConfigChanged()
+        }
 
         val useFcmChannel = settingsRepository.getUseFcmChannel()
         if (useFcmChannel) {
@@ -125,12 +137,14 @@ class AppAutomationController(
                 fcmAvailable = true,
                 systemToken = activeFcmToken,
             )
+            PrivateChannelServiceManager.refresh(appContext)
             return
         }
 
         val previousFcmToken = settingsRepository.getFcmToken()
         settingsRepository.setFcmToken(null)
         privateChannelClient.setRuntime(fcmAvailable = false, systemToken = null)
+        PrivateChannelServiceManager.refresh(appContext)
         runCatching {
             privateChannelClient.switchToPrivateAndRetireProvider("fcm", previousFcmToken)
         }
@@ -321,6 +335,7 @@ class AppAutomationController(
             fcmAvailable = settingsRepository.getUseFcmChannel(),
             systemToken = settingsRepository.getFcmToken()?.trim()?.ifEmpty { null },
         )
+        PrivateChannelServiceManager.refresh(appContext)
         lastNotificationAction = null
         lastNotificationTarget = null
         lastFixtureImportPath = null

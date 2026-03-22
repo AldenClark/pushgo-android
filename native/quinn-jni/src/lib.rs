@@ -23,6 +23,7 @@ const PRIVATE_TCP_DELAY_FOREGROUND_MS: u64 = 700;
 const PRIVATE_WSS_DELAY_FOREGROUND_MS: u64 = 1_800;
 const PRIVATE_TCP_DELAY_BACKGROUND_MS: u64 = 1_500;
 const PRIVATE_WSS_DELAY_BACKGROUND_MS: u64 = 3_500;
+const WIRE_VERSION_V2: u8 = 2;
 
 #[derive(Debug, Deserialize)]
 struct SessionConfig {
@@ -191,7 +192,7 @@ pub extern "system" fn Java_io_ethan_pushgo_notifications_WarpLinkNativeBridge_n
             .or_else(|| parsed.bearer_token.clone()),
         resume_token: parsed.resume_token,
         last_acked_seq: parsed.last_acked_seq,
-        supported_wire_versions: vec![1],
+        supported_wire_versions: vec![WIRE_VERSION_V2],
         supported_payload_versions: vec![1],
         perf_tier: None,
         app_state: None,

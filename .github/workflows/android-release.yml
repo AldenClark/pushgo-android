@@ -1,0 +1,183 @@
+name: Android Release
+
+on:
+  push:
+    tags:
+      - "Release-*"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: android-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    env:
+      ANDROID_API_LEVEL: "31"
+      CARGO_TERM_COLOR: always
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK components
+        shell: bash
+        run: |
+          set -euo pipefail
+          sdkmanager --install \
+            "platform-tools" \
+            "build-tools;36.0.0" \
+            "platforms;android-36" \
+            "ndk;29.0.13846066"
+
+      - name: Set up Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android,armv7-linux-androideabi,x86_64-linux-android
+
+      - name: Restore Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            native/quinn-jni -> native/quinn-jni/target
+
+      - name: Install cargo-ndk
+        shell: bash
+        run: cargo install cargo-ndk --locked
+
+      - name: Prepare release signing
+        shell: bash
+        run: |
+          set -euo pipefail
+          required_secrets=(
+            PUSHGO_RELEASE_KEYSTORE_B64
+            PUSHGO_RELEASE_STORE_PASSWORD
+            PUSHGO_RELEASE_KEY_ALIAS
+            PUSHGO_RELEASE_KEY_PASSWORD
+          )
+          for secret_name in "${required_secrets[@]}"; do
+            if [ -z "${!secret_name:-}" ]; then
+              echo "Missing required secret: ${secret_name}" >&2
+              exit 1
+            fi
+          done
+          mkdir -p "$GITHUB_WORKSPACE/.ci"
+          echo "$PUSHGO_RELEASE_KEYSTORE_B64" | base64 --decode > "$GITHUB_WORKSPACE/.ci/release.keystore"
+          {
+            echo "PUSHGO_RELEASE_STORE_FILE=$GITHUB_WORKSPACE/.ci/release.keystore"
+            echo "PUSHGO_RELEASE_STORE_PASSWORD=$PUSHGO_RELEASE_STORE_PASSWORD"
+            echo "PUSHGO_RELEASE_KEY_ALIAS=$PUSHGO_RELEASE_KEY_ALIAS"
+            echo "PUSHGO_RELEASE_KEY_PASSWORD=$PUSHGO_RELEASE_KEY_PASSWORD"
+          } >> "$GITHUB_ENV"
+          if [ -n "${PUSHGO_PRIVATE_CERT_PIN_SHA256:-}" ]; then
+            echo "PUSHGO_PRIVATE_CERT_PIN_SHA256=$PUSHGO_PRIVATE_CERT_PIN_SHA256" >> "$GITHUB_ENV"
+          fi
+        env:
+          PUSHGO_RELEASE_KEYSTORE_B64: ${{ secrets.PUSHGO_RELEASE_KEYSTORE_B64 }}
+          PUSHGO_RELEASE_STORE_PASSWORD: ${{ secrets.PUSHGO_RELEASE_STORE_PASSWORD }}
+          PUSHGO_RELEASE_KEY_ALIAS: ${{ secrets.PUSHGO_RELEASE_KEY_ALIAS }}
+          PUSHGO_RELEASE_KEY_PASSWORD: ${{ secrets.PUSHGO_RELEASE_KEY_PASSWORD }}
+          PUSHGO_PRIVATE_CERT_PIN_SHA256: ${{ secrets.PUSHGO_PRIVATE_CERT_PIN_SHA256 }}
+
+      - name: Read release version
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+          while IFS='=' read -r key value; do
+            echo "$key=$value" >> "$GITHUB_OUTPUT"
+          done < <(./gradlew -q :app:printReleaseVersionInfo)
+
+      - name: Build release APKs
+        shell: bash
+        run: ./gradlew --no-daemon clean :app:assembleRelease
+
+      - name: Build release bundle
+        shell: bash
+        run: ./gradlew --no-daemon :app:bundleRelease -Ppushgo.enableAbiSplits=false
+
+      - name: Verify signed release artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          apk_files=(app/build/outputs/apk/release/*.apk)
+          if [ ${#apk_files[@]} -eq 0 ]; then
+            echo "No release APKs found" >&2
+            exit 1
+          fi
+          for file in "${apk_files[@]}"; do
+            apksigner verify --verbose --print-certs "$file"
+          done
+
+          bundle_file="app/build/outputs/bundle/release/app-release.aab"
+          if [ ! -f "$bundle_file" ]; then
+            echo "Signed release AAB not found" >&2
+            exit 1
+          fi
+          jarsigner -verify -verbose -certs "$bundle_file" >/dev/null
+
+      - name: Package release artifacts
+        id: package
+        shell: bash
+        run: |
+          set -euo pipefail
+          version_name="${{ steps.version.outputs.versionName }}"
+          version_code="${{ steps.version.outputs.versionCode }}"
+          prefix="pushgo-android-v${version_name}-${version_code}"
+          mkdir -p dist
+
+          shopt -s nullglob
+          for file in app/build/outputs/apk/release/*.apk; do
+            base="$(basename "$file")"
+            normalized_base="${base#app-}"
+            normalized_base="${normalized_base/-unsigned/}"
+            cp "$file" "dist/${prefix}-${normalized_base}"
+          done
+          shopt -u nullglob
+
+          bundle_file="app/build/outputs/bundle/release/app-release.aab"
+          if [ -f "$bundle_file" ]; then
+            cp "$bundle_file" "dist/${prefix}-release.aab"
+          fi
+
+          {
+            echo "tag=${GITHUB_REF_NAME}"
+            echo "commit=${GITHUB_SHA}"
+            echo "versionName=${version_name}"
+            echo "versionCode=${version_code}"
+            echo "signingEnabled=true"
+          } > dist/BUILD_INFO.txt
+
+          (
+            cd dist
+            sha256sum * > SHA256SUMS.txt
+          )
+
+          echo "artifact_prefix=$prefix" >> "$GITHUB_OUTPUT"
+
+      - name: Upload release assets
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          generate_release_notes: true
+          overwrite_files: true
+          files: |
+            dist/*

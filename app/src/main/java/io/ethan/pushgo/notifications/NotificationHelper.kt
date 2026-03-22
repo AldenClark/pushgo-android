@@ -201,15 +201,12 @@ object NotificationHelper {
         val managerCompat = NotificationManagerCompat.from(context)
         managerCompat.cancel(LEGACY_SUMMARY_NOTIFICATION_ID)
         if (!canPostNotifications(context)) return
-        if (unreadCount <= 0) {
-            managerCompat.cancelAll()
-            return
-        }
         val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         val targetCount = unreadCount.coerceAtLeast(0)
         val active = manager.activeNotifications
         if (active.isEmpty()) return
         active.forEach { status ->
+            if (status.id == PrivateChannelForegroundService.NOTIFICATION_ID) return@forEach
             val notification = status.notification
             if (notification.number == targetCount) return@forEach
             notification.number = targetCount

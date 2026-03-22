@@ -156,6 +156,16 @@
     <string name="label_fcm_wakeup_pull_mode">Use wakeup pull mode</string>
     <string name="label_fcm_wakeup_pull_mode_hint">Send wakeup via FCM, then pull full message over HTTP.</string>
     <string name="label_private_transport_status">Private transport status</string>
+    <string name="private_transport_status_disconnected">Non connecté</string>
+    <string name="private_transport_status_connecting">Connexion en cours</string>
+    <string name="private_transport_status_connected">Connecté</string>
+    <string name="private_transport_status_connected_with_transport">Connecté (%1$s)</string>
+    <string name="private_transport_status_reconnecting">Reconnexion en cours</string>
+    <string name="private_transport_status_network_unavailable">Réseau indisponible</string>
+    <string name="private_transport_status_waiting_retry">En attente de reconnexion</string>
+    <string name="private_channel_service_notification_title">Canal privé activé</string>
+    <string name="private_channel_service_channel_name">Maintien du canal privé</string>
+    <string name="private_channel_service_channel_description">Maintient la connexion du canal privé et affiche son état actuel.</string>
     <string name="error_request_failed">Request failed. Please retry.</string>
     <string name="error_channel_create_requires_fcm">Creating a new channel requires FCM. Use an existing Channel ID on devices without FCM.</string>
     <string name="error_private_channel_create_failed">Private channel create failed. Please retry.</string>

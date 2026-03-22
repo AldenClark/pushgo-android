@@ -27,9 +27,11 @@ import io.ethan.pushgo.data.model.ChannelSubscription
 import io.ethan.pushgo.data.model.KeyEncoding
 import io.ethan.pushgo.notifications.MessageStateCoordinator
 import io.ethan.pushgo.notifications.PrivateChannelClient
+import io.ethan.pushgo.notifications.PrivateChannelServiceManager
 import io.ethan.pushgo.util.UrlValidators
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeout
 import java.time.Instant
@@ -137,7 +139,17 @@ class SettingsViewModel(
             isChannelModeLoaded = true
         }
         viewModelScope.launch {
-            settingsRepository.useFcmChannelFlow.collect { useFcmChannel = it }
+            settingsRepository.useFcmChannelFlow
+                .combine(privateChannelClient.transportStatusFlow) { useFcm, status ->
+                    useFcm to status
+                }
+                .collect { (useFcm, status) ->
+                    useFcmChannel = useFcm
+                    privateTransportStatus = privateChannelClient.summarizeTransportStatus(
+                        status = status,
+                        privateModeEnabled = !useFcm,
+                    )
+                }
         }
         viewModelScope.launch {
             settingsRepository.messagePageEnabledFlow.collect { isMessagePageEnabled = it }
@@ -151,20 +163,6 @@ class SettingsViewModel(
 
         viewModelScope.launch {
             refreshChannelSubscriptions()
-        }
-        viewModelScope.launch {
-            while (true) {
-                if (useFcmChannel) {
-                    privateTransportStatus = "未连接"
-                } else {
-                    val status = privateChannelClient.readTransportStatus()
-                    privateTransportStatus = simplifyPrivateTransportStatus(
-                        transport = status.transport,
-                        stage = status.stage,
-                    )
-                }
-                delay(1_500L)
-            }
         }
     }
 
@@ -206,10 +204,12 @@ class SettingsViewModel(
                 if (!isFcmSupported(context)) {
                     settingsRepository.setUseFcmChannel(false)
                     privateChannelClient.setRuntime(fcmAvailable = false, systemToken = null)
+                    PrivateChannelServiceManager.refresh(context)
                     errorMessage = ResMessage(R.string.error_fcm_not_supported)
                     return@launch
                 }
                 enableFcmProvider(context, keepEnabledWhenTokenMissing = true)
+                PrivateChannelServiceManager.refresh(context)
             } else {
                 val oldToken = settingsRepository.getFcmToken()
                 runCatching {
@@ -220,6 +220,7 @@ class SettingsViewModel(
                 settingsRepository.setUseFcmChannel(false)
                 settingsRepository.setFcmToken(null)
                 privateChannelClient.setRuntime(fcmAvailable = false, systemToken = null)
+                PrivateChannelServiceManager.refresh(context)
             }
         }
     }
@@ -367,11 +368,15 @@ class SettingsViewModel(
                         )
                     }
                 }
+                PrivateChannelServiceManager.refresh(context)
                 activeFcmToken?.let {
                     channelRepository.syncSubscriptionsIfNeeded(it)
                 }
                 val oldIdentity = "${previousAddress}|${previousToken.orEmpty()}"
                 val newIdentity = "${normalizedAddress}|${token.orEmpty()}"
+                if (oldIdentity != newIdentity) {
+                    privateChannelClient.onGatewayConfigChanged()
+                }
                 if (oldIdentity != newIdentity && !previousDeviceKey.isNullOrBlank()) {
                     val legacyAddress = previousAddress
                     val legacyToken = previousToken
@@ -738,24 +743,6 @@ class SettingsViewModel(
 
     fun consumeSuccess() {
         successMessage = null
-    }
-
-    private fun simplifyPrivateTransportStatus(transport: String, stage: String): String {
-        val normalizedTransport = transport.trim().lowercase()
-        val normalizedStage = stage.trim().lowercase()
-        val transportLabel = when (normalizedTransport) {
-            "wss" -> "WSS"
-            "tcp" -> "TCP"
-            "quic" -> "QUIC"
-            else -> null
-        }
-        if (normalizedStage == "connected" && transportLabel != null) {
-            return "已连接($transportLabel)"
-        }
-        if (normalizedStage in setOf("connecting", "recovering", "backoff", "offline_wait")) {
-            return "正在连接"
-        }
-        return "未连接"
     }
 
     private fun Throwable.toUiErrorMessage(@StringRes fallbackResId: Int): UiMessage {

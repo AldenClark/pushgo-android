@@ -14,6 +14,19 @@ PushGo for Android is the official client app for PushGo. It works with PushGo G
 
 - Android 12+ (minSdk 31)
 
+## GitHub Release Packaging
+
+- Pushing a tag that matches `Release-*` triggers `.github/workflows/android-release.yml`.
+- The workflow rebuilds the Rust JNI libraries, signs the release APKs and AAB, verifies the signatures, and uploads them to the matching GitHub Release.
+- Release asset names include both `versionName` and `versionCode`, for example `pushgo-android-v1.0.0-22-universal-release.apk`.
+- Required signing secrets:
+  - `PUSHGO_RELEASE_KEYSTORE_B64`
+  - `PUSHGO_RELEASE_STORE_PASSWORD`
+  - `PUSHGO_RELEASE_KEY_ALIAS`
+  - `PUSHGO_RELEASE_KEY_PASSWORD`
+- Optional runtime secret:
+  - `PUSHGO_PRIVATE_CERT_PIN_SHA256`
+
 
 ---
 

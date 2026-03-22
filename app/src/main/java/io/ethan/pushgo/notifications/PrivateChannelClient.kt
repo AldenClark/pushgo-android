@@ -25,6 +25,9 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runInterruptible
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -107,8 +110,10 @@ class PrivateChannelClient(
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val prefs = appContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+    private val transportStatusState = MutableStateFlow(loadTransportStatusSnapshot())
     private var loopJob: Job? = null
     private var foregroundActive = false
+    private var keepaliveServiceActive = false
     private var fcmAvailable = false
     private var systemToken: String? = null
     private var runtimeConfigured = false
@@ -124,11 +129,15 @@ class PrivateChannelClient(
     private var wakeupPullInFlight = false
     private var wakeupPullPending = false
     @Volatile
+    private var activeSessionHandle: Long = 0L
+    @Volatile
     private var networkAvailable = true
     @Volatile
     private var welcomeMaxBackoffSecs = 60
     @Volatile
     private var lastTransportStatusFingerprint: String? = null
+    @Volatile
+    private var lastNotificationStatusFingerprint: String? = null
     private var performanceMode: PrivatePerformanceMode = loadPerformanceMode()
     private val connectivityManager: ConnectivityManager? =
         appContext.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
@@ -137,6 +146,8 @@ class PrivateChannelClient(
         io.ethan.pushgo.util.SilentSink.i(TAG, "private channel client revision=$CLIENT_REV")
         registerNetworkCallback()
     }
+
+    val transportStatusFlow: StateFlow<TransportStatus> = transportStatusState.asStateFlow()
 
     fun setRuntime(fcmAvailable: Boolean, systemToken: String?) {
         runtimeConfigured = true
@@ -164,8 +175,45 @@ class PrivateChannelClient(
         refreshLoop()
     }
 
+    fun onGatewayConfigChanged() {
+        // Gateway host/token changed: invalidate private route/session caches and reconnect.
+        currentDeviceState = null
+        lastSubscribedSignature = null
+        lastSubscribeAtMs = 0L
+        lastRouteEnsureAtMs = 0L
+        lastRouteRepairAtMs = 0L
+        nextAllowedPullAtMs = 0L
+
+        loopJob?.cancel()
+        loopJob = null
+
+        if (!fcmAvailable) {
+            saveTransportStatus(
+                route = "private",
+                transport = "none",
+                stage = "reconnecting",
+                detail = "gateway config changed, restarting private stream",
+            )
+            refreshLoop()
+            triggerWakeupPull()
+        }
+    }
+
     fun setForeground(active: Boolean) {
+        val changed = foregroundActive != active
         foregroundActive = active
+        if (changed) {
+            syncActiveSessionPowerHint()
+        }
+        refreshLoop()
+    }
+
+    fun setKeepaliveServiceActive(active: Boolean) {
+        val changed = keepaliveServiceActive != active
+        keepaliveServiceActive = active
+        if (active && changed) {
+            notifyKeepaliveNotificationChanged()
+        }
         refreshLoop()
     }
 
@@ -173,6 +221,7 @@ class PrivateChannelClient(
         performanceMode = mode
         prefs.edit().putString(KEY_PERF_MODE, mode.wireValue).apply()
         nextAllowedPullAtMs = 0L
+        syncActiveSessionPowerHint()
         refreshLoop()
     }
 
@@ -237,12 +286,15 @@ class PrivateChannelClient(
                     networkAvailable = true
                     nextAllowedPullAtMs = 0L
                     if (runtimeConfigured && !fcmAvailable) {
+                        failureStreak = 0
+                        stopActiveSession("network_available")
                         refreshLoop()
                     }
                 }
 
                 override fun onLost(network: Network) {
                     networkAvailable = false
+                    stopActiveSession("network_lost")
                 }
             })
         }.onFailure {
@@ -255,15 +307,19 @@ class PrivateChannelClient(
         providerToken: String?,
     ) {
         val (baseUrl, token) = channelRepository.loadGatewayConfig()
-        val state = ensureDeviceState(baseUrl, token)
-        currentDeviceState = state
-        privatePost(baseUrl, token, "/channel/device", JSONObject().apply {
-            put("device_key", state.deviceKey)
-            put("channel_type", channelType.trim().lowercase())
-            if (!providerToken.isNullOrBlank()) {
-                put("provider_token", providerToken.trim())
-            }
-        })
+        withDeviceStateRetry(baseUrl, token) { state ->
+            privatePost(baseUrl, token, "/channel/device", JSONObject().apply {
+                put("device_key", state.deviceKey)
+                put("channel_type", channelType.trim().lowercase())
+                if (!providerToken.isNullOrBlank()) {
+                    put("provider_token", providerToken.trim())
+                }
+            })
+            privatePost(baseUrl, token, "/channel/device/delete", JSONObject().apply {
+                put("device_key", state.deviceKey)
+                put("channel_type", "private")
+            })
+        }
         // Next private operation must not be skipped by route ensure cache.
         lastRouteEnsureAtMs = 0L
     }
@@ -278,11 +334,11 @@ class PrivateChannelClient(
                     put("provider_token", providerToken.trim())
                 })
             }
+            ensurePrivateRoute(baseUrl, token, state, force = true)
             privatePost(baseUrl, token, "/channel/device/delete", JSONObject().apply {
                 put("device_key", state.deviceKey)
                 put("channel_type", channelType.trim().lowercase())
             })
-            ensurePrivateRoute(baseUrl, token, state, force = true)
         }
     }
 
@@ -349,7 +405,7 @@ class PrivateChannelClient(
 
     private fun refreshLoop() {
         if (!runtimeConfigured) return
-        val shouldRun = !fcmAvailable && foregroundActive
+        val shouldRun = !fcmAvailable && (foregroundActive || keepaliveServiceActive)
         if (!shouldRun) {
             loopJob?.cancel()
             loopJob = null
@@ -599,11 +655,14 @@ class PrivateChannelClient(
             onFailure("stream_start", IllegalStateException("native session start failed"))
             return false
         }
+        activeSessionHandle = handle
 
         var activeAuthToken = bearerToken?.trim()?.ifEmpty { null }
         var activePowerTier = effectivePerformanceMode(foregroundActive).wireValue
         var activeAppState = if (foregroundActive) "foreground" else "background"
         var nextControlSyncAtMs = 0L
+        var lastEventAtMs = System.currentTimeMillis()
+        var welcomeReceived = false
         return try {
             while (true) {
                 val nowMs = System.currentTimeMillis()
@@ -645,8 +704,23 @@ class PrivateChannelClient(
                     .toInt()
                 val rawEvent = runInterruptible(Dispatchers.IO) {
                     WarpLinkNativeBridge.sessionPollEvent(handle, pollTimeoutMs)
-                } ?: continue
-                handleSessionEvent(handle, rawEvent)
+                }
+                if (rawEvent == null) {
+                    if (!welcomeReceived &&
+                        System.currentTimeMillis() - lastEventAtMs >= PRIVATE_WELCOME_STALL_TIMEOUT_MS
+                    ) {
+                        throw IllegalStateException(
+                            "private stream stalled before welcome for ${PRIVATE_WELCOME_STALL_TIMEOUT_MS}ms"
+                        )
+                    }
+                    continue
+                }
+                lastEventAtMs = System.currentTimeMillis()
+                val root = JSONObject(rawEvent)
+                if (root.optString("type").trim().lowercase() == "welcome") {
+                    welcomeReceived = true
+                }
+                handleSessionEvent(handle, root)
             }
             @Suppress("UNREACHABLE_CODE")
             true
@@ -656,6 +730,9 @@ class PrivateChannelClient(
             onFailure("stream_session", error)
             false
         } finally {
+            if (activeSessionHandle == handle) {
+                activeSessionHandle = 0L
+            }
             runCatching {
                 runInterruptible(Dispatchers.IO) {
                     WarpLinkNativeBridge.sessionStop(handle)
@@ -664,8 +741,36 @@ class PrivateChannelClient(
         }
     }
 
-    private suspend fun handleSessionEvent(handle: Long, rawEvent: String) {
-        val root = JSONObject(rawEvent)
+    private fun stopActiveSession(reason: String) {
+        val handle = activeSessionHandle
+        if (handle <= 0L) return
+        scope.launch(Dispatchers.IO) {
+            runCatching {
+                WarpLinkNativeBridge.sessionStop(handle)
+            }.onFailure {
+                io.ethan.pushgo.util.SilentSink.w(TAG, "session stop failed reason=$reason error=${it.message}")
+            }
+        }
+    }
+
+    private fun syncActiveSessionPowerHint() {
+        val handle = activeSessionHandle
+        if (handle <= 0L) return
+        val appState = if (foregroundActive) "foreground" else "background"
+        val powerTier = effectivePerformanceMode(foregroundActive).wireValue
+        scope.launch(Dispatchers.IO) {
+            runCatching {
+                WarpLinkNativeBridge.sessionSetPowerHint(handle, appState, powerTier)
+            }.onFailure {
+                io.ethan.pushgo.util.SilentSink.w(
+                    TAG,
+                    "session power hint sync failed error=${it.message}",
+                )
+            }
+        }
+    }
+
+    private suspend fun handleSessionEvent(handle: Long, root: JSONObject) {
         when (root.optString("type").trim().lowercase()) {
             "connected" -> {
                 val transport = root.optString("transport").trim().ifEmpty { "none" }
@@ -677,9 +782,9 @@ class PrivateChannelClient(
                 )
             }
             "welcome" -> {
-                val wireVersion = root.optInt("wire_version", WIRE_VERSION_V1)
+                val wireVersion = root.optInt("wire_version", WIRE_VERSION_V2)
                 val payloadVersion = root.optInt("payload_version", PRIVATE_PAYLOAD_VERSION_V1)
-                if (wireVersion != WIRE_VERSION_V1 || payloadVersion != PRIVATE_PAYLOAD_VERSION_V1) {
+                if (wireVersion != WIRE_VERSION_V2 || payloadVersion != PRIVATE_PAYLOAD_VERSION_V1) {
                     throw IllegalStateException(
                         "incompatible welcome versions wire=$wireVersion payload=$payloadVersion"
                     )
@@ -1136,31 +1241,25 @@ class PrivateChannelClient(
     }
 
     fun readTransportStatus(): TransportStatus {
-        val raw = prefs.getString(KEY_TRANSPORT_STATUS, null) ?: return TransportStatus(
-            route = if (fcmAvailable) "provider" else "private",
-            transport = if (fcmAvailable) "fcm" else "none",
-            stage = if (fcmAvailable) "active" else "idle",
-            detail = if (fcmAvailable) "private channel disabled by provider mode" else "no status yet",
-            updatedAtMs = 0L,
+        return transportStatusState.value
+    }
+
+    fun summarizeTransportStatus(privateModeEnabled: Boolean): String {
+        return summarizeTransportStatus(
+            status = readTransportStatus(),
+            privateModeEnabled = privateModeEnabled,
         )
-        return runCatching {
-            val obj = JSONObject(raw)
-            TransportStatus(
-                route = obj.optString("route").trim().ifEmpty { "private" },
-                transport = obj.optString("transport").trim().ifEmpty { "none" },
-                stage = obj.optString("stage").trim().ifEmpty { "idle" },
-                detail = obj.optString("detail").trim().ifEmpty { null },
-                updatedAtMs = obj.optLong("updated_at_ms", 0L),
-            )
-        }.getOrElse {
-            TransportStatus(
-                route = "private",
-                transport = "none",
-                stage = "idle",
-                detail = "status parse failed",
-                updatedAtMs = 0L,
-            )
+    }
+
+    fun summarizeTransportStatus(status: TransportStatus, privateModeEnabled: Boolean): String {
+        if (!privateModeEnabled) {
+            return appContext.getString(R.string.private_transport_status_disconnected)
         }
+        return PrivateTransportStatusPresenter.summarize(
+            context = appContext,
+            transport = status.transport,
+            stage = status.stage,
+        )
     }
 
     fun resetForAutomation() {
@@ -1191,20 +1290,91 @@ class PrivateChannelClient(
     }
 
     private fun saveTransportStatus(route: String, transport: String, stage: String, detail: String?) {
+        val status = TransportStatus(
+            route = route,
+            transport = transport,
+            stage = stage,
+            detail = detail,
+            updatedAtMs = System.currentTimeMillis(),
+        )
         val obj = JSONObject().apply {
             put("route", route)
             put("transport", transport)
             put("stage", stage)
             put("detail", detail ?: "")
-            put("updated_at_ms", System.currentTimeMillis())
+            put("updated_at_ms", status.updatedAtMs)
         }
         prefs.edit().putString(KEY_TRANSPORT_STATUS, obj.toString()).apply()
+        transportStatusState.value = status
         val fingerprint = "$route|$transport|$stage|${detail.orEmpty()}"
         if (fingerprint != lastTransportStatusFingerprint) {
             lastTransportStatusFingerprint = fingerprint
             io.ethan.pushgo.util.SilentSink.i(
                 TAG,
                 "transport_status route=$route transport=$transport stage=$stage detail=${detail.orEmpty().take(160)}"
+            )
+        }
+        val notificationFingerprint = notificationStatusFingerprint(route, transport, stage)
+        if (notificationFingerprint != lastNotificationStatusFingerprint) {
+            lastNotificationStatusFingerprint = notificationFingerprint
+            notifyKeepaliveNotificationChanged()
+        }
+    }
+
+    private fun loadTransportStatusSnapshot(): TransportStatus {
+        val raw = prefs.getString(KEY_TRANSPORT_STATUS, null) ?: return defaultTransportStatus()
+        return runCatching {
+            val obj = JSONObject(raw)
+            TransportStatus(
+                route = obj.optString("route").trim().ifEmpty { "private" },
+                transport = obj.optString("transport").trim().ifEmpty { "none" },
+                stage = obj.optString("stage").trim().ifEmpty { "idle" },
+                detail = obj.optString("detail").trim().ifEmpty { null },
+                updatedAtMs = obj.optLong("updated_at_ms", 0L),
+            )
+        }.getOrElse {
+            defaultTransportStatus(detail = "status parse failed")
+        }
+    }
+
+    private fun defaultTransportStatus(detail: String? = null): TransportStatus {
+        return TransportStatus(
+            route = if (fcmAvailable) "provider" else "private",
+            transport = if (fcmAvailable) "fcm" else "none",
+            stage = if (fcmAvailable) "active" else "idle",
+            detail = detail ?: if (fcmAvailable) {
+                "private channel disabled by provider mode"
+            } else {
+                "no status yet"
+            },
+            updatedAtMs = 0L,
+        )
+    }
+
+    private fun notificationStatusFingerprint(route: String, transport: String, stage: String): String {
+        val summary = PrivateTransportStatusPresenter.summarize(
+            context = appContext,
+            privateModeEnabled = !fcmAvailable,
+            route = route,
+            transport = transport,
+            stage = stage,
+            networkAvailable = networkAvailable,
+        )
+        return "$route|$transport|$stage|$summary"
+    }
+
+    private fun notifyKeepaliveNotificationChanged() {
+        if (!keepaliveServiceActive) return
+        runCatching {
+            appContext.startService(
+                android.content.Intent(appContext, PrivateChannelForegroundService::class.java).apply {
+                    action = PrivateChannelForegroundService.ACTION_REFRESH_STATUS
+                }
+            )
+        }.onFailure {
+            io.ethan.pushgo.util.SilentSink.w(
+                TAG,
+                "notify keepalive notification failed error=${it.message}",
             )
         }
     }
@@ -1343,8 +1513,9 @@ class PrivateChannelClient(
         private const val PRIVATE_HTTP_MAX_ATTEMPTS = 3
         private const val PRIVATE_HTTP_RETRY_BASE_MS = 450L
         private const val PRIVATE_ROUTE_REPAIR_INTERVAL_MS = 15_000L
-        private const val WIRE_VERSION_V1 = 1
+        private const val WIRE_VERSION_V2 = 2
         private const val PRIVATE_PAYLOAD_VERSION_V1 = 1
         private const val ACK_WAIT_TIMEOUT_MS = 10_000
+        private const val PRIVATE_WELCOME_STALL_TIMEOUT_MS = 20_000L
     }
 }

@@ -12,6 +12,7 @@
 /google-services.json
 /app/google-services.json
 /app/src/*/google-services.json
+/app/src/main/jniLibs/
 
 # APK / AAB / outputs
 **/*.apk
