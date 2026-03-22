@@ -3,16 +3,11 @@ package io.ethan.pushgo.ui.screens
 import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.gestures.draggable
 import androidx.compose.foundation.gestures.rememberDraggableState
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.offset
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.DeleteSweep
 import androidx.compose.material.icons.outlined.MarkEmailRead
 import androidx.compose.material.icons.outlined.MarkEmailUnread
-import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.text.font.FontFamily
-import androidx.compose.ui.unit.IntOffset
-import kotlin.math.roundToInt
 import android.content.Context
 import android.content.Intent
 import android.widget.Toast
@@ -66,14 +61,16 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalClipboard
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.semantics.heading
@@ -104,6 +101,7 @@ import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.time.temporal.ChronoUnit
 import java.util.Locale
+import kotlin.math.roundToInt
 import android.os.Build
 import android.text.format.DateFormat
 import android.text.format.DateUtils
@@ -331,12 +329,8 @@ fun MessageListScreen(
                             message = message,
                             imageModels = listImageModels,
                             onClick = { onMessageClick(message.id) },
-                            onMarkRead = {
-                                viewModel.markRead(message.id)
-                            },
-                            onDelete = {
-                                viewModel.deleteMessage(message.id)
-                            },
+                            onMarkRead = { viewModel.markRead(message.id) },
+                            onDelete = { viewModel.deleteMessage(message.id) },
                         )
                     }
                 }
@@ -353,12 +347,8 @@ fun MessageListScreen(
                         message = message,
                         imageModels = listImageModels,
                         onClick = { onMessageClick(message.id) },
-                        onMarkRead = {
-                            viewModel.markRead(message.id)
-                        },
-                        onDelete = {
-                            viewModel.deleteMessage(message.id)
-                        },
+                        onMarkRead = { viewModel.markRead(message.id) },
+                        onDelete = { viewModel.deleteMessage(message.id) },
                     )
                 }
             }
@@ -486,7 +476,6 @@ private fun MessageRow(
                         modifier = Modifier.size(20.dp)
                     )
                 }
-
                 Spacer(modifier = Modifier.width(12.dp))
             }
             Box(
@@ -524,12 +513,10 @@ private fun MessageRow(
                 .draggable(
                     orientation = Orientation.Horizontal,
                     state = rememberDraggableState { delta ->
-                        val newOffset = (offsetX + delta).coerceIn(-actionWidthPx, 0f)
-                        offsetX = newOffset
+                        offsetX = (offsetX + delta).coerceIn(-actionWidthPx, 0f)
                     },
                     onDragStopped = {
-                        val targetOffset = if (offsetX < -actionWidthPx / 2) -actionWidthPx else 0f
-                        offsetX = targetOffset
+                        offsetX = if (offsetX < -actionWidthPx / 2) -actionWidthPx else 0f
                     }
                 )
                 .padding(horizontal = ScreenHorizontalPadding, vertical = 12.dp)

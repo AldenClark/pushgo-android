@@ -1,5 +1,6 @@
 package io.ethan.pushgo.data
 
+import android.content.SharedPreferences
 import io.ethan.pushgo.data.db.AppSettingsDao
 import io.ethan.pushgo.data.db.AppSettingsEntity
 import io.ethan.pushgo.data.model.KeyEncoding
@@ -10,6 +11,7 @@ import java.time.Instant
 class SettingsRepository(
     private val appSettingsDao: AppSettingsDao,
     private val secretStore: SecureSecretStore,
+    private val settingsCache: SharedPreferences,
 ) {
     private val settingsFlow = appSettingsDao.observe()
 
@@ -22,6 +24,13 @@ class SettingsRepository(
         settingsFlow.map { it?.isThingPageEnabled ?: true }
     val useFcmChannelFlow: Flow<Boolean> =
         settingsFlow.map { it?.useFcmChannel ?: true }
+
+    fun getCachedUseFcmChannel(): Boolean =
+        settingsCache.getBoolean(KEY_USE_FCM_CHANNEL, true)
+
+    private fun cacheUseFcmChannel(enabled: Boolean) {
+        settingsCache.edit().putBoolean(KEY_USE_FCM_CHANNEL, enabled).apply()
+    }
 
     private fun defaultSettings(): AppSettingsEntity {
         return AppSettingsEntity(
@@ -38,11 +47,13 @@ class SettingsRepository(
     }
 
     private suspend fun loadSettings(): AppSettingsEntity {
-        return appSettingsDao.get() ?: defaultSettings()
+        return (appSettingsDao.get() ?: defaultSettings()).also { cacheUseFcmChannel(it.useFcmChannel) }
     }
 
     private suspend fun updateSettings(update: (AppSettingsEntity) -> AppSettingsEntity) {
-        appSettingsDao.upsert(update(loadSettings()))
+        val updated = update(loadSettings())
+        appSettingsDao.upsert(updated)
+        cacheUseFcmChannel(updated.useFcmChannel)
     }
 
     suspend fun setServerAddress(address: String?) {
@@ -147,11 +158,15 @@ class SettingsRepository(
         secretStore.clearAll()
         appSettingsDao.deleteAll()
         val normalizedAddress = defaultServerAddress?.trim()?.ifEmpty { null }
-        appSettingsDao.upsert(
-            defaultSettings().copy(
-                serverAddress = normalizedAddress,
-                useFcmChannel = false,
-            )
+        val defaults = defaultSettings().copy(
+            serverAddress = normalizedAddress,
+            useFcmChannel = false,
         )
+        appSettingsDao.upsert(defaults)
+        cacheUseFcmChannel(defaults.useFcmChannel)
+    }
+
+    companion object {
+        private const val KEY_USE_FCM_CHANNEL = "use_fcm_channel"
     }
 }

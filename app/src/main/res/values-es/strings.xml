@@ -31,6 +31,15 @@
     <string name="label_unsubscribe_delete_history">Cancelar y eliminar historial</string>
     <string name="label_unsubscribe_keep_history">Cancelar y conservar historial</string><string name="label_channel_select_hint">Cree o suscríbase a un canal primero.</string>
     <string name="label_channel_manage">Gestionar suscripciones</string>
+    <string name="notification_channel_name_with_level">Mensajes de PushGo · %1$s</string>
+    <string name="notification_channel_suffix_critical">Crítico</string>
+    <string name="notification_channel_suffix_high">Alto</string>
+    <string name="notification_channel_suffix_normal">Normal</string>
+    <string name="notification_channel_suffix_low">Bajo</string>
+    <string name="notification_channel_description_critical">Alertas críticas que deben interrumpir de inmediato con la señal más fuerte de PushGo.</string>
+    <string name="notification_channel_description_high">Alertas de alta prioridad con sonido y vibración intensos para llamar la atención.</string>
+    <string name="notification_channel_description_normal">Alertas estándar de PushGo para mensajes normales y actualizaciones cotidianas.</string>
+    <string name="notification_channel_description_low">Alertas de baja severidad con una interrupción reducida.</string>
     <string name="message_list_empty_title">No hay mensajes</string>
     <string name="message_list_empty_hint">Cree o suscríbase primero a un canal para recibir notificaciones push.</string>
     <string name="channel_list_empty_title">Sin suscripciones</string>
@@ -90,6 +99,10 @@
         <item quantity="other">Suscripción cancelada y %1$d mensajes eliminados</item>
     </plurals>
     <string name="message_messages_cleared">Mensajes borrados</string>
+    <plurals name="message_notifications_summary">
+        <item quantity="one">%1$d notificación sin leer</item>
+        <item quantity="other">%1$d notificaciones sin leer</item>
+    </plurals>
     <string name="message_no_messages_to_clear">No hay mensajes para borrar</string>
     <string name="error_invalid_server_address">Dirección del servidor no válida (se requiere https)</string>
     <string name="error_key_required">Por favor, introduzca la clave primero</string>
@@ -150,8 +163,11 @@
     <string name="label_event_started_at">Event Start Time (optional)</string>
     <string name="label_event_ended_at">Event End Time (optional)</string>
     <string name="label_thing_links">Object Images (comma)</string>
-    <string name="label_use_fcm_channel">Use FCM channel</string>
-    <string name="label_use_fcm_channel_hint">When off, notifications use private channel fallback.</string>
+    <string name="label_notification_transport">Notification transport</string>
+    <string name="label_notification_transport_hint">Choose whether Android receives pushes through FCM or the private channel.</string>
+    <string name="label_notification_transport_private_only_hint">This device does not support FCM. Pushes will use the private channel.</string>
+    <string name="label_transport_fcm">FCM</string>
+    <string name="label_transport_private">Private</string>
     <string name="label_fcm_wakeup_pull_mode">Use wakeup pull mode</string>
     <string name="label_fcm_wakeup_pull_mode_hint">Send wakeup via FCM, then pull full message over HTTP.</string>
     <string name="label_private_transport_status">Private transport status</string>
@@ -162,6 +178,7 @@
     <string name="private_transport_status_reconnecting">Reconectando</string>
     <string name="private_transport_status_network_unavailable">Red no disponible</string>
     <string name="private_transport_status_waiting_retry">Esperando para reintentar</string>
+    <string name="private_transport_status_keepalive_lost">Protección en segundo plano perdida</string>
     <string name="private_channel_service_notification_title">Canal privado activo</string>
     <string name="private_channel_service_channel_name">Mantenimiento del canal privado</string>
     <string name="private_channel_service_channel_description">Mantiene activa la conexión del canal privado y muestra su estado actual.</string>

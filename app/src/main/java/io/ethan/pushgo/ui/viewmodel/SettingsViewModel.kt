@@ -71,6 +71,8 @@ class SettingsViewModel(
         private set
     var useFcmChannel by mutableStateOf(true)
         private set
+    var isFcmSupported by mutableStateOf(true)
+        private set
     var isChannelModeLoaded by mutableStateOf(false)
         private set
     var privateTransportStatus by mutableStateOf("未连接")
@@ -132,6 +134,7 @@ class SettingsViewModel(
             gatewayToken = settingsRepository.getGatewayToken() ?: ""
             deviceToken = settingsRepository.getFcmToken()
             useFcmChannel = settingsRepository.getUseFcmChannel()
+            isFcmSupported = true
             val currentKey = settingsRepository.getNotificationKeyBytes()
             isDecryptionConfigured = currentKey?.isNotEmpty() == true
             decryptionUpdatedAt = settingsRepository.getNotificationKeyUpdatedAt()
@@ -140,13 +143,13 @@ class SettingsViewModel(
         }
         viewModelScope.launch {
             settingsRepository.useFcmChannelFlow
-                .combine(privateChannelClient.transportStatusFlow) { useFcm, status ->
-                    useFcm to status
+                .combine(privateChannelClient.connectionSnapshotFlow) { useFcm, snapshot ->
+                    useFcm to snapshot
                 }
-                .collect { (useFcm, status) ->
+                .collect { (useFcm, snapshot) ->
                     useFcmChannel = useFcm
-                    privateTransportStatus = privateChannelClient.summarizeTransportStatus(
-                        status = status,
+                    privateTransportStatus = privateChannelClient.summarizeConnectionStatus(
+                        snapshot = snapshot,
                         privateModeEnabled = !useFcm,
                     )
                 }
@@ -168,6 +171,7 @@ class SettingsViewModel(
 
     private suspend fun enableFcmProvider(context: Context, keepEnabledWhenTokenMissing: Boolean) {
         settingsRepository.setUseFcmChannel(true)
+        isFcmSupported = true
 
         val cachedToken = settingsRepository.getFcmToken()?.trim().takeUnless { it.isNullOrEmpty() }
         if (cachedToken != null) {
@@ -198,18 +202,34 @@ class SettingsViewModel(
         privateChannelClient.setRuntime(fcmAvailable = true, systemToken = token)
     }
 
+    fun ensurePrivateTransportWhenFcmUnsupported(context: Context) {
+        viewModelScope.launch {
+            val supported = isFcmSupported(context)
+            isFcmSupported = supported
+            if (supported || !useFcmChannel) {
+                return@launch
+            }
+            settingsRepository.setUseFcmChannel(false)
+            settingsRepository.setFcmToken(null)
+            useFcmChannel = false
+            privateChannelClient.setRuntime(fcmAvailable = false, systemToken = null)
+            PrivateChannelServiceManager.refreshForMode(context, false)
+        }
+    }
+
     fun updateUseFcmChannel(context: Context, enabled: Boolean) {
         viewModelScope.launch {
+            isFcmSupported = isFcmSupported(context)
             if (enabled) {
-                if (!isFcmSupported(context)) {
+                if (!isFcmSupported) {
                     settingsRepository.setUseFcmChannel(false)
                     privateChannelClient.setRuntime(fcmAvailable = false, systemToken = null)
-                    PrivateChannelServiceManager.refresh(context)
+                    PrivateChannelServiceManager.refreshForMode(context, false)
                     errorMessage = ResMessage(R.string.error_fcm_not_supported)
                     return@launch
                 }
                 enableFcmProvider(context, keepEnabledWhenTokenMissing = true)
-                PrivateChannelServiceManager.refresh(context)
+                PrivateChannelServiceManager.refreshForMode(context, true)
             } else {
                 val oldToken = settingsRepository.getFcmToken()
                 runCatching {
@@ -220,13 +240,14 @@ class SettingsViewModel(
                 settingsRepository.setUseFcmChannel(false)
                 settingsRepository.setFcmToken(null)
                 privateChannelClient.setRuntime(fcmAvailable = false, systemToken = null)
-                PrivateChannelServiceManager.refresh(context)
+                PrivateChannelServiceManager.refreshForMode(context, false)
             }
         }
     }
 
     private suspend fun requireFcmToken(context: Context): String? {
-        if (!isFcmSupported(context)) {
+        isFcmSupported = isFcmSupported(context)
+        if (!isFcmSupported) {
             errorMessage = ResMessage(R.string.error_fcm_not_supported)
             return null
         }
@@ -249,7 +270,8 @@ class SettingsViewModel(
     }
 
     private fun shouldUseFcm(context: Context): Boolean {
-        return useFcmChannel && isFcmSupported(context)
+        isFcmSupported = isFcmSupported(context)
+        return useFcmChannel && isFcmSupported
     }
 
     private suspend fun fetchFcmTokenWithRetry(): String {

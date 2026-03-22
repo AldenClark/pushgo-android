@@ -137,14 +137,14 @@ class AppAutomationController(
                 fcmAvailable = true,
                 systemToken = activeFcmToken,
             )
-            PrivateChannelServiceManager.refresh(appContext)
+            PrivateChannelServiceManager.refreshForMode(appContext, true)
             return
         }
 
         val previousFcmToken = settingsRepository.getFcmToken()
         settingsRepository.setFcmToken(null)
         privateChannelClient.setRuntime(fcmAvailable = false, systemToken = null)
-        PrivateChannelServiceManager.refresh(appContext)
+        PrivateChannelServiceManager.refreshForMode(appContext, false)
         runCatching {
             privateChannelClient.switchToPrivateAndRetireProvider("fcm", previousFcmToken)
         }

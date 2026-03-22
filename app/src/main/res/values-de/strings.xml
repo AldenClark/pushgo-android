@@ -31,6 +31,15 @@
     <string name="label_unsubscribe_delete_history">Deabonnieren und Verlauf löschen</string>
     <string name="label_unsubscribe_keep_history">Deabonnieren, Verlauf behalten</string><string name="label_channel_select_hint">Zuerst einen Kanal erstellen oder abonnieren.</string>
     <string name="label_channel_manage">Abonnements verwalten</string>
+    <string name="notification_channel_name_with_level">PushGo-Nachrichten · %1$s</string>
+    <string name="notification_channel_suffix_critical">Kritisch</string>
+    <string name="notification_channel_suffix_high">Hoch</string>
+    <string name="notification_channel_suffix_normal">Normal</string>
+    <string name="notification_channel_suffix_low">Niedrig</string>
+    <string name="notification_channel_description_critical">Kritische Warnungen, die den Nutzer sofort mit dem stärksten PushGo-Signal unterbrechen sollen.</string>
+    <string name="notification_channel_description_high">Warnungen mit hoher Priorität und deutlichem Ton- sowie Vibrationssignal.</string>
+    <string name="notification_channel_description_normal">Normale PushGo-Benachrichtigungen für alltägliche Meldungen und Aktualisierungen.</string>
+    <string name="notification_channel_description_low">Benachrichtigungen mit niedriger Priorität und reduzierter Unterbrechung.</string>
     <string name="message_list_empty_title">Keine Nachrichten</string>
     <string name="message_list_empty_hint">Erstellen oder abonnieren Sie zuerst einen Kanal, um Push-Benachrichtigungen zu erhalten.</string>
     <string name="channel_list_empty_title">Keine Kanäle abonniert</string>
@@ -89,6 +98,10 @@
         <item quantity="other">Kanal abbestellt und %1$d Nachrichten gelöscht</item>
     </plurals>
     <string name="message_messages_cleared">Nachrichten gelöscht</string>
+    <plurals name="message_notifications_summary">
+        <item quantity="one">%1$d ungelesene Benachrichtigung</item>
+        <item quantity="other">%1$d ungelesene Benachrichtigungen</item>
+    </plurals>
     <string name="message_no_messages_to_clear">Keine Nachrichten zum Löschen</string>
     <string name="error_invalid_server_address">Ungültige Serveradresse (https erforderlich)</string>
     <string name="error_key_required">Bitte zuerst Schlüssel eingeben</string>
@@ -148,8 +161,11 @@
     <string name="label_event_started_at">Event Start Time (optional)</string>
     <string name="label_event_ended_at">Event End Time (optional)</string>
     <string name="label_thing_links">Object Images (comma)</string>
-    <string name="label_use_fcm_channel">Use FCM channel</string>
-    <string name="label_use_fcm_channel_hint">When off, notifications use private channel fallback.</string>
+    <string name="label_notification_transport">Notification transport</string>
+    <string name="label_notification_transport_hint">Choose whether Android receives pushes through FCM or the private channel.</string>
+    <string name="label_notification_transport_private_only_hint">This device does not support FCM. Pushes will use the private channel.</string>
+    <string name="label_transport_fcm">FCM</string>
+    <string name="label_transport_private">Private</string>
     <string name="label_fcm_wakeup_pull_mode">Use wakeup pull mode</string>
     <string name="label_fcm_wakeup_pull_mode_hint">Send wakeup via FCM, then pull full message over HTTP.</string>
     <string name="label_private_transport_status">Private transport status</string>
@@ -160,6 +176,7 @@
     <string name="private_transport_status_reconnecting">Erneut verbinden</string>
     <string name="private_transport_status_network_unavailable">Netzwerk nicht verfügbar</string>
     <string name="private_transport_status_waiting_retry">Wartet auf neuen Versuch</string>
+    <string name="private_transport_status_keepalive_lost">Hintergrund-Absicherung verloren</string>
     <string name="private_channel_service_notification_title">Privater Kanal aktiv</string>
     <string name="private_channel_service_channel_name">Privater Kanal im Hintergrund</string>
     <string name="private_channel_service_channel_description">Hält die Verbindung des privaten Kanals aktiv und zeigt den aktuellen Status an.</string>

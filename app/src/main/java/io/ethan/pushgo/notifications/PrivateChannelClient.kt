@@ -16,7 +16,6 @@ import io.ethan.pushgo.data.EntityRepository
 import io.ethan.pushgo.data.InboundDeliveryLedgerRepository
 import io.ethan.pushgo.data.MessageRepository
 import io.ethan.pushgo.data.SettingsRepository
-import android.util.Log
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -39,6 +38,8 @@ import java.net.HttpURLConnection
 import java.net.URL
 import java.security.MessageDigest
 import java.time.Instant
+import java.util.Collections
+import java.util.concurrent.ConcurrentHashMap
 import kotlin.random.Random
 
 internal const val PRIVATE_STREAM_ACK_STATUS_IGNORE = 0
@@ -100,6 +101,15 @@ internal object PrivateStreamAckPolicy {
     }
 }
 
+enum class KeepaliveState {
+    NOT_REQUIRED,
+    IDLE,
+    APP_FOREGROUND,
+    FGS_ACTIVE,
+    FGS_LOST,
+    NETWORK_BLOCKED,
+}
+
 class PrivateChannelClient(
     private val appContext: Context,
     private val channelRepository: ChannelSubscriptionRepository,
@@ -114,6 +124,9 @@ class PrivateChannelClient(
     private var loopJob: Job? = null
     private var foregroundActive = false
     private var keepaliveServiceActive = false
+    private var keepaliveState = KeepaliveState.NOT_REQUIRED
+    private val connectionSnapshotState = MutableStateFlow(buildConnectionSnapshot())
+    private var keepaliveLossSticky = false
     private var fcmAvailable = false
     private var systemToken: String? = null
     private var runtimeConfigured = false
@@ -141,6 +154,8 @@ class PrivateChannelClient(
     private var performanceMode: PrivatePerformanceMode = loadPerformanceMode()
     private val connectivityManager: ConnectivityManager? =
         appContext.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
+    private val validatedInternetNetworks: MutableSet<Network> =
+        Collections.newSetFromMap(ConcurrentHashMap())
 
     init {
         io.ethan.pushgo.util.SilentSink.i(TAG, "private channel client revision=$CLIENT_REV")
@@ -148,11 +163,15 @@ class PrivateChannelClient(
     }
 
     val transportStatusFlow: StateFlow<TransportStatus> = transportStatusState.asStateFlow()
+    val connectionSnapshotFlow: StateFlow<ConnectionSnapshot> = connectionSnapshotState.asStateFlow()
 
     fun setRuntime(fcmAvailable: Boolean, systemToken: String?) {
         runtimeConfigured = true
         this.fcmAvailable = fcmAvailable
         this.systemToken = systemToken
+        if (fcmAvailable) {
+            keepaliveLossSticky = false
+        }
         if (!fcmAvailable) {
             // Force a fresh route upsert when switching from provider to private mode.
             lastRouteEnsureAtMs = 0L
@@ -172,6 +191,7 @@ class PrivateChannelClient(
                 detail = "waiting for private stream loop",
             )
         }
+        recomputeKeepaliveState()
         refreshLoop()
     }
 
@@ -194,6 +214,7 @@ class PrivateChannelClient(
                 stage = "reconnecting",
                 detail = "gateway config changed, restarting private stream",
             )
+            recomputeKeepaliveState()
             refreshLoop()
             triggerWakeupPull()
         }
@@ -205,15 +226,20 @@ class PrivateChannelClient(
         if (changed) {
             syncActiveSessionPowerHint()
         }
+        recomputeKeepaliveState()
         refreshLoop()
     }
 
     fun setKeepaliveServiceActive(active: Boolean) {
         val changed = keepaliveServiceActive != active
         keepaliveServiceActive = active
+        if (active) {
+            keepaliveLossSticky = false
+        }
         if (active && changed) {
             notifyKeepaliveNotificationChanged()
         }
+        recomputeKeepaliveState()
         refreshLoop()
     }
 
@@ -227,6 +253,10 @@ class PrivateChannelClient(
 
     fun triggerWakeupPull() {
         scope.launch { requestWakeupPull() }
+    }
+
+    fun refreshNetworkStateFromSystem() {
+        refreshNetworkAvailabilityFromSystem(reason = "system_probe")
     }
 
     suspend fun drainAckOutboxNow(): AckDrainOutcome {
@@ -276,29 +306,144 @@ class PrivateChannelClient(
 
     private fun registerNetworkCallback() {
         val cm = connectivityManager ?: return
-        runCatching {
-            val capabilities = cm.getNetworkCapabilities(cm.activeNetwork)
-            networkAvailable = capabilities?.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) == true
-        }
+        refreshNetworkAvailabilityFromSystem(reason = "callback_register")
         runCatching {
             cm.registerDefaultNetworkCallback(object : ConnectivityManager.NetworkCallback() {
                 override fun onAvailable(network: Network) {
-                    networkAvailable = true
-                    nextAllowedPullAtMs = 0L
-                    if (runtimeConfigured && !fcmAvailable) {
-                        failureStreak = 0
-                        stopActiveSession("network_available")
-                        refreshLoop()
-                    }
+                    applyNetworkAvailability(
+                        available = true,
+                        reason = "callback_available",
+                    )
+                }
+
+                override fun onCapabilitiesChanged(network: Network, networkCapabilities: NetworkCapabilities) {
+                    refreshNetworkAvailabilityFromSystem(reason = "callback_capabilities")
                 }
 
                 override fun onLost(network: Network) {
-                    networkAvailable = false
-                    stopActiveSession("network_lost")
+                    refreshNetworkAvailabilityFromSystem(reason = "callback_lost")
+                }
+
+                override fun onUnavailable() {
+                    applyNetworkAvailability(
+                        available = false,
+                        reason = "callback_unavailable",
+                    )
                 }
             })
         }.onFailure {
             io.ethan.pushgo.util.SilentSink.w(TAG, "register network callback failed: ${it.message}")
+        }
+        runCatching {
+            val request = android.net.NetworkRequest.Builder()
+                .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+                .addCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
+                .build()
+            cm.registerNetworkCallback(request, object : ConnectivityManager.NetworkCallback() {
+                override fun onAvailable(network: Network) {
+                    validatedInternetNetworks += network
+                    applyNetworkAvailability(
+                        available = true,
+                        reason = "validated_available",
+                    )
+                }
+
+                override fun onCapabilitiesChanged(network: Network, networkCapabilities: NetworkCapabilities) {
+                    if (hasUsableInternet(networkCapabilities, requireValidated = true)) {
+                        validatedInternetNetworks += network
+                    } else {
+                        validatedInternetNetworks -= network
+                    }
+                    refreshNetworkAvailabilityFromSystem(reason = "validated_capabilities")
+                }
+
+                override fun onLost(network: Network) {
+                    validatedInternetNetworks -= network
+                    refreshNetworkAvailabilityFromSystem(reason = "validated_lost")
+                }
+
+                override fun onUnavailable() {
+                    validatedInternetNetworks.clear()
+                    applyNetworkAvailability(
+                        available = false,
+                        reason = "validated_unavailable",
+                    )
+                }
+            })
+        }.onFailure {
+            io.ethan.pushgo.util.SilentSink.w(
+                TAG,
+                "register validated network callback failed: ${it.message}",
+            )
+        }
+    }
+
+    private fun refreshNetworkAvailabilityFromSystem(reason: String): Boolean {
+        val cm = connectivityManager ?: return networkAvailable
+        val available = runCatching {
+            val active = cm.activeNetwork
+            if (hasUsableInternet(cm.getNetworkCapabilities(active))) {
+                true
+            } else {
+                validatedInternetNetworks.isNotEmpty()
+            }
+        }.getOrElse { networkAvailable }
+        applyNetworkAvailability(available = available, reason = reason)
+        return available
+    }
+
+    private fun hasUsableInternet(
+        capabilities: NetworkCapabilities?,
+        requireValidated: Boolean = false,
+    ): Boolean {
+        if (capabilities?.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) != true) {
+            return false
+        }
+        if (requireValidated &&
+            !capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
+        ) {
+            return false
+        }
+        return true
+    }
+
+    private fun applyNetworkAvailability(available: Boolean, reason: String) {
+        val changed = networkAvailable != available
+        networkAvailable = available
+        if (!runtimeConfigured || fcmAvailable) {
+            recomputeKeepaliveState()
+            return
+        }
+        if (available) {
+            if (changed || transportStatusState.value.stage == "offline_wait") {
+                nextAllowedPullAtMs = 0L
+                failureStreak = 0
+                saveTransportStatus(
+                    route = "private",
+                    transport = "none",
+                    stage = "reconnecting",
+                    detail = "network restored, reconnecting private stream",
+                )
+                recomputeKeepaliveState()
+                stopActiveSession(reason)
+                restartLoop()
+            } else {
+                recomputeKeepaliveState()
+            }
+            return
+        }
+        if (changed || transportStatusState.value.stage != "offline_wait") {
+            saveTransportStatus(
+                route = "private",
+                transport = "none",
+                stage = "offline_wait",
+                detail = "network unavailable, waiting for callback",
+            )
+            recomputeKeepaliveState()
+            stopActiveSession(reason)
+            restartLoop()
+        } else {
+            recomputeKeepaliveState()
         }
     }
 
@@ -430,6 +575,12 @@ class PrivateChannelClient(
                 }
             }
         }
+    }
+
+    private fun restartLoop() {
+        loopJob?.cancel()
+        loopJob = null
+        refreshLoop()
     }
 
     private suspend fun pullWakeupOnce() {
@@ -590,6 +741,9 @@ class PrivateChannelClient(
         val nowMs = System.currentTimeMillis()
         if (nowMs < nextAllowedPullAtMs) return false
         if (!networkAvailable) {
+            refreshNetworkAvailabilityFromSystem(reason = "stream_probe")
+        }
+        if (!networkAvailable) {
             saveTransportStatus(
                 route = "private",
                 transport = "none",
@@ -667,6 +821,7 @@ class PrivateChannelClient(
             while (true) {
                 val nowMs = System.currentTimeMillis()
                 if (nowMs >= nextControlSyncAtMs) {
+                    refreshNetworkAvailabilityFromSystem(reason = "control_sync")
                     val latestAuthToken = runCatching {
                         channelRepository.loadGatewayConfig().second?.trim()?.ifEmpty { null }
                     }.getOrNull()
@@ -1245,20 +1400,30 @@ class PrivateChannelClient(
     }
 
     fun summarizeTransportStatus(privateModeEnabled: Boolean): String {
-        return summarizeTransportStatus(
-            status = readTransportStatus(),
-            privateModeEnabled = privateModeEnabled,
-        )
+        return summarizeConnectionStatus(readConnectionSnapshot(), privateModeEnabled)
     }
 
     fun summarizeTransportStatus(status: TransportStatus, privateModeEnabled: Boolean): String {
+        val snapshot = readConnectionSnapshot().copy(transportStatus = status)
+        return summarizeConnectionStatus(snapshot, privateModeEnabled)
+    }
+
+    fun readConnectionSnapshot(): ConnectionSnapshot {
+        return connectionSnapshotState.value
+    }
+
+    fun summarizeConnectionStatus(snapshot: ConnectionSnapshot, privateModeEnabled: Boolean): String {
         if (!privateModeEnabled) {
             return appContext.getString(R.string.private_transport_status_disconnected)
         }
         return PrivateTransportStatusPresenter.summarize(
             context = appContext,
-            transport = status.transport,
-            stage = status.stage,
+            privateModeEnabled = privateModeEnabled,
+            route = snapshot.transportStatus.route,
+            transport = snapshot.transportStatus.transport,
+            stage = snapshot.transportStatus.stage,
+            networkAvailable = snapshot.networkAvailable,
+            keepaliveState = snapshot.keepaliveState,
         )
     }
 
@@ -1272,6 +1437,8 @@ class PrivateChannelClient(
         lastRouteRepairAtMs = 0L
         nextAllowedPullAtMs = 0L
         failureStreak = 0
+        keepaliveLossSticky = false
+        keepaliveState = KeepaliveState.NOT_REQUIRED
         wakeupPullInFlight = false
         wakeupPullPending = false
         lastTransportStatusFingerprint = null
@@ -1286,6 +1453,23 @@ class PrivateChannelClient(
                 "automation reset"
             },
         )
+        recomputeKeepaliveState()
+        refreshLoop()
+    }
+
+    fun onKeepaliveNotificationDismissed(reason: String) {
+        keepaliveLossSticky = true
+        keepaliveServiceActive = false
+        recomputeKeepaliveState()
+        if (!foregroundActive) {
+            saveTransportStatus(
+                route = "private",
+                transport = "none",
+                stage = "fgs_lost",
+                detail = reason,
+            )
+            stopActiveSession("fgs_lost:$reason")
+        }
         refreshLoop()
     }
 
@@ -1306,6 +1490,7 @@ class PrivateChannelClient(
         }
         prefs.edit().putString(KEY_TRANSPORT_STATUS, obj.toString()).apply()
         transportStatusState.value = status
+        connectionSnapshotState.value = buildConnectionSnapshot()
         val fingerprint = "$route|$transport|$stage|${detail.orEmpty()}"
         if (fingerprint != lastTransportStatusFingerprint) {
             lastTransportStatusFingerprint = fingerprint
@@ -1319,6 +1504,28 @@ class PrivateChannelClient(
             lastNotificationStatusFingerprint = notificationFingerprint
             notifyKeepaliveNotificationChanged()
         }
+    }
+
+    private fun recomputeKeepaliveState() {
+        keepaliveState = when {
+            fcmAvailable -> KeepaliveState.NOT_REQUIRED
+            !networkAvailable -> KeepaliveState.NETWORK_BLOCKED
+            foregroundActive -> KeepaliveState.APP_FOREGROUND
+            keepaliveServiceActive -> KeepaliveState.FGS_ACTIVE
+            keepaliveLossSticky -> KeepaliveState.FGS_LOST
+            else -> KeepaliveState.IDLE
+        }
+        connectionSnapshotState.value = buildConnectionSnapshot()
+    }
+
+    private fun buildConnectionSnapshot(): ConnectionSnapshot {
+        return ConnectionSnapshot(
+            transportStatus = transportStatusState.value,
+            keepaliveState = keepaliveState,
+            networkAvailable = networkAvailable,
+            foregroundActive = foregroundActive,
+            privateModeEnabled = !fcmAvailable,
+        )
     }
 
     private fun loadTransportStatusSnapshot(): TransportStatus {
@@ -1439,6 +1646,14 @@ class PrivateChannelClient(
         val stage: String,
         val detail: String?,
         val updatedAtMs: Long,
+    )
+
+    data class ConnectionSnapshot(
+        val transportStatus: TransportStatus,
+        val keepaliveState: KeepaliveState,
+        val networkAvailable: Boolean,
+        val foregroundActive: Boolean,
+        val privateModeEnabled: Boolean,
     )
 
     private fun privateCertPinSha256(): String? {

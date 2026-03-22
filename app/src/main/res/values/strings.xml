@@ -34,6 +34,15 @@
     <string name="label_unsubscribe_delete_history">Unsubscribe and delete history</string>
     <string name="label_unsubscribe_keep_history">Unsubscribe and keep history</string><string name="label_channel_select_hint">Create or subscribe to a channel first.</string>
     <string name="label_channel_manage">Manage subscriptions</string>
+    <string name="notification_channel_name_with_level">PushGo Messages · %1$s</string>
+    <string name="notification_channel_suffix_critical">Critical</string>
+    <string name="notification_channel_suffix_high">High</string>
+    <string name="notification_channel_suffix_normal">Normal</string>
+    <string name="notification_channel_suffix_low">Low</string>
+    <string name="notification_channel_description_critical">Critical alerts that should break through immediately with the strongest PushGo signal.</string>
+    <string name="notification_channel_description_high">High-priority alerts with strong sound and vibration for urgent attention.</string>
+    <string name="notification_channel_description_normal">Standard PushGo alerts for normal messages and everyday updates.</string>
+    <string name="notification_channel_description_low">Low-severity PushGo alerts with reduced interruption.</string>
     <string name="message_list_empty_title">No messages yet</string>
     <string name="message_list_empty_hint">Create or subscribe to a channel first to receive pushes.</string>
     <string name="channel_list_empty_title">No channels</string>
@@ -81,8 +90,11 @@
     <string name="label_group_ungrouped">No channel</string>
     <string name="label_loading">Loading…</string>
     <string name="section_connection_device">Connection &amp; Device</string><string name="section_channels">Channels</string>
-    <string name="label_use_fcm_channel">Use FCM channel</string>
-    <string name="label_use_fcm_channel_hint">When off, notifications use private channel fallback.</string>
+    <string name="label_notification_transport">Notification transport</string>
+    <string name="label_notification_transport_hint">Choose whether Android receives pushes through FCM or the private channel.</string>
+    <string name="label_notification_transport_private_only_hint">This device does not support FCM. Pushes will use the private channel.</string>
+    <string name="label_transport_fcm">FCM</string>
+    <string name="label_transport_private">Private</string>
     <string name="label_fcm_wakeup_pull_mode">Use wakeup pull mode</string>
     <string name="label_fcm_wakeup_pull_mode_hint">Send wakeup via FCM, then pull full message over HTTP.</string>
     <string name="label_private_transport_status">Private transport status</string>
@@ -93,6 +105,7 @@
     <string name="private_transport_status_reconnecting">Reconnecting</string>
     <string name="private_transport_status_network_unavailable">Network unavailable</string>
     <string name="private_transport_status_waiting_retry">Waiting to retry</string>
+    <string name="private_transport_status_keepalive_lost">Background keepalive lost</string>
     <string name="private_channel_service_notification_title">Private channel active</string>
     <string name="private_channel_service_channel_name">Private channel keepalive</string>
     <string name="private_channel_service_channel_description">Keeps the private channel connection alive and shows its current status.</string>
@@ -163,6 +176,10 @@
     <plurals name="message_channel_unsubscribed_deleted">
         <item quantity="one">Channel unsubscribed; deleted %1$d message</item>
         <item quantity="other">Channel unsubscribed; deleted %1$d messages</item>
+    </plurals>
+    <plurals name="message_notifications_summary">
+        <item quantity="one">%1$d unread notification</item>
+        <item quantity="other">%1$d unread notifications</item>
     </plurals>
     <string name="message_messages_cleared">Messages cleared</string>
     <string name="message_no_messages_to_clear">No messages to clear</string>

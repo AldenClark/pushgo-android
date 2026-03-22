@@ -39,10 +39,6 @@
         </service>
 
         <receiver
-            android:name=".notifications.NotificationActionReceiver"
-            android:exported="false" />
-
-        <receiver
             android:name=".notifications.PrivateChannelBootReceiver"
             android:enabled="true"
             android:exported="true">
@@ -51,6 +47,10 @@
                 <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
             </intent-filter>
         </receiver>
+
+        <receiver
+            android:name=".notifications.PrivateChannelNotificationDismissReceiver"
+            android:exported="false" />
 
         <service
             android:name="androidx.appcompat.app.AppLocalesMetadataHolderService"

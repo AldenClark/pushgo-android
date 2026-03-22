@@ -32,6 +32,15 @@
     <string name="label_unsubscribe_delete_history">取消订阅并删除历史消息</string>
     <string name="label_unsubscribe_keep_history">取消订阅但保留历史消息</string><string name="label_channel_select_hint">请先创建或订阅一个频道。</string>
     <string name="label_channel_manage">管理订阅</string>
+    <string name="notification_channel_name_with_level">PushGo 消息 · %1$s</string>
+    <string name="notification_channel_suffix_critical">紧急</string>
+    <string name="notification_channel_suffix_high">高</string>
+    <string name="notification_channel_suffix_normal">普通</string>
+    <string name="notification_channel_suffix_low">低</string>
+    <string name="notification_channel_description_critical">用于需要立即打断用户的紧急提醒，采用 PushGo 最强提醒策略。</string>
+    <string name="notification_channel_description_high">用于高优先级提醒，提供较强的声音与振动提示。</string>
+    <string name="notification_channel_description_normal">用于普通消息与日常更新提醒。</string>
+    <string name="notification_channel_description_low">用于低级别提醒，尽量降低打扰程度。</string>
     <string name="message_list_empty_title">暂无消息</string>
     <string name="message_list_empty_hint">请先创建或订阅频道以接收推送。</string>
     <string name="channel_list_empty_title">暂无频道</string>
@@ -129,6 +138,9 @@
         <item quantity="other">频道已取消订阅，并删除了 %1$d 条消息</item>
     </plurals>
     <string name="message_messages_cleared">消息已清除</string>
+    <plurals name="message_notifications_summary">
+        <item quantity="other">%1$d 条未读通知</item>
+    </plurals>
     <string name="message_things_cleaned">对象已清理</string>
     <string name="message_no_messages_to_clear">没有可清除的消息</string>
     <string name="error_invalid_server_address">无效的服务器地址 (需要 https)</string>
@@ -167,8 +179,11 @@
     <string name="label_set_now">设为当前</string>
     <string name="label_clear">清空</string>
     <string name="label_thing_links">对象图片（逗号分隔）</string>
-    <string name="label_use_fcm_channel">使用 FCM 通道</string>
-    <string name="label_use_fcm_channel_hint">关闭后，通知将回退到私有通道。</string>
+    <string name="label_notification_transport">通知通道</string>
+    <string name="label_notification_transport_hint">选择 Android 通过 FCM 还是私有通道接收推送。</string>
+    <string name="label_notification_transport_private_only_hint">当前设备不支持 FCM，推送将默认使用私有通道。</string>
+    <string name="label_transport_fcm">FCM</string>
+    <string name="label_transport_private">私有通道</string>
     <string name="label_fcm_wakeup_pull_mode">使用唤醒拉取模式</string>
     <string name="label_fcm_wakeup_pull_mode_hint">先通过 FCM 发送唤醒，再通过 HTTP 拉取完整消息。</string>
     <string name="label_private_transport_status">私有传输状态</string>
@@ -179,6 +194,7 @@
     <string name="private_transport_status_reconnecting">重连中</string>
     <string name="private_transport_status_network_unavailable">网络不可用</string>
     <string name="private_transport_status_waiting_retry">等待重试</string>
+    <string name="private_transport_status_keepalive_lost">后台保活已失效</string>
     <string name="private_channel_service_notification_title">私有通道已启用</string>
     <string name="private_channel_service_channel_name">私有通道保活</string>
     <string name="private_channel_service_channel_description">保持私有通道连接并显示当前连接状态。</string>

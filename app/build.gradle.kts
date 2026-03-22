@@ -19,7 +19,7 @@ val releaseStoreFile = project.resolveSigningProperty("PUSHGO_RELEASE_STORE_FILE
 val releaseStorePassword = project.resolveSigningProperty("PUSHGO_RELEASE_STORE_PASSWORD")
 val releaseKeyAlias = project.resolveSigningProperty("PUSHGO_RELEASE_KEY_ALIAS")
 val releaseKeyPassword = project.resolveSigningProperty("PUSHGO_RELEASE_KEY_PASSWORD")
-val appVersionCode = 23
+val appVersionCode = 24
 val appVersionName = "1.0.0"
 val enableAbiSplits = when (val value = providers.gradleProperty("pushgo.enableAbiSplits").orNull?.trim()?.lowercase()) {
     null -> true

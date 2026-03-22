@@ -1,9 +1,10 @@
 package io.ethan.pushgo.ui.screens
 
-import android.widget.Toast
 import android.content.Context
 import android.content.Intent
+import android.net.Uri
 import android.provider.Settings
+import android.widget.Toast
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -45,7 +46,9 @@ import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Switch
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.ModalBottomSheet
@@ -68,6 +71,7 @@ import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import io.ethan.pushgo.R
 import io.ethan.pushgo.ui.announceForAccessibility
 import io.ethan.pushgo.ui.theme.PushGoSheetContainerColor
@@ -138,6 +142,12 @@ fun SettingsScreen(
         }
     }
 
+    LaunchedEffect(fcmSupported, viewModel.isChannelModeLoaded) {
+        if (viewModel.isChannelModeLoaded) {
+            viewModel.ensurePrivateTransportWhenFcmUnsupported(context)
+        }
+    }
+
     Scaffold(
         modifier = Modifier.testTag("screen.settings.content"),
         topBar = {
@@ -191,20 +201,24 @@ fun SettingsScreen(
                     onClick = { showGatewaySheet = true },
                 )
             }
-            if (fcmSupported && viewModel.isChannelModeLoaded) {
+            if (viewModel.isChannelModeLoaded) {
                 item {
-                    SettingsSwitchRow(
-                        rowTestTag = "row.settings.use_fcm_channel",
-                        switchTestTag = "switch.settings.use_fcm_channel",
+                    TransportSelectorRow(
+                        rowTestTag = "row.settings.notification_transport",
                         icon = Icons.Outlined.NotificationsActive,
-                        title = stringResource(R.string.label_use_fcm_channel),
-                        subtitle = stringResource(R.string.label_use_fcm_channel_hint),
-                        checked = viewModel.useFcmChannel,
-                        onCheckedChange = { viewModel.updateUseFcmChannel(context, it) },
+                        title = stringResource(R.string.label_notification_transport),
+                        subtitle = if (fcmSupported) {
+                            stringResource(R.string.label_notification_transport_hint)
+                        } else {
+                            stringResource(R.string.label_notification_transport_private_only_hint)
+                        },
+                        selectedUseFcm = viewModel.useFcmChannel && fcmSupported,
+                        isFcmSupported = fcmSupported,
+                        onSelectUseFcm = { useFcm -> viewModel.updateUseFcmChannel(context, useFcm) },
                     )
                 }
             }
-            if (viewModel.isChannelModeLoaded && !viewModel.useFcmChannel) {
+            if (viewModel.isChannelModeLoaded && (!fcmSupported || !viewModel.useFcmChannel)) {
                 item {
                     SettingsRow(
                         testTag = "row.settings.private_transport",
@@ -449,14 +463,14 @@ private fun DecryptionSettingsRow(
 }
 
 @Composable
-private fun SettingsSwitchRow(
+private fun TransportSelectorRow(
     rowTestTag: String? = null,
-    switchTestTag: String? = null,
     icon: androidx.compose.ui.graphics.vector.ImageVector,
     title: String,
     subtitle: String?,
-    checked: Boolean,
-    onCheckedChange: (Boolean) -> Unit,
+    selectedUseFcm: Boolean,
+    isFcmSupported: Boolean,
+    onSelectUseFcm: (Boolean) -> Unit,
 ) {
     SettingsItemContainer {
         ListItem(
@@ -464,19 +478,49 @@ private fun SettingsSwitchRow(
                 .fillMaxWidth()
                 .then(if (rowTestTag != null) Modifier.testTag(rowTestTag) else Modifier),
             headlineContent = { Text(title) },
-            supportingContent = { if (!subtitle.isNullOrBlank()) Text(subtitle) },
+            supportingContent = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    if (!subtitle.isNullOrBlank()) {
+                        Text(subtitle)
+                    }
+                    SingleChoiceSegmentedButtonRow(
+                        modifier = Modifier.testTag("segmented.settings.notification_transport"),
+                    ) {
+                        SegmentedButton(
+                            selected = selectedUseFcm,
+                            onClick = { onSelectUseFcm(true) },
+                            enabled = isFcmSupported,
+                            shape = SegmentedButtonDefaults.itemShape(index = 0, count = 2),
+                            modifier = Modifier.testTag("option.settings.notification_transport.fcm"),
+                            icon = {},
+                        ) {
+                            Text(
+                                text = stringResource(R.string.label_transport_fcm),
+                                style = MaterialTheme.typography.labelMedium.copy(fontSize = 13.sp),
+                                modifier = Modifier.padding(vertical = 1.dp),
+                            )
+                        }
+                        SegmentedButton(
+                            selected = !selectedUseFcm,
+                            onClick = { onSelectUseFcm(false) },
+                            shape = SegmentedButtonDefaults.itemShape(index = 1, count = 2),
+                            modifier = Modifier.testTag("option.settings.notification_transport.private"),
+                            icon = {},
+                        ) {
+                            Text(
+                                text = stringResource(R.string.label_transport_private),
+                                style = MaterialTheme.typography.labelMedium.copy(fontSize = 13.sp),
+                                modifier = Modifier.padding(vertical = 1.dp),
+                            )
+                        }
+                    }
+                }
+            },
             leadingContent = {
                 Icon(
                     imageVector = icon,
                     contentDescription = null,
                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            },
-            trailingContent = {
-                Switch(
-                    modifier = if (switchTestTag != null) Modifier.testTag(switchTestTag) else Modifier,
-                    checked = checked,
-                    onCheckedChange = onCheckedChange,
                 )
             },
         )
@@ -641,7 +685,27 @@ private fun openNotificationSettings(context: Context) {
     val intent = Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).apply {
         putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
     }
-    context.startActivity(intent)
+    startActivityOrFallback(context, intent) {
+        openAppDetailsSettings(context)
+    }
+}
+
+private fun openAppDetailsSettings(context: Context) {
+    val intent = Intent(
+        Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+        Uri.fromParts("package", context.packageName, null),
+    )
+    startActivityOrFallback(context, intent)
+}
+
+private fun startActivityOrFallback(
+    context: Context,
+    intent: Intent,
+    fallback: (() -> Unit)? = null,
+) {
+    val launchIntent = intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+    runCatching { context.startActivity(launchIntent) }
+        .onFailure { fallback?.invoke() }
 }
 
 private fun isFcmSupported(context: Context): Boolean {

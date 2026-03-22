@@ -2,7 +2,6 @@ package io.ethan.pushgo
 
 import android.app.Application
 import android.os.Bundle
-import android.util.Log
 import coil.ImageLoader
 import coil.ImageLoaderFactory
 import coil.disk.DiskCache
@@ -12,6 +11,7 @@ import com.google.android.gms.common.ConnectionResult
 import com.google.android.gms.common.GoogleApiAvailability
 import io.ethan.pushgo.data.AppContainer
 import io.ethan.pushgo.automation.PushGoAutomation
+import io.ethan.pushgo.notifications.KeepaliveState
 import io.ethan.pushgo.notifications.NotificationHelper
 import io.ethan.pushgo.notifications.PrivateAckOutboxWorkScheduler
 import io.ethan.pushgo.notifications.PrivateChannelServiceManager
@@ -44,6 +44,8 @@ class PushGoApp : Application(), ImageLoaderFactory {
     private var startupStorageCanRebuild: Boolean = false
     @Volatile
     private var startupSyncScheduled: Boolean = false
+    @Volatile
+    private var cachedUseFcmChannel: Boolean = true
 
     val container: AppContainer
         get() = initializedContainer
@@ -53,6 +55,17 @@ class PushGoApp : Application(), ImageLoaderFactory {
 
     fun startupStorageErrorMessage(): String? = startupStorageError
     fun startupStorageCanRebuild(): Boolean = startupStorageCanRebuild
+    fun cachedUseFcmChannel(): Boolean = cachedUseFcmChannel
+    fun isAppVisible(): Boolean = startedActivities > 0
+
+    fun shouldRunPrivateChannelForegroundService(): Boolean {
+        if (PushGoAutomation.isSessionConfigured() || isEffectiveFcmModeEnabled()) {
+            return false
+        }
+        val container = containerOrNull() ?: return false
+        val snapshot = container.privateChannelClient.readConnectionSnapshot()
+        return startedActivities > 0 || snapshot.keepaliveState != KeepaliveState.FGS_LOST
+    }
 
     fun rebuildPersistentStorageForRecovery() {
         // No compatibility path: drop local store and let Room recreate current schema.
@@ -87,11 +100,22 @@ class PushGoApp : Application(), ImageLoaderFactory {
             .getOrNull()
         initializedContainer = container
         if (container == null) {
-            NotificationHelper.ensureChannel(this, "normal")
+            NotificationHelper.cleanupObsoleteChannels(this)
+            NotificationHelper.ensureManagedChannels(this)
             return
         }
         startupStorageCanRebuild = false
         clearStorageFailureStreak()
+        cachedUseFcmChannel = container.settingsRepository.getCachedUseFcmChannel()
+        appScope.launch {
+            container.settingsRepository.useFcmChannelFlow.collect { useFcmChannel ->
+                cachedUseFcmChannel = useFcmChannel
+                PrivateChannelServiceManager.refreshForMode(
+                    this@PushGoApp,
+                    effectiveFcmModeForSelection(useFcmChannel),
+                )
+            }
+        }
         initializePushRuntime()
         scheduleStartupSyncIfNeeded()
         PrivateAckOutboxWorkScheduler.enqueue(this)
@@ -100,6 +124,7 @@ class PushGoApp : Application(), ImageLoaderFactory {
                 startedActivities += 1
                 val automationSession = PushGoAutomation.isSessionConfigured()
                 container.privateChannelClient.setForeground(startedActivities > 0 && !automationSession)
+                PrivateChannelServiceManager.refreshForMode(this@PushGoApp, isEffectiveFcmModeEnabled())
                 if (!automationSession) {
                     scheduleStartupSyncIfNeeded()
                 }
@@ -108,6 +133,7 @@ class PushGoApp : Application(), ImageLoaderFactory {
             override fun onActivityStopped(activity: android.app.Activity) {
                 startedActivities = (startedActivities - 1).coerceAtLeast(0)
                 container.privateChannelClient.setForeground(startedActivities > 0)
+                PrivateChannelServiceManager.refreshForMode(this@PushGoApp, isEffectiveFcmModeEnabled())
             }
 
             override fun onActivityCreated(activity: android.app.Activity, savedInstanceState: Bundle?) {}
@@ -121,7 +147,8 @@ class PushGoApp : Application(), ImageLoaderFactory {
                 NotificationHelper.updateActiveNotificationNumbers(this@PushGoApp, count)
             }
         }
-        NotificationHelper.ensureChannel(this, "normal")
+        NotificationHelper.cleanupObsoleteChannels(this)
+        NotificationHelper.ensureManagedChannels(this)
     }
 
     private fun scheduleStartupSyncIfNeeded() {
@@ -171,7 +198,9 @@ class PushGoApp : Application(), ImageLoaderFactory {
             val useFcmChannel = runCatching {
                 container.settingsRepository.getUseFcmChannel()
             }.getOrDefault(true)
-            val cachedToken = if (useFcmChannel) {
+            cachedUseFcmChannel = useFcmChannel
+            val effectiveFcmMode = effectiveFcmModeForSelection(useFcmChannel)
+            val cachedToken = if (effectiveFcmMode) {
                 runCatching {
                     container.settingsRepository.getFcmToken()?.trim()?.ifEmpty { null }
                 }.getOrNull()
@@ -179,11 +208,11 @@ class PushGoApp : Application(), ImageLoaderFactory {
                 null
             }
             container.privateChannelClient.setRuntime(
-                fcmAvailable = useFcmChannel,
+                fcmAvailable = effectiveFcmMode,
                 systemToken = cachedToken
             )
-            PrivateChannelServiceManager.refresh(this@PushGoApp)
-            if (!useFcmChannel) {
+            PrivateChannelServiceManager.refreshForMode(this@PushGoApp, effectiveFcmMode)
+            if (!effectiveFcmMode) {
                 container.privateChannelClient.triggerWakeupPull()
             }
         }
@@ -215,7 +244,9 @@ class PushGoApp : Application(), ImageLoaderFactory {
         appScope.launch {
             val normalizedToken = deviceToken.trim().ifEmpty { return@launch }
             val useFcmChannel = runCatching { container.settingsRepository.getUseFcmChannel() }.getOrDefault(true)
-            if (useFcmChannel && isFcmSupported()) {
+            cachedUseFcmChannel = useFcmChannel
+            val effectiveFcmMode = effectiveFcmModeForSelection(useFcmChannel)
+            if (effectiveFcmMode) {
                 runCatching {
                     container.channelRepository.syncProviderDeviceToken(normalizedToken)
                 }.onFailure { error ->
@@ -240,10 +271,10 @@ class PushGoApp : Application(), ImageLoaderFactory {
                 runCatching { container.handlePushTokenUpdate(normalizedToken) }
             }
             container.privateChannelClient.setRuntime(
-                fcmAvailable = useFcmChannel && isFcmSupported(),
-                systemToken = if (useFcmChannel) normalizedToken else null
+                fcmAvailable = effectiveFcmMode,
+                systemToken = if (effectiveFcmMode) normalizedToken else null
             )
-            PrivateChannelServiceManager.refresh(this@PushGoApp)
+            PrivateChannelServiceManager.refreshForMode(this@PushGoApp, effectiveFcmMode)
         }
     }
 
@@ -251,13 +282,14 @@ class PushGoApp : Application(), ImageLoaderFactory {
         val container = containerOrNull() ?: return
         val useFcmChannel = runCatching { container.settingsRepository.getUseFcmChannel() }
             .getOrDefault(true)
-        val fcmSupported = isFcmSupported()
-        if (!fcmSupported || !useFcmChannel) {
+        cachedUseFcmChannel = useFcmChannel
+        val effectiveFcmMode = effectiveFcmModeForSelection(useFcmChannel)
+        if (!effectiveFcmMode) {
             container.privateChannelClient.setRuntime(
                 fcmAvailable = false,
                 systemToken = null
             )
-            PrivateChannelServiceManager.refresh(this@PushGoApp)
+            PrivateChannelServiceManager.refreshForMode(this@PushGoApp, false)
             container.privateChannelClient.triggerWakeupPull()
             return
         }
@@ -268,7 +300,7 @@ class PushGoApp : Application(), ImageLoaderFactory {
             fcmAvailable = true,
             systemToken = cachedToken
         )
-        PrivateChannelServiceManager.refresh(this@PushGoApp)
+        PrivateChannelServiceManager.refreshForMode(this@PushGoApp, true)
         if (!cachedToken.isNullOrBlank()) {
             handlePushTokenUpdate(cachedToken)
         }
@@ -349,6 +381,14 @@ class PushGoApp : Application(), ImageLoaderFactory {
     private fun isFcmSupported(): Boolean {
         val status = GoogleApiAvailability.getInstance().isGooglePlayServicesAvailable(this)
         return status == ConnectionResult.SUCCESS
+    }
+
+    private fun effectiveFcmModeForSelection(useFcmChannel: Boolean): Boolean {
+        return useFcmChannel && isFcmSupported()
+    }
+
+    private fun isEffectiveFcmModeEnabled(): Boolean {
+        return effectiveFcmModeForSelection(cachedUseFcmChannel)
     }
 
     private fun storageRecoveryPrefs() = getSharedPreferences(STORAGE_FAILURE_PREFS, MODE_PRIVATE)

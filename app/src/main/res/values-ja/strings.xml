@@ -31,6 +31,15 @@
     <string name="label_unsubscribe_delete_history">購読解除して履歴を削除</string>
     <string name="label_unsubscribe_keep_history">購読解除するが履歴は残す</string><string name="label_channel_select_hint">まずはチャンネルを作成または購読してください。</string>
     <string name="label_channel_manage">購読管理</string>
+    <string name="notification_channel_name_with_level">PushGo メッセージ · %1$s</string>
+    <string name="notification_channel_suffix_critical">緊急</string>
+    <string name="notification_channel_suffix_high">高</string>
+    <string name="notification_channel_suffix_normal">通常</string>
+    <string name="notification_channel_suffix_low">低</string>
+    <string name="notification_channel_description_critical">PushGo の最も強い通知で直ちに割り込むべき緊急アラートです。</string>
+    <string name="notification_channel_description_high">強めの音とバイブレーションで素早く注意を促す高優先度アラートです。</string>
+    <string name="notification_channel_description_normal">通常のメッセージや日常的な更新向けの標準 PushGo アラートです。</string>
+    <string name="notification_channel_description_low">割り込みを抑えた低優先度アラートです。</string>
     <string name="message_list_empty_title">メッセージはありません</string>
     <string name="message_list_empty_hint">プッシュを受け取るには、先にチャンネルを作成または購読してください。</string>
     <string name="channel_list_empty_title">購読中のチャンネルはありません</string>
@@ -88,6 +97,9 @@
         <item quantity="other">購読を解除し、%1$d 件のメッセージを削除しました</item>
     </plurals>
     <string name="message_messages_cleared">メッセージを消去しました</string>
+    <plurals name="message_notifications_summary">
+        <item quantity="other">未読通知 %1$d 件</item>
+    </plurals>
     <string name="message_no_messages_to_clear">消去するメッセージがありません</string>
     <string name="error_invalid_server_address">無効なサーバーアドレス (https が必要です)</string>
     <string name="error_key_required">先にキーを入力してください</string>
@@ -146,8 +158,11 @@
     <string name="label_event_started_at">Event Start Time (optional)</string>
     <string name="label_event_ended_at">Event End Time (optional)</string>
     <string name="label_thing_links">Object Images (comma)</string>
-    <string name="label_use_fcm_channel">FCM チャンネルを使う</string>
-    <string name="label_use_fcm_channel_hint">オフの場合、通知はプライベートチャンネルへフォールバックします。</string>
+    <string name="label_notification_transport">通知チャネル</string>
+    <string name="label_notification_transport_hint">Android が FCM とプライベートチャネルのどちらで通知を受け取るかを選択します。</string>
+    <string name="label_notification_transport_private_only_hint">この端末は FCM をサポートしていないため、通知はプライベートチャネルを使います。</string>
+    <string name="label_transport_fcm">FCM</string>
+    <string name="label_transport_private">プライベート</string>
     <string name="label_fcm_wakeup_pull_mode">ウェイクアップ Pull モードを使う</string>
     <string name="label_fcm_wakeup_pull_mode_hint">FCM でウェイクアップを送り、本文は HTTP で取得します。</string>
     <string name="label_private_transport_status">プライベート転送ステータス</string>
@@ -158,6 +173,7 @@
     <string name="private_transport_status_reconnecting">再接続中</string>
     <string name="private_transport_status_network_unavailable">ネットワークを利用できません</string>
     <string name="private_transport_status_waiting_retry">再試行待ち</string>
+    <string name="private_transport_status_keepalive_lost">バックグラウンド保活が失効しました</string>
     <string name="private_channel_service_notification_title">プライベートチャンネル有効</string>
     <string name="private_channel_service_channel_name">プライベートチャンネル常駐</string>
     <string name="private_channel_service_channel_description">プライベートチャンネル接続を維持し、現在の接続状態を表示します。</string>

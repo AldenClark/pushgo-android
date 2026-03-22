@@ -208,6 +208,7 @@ object InboundPersistenceCoordinator {
             context = context,
             entityType = resolvedInbound.record.entityType,
             entityId = resolvedInbound.record.entityId,
+            groupChannel = resolvedInbound.record.channel,
             title = resolvedInbound.notificationTitle,
             body = resolvedInbound.notificationBody,
             level = resolvedInbound.level,

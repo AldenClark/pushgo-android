@@ -14,32 +14,51 @@ import androidx.core.app.NotificationCompat
 import io.ethan.pushgo.MainActivity
 import io.ethan.pushgo.PushGoApp
 import io.ethan.pushgo.R
-import io.ethan.pushgo.automation.PushGoAutomation
-import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
 
 class PrivateChannelForegroundService : Service() {
+    private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    private var notificationWatchdogJob: Job? = null
+
     override fun onCreate() {
         super.onCreate()
         val container = appContainer()
-        if (container == null || !shouldRunService(container) || !startForegroundSafely()) {
+        val shouldRun = container != null && shouldRunService(container)
+        if (container == null || !shouldRun || !startForegroundSafely()) {
             stopSelf()
             return
         }
         container.privateChannelClient.setKeepaliveServiceActive(true)
+        ensureWatchdog()
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         val container = appContainer() ?: return START_NOT_STICKY
-        if (!shouldRunService(container)) {
+        val shouldRun = shouldRunService(container)
+        if (!shouldRun) {
+            stopSelf()
+            return START_NOT_STICKY
+        }
+        if (intent?.action == ACTION_NOTIFICATION_DISMISSED) {
+            container.privateChannelClient.onKeepaliveNotificationDismissed("notification dismissed")
             stopSelf()
             return START_NOT_STICKY
         }
         container.privateChannelClient.setKeepaliveServiceActive(true)
         updateNotification()
+        ensureWatchdog()
         return START_STICKY
     }
 
     override fun onDestroy() {
+        notificationWatchdogJob?.cancel()
+        notificationWatchdogJob = null
         appContainer()?.privateChannelClient?.setKeepaliveServiceActive(false)
         super.onDestroy()
     }
@@ -93,11 +112,20 @@ class PrivateChannelForegroundService : Service() {
             intent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
+        val deleteIntent = PendingIntent.getBroadcast(
+            this,
+            0,
+            Intent(this, PrivateChannelNotificationDismissReceiver::class.java).apply {
+                action = ACTION_NOTIFICATION_DISMISSED
+            },
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_stat_pushgo)
             .setContentTitle(getString(R.string.private_channel_service_notification_title))
             .setContentText(currentStatusSummary())
             .setContentIntent(pendingIntent)
+            .setDeleteIntent(deleteIntent)
             .setOngoing(true)
             .setOnlyAlertOnce(true)
             .setShowWhen(false)
@@ -132,15 +160,38 @@ class PrivateChannelForegroundService : Service() {
 
     private fun appContainer() = (application as? PushGoApp)?.containerOrNull()
 
+    private fun ensureWatchdog() {
+        if (notificationWatchdogJob?.isActive == true) return
+        notificationWatchdogJob = serviceScope.launch {
+            while (isActive) {
+                delay(NOTIFICATION_WATCHDOG_INTERVAL_MS)
+                appContainer()?.privateChannelClient?.refreshNetworkStateFromSystem()
+                if (!isNotificationPresent()) {
+                    runCatching { updateNotification() }
+                }
+            }
+        }
+    }
+
+    private fun isNotificationPresent(): Boolean {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) {
+            return true
+        }
+        val manager = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
+        return manager.activeNotifications.any { record -> record.id == NOTIFICATION_ID }
+    }
+
     private fun shouldRunService(container: io.ethan.pushgo.data.AppContainer): Boolean {
-        return !PushGoAutomation.isSessionConfigured()
-            && !runBlocking { container.settingsRepository.getUseFcmChannel() }
+        val app = application as? PushGoApp ?: return false
+        return app.shouldRunPrivateChannelForegroundService()
     }
 
     companion object {
         private const val TAG = "PrivateChannelFGService"
         private const val CHANNEL_ID = "pushgo_private_channel_service"
+        private const val NOTIFICATION_WATCHDOG_INTERVAL_MS = 5_000L
         const val NOTIFICATION_ID = 20_501
         const val ACTION_REFRESH_STATUS = "io.ethan.pushgo.private_channel.REFRESH_STATUS"
+        const val ACTION_NOTIFICATION_DISMISSED = "io.ethan.pushgo.private_channel.NOTIFICATION_DISMISSED"
     }
 }

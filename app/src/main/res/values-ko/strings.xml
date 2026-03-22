@@ -31,6 +31,15 @@
     <string name="label_unsubscribe_delete_history">구독 취소 및 기록 삭제</string>
     <string name="label_unsubscribe_keep_history">구독 취소하지만 기록 유지</string><string name="label_channel_select_hint">먼저 채널을 생성하거나 구독하세요.</string>
     <string name="label_channel_manage">구독 관리</string>
+    <string name="notification_channel_name_with_level">PushGo 메시지 · %1$s</string>
+    <string name="notification_channel_suffix_critical">긴급</string>
+    <string name="notification_channel_suffix_high">높음</string>
+    <string name="notification_channel_suffix_normal">보통</string>
+    <string name="notification_channel_suffix_low">낮음</string>
+    <string name="notification_channel_description_critical">가장 강한 PushGo 신호로 즉시 주의를 끌어야 하는 긴급 알림입니다.</string>
+    <string name="notification_channel_description_high">강한 소리와 진동으로 빠르게 주의를 주는 높은 우선순위 알림입니다.</string>
+    <string name="notification_channel_description_normal">일반 메시지와 일상적인 업데이트를 위한 표준 PushGo 알림입니다.</string>
+    <string name="notification_channel_description_low">방해를 줄인 낮은 우선순위 알림입니다.</string>
     <string name="message_list_empty_title">메시지 없음</string>
     <string name="message_list_empty_hint">푸시를 받으려면 먼저 채널을 만들거나 구독하세요.</string>
     <string name="channel_list_empty_title">구독 중인 채널 없음</string>
@@ -88,6 +97,9 @@
         <item quantity="other">구독 취소 및 메시지 %1$d개 삭제됨</item>
     </plurals>
     <string name="message_messages_cleared">메시지 지워짐</string>
+    <plurals name="message_notifications_summary">
+        <item quantity="other">읽지 않은 알림 %1$d개</item>
+    </plurals>
     <string name="message_no_messages_to_clear">지울 메시지 없음</string>
     <string name="error_invalid_server_address">유효하지 않은 서버 주소 (https 필요)</string>
     <string name="error_key_required">먼저 키를 입력하세요</string>
@@ -146,8 +158,11 @@
     <string name="label_event_started_at">Event Start Time (optional)</string>
     <string name="label_event_ended_at">Event End Time (optional)</string>
     <string name="label_thing_links">Object Images (comma)</string>
-    <string name="label_use_fcm_channel">FCM 채널 사용</string>
-    <string name="label_use_fcm_channel_hint">끄면 알림은 프라이빗 채널 폴백으로 전달됩니다.</string>
+    <string name="label_notification_transport">알림 채널</string>
+    <string name="label_notification_transport_hint">Android가 FCM 또는 프라이빗 채널 중 어떤 방식으로 푸시를 받을지 선택합니다.</string>
+    <string name="label_notification_transport_private_only_hint">이 기기는 FCM을 지원하지 않아 프라이빗 채널을 사용합니다.</string>
+    <string name="label_transport_fcm">FCM</string>
+    <string name="label_transport_private">프라이빗</string>
     <string name="label_fcm_wakeup_pull_mode">웨이크업 Pull 모드 사용</string>
     <string name="label_fcm_wakeup_pull_mode_hint">FCM으로 웨이크업을 보낸 뒤, 전체 메시지를 HTTP로 가져옵니다.</string>
     <string name="label_private_transport_status">프라이빗 전송 상태</string>
@@ -158,6 +173,7 @@
     <string name="private_transport_status_reconnecting">재연결 중</string>
     <string name="private_transport_status_network_unavailable">네트워크를 사용할 수 없음</string>
     <string name="private_transport_status_waiting_retry">재시도 대기 중</string>
+    <string name="private_transport_status_keepalive_lost">백그라운드 유지가 해제됨</string>
     <string name="private_channel_service_notification_title">프라이빗 채널 활성화됨</string>
     <string name="private_channel_service_channel_name">프라이빗 채널 유지</string>
     <string name="private_channel_service_channel_description">프라이빗 채널 연결을 유지하고 현재 연결 상태를 표시합니다.</string>

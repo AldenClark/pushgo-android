@@ -36,17 +36,13 @@ object RingtoneCatalog {
         ),
     )
 
-    private val byId = catalog.associateBy { it.id }
-
-    fun findById(id: String?): BuiltInRingtone = byId[id] ?: catalog.first()
-
-    fun idForLevel(level: String?): String {
+    fun ringtoneForLevel(level: String?): BuiltInRingtone? {
         val normalized = level?.trim()?.lowercase().orEmpty()
         return when (normalized) {
-            "critical" -> "alert"
-            "high" -> "level-up"
-            "low" -> "bubble-pop"
-            else -> "bubble-pop"
+            "critical" -> catalog.first { it.id == "alert" }
+            "high" -> catalog.first { it.id == "level-up" }
+            "low" -> null
+            else -> catalog.first { it.id == "bubble-pop" }
         }
     }
 }

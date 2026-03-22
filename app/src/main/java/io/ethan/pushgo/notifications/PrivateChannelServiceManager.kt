@@ -10,7 +10,6 @@ import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import io.ethan.pushgo.PushGoApp
 import io.ethan.pushgo.automation.PushGoAutomation
-import kotlinx.coroutines.runBlocking
 
 class PrivateChannelServiceManager(private val context: Context) {
     fun refresh() {
@@ -28,16 +27,11 @@ class PrivateChannelServiceManager(private val context: Context) {
 
     private fun tryRefreshNow(): Boolean {
         val app = context as? PushGoApp ?: return false
-        val container = app.containerOrNull() ?: return false
-        val shouldRun = runCatching {
-            !PushGoAutomation.isSessionConfigured() && !runBlocking {
-                container.settingsRepository.getUseFcmChannel()
-            }
-        }.getOrElse { return false }
+        val shouldRun = app.shouldRunPrivateChannelForegroundService()
         val intent = Intent(context, PrivateChannelForegroundService::class.java)
         return runCatching {
             if (shouldRun) {
-                ContextCompat.startForegroundService(context, intent)
+                startServiceNow(context, app, intent)
             } else {
                 context.stopService(intent)
             }
@@ -51,13 +45,11 @@ class PrivateChannelServiceManager(private val context: Context) {
     ) : CoroutineWorker(appContext, params) {
         override suspend fun doWork(): Result {
             val app = applicationContext as? PushGoApp ?: return Result.failure()
-            val container = app.containerOrNull() ?: return Result.retry()
-            val shouldRun = !PushGoAutomation.isSessionConfigured()
-                && !container.settingsRepository.getUseFcmChannel()
+            val shouldRun = app.shouldRunPrivateChannelForegroundService()
             val intent = Intent(applicationContext, PrivateChannelForegroundService::class.java)
             return runCatching {
                 if (shouldRun) {
-                    ContextCompat.startForegroundService(applicationContext, intent)
+                    startServiceNow(applicationContext, app, intent)
                 } else {
                     applicationContext.stopService(intent)
                 }
@@ -68,13 +60,44 @@ class PrivateChannelServiceManager(private val context: Context) {
 
     companion object {
         private const val WORK_NAME_ONCE = "pushgo-private-channel-service-refresh"
+        private fun startServiceNow(
+            context: Context,
+            app: PushGoApp?,
+            intent: Intent,
+        ) {
+            val appContext = context.applicationContext
+            ContextCompat.startForegroundService(appContext, intent)
+        }
 
         fun refresh(context: Context) {
             PrivateChannelServiceManager(context.applicationContext).refresh()
         }
 
+        fun refreshForMode(context: Context, useFcmChannel: Boolean) {
+            if (PushGoAutomation.isSessionConfigured() || useFcmChannel) {
+                stopNow(context)
+            } else {
+                refresh(context)
+            }
+        }
+
         fun enqueueRefresh(context: Context) {
             PrivateChannelServiceManager(context.applicationContext).enqueueRefresh()
+        }
+
+        fun startNow(context: Context) {
+            val appContext = context.applicationContext
+            val app = appContext as? PushGoApp
+            startServiceNow(
+                appContext,
+                app,
+                Intent(appContext, PrivateChannelForegroundService::class.java),
+            )
+        }
+
+        fun stopNow(context: Context) {
+            val appContext = context.applicationContext
+            appContext.stopService(Intent(appContext, PrivateChannelForegroundService::class.java))
         }
     }
 }

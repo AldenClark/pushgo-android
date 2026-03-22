@@ -1449,7 +1449,7 @@ private fun buildThingRelatedEventCards(
                 status = profile?.status ?: payloadStatus,
                 message = profile?.message ?: payloadMessage,
                 severity = EventSeverity.fromRaw(profile?.severity ?: payloadSeverity),
-                tags = if (!profile?.tags.isNullOrEmpty()) profile?.tags ?: emptyList() else payloadTags ?: emptyList(),
+                tags = if (profile?.tags.isNullOrEmpty()) payloadTags ?: emptyList() else profile.tags,
                 state = EventLifecycleState.fromRaw(message.eventState),
                 thingId = message.thingId,
                 channelId = message.channel?.trim()?.ifEmpty { null },

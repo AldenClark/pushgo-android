@@ -5,9 +5,14 @@ internal object JsonCompat {
         val text = raw?.trim()?.takeIf { it.isNotEmpty() } ?: return null
         return runCatching {
             val parser = Parser(text)
-            val value = parser.parseValue() as? Map<String, Any?> ?: return null
+            val value = parser.parseValue() as? Map<*, *> ?: return null
             parser.expectEnd()
-            value
+            buildMap(value.size) {
+                for ((key, entryValue) in value) {
+                    val objectKey = key as? String ?: return null
+                    put(objectKey, entryValue)
+                }
+            }
         }.getOrNull()
     }
 

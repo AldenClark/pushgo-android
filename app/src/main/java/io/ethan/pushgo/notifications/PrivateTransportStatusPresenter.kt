@@ -26,6 +26,7 @@ object PrivateTransportStatusPresenter {
         transport: String,
         stage: String,
         networkAvailable: Boolean,
+        keepaliveState: KeepaliveState = KeepaliveState.APP_FOREGROUND,
     ): String {
         if (!privateModeEnabled) {
             return context.getString(R.string.private_transport_status_disconnected)
@@ -33,6 +34,9 @@ object PrivateTransportStatusPresenter {
         val normalizedTransport = transport.trim().lowercase()
         val normalizedStage = stage.trim().lowercase()
         val normalizedRoute = route.trim().lowercase()
+        if (keepaliveState == KeepaliveState.FGS_LOST) {
+            return context.getString(R.string.private_transport_status_keepalive_lost)
+        }
         if (!networkAvailable || normalizedStage == "offline_wait") {
             return context.getString(R.string.private_transport_status_network_unavailable)
         }
