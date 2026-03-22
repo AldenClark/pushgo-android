@@ -47,6 +47,17 @@ jobs:
             "platforms;android-36" \
             "ndk;29.0.13846066"
 
+      - name: Export Android build tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          build_tools_dir="${ANDROID_SDK_ROOT}/build-tools/36.0.0"
+          if [ ! -x "${build_tools_dir}/apksigner" ]; then
+            echo "apksigner not found at ${build_tools_dir}/apksigner" >&2
+            exit 1
+          fi
+          echo "${build_tools_dir}" >> "$GITHUB_PATH"
+
       - name: Set up Rust toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
