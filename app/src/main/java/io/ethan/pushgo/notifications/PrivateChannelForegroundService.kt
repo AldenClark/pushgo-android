@@ -165,7 +165,6 @@ class PrivateChannelForegroundService : Service() {
         notificationWatchdogJob = serviceScope.launch {
             while (isActive) {
                 delay(NOTIFICATION_WATCHDOG_INTERVAL_MS)
-                appContainer()?.privateChannelClient?.refreshNetworkStateFromSystem()
                 if (!isNotificationPresent()) {
                     runCatching { updateNotification() }
                 }

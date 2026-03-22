@@ -179,7 +179,7 @@
     <string name="private_transport_status_network_unavailable">Red no disponible</string>
     <string name="private_transport_status_waiting_retry">Esperando para reintentar</string>
     <string name="private_transport_status_keepalive_lost">Protección en segundo plano perdida</string>
-    <string name="private_channel_service_notification_title">Canal privado activo</string>
+    <string name="private_channel_service_notification_title">El canal privado de PushGo está activo. No cierres esta notificación.</string>
     <string name="private_channel_service_channel_name">Mantenimiento del canal privado</string>
     <string name="private_channel_service_channel_description">Mantiene activa la conexión del canal privado y muestra su estado actual.</string>
     <string name="error_request_failed">Request failed. Please retry.</string>

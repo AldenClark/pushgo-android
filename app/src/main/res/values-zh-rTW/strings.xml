@@ -181,7 +181,7 @@
     <string name="private_transport_status_network_unavailable">網路不可用</string>
     <string name="private_transport_status_waiting_retry">等待重試</string>
     <string name="private_transport_status_keepalive_lost">背景保活已失效</string>
-    <string name="private_channel_service_notification_title">私有通道已啟用</string>
+    <string name="private_channel_service_notification_title">PushGo 私有通道已啟用，請勿關閉此通知</string>
     <string name="private_channel_service_channel_name">私有通道保活</string>
     <string name="private_channel_service_channel_description">維持私有通道連線並顯示目前連線狀態。</string>
     <string name="error_request_failed">請求失敗，請重試。</string>

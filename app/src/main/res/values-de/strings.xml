@@ -177,7 +177,7 @@
     <string name="private_transport_status_network_unavailable">Netzwerk nicht verfügbar</string>
     <string name="private_transport_status_waiting_retry">Wartet auf neuen Versuch</string>
     <string name="private_transport_status_keepalive_lost">Hintergrund-Absicherung verloren</string>
-    <string name="private_channel_service_notification_title">Privater Kanal aktiv</string>
+    <string name="private_channel_service_notification_title">Der private PushGo-Kanal ist aktiv. Bitte diese Benachrichtigung nicht schließen.</string>
     <string name="private_channel_service_channel_name">Privater Kanal im Hintergrund</string>
     <string name="private_channel_service_channel_description">Hält die Verbindung des privaten Kanals aktiv und zeigt den aktuellen Status an.</string>
     <string name="error_request_failed">Request failed. Please retry.</string>

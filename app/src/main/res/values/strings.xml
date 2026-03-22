@@ -106,7 +106,7 @@
     <string name="private_transport_status_network_unavailable">Network unavailable</string>
     <string name="private_transport_status_waiting_retry">Waiting to retry</string>
     <string name="private_transport_status_keepalive_lost">Background keepalive lost</string>
-    <string name="private_channel_service_notification_title">Private channel active</string>
+    <string name="private_channel_service_notification_title">PushGo private channel is active. Do not dismiss this notification.</string>
     <string name="private_channel_service_channel_name">Private channel keepalive</string>
     <string name="private_channel_service_channel_description">Keeps the private channel connection alive and shows its current status.</string>
     <string name="section_decryption">Message decryption</string>

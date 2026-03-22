@@ -174,7 +174,7 @@
     <string name="private_transport_status_network_unavailable">네트워크를 사용할 수 없음</string>
     <string name="private_transport_status_waiting_retry">재시도 대기 중</string>
     <string name="private_transport_status_keepalive_lost">백그라운드 유지가 해제됨</string>
-    <string name="private_channel_service_notification_title">프라이빗 채널 활성화됨</string>
+    <string name="private_channel_service_notification_title">PushGo 프라이빗 채널이 활성화되어 있습니다. 이 알림을 닫지 마세요.</string>
     <string name="private_channel_service_channel_name">프라이빗 채널 유지</string>
     <string name="private_channel_service_channel_description">프라이빗 채널 연결을 유지하고 현재 연결 상태를 표시합니다.</string>
     <string name="error_request_failed">요청에 실패했습니다. 다시 시도해 주세요.</string>

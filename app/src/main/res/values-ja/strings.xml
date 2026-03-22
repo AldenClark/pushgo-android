@@ -174,7 +174,7 @@
     <string name="private_transport_status_network_unavailable">ネットワークを利用できません</string>
     <string name="private_transport_status_waiting_retry">再試行待ち</string>
     <string name="private_transport_status_keepalive_lost">バックグラウンド保活が失効しました</string>
-    <string name="private_channel_service_notification_title">プライベートチャンネル有効</string>
+    <string name="private_channel_service_notification_title">PushGo のプライベートチャンネルは有効です。この通知を閉じないでください。</string>
     <string name="private_channel_service_channel_name">プライベートチャンネル常駐</string>
     <string name="private_channel_service_channel_description">プライベートチャンネル接続を維持し、現在の接続状態を表示します。</string>
     <string name="error_request_failed">リクエストに失敗しました。再試行してください。</string>

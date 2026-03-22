@@ -821,7 +821,6 @@ class PrivateChannelClient(
             while (true) {
                 val nowMs = System.currentTimeMillis()
                 if (nowMs >= nextControlSyncAtMs) {
-                    refreshNetworkAvailabilityFromSystem(reason = "control_sync")
                     val latestAuthToken = runCatching {
                         channelRepository.loadGatewayConfig().second?.trim()?.ifEmpty { null }
                     }.getOrNull()
