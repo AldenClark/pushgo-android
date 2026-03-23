@@ -92,6 +92,7 @@ private val ScreenHorizontalPadding = 12.dp
 @OptIn(ExperimentalMaterial3Api::class)
 fun SettingsScreen(
     viewModel: SettingsViewModel,
+    onOpenConnectionDiagnosis: (() -> Unit)? = null,
     onBackClick: (() -> Unit)? = null,
 ) {
     val context = LocalContext.current
@@ -228,6 +229,15 @@ fun SettingsScreen(
                         onClick = null,
                     )
                 }
+            }
+            item {
+                SettingsRow(
+                    testTag = "row.settings.connection_diagnosis",
+                    icon = Icons.Outlined.Info,
+                    title = stringResource(R.string.label_connection_diagnosis),
+                    subtitle = stringResource(R.string.label_connection_diagnosis_hint),
+                    onClick = onOpenConnectionDiagnosis,
+                )
             }
 
             item {

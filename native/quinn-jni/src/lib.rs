@@ -231,6 +231,7 @@ pub extern "system" fn Java_io_ethan_pushgo_notifications_WarpLinkNativeBridge_n
     };
 
     let (tx, rx) = mpsc::unbounded_channel();
+    let task_tx = tx.clone();
     let hello = Arc::new(Mutex::new(hello));
     let power_hint = Arc::new(Mutex::new(initial_power_hint));
     let pending_acks = Arc::new(Mutex::new(HashMap::new()));
@@ -249,7 +250,20 @@ pub extern "system" fn Java_io_ethan_pushgo_notifications_WarpLinkNativeBridge_n
         Err(_) => return 0,
     };
     let task = runtime.spawn(async move {
-        let _ = client_run_with_shutdown(config, app, shutdown_rx).await;
+        let result = client_run_with_shutdown(config, app, shutdown_rx).await;
+        let terminal_event = match result {
+            Ok(()) => serde_json::json!({
+                "type": "session_ended",
+                "reason": "client_run_completed",
+                "error": serde_json::Value::Null,
+            }),
+            Err(error) => serde_json::json!({
+                "type": "session_ended",
+                "reason": "client_run_failed",
+                "error": error.to_string(),
+            }),
+        };
+        let _ = task_tx.send(terminal_event.to_string());
     });
 
     let handle = NEXT_HANDLE.fetch_add(1, Ordering::Relaxed);

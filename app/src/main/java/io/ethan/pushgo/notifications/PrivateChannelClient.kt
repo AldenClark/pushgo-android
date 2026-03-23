@@ -16,6 +16,7 @@ import io.ethan.pushgo.data.EntityRepository
 import io.ethan.pushgo.data.InboundDeliveryLedgerRepository
 import io.ethan.pushgo.data.MessageRepository
 import io.ethan.pushgo.data.SettingsRepository
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -135,12 +136,16 @@ class PrivateChannelClient(
     private var lastSubscribedSignature: String? = null
     private var lastSubscribeAtMs = 0L
     private var lastRouteEnsureAtMs = 0L
+    private var lastRouteEnsureFingerprint: String? = null
     private var lastRouteRepairAtMs = 0L
     private var currentDeviceState: DeviceState? = null
     private val wakeupPullMutex = Mutex()
     private val ackDrainMutex = Mutex()
+    private val routeEnsureMutex = Mutex()
     private var wakeupPullInFlight = false
     private var wakeupPullPending = false
+    private var routeEnsureInFlight: CompletableDeferred<Unit>? = null
+    private var routeEnsureInFlightFingerprint: String? = null
     @Volatile
     private var activeSessionHandle: Long = 0L
     @Volatile
@@ -156,6 +161,8 @@ class PrivateChannelClient(
         appContext.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
     private val validatedInternetNetworks: MutableSet<Network> =
         Collections.newSetFromMap(ConcurrentHashMap())
+    @Volatile
+    private var validatedNetworkCallbackRegistered = false
 
     init {
         io.ethan.pushgo.util.SilentSink.i(TAG, "private channel client revision=$CLIENT_REV")
@@ -175,6 +182,7 @@ class PrivateChannelClient(
         if (!fcmAvailable) {
             // Force a fresh route upsert when switching from provider to private mode.
             lastRouteEnsureAtMs = 0L
+            lastRouteEnsureFingerprint = null
         }
         if (fcmAvailable) {
             saveTransportStatus(
@@ -201,6 +209,7 @@ class PrivateChannelClient(
         lastSubscribedSignature = null
         lastSubscribeAtMs = 0L
         lastRouteEnsureAtMs = 0L
+        lastRouteEnsureFingerprint = null
         lastRouteRepairAtMs = 0L
         nextAllowedPullAtMs = 0L
 
@@ -225,6 +234,9 @@ class PrivateChannelClient(
         foregroundActive = active
         if (changed) {
             syncActiveSessionPowerHint()
+        }
+        if (changed && active) {
+            maybeForceForegroundRecovery()
         }
         recomputeKeepaliveState()
         refreshLoop()
@@ -255,6 +267,11 @@ class PrivateChannelClient(
         scope.launch { requestWakeupPull() }
     }
 
+    private fun shouldPreferWakeupStreamRecovery(): Boolean {
+        if (!runtimeConfigured || fcmAvailable) return false
+        return foregroundActive || keepaliveServiceActive || activeSessionHandle != 0L || loopJob != null
+    }
+
     fun refreshNetworkStateFromSystem() {
         refreshNetworkAvailabilityFromSystem(reason = "system_probe")
     }
@@ -277,6 +294,19 @@ class PrivateChannelClient(
     }
 
     private suspend fun requestWakeupPull() {
+        if (shouldPreferWakeupStreamRecovery()) {
+            nextAllowedPullAtMs = 0L
+            failureStreak = 0
+            saveTransportStatus(
+                route = "private",
+                transport = transportStatusState.value.transport,
+                stage = "reconnecting",
+                detail = "wakeup requested, recovering private stream loop",
+            )
+            stopActiveSession("wakeup_stream_recovery")
+            restartLoop()
+            return
+        }
         val shouldStart = wakeupPullMutex.withLock {
             if (wakeupPullInFlight) {
                 wakeupPullPending = true
@@ -310,10 +340,7 @@ class PrivateChannelClient(
         runCatching {
             cm.registerDefaultNetworkCallback(object : ConnectivityManager.NetworkCallback() {
                 override fun onAvailable(network: Network) {
-                    applyNetworkAvailability(
-                        available = true,
-                        reason = "callback_available",
-                    )
+                    refreshNetworkAvailabilityFromSystem(reason = "callback_available")
                 }
 
                 override fun onCapabilitiesChanged(network: Network, networkCapabilities: NetworkCapabilities) {
@@ -321,7 +348,10 @@ class PrivateChannelClient(
                 }
 
                 override fun onLost(network: Network) {
-                    refreshNetworkAvailabilityFromSystem(reason = "callback_lost")
+                    applyNetworkAvailability(
+                        available = false,
+                        reason = "callback_lost",
+                    )
                 }
 
                 override fun onUnavailable() {
@@ -359,7 +389,14 @@ class PrivateChannelClient(
 
                 override fun onLost(network: Network) {
                     validatedInternetNetworks -= network
-                    refreshNetworkAvailabilityFromSystem(reason = "validated_lost")
+                    if (validatedInternetNetworks.isEmpty()) {
+                        applyNetworkAvailability(
+                            available = false,
+                            reason = "validated_lost",
+                        )
+                    } else {
+                        refreshNetworkAvailabilityFromSystem(reason = "validated_lost")
+                    }
                 }
 
                 override fun onUnavailable() {
@@ -370,6 +407,8 @@ class PrivateChannelClient(
                     )
                 }
             })
+            validatedNetworkCallbackRegistered = true
+            refreshNetworkAvailabilityFromSystem(reason = "validated_registered")
         }.onFailure {
             io.ethan.pushgo.util.SilentSink.w(
                 TAG,
@@ -382,14 +421,23 @@ class PrivateChannelClient(
         val cm = connectivityManager ?: return networkAvailable
         val available = runCatching {
             val active = cm.activeNetwork
-            if (hasUsableInternet(cm.getNetworkCapabilities(active))) {
-                true
-            } else {
-                validatedInternetNetworks.isNotEmpty()
-            }
+            computeNetworkAvailability(cm.getNetworkCapabilities(active))
         }.getOrElse { networkAvailable }
         applyNetworkAvailability(available = available, reason = reason)
         return available
+    }
+
+    private fun computeNetworkAvailability(capabilities: NetworkCapabilities?): Boolean {
+        if (hasUsableInternet(capabilities, requireValidated = true)) {
+            return true
+        }
+        if (validatedInternetNetworks.isNotEmpty()) {
+            return true
+        }
+        if (validatedNetworkCallbackRegistered) {
+            return false
+        }
+        return hasUsableInternet(capabilities)
     }
 
     private fun hasUsableInternet(
@@ -467,6 +515,7 @@ class PrivateChannelClient(
         }
         // Next private operation must not be skipped by route ensure cache.
         lastRouteEnsureAtMs = 0L
+        lastRouteEnsureFingerprint = null
     }
 
     suspend fun switchToPrivateAndRetireProvider(channelType: String, providerToken: String?) {
@@ -871,8 +920,36 @@ class PrivateChannelClient(
                 }
                 lastEventAtMs = System.currentTimeMillis()
                 val root = JSONObject(rawEvent)
-                if (root.optString("type").trim().lowercase() == "welcome") {
+                val eventType = root.optString("type").trim().lowercase()
+                if (eventType == "welcome") {
                     welcomeReceived = true
+                }
+                if (eventType == "session_ended") {
+                    val reason = root.optString("reason").trim().ifEmpty { "session ended" }
+                    val errorText = root.optString("error").trim().ifEmpty { null }
+                    if (welcomeReceived && errorText == null) {
+                        saveTransportStatus(
+                            route = "private",
+                            transport = transportStatusState.value.transport,
+                            stage = "reconnecting",
+                            detail = "$reason, restarting private session",
+                        )
+                        return true
+                    }
+                    val detail = buildString {
+                        append(reason)
+                        if (!errorText.isNullOrBlank()) {
+                            append(": ")
+                            append(errorText)
+                        }
+                    }
+                    throw IllegalStateException(
+                        if (welcomeReceived) {
+                            "private stream ended after welcome: $detail"
+                        } else {
+                            "private stream ended before welcome: $detail"
+                        }
+                    )
                 }
                 handleSessionEvent(handle, root)
             }
@@ -1089,6 +1166,7 @@ class PrivateChannelClient(
         saveState(state)
         // Device identity changed/refreshed: force route upsert on next private operation.
         lastRouteEnsureAtMs = 0L
+        lastRouteEnsureFingerprint = null
         return state
     }
 
@@ -1098,15 +1176,61 @@ class PrivateChannelClient(
         state: DeviceState,
         force: Boolean = false,
     ) {
+        val routeFingerprint = buildRouteEnsureFingerprint(
+            baseUrl = baseUrl,
+            token = token,
+            deviceKey = state.deviceKey,
+        )
         val now = System.currentTimeMillis()
-        if (!force && now - lastRouteEnsureAtMs < 300_000L) {
+        if (!force
+            && lastRouteEnsureFingerprint == routeFingerprint
+            && now - lastRouteEnsureAtMs < 300_000L
+        ) {
             return
         }
-        privatePost(baseUrl, token, "/channel/device", JSONObject().apply {
-            put("device_key", state.deviceKey)
-            put("channel_type", "private")
-        })
-        lastRouteEnsureAtMs = now
+        var createdDeferred: CompletableDeferred<Unit>? = null
+        val existingInFlight = routeEnsureMutex.withLock {
+            val current = routeEnsureInFlight
+            if (current != null && routeEnsureInFlightFingerprint == routeFingerprint) {
+                return@withLock current
+            }
+            if (!force
+                && lastRouteEnsureFingerprint == routeFingerprint
+                && System.currentTimeMillis() - lastRouteEnsureAtMs < 300_000L
+            ) {
+                return@withLock null
+            }
+            CompletableDeferred<Unit>().also { deferred ->
+                routeEnsureInFlight = deferred
+                routeEnsureInFlightFingerprint = routeFingerprint
+                createdDeferred = deferred
+            }
+            null
+        }
+        if (existingInFlight != null) {
+            existingInFlight.await()
+            return
+        }
+        val owner = createdDeferred ?: return
+        try {
+            privatePost(baseUrl, token, "/channel/device", JSONObject().apply {
+                put("device_key", state.deviceKey)
+                put("channel_type", "private")
+            })
+            lastRouteEnsureAtMs = System.currentTimeMillis()
+            lastRouteEnsureFingerprint = routeFingerprint
+            owner.complete(Unit)
+        } catch (error: Throwable) {
+            owner.completeExceptionally(error)
+            throw error
+        } finally {
+            routeEnsureMutex.withLock {
+                if (routeEnsureInFlight === owner) {
+                    routeEnsureInFlight = null
+                    routeEnsureInFlightFingerprint = null
+                }
+            }
+        }
     }
 
     private suspend fun <T> privateWithRouteRetry(
@@ -1285,6 +1409,7 @@ class PrivateChannelClient(
         currentDeviceState = nextState
         // Force route refresh with the new identity when needed.
         lastRouteEnsureAtMs = 0L
+        lastRouteEnsureFingerprint = null
         io.ethan.pushgo.util.SilentSink.i(
             TAG,
             "private state device_key refreshed from gateway response",
@@ -1367,12 +1492,57 @@ class PrivateChannelClient(
         nextAllowedPullAtMs = 0L
     }
 
+    private fun maybeForceForegroundRecovery() {
+        if (!runtimeConfigured || fcmAvailable) return
+        val stage = transportStatusState.value.stage
+        val shouldRecover = stage == "backoff"
+            || stage == "offline_wait"
+            || stage == "reconnecting"
+            || stage == "recovering"
+            || stage == "fgs_lost"
+            || (stage == "idle" && activeSessionHandle == 0L)
+            || loopJob == null
+        if (!shouldRecover) return
+        failureStreak = 0
+        nextAllowedPullAtMs = 0L
+        saveTransportStatus(
+            route = "private",
+            transport = "none",
+            stage = "reconnecting",
+            detail = "app foregrounded, retrying private stream immediately",
+        )
+        stopActiveSession("foreground_recovery")
+        triggerWakeupPull()
+    }
+
     private fun onFailure(stage: String, error: Throwable) {
         PushGoAutomation.recordRuntimeError(
             source = "private.$stage",
             error = error,
             category = "private",
         )
+        if (isQuickRecoverableFailure(stage, error)) {
+            failureStreak = (failureStreak + 1).coerceIn(1, 3)
+            val jitterMs = Random.nextLong(120, 420)
+            val baseDelayMs = when (failureStreak) {
+                1 -> 800L
+                2 -> 1_600L
+                else -> 3_000L
+            }
+            val delayMs = baseDelayMs + jitterMs
+            nextAllowedPullAtMs = System.currentTimeMillis() + delayMs
+            saveTransportStatus(
+                route = if (fcmAvailable) "provider" else "private",
+                transport = transportStatusState.value.transport,
+                stage = "backoff",
+                detail = "fast_recovery stage=$stage next_retry=${delayMs}ms error=${error.message.orEmpty().take(120)}",
+            )
+            io.ethan.pushgo.util.SilentSink.w(
+                TAG,
+                "stage=$stage failureStreak=$failureStreak fastRecovery=${delayMs}ms error=${error.message}",
+            )
+            return
+        }
         failureStreak = (failureStreak + 1).coerceAtMost(8)
         val exp = (failureStreak - 1).coerceAtLeast(0)
         val base = 2 * (1 shl exp)
@@ -1392,6 +1562,21 @@ class PrivateChannelClient(
             detail = "stage=$stage next_retry=${delaySec}s+${jitterMs}ms error=${error.message.orEmpty().take(120)}",
         )
         io.ethan.pushgo.util.SilentSink.w(TAG, "stage=$stage failureStreak=$failureStreak backoff=${delaySec}s error=${error.message}")
+    }
+
+    private fun isQuickRecoverableFailure(stage: String, error: Throwable): Boolean {
+        if (!networkAvailable) return false
+        if (stage != "stream_session") return false
+        val message = error.message?.lowercase().orEmpty()
+        if (!message.contains("after welcome")) return false
+        if (message.contains("unauthorized")
+            || message.contains("authentication")
+            || message.contains("rate limited")
+            || message.contains("device not on private channel")
+        ) {
+            return false
+        }
+        return true
     }
 
     fun readTransportStatus(): TransportStatus {
@@ -1433,6 +1618,7 @@ class PrivateChannelClient(
         lastSubscribedSignature = null
         lastSubscribeAtMs = 0L
         lastRouteEnsureAtMs = 0L
+        lastRouteEnsureFingerprint = null
         lastRouteRepairAtMs = 0L
         nextAllowedPullAtMs = 0L
         failureStreak = 0
@@ -1712,6 +1898,20 @@ class PrivateChannelClient(
         return PrivatePerformanceMode.fromWire(prefs.getString(KEY_PERF_MODE, null))
     }
 
+    private fun buildRouteEnsureFingerprint(
+        baseUrl: String,
+        token: String?,
+        deviceKey: String,
+    ): String {
+        return buildString {
+            append(baseUrl.trim())
+            append('|')
+            append(deviceKey.trim())
+            append('|')
+            append(token?.trim().orEmpty())
+        }
+    }
+
     companion object {
         private const val TAG = "PrivateChannelClient"
         private const val CLIENT_REV = "2026-02-25-r7"
@@ -1726,7 +1926,7 @@ class PrivateChannelClient(
         private const val PRIVATE_HTTP_READ_TIMEOUT_MS = 20_000
         private const val PRIVATE_HTTP_MAX_ATTEMPTS = 3
         private const val PRIVATE_HTTP_RETRY_BASE_MS = 450L
-        private const val PRIVATE_ROUTE_REPAIR_INTERVAL_MS = 15_000L
+        private const val PRIVATE_ROUTE_REPAIR_INTERVAL_MS = 5_000L
         private const val WIRE_VERSION_V2 = 2
         private const val PRIVATE_PAYLOAD_VERSION_V1 = 1
         private const val ACK_WAIT_TIMEOUT_MS = 10_000

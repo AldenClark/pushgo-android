@@ -212,9 +212,6 @@ class PushGoApp : Application(), ImageLoaderFactory {
                 systemToken = cachedToken
             )
             PrivateChannelServiceManager.refreshForMode(this@PushGoApp, effectiveFcmMode)
-            if (!effectiveFcmMode) {
-                container.privateChannelClient.triggerWakeupPull()
-            }
         }
     }
 

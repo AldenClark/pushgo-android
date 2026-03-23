@@ -619,6 +619,9 @@ private fun PushGoNavHost(
             Box(modifier = Modifier.fillMaxSize().testTag("screen.settings")) {
                 SettingsScreen(
                     viewModel = settingsViewModel,
+                    onOpenConnectionDiagnosis = {
+                        navController.navigate("settings/connection-diagnosis")
+                    },
                     onBackClick = { navController.navigateUp() },
                 )
             }
@@ -628,6 +631,12 @@ private fun PushGoNavHost(
                 navController = navController,
                 factory = factory,
                 viewModel = settingsViewModel
+            )
+        }
+        composable("settings/connection-diagnosis") {
+            io.ethan.pushgo.ui.screens.ConnectionDiagnosisScreen(
+                navController = navController,
+                factory = factory,
             )
         }
     }
