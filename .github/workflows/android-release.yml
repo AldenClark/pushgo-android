@@ -151,8 +151,7 @@ jobs:
         run: |
           set -euo pipefail
           version_name="${{ steps.version.outputs.versionName }}"
-          version_code="${{ steps.version.outputs.versionCode }}"
-          prefix="pushgo-android-v${version_name}-${version_code}"
+          prefix="pushgo-android-v${version_name}"
           mkdir -p dist
 
           shopt -s nullglob
@@ -173,7 +172,6 @@ jobs:
             echo "tag=${GITHUB_REF_NAME}"
             echo "commit=${GITHUB_SHA}"
             echo "versionName=${version_name}"
-            echo "versionCode=${version_code}"
             echo "signingEnabled=true"
           } > dist/BUILD_INFO.txt
 

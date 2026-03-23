@@ -24,6 +24,7 @@ const PRIVATE_WSS_DELAY_FOREGROUND_MS: u64 = 1_800;
 const PRIVATE_TCP_DELAY_BACKGROUND_MS: u64 = 1_500;
 const PRIVATE_WSS_DELAY_BACKGROUND_MS: u64 = 3_500;
 const WIRE_VERSION_V2: u8 = 2;
+const DEFAULT_WSS_SUBPROTOCOL: &str = "pushgo-private.v1";
 
 #[derive(Debug, Deserialize)]
 struct SessionConfig {
@@ -36,6 +37,8 @@ struct SessionConfig {
     tcp_port: Option<u16>,
     #[serde(default)]
     wss_path: Option<String>,
+    #[serde(default)]
+    wss_subprotocol: Option<String>,
     #[serde(default)]
     bearer_token: Option<String>,
     #[serde(default)]
@@ -68,6 +71,7 @@ struct EventApp {
     pending_acks: Arc<Mutex<HashMap<u64, std_mpsc::SyncSender<AppDecision>>>>,
     next_ack_id: Arc<AtomicU64>,
     ack_wait_timeout_ms: u64,
+    session_started_at: Instant,
     tx: mpsc::UnboundedSender<String>,
 }
 
@@ -117,6 +121,7 @@ impl ClientApp for EventApp {
                     "payload": payload,
                     "payload_len": msg.payload.len(),
                     "decode_ok": true,
+                    "elapsed_ms": elapsed_ms(self.session_started_at),
                 })
                 .to_string();
                 if self.tx.send(event).is_err() {
@@ -137,7 +142,7 @@ impl ClientApp for EventApp {
                 }
             }
             other => {
-                let _ = self.tx.send(event_to_json(&other));
+                let _ = self.tx.send(event_to_json(&other, self.session_started_at));
                 AppDecision::Ignore
             }
         }
@@ -219,7 +224,11 @@ pub extern "system" fn Java_io_ethan_pushgo_notifications_WarpLinkNativeBridge_n
         wss_path: parsed.wss_path.unwrap_or_else(|| "/private/ws".to_string()),
         quic_alpn: "pushgo-quic".to_string(),
         tcp_alpn: "pushgo-tcp".to_string(),
-        wss_subprotocol: Some("pushgo-private.v1".to_string()),
+        wss_subprotocol: parsed
+            .wss_subprotocol
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty())
+            .or_else(|| Some(DEFAULT_WSS_SUBPROTOCOL.to_string())),
         tls_server_name: None,
         bearer_token: parsed.bearer_token,
         cert_pin_sha256: parsed.cert_pin_sha256,
@@ -242,6 +251,7 @@ pub extern "system" fn Java_io_ethan_pushgo_notifications_WarpLinkNativeBridge_n
         pending_acks: Arc::clone(&pending_acks),
         next_ack_id,
         ack_wait_timeout_ms,
+        session_started_at: Instant::now(),
         tx,
     };
     let (shutdown_tx, shutdown_rx) = watch::channel(false);
@@ -250,6 +260,16 @@ pub extern "system" fn Java_io_ethan_pushgo_notifications_WarpLinkNativeBridge_n
         Err(_) => return 0,
     };
     let task = runtime.spawn(async move {
+        let profile_event = serde_json::json!({
+            "type": "session_profile",
+            "connect_budget_ms": PRIVATE_CONNECT_BUDGET_MS,
+            "tcp_delay_ms": tcp_delay_ms,
+            "wss_delay_ms": wss_delay_ms,
+            "quic_port": config.quic_port,
+            "tcp_port": config.tcp_port,
+            "wss_port": config.wss_port,
+        });
+        let _ = task_tx.send(profile_event.to_string());
         let result = client_run_with_shutdown(config, app, shutdown_rx).await;
         let terminal_event = match result {
             Ok(()) => serde_json::json!({
@@ -486,11 +506,13 @@ fn rust_to_jstring_raw(env: &mut EnvUnowned<'_>, value: String) -> jstring {
     }
 }
 
-fn event_to_json(event: &ClientEvent) -> String {
+fn event_to_json(event: &ClientEvent, session_started_at: Instant) -> String {
+    let elapsed_ms = elapsed_ms(session_started_at);
     match event {
         ClientEvent::Connected { transport } => serde_json::json!({
             "type": "connected",
             "transport": transport.to_string(),
+            "elapsed_ms": elapsed_ms,
         })
         .to_string(),
         ClientEvent::Welcome { welcome } => serde_json::json!({
@@ -504,12 +526,14 @@ fn event_to_json(event: &ClientEvent) -> String {
             "auth_refresh_before_secs": welcome.auth_refresh_before_secs,
             "wire_version": welcome.negotiated_wire_version,
             "payload_version": welcome.negotiated_payload_version,
+            "elapsed_ms": elapsed_ms,
         })
         .to_string(),
         ClientEvent::Disconnected { transport, reason } => serde_json::json!({
             "type": "disconnected",
             "transport": transport.to_string(),
             "reason": reason,
+            "elapsed_ms": elapsed_ms,
         })
         .to_string(),
         ClientEvent::Reconnecting {
@@ -519,11 +543,13 @@ fn event_to_json(event: &ClientEvent) -> String {
             "type": "reconnecting",
             "attempt": attempt,
             "backoff_ms": backoff_ms,
+            "elapsed_ms": elapsed_ms,
         })
         .to_string(),
         ClientEvent::Fatal { error } => serde_json::json!({
             "type": "fatal",
             "error": error,
+            "elapsed_ms": elapsed_ms,
         })
         .to_string(),
         ClientEvent::Message { .. } => serde_json::json!({
@@ -532,6 +558,10 @@ fn event_to_json(event: &ClientEvent) -> String {
         })
         .to_string(),
     }
+}
+
+fn elapsed_ms(session_started_at: Instant) -> u64 {
+    session_started_at.elapsed().as_millis().try_into().unwrap_or(u64::MAX)
 }
 
 fn decode_payload_map(bytes: &[u8]) -> (serde_json::Value, bool) {

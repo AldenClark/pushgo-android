@@ -49,7 +49,7 @@
     <string name="label_configuration">設定</string><string name="label_key_encoding_base64">Base64</string>
     <string name="label_key_encoding_hex">Hex</string>
     <string name="label_key_encoding_plaintext">プレーンテキスト</string>
-    <string name="label_app_version">アプリのバージョン</string><string name="label_app_version_format">%1$s build %2$d</string>
+    <string name="label_app_version">アプリのバージョン</string><string name="label_app_version_format">%1$s</string>
     <string name="label_yesterday">昨日</string>
     <string name="label_confirm">確認</string>
     <string name="confirm_cleanup_messages">消去の確認</string><string name="confirm_cleanup_read_messages_channel">現在のチャンネルの既読メッセージを削除します。元に戻せません。</string><string name="confirm_cleanup_read_messages_all">すべての既読メッセージを削除します。元に戻せません。</string>

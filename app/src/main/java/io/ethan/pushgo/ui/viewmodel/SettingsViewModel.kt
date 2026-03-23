@@ -220,6 +220,11 @@ class SettingsViewModel(
     fun updateUseFcmChannel(context: Context, enabled: Boolean) {
         viewModelScope.launch {
             isFcmSupported = isFcmSupported(context)
+            if (enabled == useFcmChannel) {
+                if (!enabled || isFcmSupported) {
+                    return@launch
+                }
+            }
             if (enabled) {
                 if (!isFcmSupported) {
                     settingsRepository.setUseFcmChannel(false)

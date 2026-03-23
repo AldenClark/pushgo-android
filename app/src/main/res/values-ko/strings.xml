@@ -49,7 +49,7 @@
     <string name="label_configuration">구성</string><string name="label_key_encoding_base64">Base64</string>
     <string name="label_key_encoding_hex">Hex</string>
     <string name="label_key_encoding_plaintext">일반 텍스트</string>
-    <string name="label_app_version">앱 버전</string><string name="label_app_version_format">%1$s build %2$d</string>
+    <string name="label_app_version">앱 버전</string><string name="label_app_version_format">%1$s</string>
     <string name="label_yesterday">어제</string>
     <string name="label_confirm">확인</string>
     <string name="confirm_cleanup_messages">지우기 확인</string><string name="confirm_cleanup_read_messages_channel">현재 채널의 읽은 메시지를 삭제합니다. 되돌릴 수 없습니다.</string><string name="confirm_cleanup_read_messages_all">모든 읽은 메시지를 삭제합니다. 되돌릴 수 없습니다.</string>

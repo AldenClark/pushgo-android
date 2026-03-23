@@ -105,7 +105,6 @@ fun SettingsScreen(
     val appVersionText = stringResource(
         R.string.label_app_version_format,
         baseVersionName,
-        BuildConfig.VERSION_CODE,
     )
     var showDecryptionSheet by remember { mutableStateOf(false) }
     var showGatewaySheet by remember { mutableStateOf(false) }
@@ -498,7 +497,11 @@ private fun TransportSelectorRow(
                     ) {
                         SegmentedButton(
                             selected = selectedUseFcm,
-                            onClick = { onSelectUseFcm(true) },
+                            onClick = {
+                                if (!selectedUseFcm) {
+                                    onSelectUseFcm(true)
+                                }
+                            },
                             enabled = isFcmSupported,
                             shape = SegmentedButtonDefaults.itemShape(index = 0, count = 2),
                             modifier = Modifier.testTag("option.settings.notification_transport.fcm"),
@@ -512,7 +515,11 @@ private fun TransportSelectorRow(
                         }
                         SegmentedButton(
                             selected = !selectedUseFcm,
-                            onClick = { onSelectUseFcm(false) },
+                            onClick = {
+                                if (selectedUseFcm) {
+                                    onSelectUseFcm(false)
+                                }
+                            },
                             shape = SegmentedButtonDefaults.itemShape(index = 1, count = 2),
                             modifier = Modifier.testTag("option.settings.notification_transport.private"),
                             icon = {},

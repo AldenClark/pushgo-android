@@ -49,7 +49,7 @@
     <string name="label_configuration">Configuration</string><string name="label_key_encoding_base64">Base64</string>
     <string name="label_key_encoding_hex">Hex</string>
     <string name="label_key_encoding_plaintext">Texte brut</string>
-    <string name="label_app_version">Version de l’application</string><string name="label_app_version_format">%1$s build %2$d</string>
+    <string name="label_app_version">Version de l’application</string><string name="label_app_version_format">%1$s</string>
     <string name="label_yesterday">Hier</string>
     <string name="label_confirm">Confirmer</string>
     <string name="confirm_cleanup_messages">Confirmer le nettoyage</string><string name="confirm_cleanup_read_messages_channel">Les messages lus du canal actuel seront supprimés et cette action est irréversible.</string><string name="confirm_cleanup_read_messages_all">Tous les messages lus seront supprimés et cette action est irréversible.</string>

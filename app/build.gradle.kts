@@ -19,8 +19,7 @@ val releaseStoreFile = project.resolveSigningProperty("PUSHGO_RELEASE_STORE_FILE
 val releaseStorePassword = project.resolveSigningProperty("PUSHGO_RELEASE_STORE_PASSWORD")
 val releaseKeyAlias = project.resolveSigningProperty("PUSHGO_RELEASE_KEY_ALIAS")
 val releaseKeyPassword = project.resolveSigningProperty("PUSHGO_RELEASE_KEY_PASSWORD")
-val appVersionCode = 25
-val appVersionName = "1.0.0"
+val appVersionName = "1.0.26"
 val enableAbiSplits = when (val value = providers.gradleProperty("pushgo.enableAbiSplits").orNull?.trim()?.lowercase()) {
     null -> true
     "true" -> true
@@ -75,7 +74,6 @@ android {
     defaultConfig {
         applicationId = "io.ethan.pushgo"
         minSdk = 31
-        versionCode = appVersionCode
         versionName = appVersionName
         buildConfigField("String", "PRIVATE_CERT_PIN_SHA256", "\"$privateCertPinSha256\"")
 
@@ -145,7 +143,6 @@ tasks.register("printReleaseVersionInfo") {
     group = "help"
     description = "Prints the Android release version metadata for CI."
     doLast {
-        println("versionCode=$appVersionCode")
         println("versionName=$appVersionName")
         println("applicationId=io.ethan.pushgo")
         println("abiSplitsEnabled=$enableAbiSplits")

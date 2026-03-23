@@ -159,7 +159,7 @@ class ConnectionDiagnosisViewModel(
         val useFcmChannel = settingsRepository.getUseFcmChannel()
         appendLog(
             "session",
-            "应用版本=${BuildConfig.VERSION_NAME}(${BuildConfig.VERSION_CODE}) gateway=$gatewayBaseUrl token_present=$gatewayTokenPresent use_fcm=$useFcmChannel",
+            "应用版本=${BuildConfig.VERSION_NAME} gateway=$gatewayBaseUrl token_present=$gatewayTokenPresent use_fcm=$useFcmChannel",
         )
         privateChannelClient.refreshNetworkStateFromSystem()
         appendConnectionSnapshot(privateChannelClient.readConnectionSnapshot(), source = "initial")

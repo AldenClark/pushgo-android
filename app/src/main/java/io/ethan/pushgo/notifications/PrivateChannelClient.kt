@@ -163,6 +163,8 @@ class PrivateChannelClient(
         Collections.newSetFromMap(ConcurrentHashMap())
     @Volatile
     private var validatedNetworkCallbackRegistered = false
+    @Volatile
+    private var latestNativeSessionProfile: NativeSessionProfile? = null
 
     init {
         io.ethan.pushgo.util.SilentSink.i(TAG, "private channel client revision=$CLIENT_REV")
@@ -173,13 +175,15 @@ class PrivateChannelClient(
     val connectionSnapshotFlow: StateFlow<ConnectionSnapshot> = connectionSnapshotState.asStateFlow()
 
     fun setRuntime(fcmAvailable: Boolean, systemToken: String?) {
+        val wasConfigured = runtimeConfigured
+        val previousFcmAvailable = this.fcmAvailable
         runtimeConfigured = true
         this.fcmAvailable = fcmAvailable
         this.systemToken = systemToken
         if (fcmAvailable) {
             keepaliveLossSticky = false
         }
-        if (!fcmAvailable) {
+        if (!fcmAvailable && (!wasConfigured || previousFcmAvailable)) {
             // Force a fresh route upsert when switching from provider to private mode.
             lastRouteEnsureAtMs = 0L
             lastRouteEnsureFingerprint = null
@@ -191,7 +195,7 @@ class PrivateChannelClient(
                 stage = "active",
                 detail = "private channel disabled by provider mode",
             )
-        } else {
+        } else if (!wasConfigured || previousFcmAvailable) {
             saveTransportStatus(
                 route = "private",
                 transport = "none",
@@ -807,6 +811,7 @@ class PrivateChannelClient(
             subscribeAll(baseUrl, token, state)
             state
         }
+        val transportProfile = resolvePrivateTransportProfile(baseUrl, token)
         val host = runCatching { URL(baseUrl).host }.getOrNull()?.trim().orEmpty()
         if (host.isEmpty()) {
             onFailure("stream_preflight", IllegalStateException("empty gateway host"))
@@ -826,6 +831,7 @@ class PrivateChannelClient(
             host = host,
             state = state,
             bearerToken = token,
+            transportProfile = transportProfile,
         )
     }
 
@@ -833,15 +839,18 @@ class PrivateChannelClient(
         host: String,
         state: DeviceState,
         bearerToken: String?,
+        transportProfile: PrivateTransportProfile,
     ): Boolean {
+        latestNativeSessionProfile = null
         val handle = runInterruptible(Dispatchers.IO) {
             WarpLinkNativeBridge.sessionStart(
                 JSONObject().apply {
                     put("host", host)
-                    put("quic_port", PRIVATE_QUIC_PORT)
-                    put("wss_port", PRIVATE_WSS_PORT)
-                    put("tcp_port", PRIVATE_TCP_PORT)
-                    put("wss_path", "/private/ws")
+                    put("quic_port", transportProfile.quicPort)
+                    put("wss_port", transportProfile.wssPort)
+                    put("tcp_port", transportProfile.tcpPort)
+                    put("wss_path", transportProfile.wssPath)
+                    put("wss_subprotocol", transportProfile.wsSubprotocol)
                     put("bearer_token", bearerToken ?: JSONObject.NULL)
                     put("cert_pin_sha256", privateCertPinSha256() ?: JSONObject.NULL)
                     put("identity", state.deviceKey)
@@ -1003,14 +1012,31 @@ class PrivateChannelClient(
 
     private suspend fun handleSessionEvent(handle: Long, root: JSONObject) {
         when (root.optString("type").trim().lowercase()) {
+            "session_profile" -> {
+                val profile = NativeSessionProfile(
+                    connectBudgetMs = root.optLong("connect_budget_ms", 0L).coerceAtLeast(0L),
+                    tcpDelayMs = root.optLong("tcp_delay_ms", 0L).coerceAtLeast(0L),
+                    wssDelayMs = root.optLong("wss_delay_ms", 0L).coerceAtLeast(0L),
+                    quicPort = root.optInt("quic_port", 0).coerceAtLeast(0),
+                    tcpPort = root.optInt("tcp_port", 0).coerceAtLeast(0),
+                    wssPort = root.optInt("wss_port", 0).coerceAtLeast(0),
+                )
+                latestNativeSessionProfile = profile
+                io.ethan.pushgo.util.SilentSink.i(
+                    TAG,
+                    "transport_profile connect_budget=${profile.connectBudgetMs}ms tcp_delay=${profile.tcpDelayMs}ms wss_delay=${profile.wssDelayMs}ms ports(quic/tcp/wss)=${profile.quicPort}/${profile.tcpPort}/${profile.wssPort}",
+                )
+            }
             "connected" -> {
                 val transport = root.optString("transport").trim().ifEmpty { "none" }
+                val elapsedMs = root.optLong("elapsed_ms", -1L).takeIf { it >= 0L }
                 saveTransportStatus(
                     route = "private",
                     transport = transport,
                     stage = "connected",
                     detail = "$transport stream connected",
                 )
+                logAttemptInference(transport = transport, elapsedMs = elapsedMs)
             }
             "welcome" -> {
                 val wireVersion = root.optInt("wire_version", WIRE_VERSION_V2)
@@ -1092,6 +1118,13 @@ class PrivateChannelClient(
                     stage = stage,
                     detail = reason,
                 )
+                val elapsedMs = root.optLong("elapsed_ms", -1L).takeIf { it >= 0L }
+                if (reason.contains("os error 103", ignoreCase = true)) {
+                    io.ethan.pushgo.util.SilentSink.w(
+                        TAG,
+                        "transport_attempt signal transport=$transport elapsed=${elapsedMs ?: -1}ms detail=os error 103 (socket aborted by system or network)",
+                    )
+                }
             }
             "reconnecting" -> {
                 val attempt = root.optInt("attempt", 0).coerceAtLeast(0)
@@ -1112,6 +1145,32 @@ class PrivateChannelClient(
                     detail = error.take(160),
                 )
                 maybeRepairPrivateRoute(error)
+            }
+        }
+    }
+
+    private fun logAttemptInference(transport: String, elapsedMs: Long?) {
+        val profile = latestNativeSessionProfile ?: return
+        if (elapsedMs == null) return
+        when (transport.lowercase()) {
+            "quic" -> {
+                if (elapsedMs < profile.tcpDelayMs) {
+                    io.ethan.pushgo.util.SilentSink.i(
+                        TAG,
+                        "transport_attempt inference transport=tcp outcome=not_started reason=quic_connected_before_tcp_delay elapsed=${elapsedMs}ms tcp_delay=${profile.tcpDelayMs}ms",
+                    )
+                } else {
+                    io.ethan.pushgo.util.SilentSink.i(
+                        TAG,
+                        "transport_attempt inference transport=tcp outcome=unknown reason=quic_connected_after_tcp_delay elapsed=${elapsedMs}ms tcp_delay=${profile.tcpDelayMs}ms",
+                    )
+                }
+            }
+            "wss" -> {
+                io.ethan.pushgo.util.SilentSink.i(
+                    TAG,
+                    "transport_attempt inference transport=tcp outcome=unknown reason=wss_connected elapsed=${elapsedMs}ms tcp_delay=${profile.tcpDelayMs}ms wss_delay=${profile.wssDelayMs}ms",
+                )
             }
         }
     }
@@ -1385,6 +1444,31 @@ class PrivateChannelClient(
         }
     }
 
+    private suspend fun privateGet(
+        baseUrl: String,
+        token: String?,
+        path: String,
+    ): JSONObject {
+        val endpoint = "${baseUrl.trim().removeSuffix("/")}$path"
+        var attempt = 1
+        while (true) {
+            try {
+                return privateGetOnce(endpoint, token)
+            } catch (error: ChannelSubscriptionException) {
+                if (!isRetryablePrivateError(error) || attempt >= PRIVATE_HTTP_MAX_ATTEMPTS) {
+                    throw error
+                }
+                val backoffMs = (PRIVATE_HTTP_RETRY_BASE_MS * attempt) + Random.nextLong(120, 420)
+                io.ethan.pushgo.util.SilentSink.w(
+                    TAG,
+                    "private request retry endpoint=$endpoint attempt=$attempt/$PRIVATE_HTTP_MAX_ATTEMPTS backoff=${backoffMs}ms error=${error.message}",
+                )
+                delay(backoffMs)
+                attempt += 1
+            }
+        }
+    }
+
     private fun persistDeviceKeyFromGatewayResponse(data: JSONObject) {
         val resolvedDeviceKey = data.optString("device_key", "").trim()
         if (resolvedDeviceKey.isEmpty()) {
@@ -1420,9 +1504,21 @@ class PrivateChannelClient(
         endpoint: String,
         token: String?,
         payload: JSONObject?,
+    ): JSONObject = privateRequestOnce(endpoint, token, "POST", payload)
+
+    private suspend fun privateGetOnce(
+        endpoint: String,
+        token: String?,
+    ): JSONObject = privateRequestOnce(endpoint, token, "GET", null)
+
+    private suspend fun privateRequestOnce(
+        endpoint: String,
+        token: String?,
+        method: String,
+        payload: JSONObject?,
     ): JSONObject = withContext(Dispatchers.IO) {
         val connection = (URL(endpoint).openConnection() as HttpURLConnection).apply {
-            requestMethod = "POST"
+            requestMethod = method
             setRequestProperty("Content-Type", "application/json; charset=utf-8")
             setRequestProperty("Accept", "application/json")
             if (!token.isNullOrBlank()) {
@@ -1475,6 +1571,96 @@ class PrivateChannelClient(
         } finally {
             connection.disconnect()
         }
+    }
+
+    private suspend fun resolvePrivateTransportProfile(
+        baseUrl: String,
+        token: String?,
+    ): PrivateTransportProfile {
+        return try {
+            val profile = fetchPrivateTransportProfile(baseUrl, token)
+            savePrivateTransportProfileCache(baseUrl, profile)
+            profile
+        } catch (error: ChannelSubscriptionException) {
+            loadPrivateTransportProfileCache(baseUrl)?.also {
+                io.ethan.pushgo.util.SilentSink.w(
+                    TAG,
+                    "private profile fetch failed, using cached profile error=${error.message}",
+                )
+            } ?: run {
+                io.ethan.pushgo.util.SilentSink.w(
+                    TAG,
+                    "private profile fetch failed, using built-in defaults error=${error.message}",
+                )
+                defaultPrivateTransportProfile()
+            }
+        }
+    }
+
+    private suspend fun fetchPrivateTransportProfile(
+        baseUrl: String,
+        token: String?,
+    ): PrivateTransportProfile {
+        val data = privateGet(baseUrl, token, "/private/profile")
+        val transport = data.optJSONObject("transport")
+            ?: throw ChannelSubscriptionException("private profile missing transport")
+        return parsePrivateTransportProfile(transport)
+    }
+
+    private fun parsePrivateTransportProfile(transport: JSONObject): PrivateTransportProfile {
+        val defaultProfile = defaultPrivateTransportProfile()
+        return PrivateTransportProfile(
+            quicEnabled = transport.optBoolean("quic_enabled", true),
+            quicPort = transport.optInt("quic_port", defaultProfile.quicPort)
+                .coerceIn(1, 65535),
+            tcpEnabled = transport.optBoolean("tcp_enabled", true),
+            tcpPort = transport.optInt("tcp_port", defaultProfile.tcpPort)
+                .coerceIn(1, 65535),
+            wssEnabled = transport.optBoolean("wss_enabled", true),
+            wssPort = transport.optInt("wss_port", defaultProfile.wssPort)
+                .coerceIn(1, 65535),
+            wssPath = transport.optString("wss_path").trim()
+                .ifEmpty { defaultProfile.wssPath },
+            wsSubprotocol = transport.optString("ws_subprotocol").trim()
+                .ifEmpty { defaultProfile.wsSubprotocol },
+        )
+    }
+
+    private fun loadPrivateTransportProfileCache(baseUrl: String): PrivateTransportProfile? {
+        val raw = prefs.getString(KEY_PROFILE_CACHE, null) ?: return null
+        return runCatching {
+            val obj = JSONObject(raw)
+            val cachedBaseUrl = obj.optString("gateway_base_url").trim()
+            if (cachedBaseUrl != normalizedGatewayBaseUrl(baseUrl)) {
+                return null
+            }
+            val transport = obj.optJSONObject("transport") ?: return null
+            parsePrivateTransportProfile(transport)
+        }.getOrNull()
+    }
+
+    private fun savePrivateTransportProfileCache(baseUrl: String, profile: PrivateTransportProfile) {
+        val obj = JSONObject().apply {
+            put("gateway_base_url", normalizedGatewayBaseUrl(baseUrl))
+            put(
+                "transport",
+                JSONObject().apply {
+                    put("quic_enabled", profile.quicEnabled)
+                    put("quic_port", profile.quicPort)
+                    put("tcp_enabled", profile.tcpEnabled)
+                    put("tcp_port", profile.tcpPort)
+                    put("wss_enabled", profile.wssEnabled)
+                    put("wss_port", profile.wssPort)
+                    put("wss_path", profile.wssPath)
+                    put("ws_subprotocol", profile.wsSubprotocol)
+                }
+            )
+        }
+        prefs.edit().putString(KEY_PROFILE_CACHE, obj.toString()).apply()
+    }
+
+    private fun normalizedGatewayBaseUrl(baseUrl: String): String {
+        return baseUrl.trim().removeSuffix("/")
     }
 
     private fun isRetryablePrivateError(error: ChannelSubscriptionException): Boolean {
@@ -1818,6 +2004,17 @@ class PrivateChannelClient(
         val payload: JSONObject
     )
 
+    private data class PrivateTransportProfile(
+        val quicEnabled: Boolean,
+        val quicPort: Int,
+        val tcpEnabled: Boolean,
+        val tcpPort: Int,
+        val wssEnabled: Boolean,
+        val wssPort: Int,
+        val wssPath: String,
+        val wsSubprotocol: String,
+    )
+
     data class ChannelCreateResult(
         val channelId: String,
         val channelName: String,
@@ -1839,6 +2036,15 @@ class PrivateChannelClient(
         val networkAvailable: Boolean,
         val foregroundActive: Boolean,
         val privateModeEnabled: Boolean,
+    )
+
+    private data class NativeSessionProfile(
+        val connectBudgetMs: Long,
+        val tcpDelayMs: Long,
+        val wssDelayMs: Long,
+        val quicPort: Int,
+        val tcpPort: Int,
+        val wssPort: Int,
     )
 
     private fun privateCertPinSha256(): String? {
@@ -1919,8 +2125,8 @@ class PrivateChannelClient(
         private const val KEY_STATE = "device_state"
         private const val KEY_TRANSPORT_STATUS = "transport_status"
         private const val KEY_PERF_MODE = "performance_mode"
+        private const val KEY_PROFILE_CACHE = "transport_profile_cache"
         private const val PRIVATE_QUIC_PORT = 443
-        private const val PRIVATE_WSS_PORT = 443
         private const val PRIVATE_TCP_PORT = 5223
         private const val PRIVATE_HTTP_CONNECT_TIMEOUT_MS = 10_000
         private const val PRIVATE_HTTP_READ_TIMEOUT_MS = 20_000
@@ -1931,5 +2137,18 @@ class PrivateChannelClient(
         private const val PRIVATE_PAYLOAD_VERSION_V1 = 1
         private const val ACK_WAIT_TIMEOUT_MS = 10_000
         private const val PRIVATE_WELCOME_STALL_TIMEOUT_MS = 20_000L
+
+        private fun defaultPrivateTransportProfile(): PrivateTransportProfile {
+            return PrivateTransportProfile(
+                quicEnabled = true,
+                quicPort = PRIVATE_QUIC_PORT,
+                tcpEnabled = true,
+                tcpPort = PRIVATE_TCP_PORT,
+                wssEnabled = true,
+                wssPort = PRIVATE_QUIC_PORT,
+                wssPath = "/private/ws",
+                wsSubprotocol = "pushgo-private.v1",
+            )
+        }
     }
 }

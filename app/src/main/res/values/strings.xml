@@ -52,7 +52,7 @@
     <string name="label_configuration">Configuration</string><string name="label_key_encoding_base64">Base64</string>
     <string name="label_key_encoding_hex">Hex</string>
     <string name="label_key_encoding_plaintext">Plain text</string>
-    <string name="label_app_version">App version</string><string name="label_app_version_format">%1$s build %2$d</string>
+    <string name="label_app_version">App version</string><string name="label_app_version_format">%1$s</string>
     <string name="label_yesterday">Yesterday</string>
     <string name="label_confirm">Confirm</string>
     <string name="confirm_cleanup_messages">Confirm cleanup</string><string name="confirm_cleanup_read_messages_channel">This will remove read messages in the current channel and cannot be undone.</string><string name="confirm_cleanup_read_messages_all">This will remove all read messages and cannot be undone.</string>
