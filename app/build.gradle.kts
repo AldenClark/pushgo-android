@@ -15,11 +15,26 @@ fun Project.resolveSigningProperty(name: String): String? {
     return if (fromEnv.isNullOrBlank()) null else fromEnv
 }
 
+fun parseVersionCodeFromName(versionName: String): Int {
+    val trimmed = versionName.trim()
+    val parts = trimmed.split(".")
+    require(parts.size == 3) {
+        "appVersionName must follow x.x.N format, got: $trimmed"
+    }
+    val patch = parts[2].toIntOrNull()
+        ?: error("appVersionName patch part must be numeric, got: $trimmed")
+    require(patch > 0) {
+        "appVersionName patch part must be > 0, got: $trimmed"
+    }
+    return patch
+}
+
 val releaseStoreFile = project.resolveSigningProperty("PUSHGO_RELEASE_STORE_FILE")
 val releaseStorePassword = project.resolveSigningProperty("PUSHGO_RELEASE_STORE_PASSWORD")
 val releaseKeyAlias = project.resolveSigningProperty("PUSHGO_RELEASE_KEY_ALIAS")
 val releaseKeyPassword = project.resolveSigningProperty("PUSHGO_RELEASE_KEY_PASSWORD")
 val appVersionName = "1.0.26"
+val appVersionCode = parseVersionCodeFromName(appVersionName)
 val enableAbiSplits = when (val value = providers.gradleProperty("pushgo.enableAbiSplits").orNull?.trim()?.lowercase()) {
     null -> true
     "true" -> true
@@ -74,6 +89,7 @@ android {
     defaultConfig {
         applicationId = "io.ethan.pushgo"
         minSdk = 31
+        versionCode = appVersionCode
         versionName = appVersionName
         buildConfigField("String", "PRIVATE_CERT_PIN_SHA256", "\"$privateCertPinSha256\"")
 
