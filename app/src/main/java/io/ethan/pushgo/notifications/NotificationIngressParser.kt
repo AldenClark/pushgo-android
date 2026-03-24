@@ -204,7 +204,7 @@ object NotificationIngressParser {
             textLocalizer = textLocalizer,
         )
         val title = notificationText.title
-        val body = notificationText.body
+        val body = rewriteVisibleUrlsInText(notificationText.body)
 
         val record = IncomingEntityRecord(
             entityType = entityType,
@@ -382,19 +382,8 @@ object NotificationIngressParser {
     }
 
     private fun sanitizeIngressPayload(payload: MutableMap<String, String>) {
-        sanitizeTextField(payload, "body")
-        sanitizeTextField(payload, "message")
-        sanitizeTextField(payload, "description")
         sanitizeOpenUrlField(payload, "url")
         sanitizeImageField(payload, "images")
-        sanitizeProfileField(payload, key = "event_profile_json", includePrimaryImage = false)
-        sanitizeProfileField(payload, key = "thing_profile_json", includePrimaryImage = true)
-    }
-
-    private fun sanitizeTextField(payload: MutableMap<String, String>, key: String) {
-        val value = payload[key] ?: return
-        val rewritten = rewriteVisibleUrlsInText(value)
-        payload[key] = rewritten
     }
 
     private fun sanitizeOpenUrlField(payload: MutableMap<String, String>, key: String) {
@@ -423,44 +412,6 @@ object NotificationIngressParser {
         } else {
             payload[key] = JsonCompat.stringify(safe)
         }
-    }
-
-    private fun sanitizeProfileField(
-        payload: MutableMap<String, String>,
-        key: String,
-        includePrimaryImage: Boolean,
-    ) {
-        val raw = payload[key]?.trim().orEmpty()
-        if (raw.isEmpty()) return
-        val parsed = JsonCompat.parseObject(raw) ?: return
-        val normalized = parsed.toMutableMap()
-        listOf("description", "message").forEach { field ->
-            val current = normalized[field]?.toString()?.trim().orEmpty()
-            if (current.isEmpty()) return@forEach
-            normalized[field] = rewriteVisibleUrlsInText(current)
-        }
-        if (includePrimaryImage) {
-            val primary = normalized["primary_image"]?.toString()?.trim().orEmpty()
-            if (primary.isEmpty()) {
-                normalized.remove("primary_image")
-            } else {
-                val safe = normalizeExternalImageUrl(primary)
-                if (safe == null) {
-                    normalized.remove("primary_image")
-                } else {
-                    normalized["primary_image"] = safe
-                }
-            }
-        }
-        val safeImages = sanitizeImageCandidates(
-            (normalized["images"] as? List<*>)?.map { it?.toString().orEmpty() } ?: emptyList(),
-        )
-        if (safeImages.isEmpty()) {
-            normalized.remove("images")
-        } else {
-            normalized["images"] = safeImages
-        }
-        payload[key] = JsonCompat.stringify(normalized)
     }
 
     private fun sanitizeImageValue(raw: String): List<String> {

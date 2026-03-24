@@ -38,19 +38,18 @@ fun normalizeExternalImageUrl(raw: String): String? {
 
 fun rewriteVisibleUrlsInText(raw: String): String {
     if (raw.isEmpty() || !raw.contains("](")) return raw
-    val bytes = raw.toByteArray()
     var cursor = 0
     var copyStart = 0
     val out = StringBuilder(raw.length)
-    while (cursor + 1 < bytes.size) {
-        if (bytes[cursor] == ']'.code.toByte() && bytes[cursor + 1] == '('.code.toByte()) {
+    while (cursor + 1 < raw.length) {
+        if (raw[cursor] == ']' && raw[cursor + 1] == '(') {
             val destinationStart = cursor + 2
             var end = destinationStart
             var parenDepth = 0
-            while (end < bytes.size) {
-                when (bytes[end]) {
-                    '('.code.toByte() -> parenDepth += 1
-                    ')'.code.toByte() -> if (parenDepth == 0) {
+            while (end < raw.length) {
+                when (raw[end]) {
+                    '(' -> parenDepth += 1
+                    ')' -> if (parenDepth == 0) {
                         break
                     } else {
                         parenDepth -= 1
@@ -58,7 +57,7 @@ fun rewriteVisibleUrlsInText(raw: String): String {
                 }
                 end += 1
             }
-            if (end >= bytes.size) break
+            if (end >= raw.length) break
             out.append(raw, copyStart, destinationStart)
             val destination = raw.substring(destinationStart, end)
             out.append(rewriteMarkdownDestination(destination))

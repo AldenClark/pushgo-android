@@ -12,7 +12,7 @@ import java.time.Instant
 class NotificationIngressParserTest {
 
     @Test
-    fun parseMessage_sanitizesBodyUrlAndImagesBeforePersistence() {
+    fun parseMessage_sanitizesOpenUrlAndImagesBeforePersistence() {
         val payload = mapOf(
             "entity_type" to "message",
             "message_id" to "m-1",
@@ -46,7 +46,7 @@ class NotificationIngressParserTest {
     }
 
     @Test
-    fun parseThing_sanitizesProfileJsonNestedUrlFields() {
+    fun parseThing_keepsProfileJsonUntouchedByIngressFilter() {
         val payload = mapOf(
             "entity_type" to "thing",
             "thing_id" to "thing-1",
@@ -72,11 +72,14 @@ class NotificationIngressParserTest {
         assertNotNull(profileRaw)
         val profile = JsonCompat.parseObject(profileRaw) ?: emptyMap()
 
-        assertEquals("[bad](#)", profile["description"])
+        assertEquals("[bad](javascript:alert(1))", profile["description"])
         assertEquals("[ok](https://safe.example/x)", profile["message"])
-        assertFalse(profile.containsKey("primary_image"))
+        assertEquals("http://127.0.0.1/a.png", profile["primary_image"])
         val images = (profile["images"] as? List<*>)?.mapNotNull { it?.toString() } ?: emptyList()
-        assertEquals(listOf("https://cdn.example.com/a.png"), images)
+        assertEquals(
+            listOf("https://cdn.example.com/a.png", "http://localhost/b.png"),
+            images,
+        )
     }
 
     @Test
@@ -102,5 +105,31 @@ class NotificationIngressParserTest {
         val raw = JsonCompat.parseObject(message.rawPayloadJson) ?: emptyMap()
         assertEquals("notConfigured", raw["decryption_state"])
         assertEquals("QUJDREVGR0hJSg==", raw["ciphertext"])
+    }
+
+    @Test
+    fun parseMessage_keepsMarkdownRichBodyPersistable() {
+        val richBody = "[https://sway.cloud.microsoft/lNjlqkdUA7wtAxfV](https://sway.cloud.microsoft/lNjlqkdUA7wtAxfV)\n\n无论可以玩玩。有上千个，\n\n\n\n[原文链接](https://www.v2ex.com/t/1200790)"
+        val payload = mapOf(
+            "entity_type" to "message",
+            "message_id" to "m-rich-1",
+            "entity_id" to "m-rich-1",
+            "title" to "sample",
+            "body" to richBody,
+        )
+
+        val parsed = NotificationIngressParser.parse(
+            data = payload,
+            transportMessageId = "fcm-rich-1",
+            keyBytes = null,
+            now = Instant.ofEpochSecond(1_710_000_000),
+        )
+        val message = (parsed as? InboundPersistenceRequest.Message)?.message
+        assertNotNull(message)
+        message ?: return
+
+        assertEquals(richBody, message.body)
+        val raw = JsonCompat.parseObject(message.rawPayloadJson) ?: emptyMap()
+        assertEquals(richBody, raw["body"])
     }
 }
