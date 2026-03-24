@@ -269,6 +269,7 @@ class ChannelSubscriptionRepository(
             baseUrl = config.address,
             token = config.token,
             deviceKey = deviceKey,
+            platform = "android",
             channelType = FCM_CHANNEL_TYPE,
             providerToken = normalizedToken,
         )
@@ -288,6 +289,7 @@ class ChannelSubscriptionRepository(
             baseUrl = config.address,
             token = config.token,
             deviceKey = deviceKey,
+            platform = "android",
             channelType = FCM_CHANNEL_TYPE,
             providerToken = normalizedOldToken,
         )

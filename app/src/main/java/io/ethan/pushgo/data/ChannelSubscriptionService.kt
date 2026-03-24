@@ -151,12 +151,14 @@ class ChannelSubscriptionService {
         baseUrl: String,
         token: String?,
         deviceKey: String,
+        platform: String,
         channelType: String,
         providerToken: String?,
     ): DeviceChannelUpsertResult = withContext(Dispatchers.IO) {
         val endpoint = buildUrl(baseUrl, "/channel/device")
         val payload = JSONObject().apply {
             put("device_key", deviceKey)
+            put("platform", platform.trim().lowercase())
             put("channel_type", channelType.trim().lowercase())
             if (!providerToken.isNullOrBlank()) {
                 put("provider_token", providerToken.trim())

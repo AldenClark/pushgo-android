@@ -512,6 +512,7 @@ class PrivateChannelClient(
         withDeviceStateRetry(baseUrl, token) { state ->
             privatePost(baseUrl, token, "/channel/device", JSONObject().apply {
                 put("device_key", state.deviceKey)
+                put("platform", "android")
                 put("channel_type", channelType.trim().lowercase())
                 if (!providerToken.isNullOrBlank()) {
                     put("provider_token", providerToken.trim())
@@ -533,6 +534,7 @@ class PrivateChannelClient(
             if (!providerToken.isNullOrBlank()) {
                 privatePost(baseUrl, token, "/channel/device", JSONObject().apply {
                     put("device_key", state.deviceKey)
+                    put("platform", "android")
                     put("channel_type", channelType.trim().lowercase())
                     put("provider_token", providerToken.trim())
                 })
@@ -1279,6 +1281,7 @@ class PrivateChannelClient(
         try {
             privatePost(baseUrl, token, "/channel/device", JSONObject().apply {
                 put("device_key", state.deviceKey)
+                put("platform", "android")
                 put("channel_type", "private")
             })
             lastRouteEnsureAtMs = System.currentTimeMillis()
