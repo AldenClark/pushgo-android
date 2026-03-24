@@ -1,8 +1,6 @@
 package io.ethan.pushgo.ui.screens
 
 import android.widget.Toast
-import android.content.Intent
-import androidx.core.net.toUri
 import androidx.compose.foundation.background
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
@@ -88,6 +86,8 @@ import io.ethan.pushgo.markdown.MessagePreviewExtractor
 import io.ethan.pushgo.ui.announceForAccessibility
 import io.ethan.pushgo.ui.markdown.FullMarkdownRenderer
 import io.ethan.pushgo.ui.theme.PushGoSheetContainerColor
+import io.ethan.pushgo.util.normalizeExternalImageUrl
+import io.ethan.pushgo.util.openExternalUrl
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -1091,10 +1091,12 @@ private fun ThingRelatedMessageDetailSheet(message: ThingRelatedMessage) {
         imageModels = current.imageUrls.map { it as Any },
         resolvedBodyText = resolvedBody.rawText,
         onDelete = null,
-        onOpenImage = { model -> previewImageUrl = model as? String },
-        onOpenUrl = { url ->
-            context.startActivity(Intent(Intent.ACTION_VIEW, url.toUri()))
+        onOpenImage = { model ->
+            val raw = model as? String ?: return@MessageDetailCoreContent
+            val safeImage = normalizeExternalImageUrl(raw) ?: return@MessageDetailCoreContent
+            previewImageUrl = safeImage
         },
+        onOpenUrl = { url -> context.openExternalUrl(url) },
     )
     if (previewImageUrl != null) {
         ZoomableImagePreviewDialog(

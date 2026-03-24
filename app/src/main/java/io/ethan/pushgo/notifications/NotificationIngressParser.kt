@@ -9,8 +9,10 @@ import io.ethan.pushgo.data.parseThingProfile
 import io.ethan.pushgo.data.model.MessageStatus
 import io.ethan.pushgo.data.model.PushMessage
 import io.ethan.pushgo.markdown.MessagePreviewExtractor
+import io.ethan.pushgo.util.normalizeExternalImageUrl
+import io.ethan.pushgo.util.normalizeExternalOpenUrl
+import io.ethan.pushgo.util.rewriteVisibleUrlsInText
 import io.ethan.pushgo.util.JsonCompat
-import io.ethan.pushgo.util.UrlValidators
 import java.time.Instant
 import java.util.UUID
 
@@ -91,27 +93,34 @@ object NotificationIngressParser {
                 remove(key)
             }
         }
+        sanitizeIngressPayload(sanitized)
         val rawTitle = sanitized["title"] ?: ""
         val rawBody = sanitized["body"] ?: ""
         val channel = sanitized["channel_id"]?.trim()?.takeIf { it.isNotEmpty() }
-        val url = UrlValidators.normalizeHttpsUrl(sanitized["url"])
+        val url = sanitized["url"]?.let(::normalizeExternalOpenUrl)
         val serverId = sanitized["server_id"]
         val deliveryId = sanitized["delivery_id"]?.trim()?.takeIf { it.isNotEmpty() }
         val messageId = extractMessageId(sanitized)
         val decryptResult = NotificationDecryptor.decryptIfNeeded(sanitized, rawTitle, rawBody, keyBytes)
+        val normalizedDecryptResult = decryptResult.copy(
+            body = rewriteVisibleUrlsInText(decryptResult.body),
+            images = sanitizeImageCandidates(decryptResult.images),
+        )
         val level = normalizeLevel(sanitized["severity"])
         val entityType = normalizeEntityType(sanitized["entity_type"]) ?: return null
         val sanitizedTitleBody = sanitizeGatewayPlaceholderText(
             entityType = entityType,
-            title = decryptResult.title,
-            body = decryptResult.body,
+            title = normalizedDecryptResult.title,
+            body = normalizedDecryptResult.body,
         )
+        sanitized["title"] = sanitizedTitleBody.first
+        sanitized["body"] = sanitizedTitleBody.second
         val sentAt = parseEpochSeconds(sanitized["sent_at"])
         val ttl = parseEpochSeconds(sanitized["ttl"])
         val receivedAt = sentAt?.let { Instant.ofEpochSecond(it) } ?: now
         val isExpired = ttl?.let { now.epochSecond > it } ?: false
 
-        val imageUrls = resolveImageUrls(sanitized, decryptResult)
+        val imageUrls = resolveImageUrls(sanitized, normalizedDecryptResult)
 
         val rawPayload = linkedMapOf<String, Any?>().apply {
             sanitized.forEach { (key, value) -> put(key, value) }
@@ -121,7 +130,7 @@ object NotificationIngressParser {
             if (imageUrls.isNotEmpty()) {
                 put("images", JsonCompat.stringify(imageUrls))
             }
-            decryptResult.decryptionState?.let { put("decryption_state", toWireDecryptionState(it)) }
+            normalizedDecryptResult.decryptionState?.let { put("decryption_state", toWireDecryptionState(it)) }
             transportMessageId?.let { put("_fcm_message_id", it) }
         }.let(JsonCompat::stringify)
 
@@ -143,7 +152,7 @@ object NotificationIngressParser {
                 receivedAt = receivedAt,
                 rawPayloadJson = rawPayload,
                 status = MessageStatus.NORMAL,
-                decryptionState = decryptResult.decryptionState,
+                decryptionState = normalizedDecryptResult.decryptionState,
                 notificationId = transportMessageId,
                 serverId = serverId,
                 bodyPreview = MessagePreviewExtractor.listPreview(sanitizedTitleBody.second),
@@ -356,18 +365,116 @@ object NotificationIngressParser {
     ): List<String> {
         val urls = linkedSetOf<String>()
         decryptResult.images.forEach { value ->
-            UrlValidators.normalizeHttpsUrl(value)?.let { urls += it }
+            normalizeExternalImageUrl(value)?.let { urls += it }
         }
         val rawImages = data["images"]?.trim().orEmpty()
         if (rawImages.isNotEmpty()) {
             val parsed = runCatching { JsonCompat.parseArray(rawImages) }.getOrNull()
             if (parsed != null) {
                 for (entry in parsed) {
-                    UrlValidators.normalizeHttpsUrl(entry?.toString())?.let { urls += it }
+                    normalizeExternalImageUrl(entry?.toString().orEmpty())?.let { urls += it }
                 }
             } else {
-                UrlValidators.normalizeHttpsUrl(rawImages)?.let { urls += it }
+                normalizeExternalImageUrl(rawImages)?.let { urls += it }
             }
+        }
+        return urls.toList()
+    }
+
+    private fun sanitizeIngressPayload(payload: MutableMap<String, String>) {
+        sanitizeTextField(payload, "body")
+        sanitizeTextField(payload, "message")
+        sanitizeTextField(payload, "description")
+        sanitizeOpenUrlField(payload, "url")
+        sanitizeImageField(payload, "images")
+        sanitizeProfileField(payload, key = "event_profile_json", includePrimaryImage = false)
+        sanitizeProfileField(payload, key = "thing_profile_json", includePrimaryImage = true)
+    }
+
+    private fun sanitizeTextField(payload: MutableMap<String, String>, key: String) {
+        val value = payload[key] ?: return
+        val rewritten = rewriteVisibleUrlsInText(value)
+        payload[key] = rewritten
+    }
+
+    private fun sanitizeOpenUrlField(payload: MutableMap<String, String>, key: String) {
+        val raw = payload[key]?.trim().orEmpty()
+        if (raw.isEmpty()) {
+            payload.remove(key)
+            return
+        }
+        val safe = normalizeExternalOpenUrl(raw)
+        if (safe == null) {
+            payload.remove(key)
+        } else {
+            payload[key] = safe
+        }
+    }
+
+    private fun sanitizeImageField(payload: MutableMap<String, String>, key: String) {
+        val raw = payload[key]?.trim().orEmpty()
+        if (raw.isEmpty()) {
+            payload.remove(key)
+            return
+        }
+        val safe = sanitizeImageValue(raw)
+        if (safe.isEmpty()) {
+            payload.remove(key)
+        } else {
+            payload[key] = JsonCompat.stringify(safe)
+        }
+    }
+
+    private fun sanitizeProfileField(
+        payload: MutableMap<String, String>,
+        key: String,
+        includePrimaryImage: Boolean,
+    ) {
+        val raw = payload[key]?.trim().orEmpty()
+        if (raw.isEmpty()) return
+        val parsed = JsonCompat.parseObject(raw) ?: return
+        val normalized = parsed.toMutableMap()
+        listOf("description", "message").forEach { field ->
+            val current = normalized[field]?.toString()?.trim().orEmpty()
+            if (current.isEmpty()) return@forEach
+            normalized[field] = rewriteVisibleUrlsInText(current)
+        }
+        if (includePrimaryImage) {
+            val primary = normalized["primary_image"]?.toString()?.trim().orEmpty()
+            if (primary.isEmpty()) {
+                normalized.remove("primary_image")
+            } else {
+                val safe = normalizeExternalImageUrl(primary)
+                if (safe == null) {
+                    normalized.remove("primary_image")
+                } else {
+                    normalized["primary_image"] = safe
+                }
+            }
+        }
+        val safeImages = sanitizeImageCandidates(
+            (normalized["images"] as? List<*>)?.map { it?.toString().orEmpty() } ?: emptyList(),
+        )
+        if (safeImages.isEmpty()) {
+            normalized.remove("images")
+        } else {
+            normalized["images"] = safeImages
+        }
+        payload[key] = JsonCompat.stringify(normalized)
+    }
+
+    private fun sanitizeImageValue(raw: String): List<String> {
+        val parsed = runCatching { JsonCompat.parseArray(raw) }.getOrNull()
+        if (parsed != null) {
+            return sanitizeImageCandidates(parsed.map { it?.toString().orEmpty() })
+        }
+        return sanitizeImageCandidates(listOf(raw))
+    }
+
+    private fun sanitizeImageCandidates(values: List<String>): List<String> {
+        val urls = linkedSetOf<String>()
+        values.forEach { raw ->
+            normalizeExternalImageUrl(raw)?.let { urls += it }
         }
         return urls.toList()
     }

@@ -1,9 +1,7 @@
 package io.ethan.pushgo.ui.screens
 
 import android.content.Context
-import android.content.Intent
 import android.os.SystemClock
-import androidx.core.net.toUri
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -67,7 +65,9 @@ import io.ethan.pushgo.notifications.MessageStateCoordinator
 import io.ethan.pushgo.ui.MessageDetailViewModelFactory
 import io.ethan.pushgo.ui.markdown.FullMarkdownRenderer
 import io.ethan.pushgo.ui.theme.PushGoSheetContainerColor
+import io.ethan.pushgo.util.normalizeExternalImageUrl
 import io.ethan.pushgo.ui.viewmodel.MessageDetailViewModel
+import io.ethan.pushgo.util.openExternalUrl
 import kotlinx.coroutines.launch
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -166,11 +166,18 @@ fun MessageDetailScreen(
                 viewModel.delete()
                 onDismiss()
             },
-            onOpenImage = { model -> previewImageModel = model },
-            onOpenUrl = { url ->
-                val intent = Intent(Intent.ACTION_VIEW, url.toUri())
-                context.startActivity(intent)
+            onOpenImage = { model ->
+                when (model) {
+                    is String -> {
+                        val safeImage = normalizeExternalImageUrl(model)
+                        if (safeImage != null) {
+                            previewImageModel = safeImage
+                        }
+                    }
+                    else -> previewImageModel = model
+                }
             },
+            onOpenUrl = { url -> context.openExternalUrl(url) },
         )
     }
     if (previewImageModel != null) {
@@ -304,6 +311,8 @@ internal fun MessageDetailCoreContent(
                 FullMarkdownRenderer(
                     text = resolvedBodyText,
                     modifier = Modifier.fillMaxWidth(),
+                    onOpenLink = onOpenUrl,
+                    onOpenImage = { imageUrl -> onOpenImage(imageUrl) },
                 )
                 if (!message.url.isNullOrBlank()) {
                     Button(

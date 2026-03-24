@@ -466,8 +466,13 @@ class PrivateChannelClient(
             recomputeKeepaliveState()
             return
         }
+        val stage = transportStatusState.value.stage
         if (available) {
-            if (changed || transportStatusState.value.stage == "offline_wait") {
+            val shouldForceRecovery = changed
+                || stage == "offline_wait"
+                || ((stage == "backoff" || stage == "recovering" || stage == "reconnecting")
+                    && activeSessionHandle == 0L)
+            if (shouldForceRecovery) {
                 nextAllowedPullAtMs = 0L
                 failureStreak = 0
                 saveTransportStatus(
