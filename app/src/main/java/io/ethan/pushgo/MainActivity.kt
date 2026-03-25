@@ -31,6 +31,7 @@ import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
 import androidx.core.view.WindowCompat
 import io.ethan.pushgo.automation.PushGoAutomation
+import io.ethan.pushgo.notifications.NotificationHelper
 import io.ethan.pushgo.ui.PushGoAppRoot
 import io.ethan.pushgo.ui.theme.PushGoTheme
 import kotlin.system.exitProcess
@@ -55,6 +56,7 @@ class MainActivity : AppCompatActivity() {
         WindowCompat.setDecorFitsSystemWindows(window, false)
         latestIntent = intent
         PushGoAutomation.configureFromIntent(intent, filesDir)
+        NotificationHelper.stopAlertPlaybackForLaunchIntent(this, intent)
         evaluateNotificationPermissionOnStartup()
         val app = application as PushGoApp
         val container = app.containerOrNull()
@@ -123,6 +125,7 @@ class MainActivity : AppCompatActivity() {
         super.onNewIntent(intent)
         latestIntent = intent
         PushGoAutomation.configureFromIntent(intent, filesDir)
+        NotificationHelper.stopAlertPlaybackForLaunchIntent(this, intent)
     }
 
     private fun evaluateNotificationPermissionOnStartup() {

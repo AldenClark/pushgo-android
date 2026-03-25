@@ -115,14 +115,10 @@ object InboundPersistenceCoordinator {
         }
 
         beforeMessageNotify(inbound.message, inbound.imageUrl)
-        val unreadCount = runCatching { messageRepository.unreadCount() }
-            .onFailure { error -> io.ethan.pushgo.util.SilentSink.w(TAG, "message unread count unavailable", error) }
-            .getOrNull()
         NotificationHelper.showMessageNotification(
             context = context,
             message = inbound.message,
             level = inbound.level,
-            unreadCount = unreadCount,
         )
         return InboundPersistenceOutcome(
             status = InboundPersistenceStatus.PERSISTED,
@@ -209,6 +205,8 @@ object InboundPersistenceCoordinator {
             entityType = resolvedInbound.record.entityType,
             entityId = resolvedInbound.record.entityId,
             groupChannel = resolvedInbound.record.channel,
+            eventId = resolvedInbound.record.eventId,
+            thingId = resolvedInbound.record.thingId,
             title = resolvedInbound.notificationTitle,
             body = resolvedInbound.notificationBody,
             level = resolvedInbound.level,

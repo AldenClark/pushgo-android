@@ -80,6 +80,16 @@ object WarpLinkNativeBridge {
         }
     }
 
+    fun sessionRequestProbe(handle: Long): Boolean {
+        if (!loaded || handle == 0L) return false
+        return runCatching {
+            nativeSessionRequestProbe(handle) == 1
+        }.getOrElse {
+            io.ethan.pushgo.util.SilentSink.w(TAG, "native session request probe failed: ${it.message}")
+            false
+        }
+    }
+
     @JvmStatic
     private external fun nativeSessionStart(configJson: String): Long
 
@@ -97,4 +107,7 @@ object WarpLinkNativeBridge {
 
     @JvmStatic
     private external fun nativeSessionSetPowerHint(handle: Long, appState: String, powerTier: String): Int
+
+    @JvmStatic
+    private external fun nativeSessionRequestProbe(handle: Long): Int
 }

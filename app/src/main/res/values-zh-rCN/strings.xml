@@ -141,6 +141,12 @@
     <plurals name="message_notifications_summary">
         <item quantity="other">%1$d 条未读通知</item>
     </plurals>
+    <plurals name="message_notification_group_summary">
+        <item quantity="other">%1$d 条消息通知</item>
+    </plurals>
+    <plurals name="entity_notification_group_summary">
+        <item quantity="other">%1$d 条事件或对象通知</item>
+    </plurals>
     <string name="message_things_cleaned">对象已清理</string>
     <string name="message_no_messages_to_clear">没有可清除的消息</string>
     <string name="error_invalid_server_address">无效的服务器地址 (需要 https)</string>
@@ -211,6 +217,10 @@
     <string name="private_channel_service_notification_title">PushGo 私有通道已启用，请勿关闭此通知</string>
     <string name="private_channel_service_channel_name">私有通道保活</string>
     <string name="private_channel_service_channel_description">保持私有通道连接并显示当前连接状态。</string>
+    <string name="alert_playback_service_notification_title">PushGo 告警正在响铃</string>
+    <string name="alert_playback_service_notification_text">打开 PushGo 或关闭对应通知即可停止响铃。</string>
+    <string name="alert_playback_service_channel_name">PushGo 告警响铃</string>
+    <string name="alert_playback_service_channel_description">用于高优先级与持续告警的前台响铃播放。</string>
     <string name="error_request_failed">请求失败，请重试。</string>
     <string name="error_channel_create_requires_fcm">创建新频道需要 FCM。无 FCM 设备请使用已有频道 ID。</string>
     <string name="error_private_channel_create_failed">私有频道创建失败，请重试。</string>

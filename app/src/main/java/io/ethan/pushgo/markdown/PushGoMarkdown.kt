@@ -16,7 +16,10 @@ sealed class MarkdownBlock {
     data class Callout(val type: MarkdownCalloutType, val content: List<MarkdownInline>) : MarkdownBlock()
 }
 
-data class MarkdownListItem(val content: List<MarkdownInline>)
+data class MarkdownListItem(
+    val content: List<MarkdownInline>,
+    val ordinal: Int? = null,
+)
 
 data class MarkdownTable(
     val headers: List<List<MarkdownInline>>,
@@ -238,7 +241,7 @@ private class MarkdownRenderBuilder(budget: MarkdownRenderBudget) {
                 val limit = maxListItems?.let { minOf(it, block.items.size) } ?: block.items.size
                 block.items.take(limit).forEachIndexed { index, item ->
                     if (isTruncated) return@forEachIndexed
-                    appendText("${index + 1}. ", MarkdownRenderStyle())
+                    appendText("${item.ordinal ?: (index + 1)}. ", MarkdownRenderStyle())
                     appendInlines(item.content, MarkdownRenderStyle())
                     appendText("\n", MarkdownRenderStyle())
                 }
@@ -577,9 +580,58 @@ class PushGoMarkdownParser {
     }
 
     private fun parseTableRow(line: String): List<String> {
-        val trimmed = line.trim().trim('|')
-        val rawCells = trimmed.split("|", ignoreCase = false, limit = 0)
-        return rawCells.map { it.trim() }
+        val trimmed = line.trim()
+        if (trimmed.isEmpty()) return emptyList()
+
+        val content = trimmed
+            .removePrefix("|")
+            .removeSuffix("|")
+
+        val cells = mutableListOf<String>()
+        val buffer = StringBuilder()
+        var bracketDepth = 0
+        var parenDepth = 0
+        var inCode = false
+        var isEscaped = false
+
+        for (char in content) {
+            if (isEscaped) {
+                buffer.append(char)
+                isEscaped = false
+                continue
+            }
+
+            if (char == '\\') {
+                isEscaped = true
+                buffer.append(char)
+                continue
+            }
+
+            if (char == '`') {
+                inCode = !inCode
+                buffer.append(char)
+                continue
+            }
+
+            if (!inCode) {
+                when (char) {
+                    '[' -> bracketDepth += 1
+                    ']' -> bracketDepth = (bracketDepth - 1).coerceAtLeast(0)
+                    '(' -> parenDepth += 1
+                    ')' -> parenDepth = (parenDepth - 1).coerceAtLeast(0)
+                    '|' -> if (bracketDepth == 0 && parenDepth == 0) {
+                        cells.add(buffer.toString().trim())
+                        buffer.setLength(0)
+                        continue
+                    }
+                }
+            }
+
+            buffer.append(char)
+        }
+
+        cells.add(buffer.toString().trim())
+        return cells
     }
 
     private fun parseList(lines: List<String>, startIndex: Int): ParseResult? {
@@ -606,9 +658,10 @@ class PushGoMarkdownParser {
             while (current < lines.size) {
                 val candidate = lines[current]
                 val match = BlockRegex.ORDERED_LIST.find(candidate) ?: break
+                val ordinal = match.groups[1]?.value?.toIntOrNull()
                 val range = match.groups[2]?.range ?: break
                 val text = candidate.substring(range).trim()
-                items.add(MarkdownListItem(content = parseInlines(text)))
+                items.add(MarkdownListItem(content = parseInlines(text), ordinal = ordinal))
                 current += 1
                 if (current < lines.size && lines[current].trim().isEmpty()) break
             }
@@ -752,19 +805,14 @@ class PushGoMarkdownParser {
             }
 
             if (char == '[') {
-                val closingBracket = text.indexOf(']', index + 1)
-                if (closingBracket != -1 && closingBracket + 1 < text.length && text[closingBracket + 1] == '(') {
-                    val closingParen = text.indexOf(')', closingBracket + 2)
-                    if (closingParen != -1) {
-                        val linkText = text.substring(index + 1, closingBracket)
-                        val urlText = text.substring(closingBracket + 2, closingParen)
-                        val lowerUrl = urlText.lowercase(Locale.US)
-                        if (lowerUrl.startsWith("http://") || lowerUrl.startsWith("https://")) {
-                            flushBuffer()
-                            result.add(MarkdownInline.Link(parseInlines(linkText), urlText))
-                            index = closingParen + 1
-                            continue
-                        }
+                val linkMatch = parseLink(text, index)
+                if (linkMatch != null) {
+                    val lowerUrl = linkMatch.destination.lowercase(Locale.US)
+                    if (lowerUrl.startsWith("http://") || lowerUrl.startsWith("https://")) {
+                        flushBuffer()
+                        result.add(MarkdownInline.Link(parseInlines(linkMatch.label), linkMatch.destination))
+                        index = linkMatch.nextIndex
+                        continue
                     }
                 }
             }
@@ -775,6 +823,64 @@ class PushGoMarkdownParser {
 
         flushBuffer()
         return tokenizeSpecials(result)
+    }
+
+    private fun parseLink(text: String, startIndex: Int): LinkMatch? {
+        if (startIndex >= text.length || text[startIndex] != '[') return null
+
+        var index = startIndex + 1
+        var bracketDepth = 1
+        var isEscaped = false
+        while (index < text.length) {
+            val char = text[index]
+            if (isEscaped) {
+                isEscaped = false
+            } else {
+                when (char) {
+                    '\\' -> isEscaped = true
+                    '[' -> bracketDepth += 1
+                    ']' -> {
+                        bracketDepth -= 1
+                        if (bracketDepth == 0) break
+                    }
+                }
+            }
+            index += 1
+        }
+
+        if (index >= text.length || text[index] != ']') return null
+        val closingBracket = index
+        val openParen = closingBracket + 1
+        if (openParen >= text.length || text[openParen] != '(') return null
+
+        index = openParen + 1
+        val destinationStart = index
+        var parenDepth = 1
+        isEscaped = false
+        while (index < text.length) {
+            val char = text[index]
+            if (isEscaped) {
+                isEscaped = false
+            } else {
+                when (char) {
+                    '\\' -> isEscaped = true
+                    '(' -> parenDepth += 1
+                    ')' -> {
+                        parenDepth -= 1
+                        if (parenDepth == 0) {
+                            return LinkMatch(
+                                label = text.substring(startIndex + 1, closingBracket),
+                                destination = text.substring(destinationStart, index).trim(),
+                                nextIndex = index + 1,
+                            )
+                        }
+                    }
+                }
+            }
+            index += 1
+        }
+
+        return null
     }
 
     private fun tokenizeSpecials(inlines: List<MarkdownInline>): List<MarkdownInline> {
@@ -858,6 +964,7 @@ class PushGoMarkdownParser {
     private data class TableParseResult(val table: MarkdownTable, val nextIndex: Int)
 
     private data class MatchCandidate(val range: IntRange, val inline: MarkdownInline)
+    private data class LinkMatch(val label: String, val destination: String, val nextIndex: Int)
 
     private fun rangesOverlap(a: IntRange, b: IntRange): Boolean {
         return a.first <= b.last && b.first <= a.last
@@ -923,11 +1030,11 @@ object MessagePreviewExtractor {
     }
 
     private fun preview(markdown: String, maxLines: Int, maxChars: Int): String {
-        val normalized = markdown.replace("\r\n", "\n").replace('\r', '\n')
+        val normalized = preprocessMarkdownForPreview(markdown)
         val lines = plainLines(normalized)
         val selected = lines.take(maxLines).mapNotNull { line ->
             val trimmed = line.trim()
-            trimmed.takeIf { it.isNotEmpty() }
+            trimmed.takeIf { it.isNotEmpty() && !isPureLinkCollectionLine(it) }
         }
         val joined = selected.joinToString("\n")
         if (joined.length <= maxChars) return joined
@@ -957,22 +1064,25 @@ object MessagePreviewExtractor {
 
     private fun plainLines(block: MarkdownBlock): List<String> {
         return when (block) {
-            is MarkdownBlock.Heading -> listOf(plainText(block.content))
-            is MarkdownBlock.Paragraph -> listOf(plainText(block.content))
-            is MarkdownBlock.Blockquote -> listOf(plainText(block.content))
-            is MarkdownBlock.Callout -> listOf(plainText(block.content))
-            is MarkdownBlock.BulletList -> block.items.map { plainText(it.content) }
-            is MarkdownBlock.OrderedList -> block.items.map { plainText(it.content) }
-            is MarkdownBlock.Table -> buildList {
-                if (block.table.headers.isNotEmpty()) {
-                    add(block.table.headers.joinToString(" | ") { plainText(it) })
-                }
-                block.table.rows.forEach { row ->
-                    add(row.joinToString(" | ") { plainText(it) })
-                }
+            is MarkdownBlock.Heading -> plainPreviewLine(block.content)
+            is MarkdownBlock.Paragraph -> plainPreviewLine(block.content)
+            is MarkdownBlock.Blockquote -> plainPreviewLine(block.content, prefix = "> ")
+            is MarkdownBlock.Callout -> plainPreviewLine(block.content, prefix = "[${block.type.name}] ")
+            is MarkdownBlock.BulletList -> block.items.mapNotNull { plainPreviewLine(it.content, prefix = "- ").firstOrNull() }
+            is MarkdownBlock.OrderedList -> block.items.mapIndexedNotNull { index, item ->
+                plainPreviewLine(item.content, prefix = "${item.ordinal ?: (index + 1)}. ").firstOrNull()
             }
+            is MarkdownBlock.Table -> emptyList()
             MarkdownBlock.HorizontalRule -> emptyList()
         }
+    }
+
+    private fun plainPreviewLine(
+        inlines: List<MarkdownInline>,
+        prefix: String = "",
+    ): List<String> {
+        if (isSkippableInlineSequence(inlines)) return emptyList()
+        return listOf(prefix + plainText(inlines))
     }
 
     private fun plainText(inlines: List<MarkdownInline>): String {
@@ -987,10 +1097,276 @@ object MessagePreviewExtractor {
             is MarkdownInline.Strikethrough -> plainText(inline.content)
             is MarkdownInline.Highlight -> plainText(inline.content)
             is MarkdownInline.Code -> inline.value
-            is MarkdownInline.Link -> plainText(inline.text)
+            is MarkdownInline.Link -> {
+                val label = plainText(inline.text).trim()
+                val destination = inline.url.trim()
+                when {
+                    label.isEmpty() -> ""
+                    label == destination -> label
+                    else -> "$label ($destination)"
+                }
+            }
             is MarkdownInline.Mention -> "@${inline.value}"
             is MarkdownInline.Tag -> "#${inline.value}"
             is MarkdownInline.Autolink -> inline.link.value
         }
+    }
+
+    private fun stripMarkdownImages(markdown: String): String {
+        val output = StringBuilder(markdown.length)
+        var index = 0
+        while (index < markdown.length) {
+            if (markdown[index] == '!' && index + 1 < markdown.length && markdown[index + 1] == '[') {
+                val imageEnd = parseMarkdownImage(markdown, index)
+                if (imageEnd != null) {
+                    index = imageEnd
+                    continue
+                }
+            }
+            output.append(markdown[index])
+            index += 1
+        }
+        return output.toString()
+    }
+
+    private fun preprocessMarkdownForPreview(markdown: String): String {
+        val normalized = markdown.replace("\r\n", "\n").replace('\r', '\n')
+        val withoutImages = stripMarkdownImages(normalized)
+        val withoutCodeBlocks = stripFencedCodeBlocks(withoutImages)
+        val withoutTables = stripMarkdownTables(withoutCodeBlocks)
+        return stripRawHtml(withoutTables)
+    }
+
+    private fun stripFencedCodeBlocks(markdown: String): String {
+        val output = mutableListOf<String>()
+        var activeFence: Char? = null
+        markdown.split('\n').forEach { line ->
+            val trimmed = line.trimStart()
+            if (activeFence != null) {
+                if (trimmed.startsWith(activeFence.toString().repeat(3))) {
+                    activeFence = null
+                }
+                return@forEach
+            }
+            when {
+                trimmed.startsWith("```") -> {
+                    activeFence = '`'
+                    return@forEach
+                }
+                trimmed.startsWith("~~~") -> {
+                    activeFence = '~'
+                    return@forEach
+                }
+                else -> output += line
+            }
+        }
+        return output.joinToString("\n")
+    }
+
+    private fun stripMarkdownTables(markdown: String): String {
+        val lines = markdown.split('\n')
+        val filtered = mutableListOf<String>()
+        var index = 0
+        while (index < lines.size) {
+            val line = lines[index]
+            if (index + 1 < lines.size && line.contains('|') && isMarkdownTableSeparator(lines[index + 1])) {
+                index += 2
+                while (index < lines.size) {
+                    val row = lines[index]
+                    val trimmed = row.trim()
+                    if (trimmed.isEmpty() || !row.contains('|')) {
+                        break
+                    }
+                    index += 1
+                }
+                continue
+            }
+            filtered += line
+            index += 1
+        }
+        return filtered.joinToString("\n")
+    }
+
+    private fun isMarkdownTableSeparator(line: String): Boolean {
+        val trimmed = line.trim()
+        if (trimmed.isEmpty() || !trimmed.contains('-')) return false
+        return trimmed.all { it == '|' || it == '-' || it == ':' || it == ' ' || it == '\t' }
+    }
+
+    private fun stripRawHtml(markdown: String): String {
+        return markdown
+            .split('\n')
+            .mapNotNull { line ->
+                val trimmed = line.trim()
+                if (isRawHtmlBlockLine(trimmed)) {
+                    null
+                } else {
+                    removeInlineHtmlTags(line)
+                }
+            }
+            .joinToString("\n")
+    }
+
+    private fun isRawHtmlBlockLine(line: String): Boolean {
+        if (!line.startsWith('<') || !line.contains('>')) return false
+        if (line.startsWith("<!--")) return true
+        return line.contains("</") || line.endsWith("/>") || line.endsWith('>')
+    }
+
+    private fun removeInlineHtmlTags(line: String): String {
+        val output = StringBuilder(line.length)
+        var insideTag = false
+        line.forEach { char ->
+            when {
+                char == '<' -> insideTag = true
+                char == '>' -> insideTag = false
+                !insideTag -> output.append(char)
+            }
+        }
+        return output.toString()
+    }
+
+    private fun isSkippableInlineSequence(inlines: List<MarkdownInline>): Boolean {
+        if (containsCodeInline(inlines)) return true
+        return isPureLinkCollection(inlines)
+    }
+
+    private fun containsCodeInline(inlines: List<MarkdownInline>): Boolean {
+        return inlines.any { inline ->
+            when (inline) {
+                is MarkdownInline.Code -> true
+                is MarkdownInline.Bold -> containsCodeInline(inline.content)
+                is MarkdownInline.Italic -> containsCodeInline(inline.content)
+                is MarkdownInline.Strikethrough -> containsCodeInline(inline.content)
+                is MarkdownInline.Highlight -> containsCodeInline(inline.content)
+                is MarkdownInline.Link -> containsCodeInline(inline.text)
+                else -> false
+            }
+        }
+    }
+
+    private fun isPureLinkCollection(inlines: List<MarkdownInline>): Boolean {
+        var linkCount = 0
+
+        fun walk(inline: MarkdownInline): Boolean {
+            return when (inline) {
+                is MarkdownInline.Link, is MarkdownInline.Autolink -> {
+                    linkCount += 1
+                    true
+                }
+                is MarkdownInline.Text -> inline.value.trim().trim(
+                    *charArrayOf(
+                        ' ', '\n', '\t', ',', '.', ';', ':', '!', '?', '|', '/', '-', '_',
+                        '(', ')', '[', ']', '{', '}',
+                    ),
+                ).isEmpty()
+                is MarkdownInline.Bold -> inline.content.all(::walk)
+                is MarkdownInline.Italic -> inline.content.all(::walk)
+                is MarkdownInline.Strikethrough -> inline.content.all(::walk)
+                is MarkdownInline.Highlight -> inline.content.all(::walk)
+                is MarkdownInline.Mention -> inline.value.trim().isEmpty()
+                is MarkdownInline.Tag -> inline.value.trim().isEmpty()
+                is MarkdownInline.Code -> false
+            }
+        }
+
+        return inlines.all(::walk) && linkCount >= 2
+    }
+
+    private fun isPureLinkCollectionLine(line: String): Boolean {
+        val trimmed = line.trim()
+        if (
+            trimmed.startsWith("- ") ||
+            trimmed.startsWith("* ") ||
+            trimmed.startsWith("+ ") ||
+            hasOrderedListPrefix(trimmed)
+        ) {
+            return false
+        }
+
+        if (trimmed.contains(" | ") && trimmed.split(" | ").size >= 2 && trimmed.split(" (http").size > 2) {
+            return true
+        }
+
+        if (isSingleLinkToken(trimmed)) {
+            return true
+        }
+
+        for (separator in charArrayOf('|', ',', ';')) {
+            val parts = trimmed.split(separator).map(String::trim).filter(String::isNotEmpty)
+            if (parts.size >= 2) {
+                return parts.all(::isSingleLinkToken)
+            }
+        }
+        return false
+    }
+
+    private fun hasOrderedListPrefix(line: String): Boolean {
+        val separatorIndex = line.indexOf(". ")
+        if (separatorIndex <= 0) return false
+        return line.substring(0, separatorIndex).all(Char::isDigit)
+    }
+
+    private fun isSingleLinkToken(token: String): Boolean {
+        val trimmed = token.trim()
+        if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) {
+            return trimmed.none(Char::isWhitespace)
+        }
+
+        val open = trimmed.indexOf(" (")
+        if (open <= 0) return false
+        val label = trimmed.substring(0, open).trim()
+        if (label.isEmpty()) return false
+        val tail = trimmed.substring(open + 2)
+        return (tail.startsWith("http://") || tail.startsWith("https://")) && trimmed.endsWith(')')
+    }
+
+    private fun parseMarkdownImage(markdown: String, bangIndex: Int): Int? {
+        if (bangIndex + 1 >= markdown.length || markdown[bangIndex + 1] != '[') return null
+
+        var index = bangIndex + 2
+        var bracketDepth = 1
+        var escaped = false
+        while (index < markdown.length) {
+            val char = markdown[index]
+            if (escaped) {
+                escaped = false
+            } else {
+                when (char) {
+                    '\\' -> escaped = true
+                    '[' -> bracketDepth += 1
+                    ']' -> {
+                        bracketDepth -= 1
+                        if (bracketDepth == 0) break
+                    }
+                }
+            }
+            index += 1
+        }
+
+        if (index >= markdown.length || markdown[index] != ']') return null
+        val openParen = index + 1
+        if (openParen >= markdown.length || markdown[openParen] != '(') return null
+
+        index = openParen + 1
+        var parenDepth = 1
+        escaped = false
+        while (index < markdown.length) {
+            val char = markdown[index]
+            if (escaped) {
+                escaped = false
+            } else {
+                when (char) {
+                    '\\' -> escaped = true
+                    '(' -> parenDepth += 1
+                    ')' -> {
+                        parenDepth -= 1
+                        if (parenDepth == 0) return index + 1
+                    }
+                }
+            }
+            index += 1
+        }
+        return null
     }
 }

@@ -15,7 +15,7 @@ use tokio::sync::{mpsc, watch};
 use warp_link::{client_run_with_shutdown, warp_link_core};
 use warp_link_core::{
     AppDecision, ClientApp, ClientAppStateHint, ClientConfig, ClientEvent, ClientPolicy,
-    ClientPowerHint, ClientPowerTier, HelloCtx,
+    ClientPowerHint, ClientPowerTier, HelloCtx, ProbeRttSource,
 };
 
 const PRIVATE_CONNECT_BUDGET_MS: u64 = 13_000;
@@ -70,6 +70,8 @@ struct EventApp {
     power_hint: Arc<Mutex<Option<ClientPowerHint>>>,
     pending_acks: Arc<Mutex<HashMap<u64, std_mpsc::SyncSender<AppDecision>>>>,
     next_ack_id: Arc<AtomicU64>,
+    probe_request_epoch: Arc<AtomicU64>,
+    consumed_probe_epoch: Arc<AtomicU64>,
     ack_wait_timeout_ms: u64,
     session_started_at: Instant,
     tx: mpsc::UnboundedSender<String>,
@@ -151,6 +153,17 @@ impl ClientApp for EventApp {
     fn power_hint(&self) -> Option<ClientPowerHint> {
         self.power_hint.lock().ok().and_then(|value| *value)
     }
+
+    fn take_probe_request(&self) -> bool {
+        let requested = self.probe_request_epoch.load(Ordering::Relaxed);
+        let consumed = self.consumed_probe_epoch.load(Ordering::Relaxed);
+        if requested <= consumed {
+            return false;
+        }
+        self.consumed_probe_epoch
+            .store(requested, Ordering::Relaxed);
+        true
+    }
 }
 
 struct Session {
@@ -160,6 +173,7 @@ struct Session {
     hello: Arc<Mutex<HelloCtx>>,
     power_hint: Arc<Mutex<Option<ClientPowerHint>>>,
     pending_acks: Arc<Mutex<HashMap<u64, std_mpsc::SyncSender<AppDecision>>>>,
+    probe_request_epoch: Arc<AtomicU64>,
 }
 
 static NEXT_HANDLE: AtomicU64 = AtomicU64::new(1);
@@ -245,11 +259,15 @@ pub extern "system" fn Java_io_ethan_pushgo_notifications_WarpLinkNativeBridge_n
     let power_hint = Arc::new(Mutex::new(initial_power_hint));
     let pending_acks = Arc::new(Mutex::new(HashMap::new()));
     let next_ack_id = Arc::new(AtomicU64::new(1));
+    let probe_request_epoch = Arc::new(AtomicU64::new(0));
+    let consumed_probe_epoch = Arc::new(AtomicU64::new(0));
     let app = EventApp {
         hello: Arc::clone(&hello),
         power_hint: Arc::clone(&power_hint),
         pending_acks: Arc::clone(&pending_acks),
         next_ack_id,
+        probe_request_epoch: Arc::clone(&probe_request_epoch),
+        consumed_probe_epoch,
         ack_wait_timeout_ms,
         session_started_at: Instant::now(),
         tx,
@@ -300,6 +318,7 @@ pub extern "system" fn Java_io_ethan_pushgo_notifications_WarpLinkNativeBridge_n
             hello,
             power_hint,
             pending_acks,
+            probe_request_epoch,
         }),
     );
     handle as jlong
@@ -435,6 +454,28 @@ pub extern "system" fn Java_io_ethan_pushgo_notifications_WarpLinkNativeBridge_n
 }
 
 #[unsafe(no_mangle)]
+pub extern "system" fn Java_io_ethan_pushgo_notifications_WarpLinkNativeBridge_nativeSessionRequestProbe(
+    _env: EnvUnowned,
+    _class: JClass,
+    handle: jlong,
+) -> jint {
+    if handle == 0 {
+        return 0;
+    }
+    let session = match SESSIONS.lock() {
+        Ok(guard) => guard.get(&(handle as u64)).cloned(),
+        Err(_) => return 0,
+    };
+    let Some(session) = session else {
+        return 0;
+    };
+    session
+        .probe_request_epoch
+        .fetch_add(1, Ordering::Relaxed);
+    1
+}
+
+#[unsafe(no_mangle)]
 pub extern "system" fn Java_io_ethan_pushgo_notifications_WarpLinkNativeBridge_nativeSessionSetPowerHint(
     mut env: EnvUnowned,
     _class: JClass,
@@ -549,6 +590,21 @@ fn event_to_json(event: &ClientEvent, session_started_at: Instant) -> String {
         ClientEvent::Fatal { error } => serde_json::json!({
             "type": "fatal",
             "error": error,
+            "elapsed_ms": elapsed_ms,
+        })
+        .to_string(),
+        ClientEvent::ProbeRtt {
+            transport,
+            rtt_ms,
+            source,
+        } => serde_json::json!({
+            "type": "probe_rtt",
+            "transport": transport.to_string(),
+            "rtt_ms": rtt_ms,
+            "source": match source {
+                ProbeRttSource::Manual => "manual",
+                ProbeRttSource::IdleKeepalive => "idle_keepalive",
+            },
             "elapsed_ms": elapsed_ms,
         })
         .to_string(),

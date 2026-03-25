@@ -763,7 +763,6 @@ dependencies = [
 [[package]]
 name = "pushgo-warp-profile"
 version = "0.1.0"
-source = "git+https://github.com/AldenClark/warp-link?rev=4c11f58cd211a4baffa729996e19e40b71188221#4c11f58cd211a4baffa729996e19e40b71188221"
 dependencies = [
  "bytes",
  "postcard",
@@ -1357,7 +1356,6 @@ dependencies = [
 [[package]]
 name = "warp-link"
 version = "0.1.0"
-source = "git+https://github.com/AldenClark/warp-link?rev=4c11f58cd211a4baffa729996e19e40b71188221#4c11f58cd211a4baffa729996e19e40b71188221"
 dependencies = [
  "async-trait",
  "bytes",
@@ -1375,7 +1373,6 @@ dependencies = [
 [[package]]
 name = "warp-link-core"
 version = "0.1.0"
-source = "git+https://github.com/AldenClark/warp-link?rev=4c11f58cd211a4baffa729996e19e40b71188221#4c11f58cd211a4baffa729996e19e40b71188221"
 dependencies = [
  "async-trait",
  "bytes",
@@ -1385,7 +1382,6 @@ dependencies = [
 [[package]]
 name = "warp-link-transport"
 version = "0.1.0"
-source = "git+https://github.com/AldenClark/warp-link?rev=4c11f58cd211a4baffa729996e19e40b71188221#4c11f58cd211a4baffa729996e19e40b71188221"
 dependencies = [
  "bytes",
  "futures-util",

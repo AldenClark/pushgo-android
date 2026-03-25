@@ -87,7 +87,6 @@ import io.ethan.pushgo.data.AppContainer
 import io.ethan.pushgo.data.model.MessageChannelCount
 import io.ethan.pushgo.data.model.PushMessage
 import io.ethan.pushgo.data.model.MessageSeverity
-import io.ethan.pushgo.markdown.MessagePreviewExtractor
 import io.ethan.pushgo.ui.PushGoViewModelFactory
 import io.ethan.pushgo.ui.announceForAccessibility
 import io.ethan.pushgo.ui.viewmodel.MessageListViewModel
@@ -438,9 +437,8 @@ private fun MessageRow(
         formatMessageTime(context, message.receivedAt, ZoneId.systemDefault())
     }
     
-    val bodyPreview = remember(message.bodyPreview, message.body) {
-        message.bodyPreview?.trim()?.takeIf { it.isNotEmpty() }
-            ?: MessagePreviewExtractor.listPreview(message.body)
+    val bodyPreview = remember(message.bodyPreview) {
+        message.bodyPreview?.trim().orEmpty()
     }
     val unreadStateLabel = stringResource(R.string.filter_unread)
 
@@ -554,10 +552,12 @@ fun MessageRowContent(
             verticalArrangement = Arrangement.Center
         ) {
             Row(
+                modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
             ) {
                 Text(
+                    modifier = Modifier.weight(1f),
                     text = message.title.ifBlank { appName },
                     style = MaterialTheme.typography.titleMedium.copy(
                         fontWeight = if (message.isRead) FontWeight.SemiBold else FontWeight.ExtraBold
@@ -568,7 +568,7 @@ fun MessageRowContent(
                         MaterialTheme.colorScheme.onSurface
                     },
                     maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
+                    overflow = TextOverflow.Clip
                 )
                 MessageSeverityListBadge(severity = message.severity)
             }

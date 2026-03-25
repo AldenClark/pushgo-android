@@ -9,7 +9,6 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -325,10 +324,8 @@ fun EventListScreen(
     }
 
     if (selectedEvent != null) {
-        val useFullHeightSheet = selectedEvent!!.timeline.size >= 8
-        val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = useFullHeightSheet)
+        val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
         ModalBottomSheet(
-            modifier = if (useFullHeightSheet) Modifier.fillMaxHeight(0.98f) else Modifier,
             sheetState = sheetState,
             containerColor = PushGoSheetContainerColor(),
             tonalElevation = 0.dp,

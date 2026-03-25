@@ -1,5 +1,9 @@
 package io.ethan.pushgo.ui.markdown
 
+import android.graphics.Typeface
+import android.os.Build
+import android.os.LocaleList
+import android.text.Layout
 import android.text.Selection
 import android.text.Spannable
 import android.text.method.LinkMovementMethod
@@ -18,13 +22,66 @@ import coil.imageLoader
 import io.noties.markwon.AbstractMarkwonPlugin
 import io.noties.markwon.Markwon
 import io.noties.markwon.LinkResolverDef
+import io.noties.markwon.SoftBreakAddsNewLinePlugin
+import io.noties.markwon.core.MarkwonTheme
+import io.noties.markwon.ext.tables.TableAwareMovementMethod
 import io.noties.markwon.ext.strikethrough.StrikethroughPlugin
 import io.noties.markwon.ext.tables.TablePlugin
+import io.noties.markwon.ext.tables.TableTheme
 import io.noties.markwon.ext.tasklist.TaskListPlugin
 import io.noties.markwon.html.HtmlPlugin
 import io.noties.markwon.image.AsyncDrawableSpan
 import io.noties.markwon.image.coil.CoilImagesPlugin
 import io.noties.markwon.linkify.LinkifyPlugin
+
+@Composable
+fun SelectablePlainTextRenderer(
+    text: String,
+    modifier: Modifier = Modifier,
+    typeface: Typeface = Typeface.create("sans-serif", Typeface.NORMAL),
+    textSizeSp: Float = androidx.compose.material3.MaterialTheme.typography.bodyMedium.fontSize.value,
+    textColorArgb: Int = androidx.compose.material3.MaterialTheme.colorScheme.onSurface.toArgb(),
+    lineSpacingExtraPx: Float = 0f,
+) {
+    AndroidView(
+        modifier = modifier,
+        factory = { context ->
+            AppCompatTextView(context).apply {
+                this.typeface = typeface
+                setTextColor(textColorArgb)
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, textSizeSp)
+                setLineSpacing(lineSpacingExtraPx, 1f)
+                isClickable = true
+                isLongClickable = true
+                linksClickable = false
+                setTextIsSelectable(true)
+                includeFontPadding = false
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                    textLocales = LocaleList.forLanguageTags("zh-CN,en-US")
+                }
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                    breakStrategy = Layout.BREAK_STRATEGY_HIGH_QUALITY
+                    hyphenationFrequency = Layout.HYPHENATION_FREQUENCY_NORMAL
+                }
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                    isFallbackLineSpacing = true
+                }
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    justificationMode = Layout.JUSTIFICATION_MODE_NONE
+                }
+            }
+        },
+        update = { textView ->
+            textView.typeface = typeface
+            textView.setTextColor(textColorArgb)
+            textView.setTextSize(TypedValue.COMPLEX_UNIT_SP, textSizeSp)
+            textView.setLineSpacing(lineSpacingExtraPx, 1f)
+            if (textView.text.toString() != text) {
+                textView.text = text
+            }
+        },
+    )
+}
 
 @Composable
 fun FullMarkdownRenderer(
@@ -34,22 +91,96 @@ fun FullMarkdownRenderer(
     onOpenImage: ((String) -> Unit)? = null,
 ) {
     val context = LocalContext.current
-    val color = androidx.compose.material3.MaterialTheme.colorScheme.onSurface.toArgb()
+    val colorScheme = androidx.compose.material3.MaterialTheme.colorScheme
+    val color = colorScheme.onSurface.toArgb()
     val textSizeSp = androidx.compose.material3.MaterialTheme.typography.bodyMedium.fontSize.value
+    val bodyTypeface = remember { Typeface.create("sans-serif", Typeface.NORMAL) }
+    val linkColor = colorScheme.primary.toArgb()
+    val codeBackgroundColor = colorScheme.surfaceVariant.copy(alpha = 0.72f).toArgb()
+    val quoteColor = colorScheme.outlineVariant.copy(alpha = 0.9f).toArgb()
+    val tableBorderColor = colorScheme.outlineVariant.copy(alpha = 0.85f).toArgb()
+    val tableHeaderBackgroundColor = colorScheme.surfaceContainerHighest.copy(alpha = 0.9f).toArgb()
+    val tableOddRowBackgroundColor = colorScheme.surfaceContainer.copy(alpha = 0.55f).toArgb()
+    val tableEvenRowBackgroundColor = colorScheme.surface.copy(alpha = 0.15f).toArgb()
+    val dp = context.resources.displayMetrics.density
+    val blockMarginPx = (20f * dp).toInt()
+    val codeBlockMarginPx = (12f * dp).toInt()
+    val tableCellPaddingPx = (10f * dp).toInt()
+    val headingBreakHeightPx = (1f * dp).toInt().coerceAtLeast(1)
+    val thematicBreakHeightPx = (3f * dp).toInt().coerceAtLeast(1)
+    val blockQuoteWidthPx = (4f * dp).toInt().coerceAtLeast(1)
+    val bulletWidthPx = (7f * dp).toInt().coerceAtLeast(1)
+    val lineSpacingExtraPx = 7f * dp
 
     val interactionMovementMethod = remember(onOpenLink, onOpenImage) {
-        MarkdownInteractionMovementMethod(onOpenLink = onOpenLink, onOpenImage = onOpenImage)
+        TableAwareMovementMethod.wrap(
+            MarkdownInteractionMovementMethod(onOpenLink = onOpenLink, onOpenImage = onOpenImage),
+        )
     }
-    val markwon = remember(context, onOpenLink) {
+    val markwon = remember(
+        context,
+        onOpenLink,
+        linkColor,
+        codeBackgroundColor,
+        quoteColor,
+        tableBorderColor,
+        tableHeaderBackgroundColor,
+        tableOddRowBackgroundColor,
+        tableEvenRowBackgroundColor,
+        blockMarginPx,
+        codeBlockMarginPx,
+        tableCellPaddingPx,
+        headingBreakHeightPx,
+        thematicBreakHeightPx,
+        blockQuoteWidthPx,
+        bulletWidthPx,
+        bodyTypeface,
+    ) {
         Markwon.builder(context)
+            .usePlugin(SoftBreakAddsNewLinePlugin.create())
             .usePlugin(StrikethroughPlugin.create())
-            .usePlugin(TablePlugin.create(context))
+            .usePlugin(TablePlugin.create { builder: TableTheme.Builder ->
+                builder
+                    .tableCellPadding(tableCellPaddingPx)
+                    .tableBorderWidth((1f * dp).toInt().coerceAtLeast(1))
+                    .tableBorderColor(tableBorderColor)
+                    .tableHeaderRowBackgroundColor(tableHeaderBackgroundColor)
+                    .tableOddRowBackgroundColor(tableOddRowBackgroundColor)
+                    .tableEvenRowBackgroundColor(tableEvenRowBackgroundColor)
+            })
             .usePlugin(TaskListPlugin.create(context))
             .usePlugin(HtmlPlugin.create())
             .usePlugin(LinkifyPlugin.create())
             .usePlugin(CoilImagesPlugin.create(context, context.imageLoader))
             .usePlugin(object : AbstractMarkwonPlugin() {
                 private val fallbackResolver = LinkResolverDef()
+
+                override fun configureTheme(builder: MarkwonTheme.Builder) {
+                    builder
+                        .linkColor(linkColor)
+                        .isLinkUnderlined(false)
+                        .blockMargin(blockMarginPx)
+                        .blockQuoteColor(quoteColor)
+                        .blockQuoteWidth(blockQuoteWidthPx)
+                        .listItemColor(color)
+                        .bulletWidth(bulletWidthPx)
+                        .codeTextColor(color)
+                        .codeBlockTextColor(color)
+                        .codeBackgroundColor(codeBackgroundColor)
+                        .codeBlockBackgroundColor(codeBackgroundColor)
+                        .codeBlockMargin(codeBlockMarginPx)
+                        .codeTextSize(
+                            TypedValue.applyDimension(
+                                TypedValue.COMPLEX_UNIT_SP,
+                                textSizeSp * 0.96f,
+                                context.resources.displayMetrics,
+                            ).toInt()
+                        )
+                        .headingBreakColor(quoteColor)
+                        .headingBreakHeight(headingBreakHeightPx)
+                        .thematicBreakHeight(thematicBreakHeightPx)
+                        .headingTextSizeMultipliers(floatArrayOf(1.56f, 1.36f, 1.2f, 1.08f, 1.0f, 0.96f))
+                }
 
                 override fun configureConfiguration(builder: io.noties.markwon.MarkwonConfiguration.Builder) {
                     builder.linkResolver { view, link ->
@@ -68,20 +199,36 @@ fun FullMarkdownRenderer(
         modifier = modifier,
         factory = {
             AppCompatTextView(it).apply {
+                typeface = bodyTypeface
                 setTextColor(color)
                 setTextSize(TypedValue.COMPLEX_UNIT_SP, textSizeSp)
-                setLineSpacing(0f, 1f)
+                setLineSpacing(lineSpacingExtraPx, 1f)
                 movementMethod = interactionMovementMethod
                 isClickable = true
                 isLongClickable = true
-                setTextIsSelectable(false)
+                linksClickable = true
+                setTextIsSelectable(true)
                 includeFontPadding = false
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                    textLocales = LocaleList.forLanguageTags("zh-CN,en-US")
+                }
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                    breakStrategy = Layout.BREAK_STRATEGY_HIGH_QUALITY
+                    hyphenationFrequency = Layout.HYPHENATION_FREQUENCY_NORMAL
+                }
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                    isFallbackLineSpacing = true
+                }
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    justificationMode = Layout.JUSTIFICATION_MODE_NONE
+                }
             }
         },
         update = { textView ->
+            textView.typeface = bodyTypeface
             textView.setTextColor(color)
             textView.setTextSize(TypedValue.COMPLEX_UNIT_SP, textSizeSp)
-            textView.setLineSpacing(0f, 1f)
+            textView.setLineSpacing(lineSpacingExtraPx, 1f)
             textView.movementMethod = interactionMovementMethod
             val previousText = textView.tag as? String
             if (previousText != text) {

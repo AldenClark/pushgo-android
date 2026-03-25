@@ -38,6 +38,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
@@ -62,6 +63,7 @@ import io.ethan.pushgo.ui.viewmodel.DiagnosisExportScope
 import io.ethan.pushgo.ui.viewmodel.EnhancedProbeState
 import io.ethan.pushgo.ui.viewmodel.GatewayAggregate
 import io.ethan.pushgo.ui.viewmodel.ConnectionDiagnosisViewModel
+import io.ethan.pushgo.ui.viewmodel.ProtocolSelectionHistoryItem
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -208,6 +210,7 @@ fun ConnectionDiagnosisScreen(
                     modeLabel = viewModel.channelProbeModeLabel,
                     profileRttMs = viewModel.channelProbeProfileRttMs,
                     legs = viewModel.channelProbeLegs,
+                    selectionHistory = viewModel.protocolSelectionHistory,
                     onEnhancedProbeClick = viewModel::startEnhancedProbe,
                 )
             }
@@ -339,6 +342,7 @@ private fun LinkMatrixCard(
     modeLabel: String,
     profileRttMs: Long?,
     legs: List<ChannelProbeLeg>,
+    selectionHistory: List<ProtocolSelectionHistoryItem>,
     onEnhancedProbeClick: (ChannelProbeLeg) -> Unit,
 ) {
     val sortedLegs = remember(legs) {
@@ -410,13 +414,25 @@ private fun LinkMatrixCard(
                             style = MaterialTheme.typography.bodySmall,
                             fontFamily = FontFamily.Monospace,
                         )
-                        if (!leg.path.isNullOrBlank() || !leg.subprotocol.isNullOrBlank() || !leg.note.isNullOrBlank()) {
+                        if (!leg.path.isNullOrBlank()) {
                             Text(
-                                text = buildString {
-                                    if (!leg.path.isNullOrBlank()) append("path=${leg.path} ")
-                                    if (!leg.subprotocol.isNullOrBlank()) append("subprotocol=${leg.subprotocol} ")
-                                    if (!leg.note.isNullOrBlank()) append("note=${leg.note}")
-                                }.trim(),
+                                text = "path=${leg.path}",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                fontFamily = FontFamily.Monospace,
+                            )
+                        }
+                        if (!leg.subprotocol.isNullOrBlank()) {
+                            Text(
+                                text = "subprotocol=${leg.subprotocol}",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                fontFamily = FontFamily.Monospace,
+                            )
+                        }
+                        formatLegNoteRows(leg.note).forEach { row ->
+                            Text(
+                                text = "note.${row.key}=${row.value}",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 fontFamily = FontFamily.Monospace,
@@ -454,6 +470,31 @@ private fun LinkMatrixCard(
                         }
                     }
                 }
+                if (selectionHistory.isNotEmpty()) {
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f))
+                    Text(
+                        text = "协议选择原因历史",
+                        style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold),
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                    selectionHistory.takeLast(8).asReversed().forEach { item ->
+                        Text(
+                            text = buildString {
+                                append("${formatDiagnosisTime(item.timestampMs)} ${item.transport}")
+                                append(" reason=${item.reason}")
+                                item.elapsedMs?.let { append(" elapsed=${it}ms") }
+                                item.inSessionProbeRttMs?.let { append(" in_session_rtt=${it}ms") }
+                                item.inSessionProbeSource?.takeIf { it.isNotBlank() }?.let {
+                                    append(" source=")
+                                    append(it)
+                                }
+                            },
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            fontFamily = FontFamily.Monospace,
+                        )
+                    }
+                }
             }
         }
     }
@@ -465,7 +506,11 @@ private fun EnhancedProbeSheet(
     state: EnhancedProbeState,
     onDismiss: () -> Unit,
 ) {
-    ModalBottomSheet(onDismissRequest = onDismiss) {
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+    ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
@@ -686,6 +731,26 @@ private fun buildFailureReason(leg: ChannelProbeLeg): String {
         !leg.note.isNullOrBlank() -> leg.note
         else -> "网络层探测失败（无详细错误）"
     }
+}
+
+private data class LegNoteRow(
+    val key: String,
+    val value: String,
+)
+
+private fun formatLegNoteRows(note: String?): List<LegNoteRow> {
+    if (note.isNullOrBlank()) return emptyList()
+    return note.split(Regex("""\s*[;|]\s*"""))
+        .mapNotNull { part ->
+            val cleaned = part.trim()
+            if (cleaned.isEmpty()) return@mapNotNull null
+            val idx = cleaned.indexOf('=')
+            if (idx <= 0 || idx >= cleaned.length - 1) {
+                LegNoteRow("detail", cleaned)
+            } else {
+                LegNoteRow(cleaned.substring(0, idx).trim(), cleaned.substring(idx + 1).trim())
+            }
+        }
 }
 
 private fun formatLegLastLatency(leg: ChannelProbeLeg): String {

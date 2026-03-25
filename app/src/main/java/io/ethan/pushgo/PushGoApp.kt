@@ -12,6 +12,7 @@ import com.google.android.gms.common.GoogleApiAvailability
 import io.ethan.pushgo.data.AppContainer
 import io.ethan.pushgo.automation.PushGoAutomation
 import io.ethan.pushgo.notifications.KeepaliveState
+import io.ethan.pushgo.notifications.AlertPlaybackController
 import io.ethan.pushgo.notifications.NotificationHelper
 import io.ethan.pushgo.notifications.PrivateAckOutboxWorkScheduler
 import io.ethan.pushgo.notifications.PrivateChannelServiceManager
@@ -122,6 +123,7 @@ class PushGoApp : Application(), ImageLoaderFactory {
         registerActivityLifecycleCallbacks(object : ActivityLifecycleCallbacks {
             override fun onActivityStarted(activity: android.app.Activity) {
                 startedActivities += 1
+                AlertPlaybackController.stopAll(this@PushGoApp)
                 val automationSession = PushGoAutomation.isSessionConfigured()
                 container.privateChannelClient.setForeground(startedActivities > 0 && !automationSession)
                 PrivateChannelServiceManager.refreshForMode(this@PushGoApp, isEffectiveFcmModeEnabled())
@@ -143,8 +145,8 @@ class PushGoApp : Application(), ImageLoaderFactory {
             override fun onActivityDestroyed(activity: android.app.Activity) {}
         })
         appScope.launch {
-            container.messageRepository.observeUnreadCount().collect { count ->
-                NotificationHelper.updateActiveNotificationNumbers(this@PushGoApp, count)
+            container.messageRepository.observeUnreadCount().collect {
+                NotificationHelper.reconcileActiveNotificationGroups(this@PushGoApp)
             }
         }
         NotificationHelper.cleanupObsoleteChannels(this)

@@ -122,6 +122,10 @@
     <string name="private_channel_service_notification_title">PushGo private channel is active. Do not dismiss this notification.</string>
     <string name="private_channel_service_channel_name">Private channel keepalive</string>
     <string name="private_channel_service_channel_description">Keeps the private channel connection alive and shows its current status.</string>
+    <string name="alert_playback_service_notification_title">PushGo alarm is ringing</string>
+    <string name="alert_playback_service_notification_text">Open PushGo or dismiss the related notification to stop it.</string>
+    <string name="alert_playback_service_channel_name">PushGo alert playback</string>
+    <string name="alert_playback_service_channel_description">Foreground audio playback for timed and continuous alerts.</string>
     <string name="section_decryption">Message decryption</string>
     <string name="section_security">Security</string>
     <string name="section_data_pages">Enable data pages</string>
@@ -193,6 +197,14 @@
     <plurals name="message_notifications_summary">
         <item quantity="one">%1$d unread notification</item>
         <item quantity="other">%1$d unread notifications</item>
+    </plurals>
+    <plurals name="message_notification_group_summary">
+        <item quantity="one">%1$d message notification</item>
+        <item quantity="other">%1$d message notifications</item>
+    </plurals>
+    <plurals name="entity_notification_group_summary">
+        <item quantity="one">%1$d event or object notification</item>
+        <item quantity="other">%1$d event or object notifications</item>
     </plurals>
     <string name="message_messages_cleared">Messages cleared</string>
     <string name="message_no_messages_to_clear">No messages to clear</string>

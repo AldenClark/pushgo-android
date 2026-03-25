@@ -165,6 +165,8 @@ class PrivateChannelClient(
     private var validatedNetworkCallbackRegistered = false
     @Volatile
     private var latestNativeSessionProfile: NativeSessionProfile? = null
+    @Volatile
+    private var latestTransportSelectionInsight: TransportSelectionInsight? = null
 
     init {
         io.ethan.pushgo.util.SilentSink.i(TAG, "private channel client revision=$CLIENT_REV")
@@ -1037,11 +1039,30 @@ class PrivateChannelClient(
             "connected" -> {
                 val transport = root.optString("transport").trim().ifEmpty { "none" }
                 val elapsedMs = root.optLong("elapsed_ms", -1L).takeIf { it >= 0L }
+                val profile = latestNativeSessionProfile
+                val selectionReason = deriveSelectionReason(transport, elapsedMs, profile)
+                val previousInsight = latestTransportSelectionInsight
+                latestTransportSelectionInsight = TransportSelectionInsight(
+                    transport = transport,
+                    elapsedMs = elapsedMs,
+                    reason = selectionReason,
+                    connectBudgetMs = profile?.connectBudgetMs,
+                    tcpDelayMs = profile?.tcpDelayMs,
+                    wssDelayMs = profile?.wssDelayMs,
+                    inSessionProbeRttMs = previousInsight?.inSessionProbeRttMs,
+                    inSessionProbeSource = previousInsight?.inSessionProbeSource,
+                    inSessionProbeAtMs = previousInsight?.inSessionProbeAtMs,
+                    recordedAtMs = System.currentTimeMillis(),
+                )
                 saveTransportStatus(
                     route = "private",
                     transport = transport,
                     stage = "connected",
-                    detail = "$transport stream connected",
+                    detail = buildString {
+                        append("$transport stream connected")
+                        elapsedMs?.let { append(" elapsed=${it}ms") }
+                        selectionReason?.let { append(" reason=$it") }
+                    },
                 )
                 logAttemptInference(transport = transport, elapsedMs = elapsedMs)
             }
@@ -1153,6 +1174,33 @@ class PrivateChannelClient(
                 )
                 maybeRepairPrivateRoute(error)
             }
+            "probe_rtt" -> {
+                val transport = root.optString("transport").trim().ifEmpty { "none" }
+                val rttMs = root.optLong("rtt_ms", -1L).takeIf { it >= 0L }
+                val source = root.optString("source").trim().ifEmpty { "unknown" }
+                val previousInsight = latestTransportSelectionInsight
+                latestTransportSelectionInsight = TransportSelectionInsight(
+                    transport = if (transport == "none") {
+                        previousInsight?.transport ?: "none"
+                    } else {
+                        transport
+                    },
+                    elapsedMs = previousInsight?.elapsedMs,
+                    reason = previousInsight?.reason,
+                    connectBudgetMs = previousInsight?.connectBudgetMs,
+                    tcpDelayMs = previousInsight?.tcpDelayMs,
+                    wssDelayMs = previousInsight?.wssDelayMs,
+                    inSessionProbeRttMs = rttMs,
+                    inSessionProbeSource = source,
+                    inSessionProbeAtMs = System.currentTimeMillis(),
+                    recordedAtMs = previousInsight?.recordedAtMs ?: System.currentTimeMillis(),
+                )
+                connectionSnapshotState.value = buildConnectionSnapshot()
+                io.ethan.pushgo.util.SilentSink.i(
+                    TAG,
+                    "in_session_probe transport=$transport source=$source rtt=${rttMs ?: -1}ms",
+                )
+            }
         }
     }
 
@@ -1179,6 +1227,40 @@ class PrivateChannelClient(
                     "transport_attempt inference transport=tcp outcome=unknown reason=wss_connected elapsed=${elapsedMs}ms tcp_delay=${profile.tcpDelayMs}ms wss_delay=${profile.wssDelayMs}ms",
                 )
             }
+        }
+    }
+
+    private fun deriveSelectionReason(
+        transport: String,
+        elapsedMs: Long?,
+        profile: NativeSessionProfile?,
+    ): String? {
+        val elapsed = elapsedMs ?: return null
+        val runtime = profile ?: return null
+        return when (transport.lowercase()) {
+            "quic" -> when {
+                elapsed < runtime.tcpDelayMs -> {
+                    "quic_connected_before_tcp_delay(elapsed=${elapsed}ms,tcp_delay=${runtime.tcpDelayMs}ms)"
+                }
+                elapsed < runtime.wssDelayMs -> {
+                    "quic_connected_before_wss_delay(elapsed=${elapsed}ms,wss_delay=${runtime.wssDelayMs}ms)"
+                }
+                else -> {
+                    "quic_connected_after_fallback_windows(elapsed=${elapsed}ms,budget=${runtime.connectBudgetMs}ms)"
+                }
+            }
+            "tcp" -> when {
+                elapsed < runtime.wssDelayMs -> {
+                    "tcp_connected_before_wss_delay(elapsed=${elapsed}ms,wss_delay=${runtime.wssDelayMs}ms)"
+                }
+                else -> {
+                    "tcp_connected_after_wss_delay(elapsed=${elapsed}ms,budget=${runtime.connectBudgetMs}ms)"
+                }
+            }
+            "wss" -> {
+                "wss_connected_after_quic_tcp_fallback(elapsed=${elapsed}ms,budget=${runtime.connectBudgetMs}ms)"
+            }
+            else -> null
         }
     }
 
@@ -1790,6 +1872,13 @@ class PrivateChannelClient(
         return connectionSnapshotState.value
     }
 
+    fun requestInSessionProbe(): Boolean {
+        if (fcmAvailable) return false
+        val handle = activeSessionHandle
+        if (handle <= 0L) return false
+        return WarpLinkNativeBridge.sessionRequestProbe(handle)
+    }
+
     fun summarizeConnectionStatus(snapshot: ConnectionSnapshot, privateModeEnabled: Boolean): String {
         if (!privateModeEnabled) {
             return appContext.getString(R.string.private_transport_status_disconnected)
@@ -1818,6 +1907,8 @@ class PrivateChannelClient(
         failureStreak = 0
         keepaliveLossSticky = false
         keepaliveState = KeepaliveState.NOT_REQUIRED
+        latestNativeSessionProfile = null
+        latestTransportSelectionInsight = null
         wakeupPullInFlight = false
         wakeupPullPending = false
         lastTransportStatusFingerprint = null
@@ -1904,6 +1995,7 @@ class PrivateChannelClient(
             networkAvailable = networkAvailable,
             foregroundActive = foregroundActive,
             privateModeEnabled = !fcmAvailable,
+            selectionInsight = latestTransportSelectionInsight,
         )
     }
 
@@ -2044,6 +2136,7 @@ class PrivateChannelClient(
         val networkAvailable: Boolean,
         val foregroundActive: Boolean,
         val privateModeEnabled: Boolean,
+        val selectionInsight: TransportSelectionInsight?,
     )
 
     private data class NativeSessionProfile(
@@ -2053,6 +2146,19 @@ class PrivateChannelClient(
         val quicPort: Int,
         val tcpPort: Int,
         val wssPort: Int,
+    )
+
+    data class TransportSelectionInsight(
+        val transport: String,
+        val elapsedMs: Long?,
+        val reason: String?,
+        val connectBudgetMs: Long?,
+        val tcpDelayMs: Long?,
+        val wssDelayMs: Long?,
+        val inSessionProbeRttMs: Long?,
+        val inSessionProbeSource: String?,
+        val inSessionProbeAtMs: Long?,
+        val recordedAtMs: Long,
     )
 
     private fun privateCertPinSha256(): String? {

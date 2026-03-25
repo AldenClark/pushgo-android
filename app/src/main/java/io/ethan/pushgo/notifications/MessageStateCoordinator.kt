@@ -92,7 +92,6 @@ class MessageStateCoordinator(
     }
 
     private suspend fun refreshUnreadCount() {
-        val unreadCount = repository.unreadCount()
-        NotificationHelper.updateActiveNotificationNumbers(appContext, unreadCount)
+        NotificationHelper.reconcileActiveNotificationGroups(appContext)
     }
 }

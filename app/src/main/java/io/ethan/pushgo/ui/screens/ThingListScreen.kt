@@ -11,7 +11,6 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
@@ -82,7 +81,6 @@ import io.ethan.pushgo.data.model.MessageStatus
 import io.ethan.pushgo.data.model.MessageSeverity
 import io.ethan.pushgo.data.model.PushMessage
 import io.ethan.pushgo.markdown.MessageBodyResolver
-import io.ethan.pushgo.markdown.MessagePreviewExtractor
 import io.ethan.pushgo.ui.announceForAccessibility
 import io.ethan.pushgo.ui.markdown.FullMarkdownRenderer
 import io.ethan.pushgo.ui.theme.PushGoSheetContainerColor
@@ -366,8 +364,10 @@ fun ThingListScreen(
 
     val relatedEvent = selectedRelatedEvent
     if (relatedEvent != null) {
+        val relatedEventSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
         ModalBottomSheet(
             onDismissRequest = { selectedRelatedEvent = null },
+            sheetState = relatedEventSheetState,
             containerColor = PushGoSheetContainerColor(),
             tonalElevation = 0.dp,
         ) {
@@ -411,8 +411,10 @@ fun ThingListScreen(
 
     val relatedUpdate = selectedRelatedUpdate
     if (relatedUpdate != null) {
+        val relatedUpdateSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
         ModalBottomSheet(
             onDismissRequest = { selectedRelatedUpdate = null },
+            sheetState = relatedUpdateSheetState,
             containerColor = PushGoSheetContainerColor(),
             tonalElevation = 0.dp,
         ) {
@@ -422,8 +424,10 @@ fun ThingListScreen(
 
     val relatedMessage = selectedRelatedMessage
     if (relatedMessage != null) {
+        val relatedMessageSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
         ModalBottomSheet(
             onDismissRequest = { selectedRelatedMessage = null },
+            sheetState = relatedMessageSheetState,
             containerColor = PushGoSheetContainerColor(),
             tonalElevation = 0.dp,
         ) {
@@ -762,7 +766,6 @@ private fun ThingDetailSheet(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .fillMaxHeight()
             .verticalScroll(rememberScrollState())
             .padding(horizontal = 18.dp, vertical = 10.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
@@ -946,8 +949,7 @@ private fun ThingDetailSheet(
                         .forEachIndexed { index, message ->
                         val nowInstant = Instant.now()
                         val rowMessage = message.message
-                        val bodyPreview = rowMessage.bodyPreview?.trim()?.takeIf { it.isNotEmpty() }
-                            ?: MessagePreviewExtractor.listPreview(rowMessage.body)
+                        val bodyPreview = rowMessage.bodyPreview?.trim().orEmpty()
                         Column(
                             modifier = Modifier
                                 .fillMaxWidth()

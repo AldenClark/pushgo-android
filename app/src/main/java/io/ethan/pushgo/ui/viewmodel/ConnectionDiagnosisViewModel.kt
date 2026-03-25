@@ -30,6 +30,7 @@ import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import org.json.JSONArray
 import org.json.JSONObject
 import java.io.BufferedReader
 import java.io.BufferedWriter
@@ -134,6 +135,8 @@ class ConnectionDiagnosisViewModel(
         ),
     )
         private set
+    var protocolSelectionHistory by mutableStateOf<List<ProtocolSelectionHistoryItem>>(emptyList())
+        private set
     var sessionId by mutableStateOf("")
         private set
     var sessionDurationMs by mutableStateOf(DIAG_DURATION_MS)
@@ -184,10 +187,12 @@ class ConnectionDiagnosisViewModel(
     private var sessionGatewayToken: String? = null
     private var sessionUseFcmChannel: Boolean = false
     private val channelProbeAccumulators = linkedMapOf<String, ChannelProbeAccumulator>()
+    private var latestTransportSelectionInsight: TransportSelectionInsight? = null
 
     private val networkSamples = mutableListOf<NetworkSample>()
     private val gatewayProbes = mutableListOf<GatewayProbe>()
     private val connectionEvents = mutableListOf<ConnectionEvent>()
+    private val channelProbeHistory = mutableListOf<ChannelProbeSnapshot>()
     private var latestChannelProbe: ChannelProbeResult? = null
 
     fun startDiagnosisIfIdle() {
@@ -446,19 +451,86 @@ class ConnectionDiagnosisViewModel(
                 "开始独立通道连通性测试 mode=${if (useFcmChannel) "fcm" else "private"}",
             )
         }
+        val probeRequestAtMs = if (!useFcmChannel && privateChannelClient.requestInSessionProbe()) {
+            System.currentTimeMillis()
+        } else {
+            null
+        }
         val probe = if (useFcmChannel) {
             runFcmChannelProbe(gatewayBaseUrl, gatewayToken)
         } else {
             runPrivateChannelProbe(gatewayBaseUrl, gatewayToken)
         }
-        latestChannelProbe = probe
-        recordChannelProbeLegs(probe.legs)
-        channelProbeModeLabel = probe.mode
-        channelProbeProfileRttMs = probe.profileRttMs
+        val insight = if (probeRequestAtMs != null) {
+            awaitSelectionInsightAfter(probeRequestAtMs)
+        } else {
+            latestTransportSelectionInsight
+        }
+        val enrichedProbe = enrichProbeWithSelectionInsight(probe, insight)
+        latestChannelProbe = enrichedProbe
+        channelProbeHistory += ChannelProbeSnapshot(
+            timestampMs = System.currentTimeMillis(),
+            mode = enrichedProbe.mode,
+            success = enrichedProbe.success,
+            profileRttMs = enrichedProbe.profileRttMs,
+            legs = enrichedProbe.legs,
+        )
+        recordChannelProbeLegs(enrichedProbe.legs)
+        channelProbeModeLabel = enrichedProbe.mode
+        channelProbeProfileRttMs = enrichedProbe.profileRttMs
         if (emitLog) {
-            appendLog("channel-probe", probe.logLine)
+            appendLog("channel-probe", enrichedProbe.logLine)
         }
         refreshSummary()
+    }
+
+    private suspend fun awaitSelectionInsightAfter(requestAtMs: Long): TransportSelectionInsight? {
+        val deadline = SystemClock.elapsedRealtime() + 280L
+        while (SystemClock.elapsedRealtime() < deadline) {
+            val current = latestTransportSelectionInsight
+            val inSessionAt = current?.inSessionProbeAtMs
+            if (inSessionAt != null && inSessionAt >= requestAtMs) {
+                return current
+            }
+            delay(20L)
+        }
+        return latestTransportSelectionInsight
+    }
+
+    private fun enrichProbeWithSelectionInsight(
+        probe: ChannelProbeResult,
+        overrideInsight: TransportSelectionInsight? = null,
+    ): ChannelProbeResult {
+        if (probe.mode != "private" || probe.legs.isEmpty()) return probe
+        val insight = overrideInsight ?: latestTransportSelectionInsight ?: return probe
+        val selectedTransport = insight.transport.trim().lowercase(Locale.US)
+        if (selectedTransport.isEmpty()) return probe
+
+        val enrichedLegs = probe.legs.map { leg ->
+            val noteParts = mutableListOf<String>()
+            val isSelected = leg.name.equals(selectedTransport, ignoreCase = true)
+
+            insight.connectBudgetMs?.let { noteParts += "connect_budget=${it}ms" }
+            if (leg.name.equals("tcp", ignoreCase = true)) {
+                insight.tcpDelayMs?.let { noteParts += "tcp_delay=${it}ms" }
+            }
+            if (leg.name.equals("wss", ignoreCase = true)) {
+                insight.wssDelayMs?.let { noteParts += "wss_delay=${it}ms" }
+            }
+            if (isSelected) {
+                insight.elapsedMs?.let { noteParts += "connect_elapsed=${it}ms" }
+                insight.reason?.takeIf { it.isNotBlank() }?.let { noteParts += "selection_reason=$it" }
+                insight.inSessionProbeRttMs?.let { noteParts += "in_session_rtt=${it}ms" }
+                insight.inSessionProbeSource?.takeIf { it.isNotBlank() }?.let { noteParts += "in_session_source=$it" }
+            }
+            val mergedNote = (listOfNotNull(leg.note) + noteParts)
+                .joinToString("; ")
+                .ifBlank { leg.note }
+            leg.copy(
+                note = mergedNote,
+            )
+        }
+        return probe.copy(legs = enrichedLegs)
     }
 
     private fun ensureContinuousChannelProbeLoop() {
@@ -673,6 +745,9 @@ class ConnectionDiagnosisViewModel(
             snapshot.keepaliveState.name,
             snapshot.networkAvailable,
             snapshot.privateModeEnabled,
+            snapshot.selectionInsight?.inSessionProbeRttMs,
+            snapshot.selectionInsight?.inSessionProbeSource,
+            snapshot.selectionInsight?.inSessionProbeAtMs,
         ).joinToString("|")
         if (fingerprint == lastConnectionFingerprint) {
             return
@@ -687,7 +762,24 @@ class ConnectionDiagnosisViewModel(
             keepaliveState = snapshot.keepaliveState,
             networkAvailable = snapshot.networkAvailable,
             privateModeEnabled = snapshot.privateModeEnabled,
+            selectionInsight = snapshot.selectionInsight?.let {
+                TransportSelectionInsight(
+                    transport = it.transport,
+                    elapsedMs = it.elapsedMs,
+                    reason = it.reason,
+                    connectBudgetMs = it.connectBudgetMs,
+                    tcpDelayMs = it.tcpDelayMs,
+                    wssDelayMs = it.wssDelayMs,
+                    inSessionProbeRttMs = it.inSessionProbeRttMs,
+                    inSessionProbeSource = it.inSessionProbeSource,
+                    inSessionProbeAtMs = it.inSessionProbeAtMs,
+                    recordedAtMs = it.recordedAtMs,
+                )
+            },
         )
+        if (snapshot.selectionInsight != null) {
+            latestTransportSelectionInsight = connectionEvents.last().selectionInsight
+        }
         appendLog(
             "transport",
             "连接状态[$source] route=${transportStatus.route} transport=${transportStatus.transport} stage=${transportStatus.stage} keepalive=${snapshot.keepaliveState.name.lowercase(Locale.US)} network=${snapshot.networkAvailable} detail=${transportStatus.detail ?: "-"}",
@@ -699,7 +791,7 @@ class ConnectionDiagnosisViewModel(
         val baseUrl = settingsRepository.getServerAddress()?.trim()?.ifEmpty { null }
             ?: AppConstants.defaultServerAddress
         val token = settingsRepository.getGatewayToken()?.trim()?.ifEmpty { null }
-        val endpoint = "${baseUrl.removeSuffix("/")}/private/diagnostics/network"
+        val endpoint = "${baseUrl.removeSuffix("/")}/diagnostics/private/network"
         val startedAt = SystemClock.elapsedRealtime()
         val connection = (URL(endpoint).openConnection() as HttpURLConnection).apply {
             requestMethod = "GET"
@@ -720,8 +812,8 @@ class ConnectionDiagnosisViewModel(
             val stream = if (httpStatus in 200..299) connection.inputStream else connection.errorStream
             val body = stream?.use { BufferedReader(InputStreamReader(it)).readText() }.orEmpty()
             val latencyMs = (SystemClock.elapsedRealtime() - startedAt).coerceAtLeast(0L)
-            val root = JSONObject(body)
-            if (!root.optBoolean("success", false)) {
+            val root = parseJsonObjectOrNull(body)
+            if (root == null) {
                 GatewayProbe(
                     timestampMs = System.currentTimeMillis(),
                     latencyMs = latencyMs,
@@ -731,7 +823,25 @@ class ConnectionDiagnosisViewModel(
                     natHint = null,
                     observedIpScope = null,
                     proxyDetected = false,
-                    errorMessage = root.optString("error").trim().ifEmpty { "unknown error" },
+                    errorMessage = buildString {
+                        append("status=$httpStatus")
+                        sanitizeBodyForError(body)?.let {
+                            append(" body=")
+                            append(it)
+                        }
+                    },
+                )
+            } else if (!root.optBoolean("success", false)) {
+                GatewayProbe(
+                    timestampMs = System.currentTimeMillis(),
+                    latencyMs = latencyMs,
+                    success = false,
+                    httpStatus = httpStatus,
+                    observedClientIp = null,
+                    natHint = null,
+                    observedIpScope = null,
+                    proxyDetected = false,
+                    errorMessage = parseJsonErrorMessage(root) ?: "status=$httpStatus",
                 )
             } else {
                 val data = root.optJSONObject("data") ?: JSONObject()
@@ -807,9 +917,11 @@ class ConnectionDiagnosisViewModel(
         networkSamples.clear()
         gatewayProbes.clear()
         connectionEvents.clear()
+        channelProbeHistory.clear()
         sessionGatewayBaseUrl = null
         sessionGatewayToken = null
         sessionUseFcmChannel = false
+        latestTransportSelectionInsight = null
         channelProbeAccumulators.clear()
         isRunning = false
         isCompleted = false
@@ -829,6 +941,7 @@ class ConnectionDiagnosisViewModel(
         channelProbeLegs = emptyList()
         channelProbeModeLabel = "unknown"
         channelProbeProfileRttMs = null
+        protocolSelectionHistory = emptyList()
         gatewayAggregate = GatewayAggregate(
             total = 0,
             success = 0,
@@ -857,10 +970,56 @@ class ConnectionDiagnosisViewModel(
         proxySummary = buildProxySummary()
         gatewaySummary = buildGatewaySummary()
         gatewayAggregate = buildGatewayAggregate()
+        protocolSelectionHistory = buildProtocolSelectionHistory()
         channelProbeSummary = buildChannelProbeSummary()
         transportSummary = buildTransportSummary()
         recommendation = buildRecommendation()
         reportText = currentReportText()
+    }
+
+    private fun buildProtocolSelectionHistory(): List<ProtocolSelectionHistoryItem> {
+        if (connectionEvents.isEmpty()) return emptyList()
+        val records = mutableListOf<ProtocolSelectionHistoryItem>()
+        var lastFingerprint: String? = null
+        connectionEvents.forEach { event ->
+            val insight = event.selectionInsight ?: return@forEach
+            val transport = insight.transport.trim().ifEmpty { event.transport }.lowercase(Locale.US)
+            if (transport == "none" || transport == "fcm") return@forEach
+            val reason = insight.reason?.trim().takeUnless { it.isNullOrEmpty() }
+                ?: event.detail?.trim().takeUnless { it.isNullOrEmpty() }
+                ?: "unknown"
+            val record = ProtocolSelectionHistoryItem(
+                timestampMs = maxOf(event.timestampMs, insight.recordedAtMs),
+                transport = transport,
+                reason = reason,
+                elapsedMs = insight.elapsedMs,
+                connectBudgetMs = insight.connectBudgetMs,
+                tcpDelayMs = insight.tcpDelayMs,
+                wssDelayMs = insight.wssDelayMs,
+                inSessionProbeRttMs = insight.inSessionProbeRttMs,
+                inSessionProbeSource = insight.inSessionProbeSource,
+            )
+            val fingerprint = buildString {
+                append(record.transport)
+                append('|')
+                append(record.reason)
+                append('|')
+                append(record.elapsedMs ?: -1L)
+                append('|')
+                append(record.connectBudgetMs ?: -1L)
+                append('|')
+                append(record.tcpDelayMs ?: -1L)
+                append('|')
+                append(record.wssDelayMs ?: -1L)
+            }
+            if (fingerprint != lastFingerprint) {
+                records += record
+                lastFingerprint = fingerprint
+            } else if (records.isNotEmpty()) {
+                records[records.lastIndex] = record
+            }
+        }
+        return records
     }
 
     private fun buildChannelProbeSummary(): String {
@@ -975,6 +1134,10 @@ class ConnectionDiagnosisViewModel(
         }
         val connectedCount = connectionEvents.count { it.stage == "connected" }
         val last = connectionEvents.last()
+        val latestSelection = connectionEvents
+            .asReversed()
+            .firstOrNull { it.selectionInsight != null }
+            ?.selectionInsight
         return buildString {
             append("最近状态=${last.stage}/${last.transport}")
             if (transports.isNotEmpty()) {
@@ -989,6 +1152,14 @@ class ConnectionDiagnosisViewModel(
                 append(probe.mode)
                 append("/")
                 append(if (probe.success) "ok" else "fail")
+            }
+            if (latestSelection != null) {
+                append(" · selection=${latestSelection.transport}")
+                latestSelection.elapsedMs?.let { append("@${it}ms") }
+                latestSelection.reason?.takeIf { it.isNotBlank() }?.let {
+                    append(" · reason=")
+                    append(it)
+                }
             }
         }
     }
@@ -1055,6 +1226,48 @@ class ConnectionDiagnosisViewModel(
             appendLine("transport_summary=$transportSummary")
             appendLine("recommendation=$recommendation")
             appendLine()
+            appendLine("[channel_probe_history]")
+            if (channelProbeHistory.isEmpty()) {
+                appendLine("(empty)")
+            } else {
+                channelProbeHistory.forEach { probe ->
+                    appendLine(
+                        "${formatTimestamp(probe.timestampMs)} mode=${probe.mode} success=${probe.success} profile_rtt_ms=${probe.profileRttMs ?: -1}",
+                    )
+                    probe.legs.forEach { leg ->
+                        appendLine(
+                            "  leg=${leg.name} protocol=${leg.protocol} enabled=${leg.enabled} host=${redactHostField(leg.host, redact)} port=${leg.port} result=${leg.result} latency_ms=${leg.latencyMs} error_code=${leg.errorCode ?: "-"} note=${sanitizeText(leg.note ?: "-", redact)}",
+                        )
+                    }
+                }
+            }
+            appendLine()
+            appendLine("[selection_reason_history]")
+            if (protocolSelectionHistory.isEmpty()) {
+                appendLine("(empty)")
+            } else {
+                protocolSelectionHistory.forEach { record ->
+                    appendLine(
+                        buildString {
+                            append(formatTimestamp(record.timestampMs))
+                            append(" transport=")
+                            append(record.transport)
+                            append(" reason=")
+                            append(sanitizeText(record.reason, redact))
+                            record.elapsedMs?.let { append(" elapsed_ms=$it") }
+                            record.connectBudgetMs?.let { append(" connect_budget_ms=$it") }
+                            record.tcpDelayMs?.let { append(" tcp_delay_ms=$it") }
+                            record.wssDelayMs?.let { append(" wss_delay_ms=$it") }
+                            record.inSessionProbeRttMs?.let { append(" in_session_rtt_ms=$it") }
+                            record.inSessionProbeSource?.takeIf { it.isNotBlank() }?.let {
+                                append(" in_session_source=")
+                                append(it)
+                            }
+                        },
+                    )
+                }
+            }
+            appendLine()
             appendLine("[logs]")
             logLines.forEach { line ->
                 appendLine("${formatTimestamp(line.timestampMs)} [${line.category}] ${sanitizeText(line.message, redact)}")
@@ -1115,7 +1328,7 @@ class ConnectionDiagnosisViewModel(
                         put("pretty_summary", probe.prettySummary)
                         put(
                             "legs",
-                            org.json.JSONArray().apply {
+                            JSONArray().apply {
                                 scopedLegs.forEach { leg ->
                                     put(
                                         JSONObject().apply {
@@ -1140,8 +1353,68 @@ class ConnectionDiagnosisViewModel(
                 } ?: JSONObject.NULL,
             )
             put(
+                "channel_probe_history",
+                JSONArray().apply {
+                    channelProbeHistory.forEach { probe ->
+                        put(
+                            JSONObject().apply {
+                                put("timestamp", formatTimestamp(probe.timestampMs))
+                                put("timestamp_ms", probe.timestampMs)
+                                put("mode", probe.mode)
+                                put("success", probe.success)
+                                put("profile_rtt_ms", probe.profileRttMs ?: JSONObject.NULL)
+                                put(
+                                    "legs",
+                                    JSONArray().apply {
+                                        probe.legs.forEach { leg ->
+                                            put(
+                                                JSONObject().apply {
+                                                    put("name", leg.name)
+                                                    put("protocol", leg.protocol)
+                                                    put("enabled", leg.enabled)
+                                                    put("host", redactHostField(leg.host, redact))
+                                                    put("port", leg.port)
+                                                    put("path", leg.path ?: JSONObject.NULL)
+                                                    put("subprotocol", leg.subprotocol ?: JSONObject.NULL)
+                                                    put("result", leg.result)
+                                                    put("latency_ms", leg.latencyMs)
+                                                    put("error_code", leg.errorCode ?: JSONObject.NULL)
+                                                    put("error_detail", leg.errorDetail?.let { sanitizeText(it, redact) } ?: JSONObject.NULL)
+                                                    put("note", leg.note?.let { sanitizeText(it, redact) } ?: JSONObject.NULL)
+                                                },
+                                            )
+                                        }
+                                    },
+                                )
+                            },
+                        )
+                    }
+                },
+            )
+            put(
+                "selection_reason_history",
+                JSONArray().apply {
+                    protocolSelectionHistory.forEach { record ->
+                        put(
+                            JSONObject().apply {
+                                put("timestamp", formatTimestamp(record.timestampMs))
+                                put("timestamp_ms", record.timestampMs)
+                                put("transport", record.transport)
+                                put("reason", sanitizeText(record.reason, redact))
+                                put("elapsed_ms", record.elapsedMs ?: JSONObject.NULL)
+                                put("connect_budget_ms", record.connectBudgetMs ?: JSONObject.NULL)
+                                put("tcp_delay_ms", record.tcpDelayMs ?: JSONObject.NULL)
+                                put("wss_delay_ms", record.wssDelayMs ?: JSONObject.NULL)
+                                put("in_session_rtt_ms", record.inSessionProbeRttMs ?: JSONObject.NULL)
+                                put("in_session_source", record.inSessionProbeSource ?: JSONObject.NULL)
+                            },
+                        )
+                    }
+                },
+            )
+            put(
                 "logs",
-                org.json.JSONArray().apply {
+                JSONArray().apply {
                     logLines.forEach { line ->
                         put(
                             JSONObject().apply {
@@ -1494,7 +1767,7 @@ class ConnectionDiagnosisViewModel(
             val status = connection.responseCode
             val stream = if (status in 200..299) connection.inputStream else connection.errorStream
             val bodyText = stream?.use { BufferedReader(InputStreamReader(it)).readText() }.orEmpty()
-            val bodyJson = runCatching { JSONObject(bodyText) }.getOrNull()
+            val bodyJson = parseJsonObjectOrNull(bodyText)
             val success = if (bodyJson != null) {
                 bodyJson.optBoolean("success", false) && status in 200..299
             } else {
@@ -1503,7 +1776,14 @@ class ConnectionDiagnosisViewModel(
             val error = if (success) {
                 null
             } else {
-                bodyJson?.optString("error")?.trim()?.ifEmpty { null } ?: "status=$status"
+                bodyJson?.let(::parseJsonErrorMessage)
+                    ?: buildString {
+                        append("status=$status")
+                        sanitizeBodyForError(bodyText)?.let {
+                            append(" body=")
+                            append(it)
+                        }
+                    }
             }
             val errorCode = if (success) null else deriveHttpErrorCode(status)
             JsonRequestResult(
@@ -1526,6 +1806,28 @@ class ConnectionDiagnosisViewModel(
             )
         } finally {
             connection.disconnect()
+        }
+    }
+
+    private fun parseJsonObjectOrNull(raw: String): JSONObject? {
+        val trimmed = raw.trim()
+        if (trimmed.isEmpty() || !trimmed.startsWith("{")) return null
+        return runCatching { JSONObject(trimmed) }.getOrNull()
+    }
+
+    private fun sanitizeBodyForError(body: String): String? {
+        val trimmed = body.trim()
+        if (trimmed.isEmpty()) return null
+        return trimmed.replace('\n', ' ').take(80).ifEmpty { null }
+    }
+
+    private fun parseJsonErrorMessage(root: JSONObject): String? {
+        val value = root.opt("error")
+        return when (value) {
+            null, JSONObject.NULL -> null
+            is String -> value.trim().ifEmpty { null }
+            is JSONObject, is JSONArray -> value.toString()
+            else -> value.toString().trim().ifEmpty { null }
         }
     }
 
@@ -1768,6 +2070,20 @@ private data class ConnectionEvent(
     val keepaliveState: KeepaliveState,
     val networkAvailable: Boolean,
     val privateModeEnabled: Boolean,
+    val selectionInsight: TransportSelectionInsight?,
+)
+
+private data class TransportSelectionInsight(
+    val transport: String,
+    val elapsedMs: Long?,
+    val reason: String?,
+    val connectBudgetMs: Long?,
+    val tcpDelayMs: Long?,
+    val wssDelayMs: Long?,
+    val inSessionProbeRttMs: Long?,
+    val inSessionProbeSource: String?,
+    val inSessionProbeAtMs: Long?,
+    val recordedAtMs: Long,
 )
 
 private data class ChannelProbeResult(
@@ -1778,6 +2094,14 @@ private data class ChannelProbeResult(
     val prettySummary: String,
     val legs: List<ChannelProbeLeg>,
     val logLine: String,
+)
+
+private data class ChannelProbeSnapshot(
+    val timestampMs: Long,
+    val mode: String,
+    val success: Boolean,
+    val profileRttMs: Long?,
+    val legs: List<ChannelProbeLeg>,
 )
 
 private data class JsonRequestResult(
@@ -1910,6 +2234,18 @@ data class GatewayAggregate(
     val minLatencyMs: Long?,
     val maxLatencyMs: Long?,
     val latestError: String?,
+)
+
+data class ProtocolSelectionHistoryItem(
+    val timestampMs: Long,
+    val transport: String,
+    val reason: String,
+    val elapsedMs: Long?,
+    val connectBudgetMs: Long?,
+    val tcpDelayMs: Long?,
+    val wssDelayMs: Long?,
+    val inSessionProbeRttMs: Long?,
+    val inSessionProbeSource: String?,
 )
 
 data class ClientCapabilities(

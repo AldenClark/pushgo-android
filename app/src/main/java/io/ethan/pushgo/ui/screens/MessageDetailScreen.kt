@@ -43,11 +43,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -64,6 +64,7 @@ import io.ethan.pushgo.markdown.MessageBodyResolver
 import io.ethan.pushgo.notifications.MessageStateCoordinator
 import io.ethan.pushgo.ui.MessageDetailViewModelFactory
 import io.ethan.pushgo.ui.markdown.FullMarkdownRenderer
+import io.ethan.pushgo.ui.markdown.SelectablePlainTextRenderer
 import io.ethan.pushgo.ui.theme.PushGoSheetContainerColor
 import io.ethan.pushgo.util.normalizeExternalImageUrl
 import io.ethan.pushgo.ui.viewmodel.MessageDetailViewModel
@@ -97,38 +98,10 @@ fun MessageDetailScreen(
     LaunchedEffect(messageId) {
         viewModel.load()
     }
-
-    if (isLoading) {
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(24.dp),
-            contentAlignment = Alignment.Center
-        ) {
-            Text(
-                text = stringResource(R.string.label_loading),
-                style = MaterialTheme.typography.bodyLarge,
-                color = MaterialTheme.colorScheme.primary
-            )
-        }
-        return
-    }
-
     val current = message
-    if (current == null) {
-        AppEmptyState(
-            icon = Icons.Outlined.MarkEmailRead,
-            title = stringResource(R.string.label_no_messages),
-            description = stringResource(R.string.message_list_empty_hint),
-            modifier = Modifier.fillMaxWidth(),
-            topPadding = 32.dp,
-            iconSize = 44.dp,
-        )
-        return
-    }
 
-    LaunchedEffect(isLoading, current.id) {
-        if (!isLoading) {
+    LaunchedEffect(isLoading, current?.id) {
+        if (!isLoading && current != null) {
             val elapsedMs = SystemClock.elapsedRealtime() - initialRenderStartedAtMs
             io.ethan.pushgo.util.SilentSink.i(
                 "PushGoPerf",
@@ -138,17 +111,17 @@ fun MessageDetailScreen(
     }
 
     val configuration = LocalConfiguration.current
-    val timeText = remember(current.receivedAt, configuration) {
-        formatDetailTime(context, current.receivedAt, ZoneId.systemDefault())
+    val timeText = remember(current?.receivedAt, configuration) {
+        current?.let { formatDetailTime(context, it.receivedAt, ZoneId.systemDefault()) }.orEmpty()
     }
-    val severity = current.severity
-    val imageModels = remember(current.rawPayloadJson) {
-        imageStore.resolveDetailImageModels(current.rawPayloadJson)
+    val imageModels = remember(current?.rawPayloadJson) {
+        current?.let { imageStore.resolveDetailImageModels(it.rawPayloadJson) }.orEmpty()
     }
-    var previewImageModel by remember(current.id) { mutableStateOf<Any?>(null) }
-    val resolvedBody = remember(current.rawPayloadJson, current.body) {
-        MessageBodyResolver.resolve(current.rawPayloadJson, current.body)
+    var previewImageModel by remember(current?.id) { mutableStateOf<Any?>(null) }
+    val resolvedBodyText = remember(current?.rawPayloadJson, current?.body) {
+        current?.let { MessageBodyResolver.resolve(it.rawPayloadJson, it.body).rawText }.orEmpty()
     }
+
     ModalBottomSheet(
         modifier = Modifier.testTag("sheet.message.detail"),
         onDismissRequest = { onDismiss() },
@@ -157,29 +130,60 @@ fun MessageDetailScreen(
         tonalElevation = 0.dp,
         dragHandle = null,
     ) {
-        MessageDetailCoreContent(
-            message = current,
-            timeText = timeText,
-            imageModels = imageModels,
-            resolvedBodyText = resolvedBody.rawText,
-            onDelete = {
-                viewModel.delete()
-                onDismiss()
-            },
-            onOpenImage = { model ->
-                when (model) {
-                    is String -> {
-                        val safeImage = normalizeExternalImageUrl(model)
-                        if (safeImage != null) {
-                            previewImageModel = safeImage
-                        }
-                    }
-                    else -> previewImageModel = model
+        when {
+            isLoading -> {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(24.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = stringResource(R.string.label_loading),
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = MaterialTheme.colorScheme.primary
+                    )
                 }
-            },
-            onOpenUrl = { url -> context.openExternalUrl(url) },
-        )
+            }
+
+            current == null -> {
+                AppEmptyState(
+                    icon = Icons.Outlined.MarkEmailRead,
+                    title = stringResource(R.string.label_no_messages),
+                    description = stringResource(R.string.message_list_empty_hint),
+                    modifier = Modifier.fillMaxWidth(),
+                    topPadding = 32.dp,
+                    iconSize = 44.dp,
+                )
+            }
+
+            else -> {
+                MessageDetailCoreContent(
+                    message = current,
+                    timeText = timeText,
+                    imageModels = imageModels,
+                    resolvedBodyText = resolvedBodyText,
+                    onDelete = {
+                        viewModel.delete()
+                        onDismiss()
+                    },
+                    onOpenImage = { model ->
+                        when (model) {
+                            is String -> {
+                                val safeImage = normalizeExternalImageUrl(model)
+                                if (safeImage != null) {
+                                    previewImageModel = safeImage
+                                }
+                            }
+                            else -> previewImageModel = model
+                        }
+                    },
+                    onOpenUrl = { url -> context.openExternalUrl(url) },
+                )
+            }
+        }
     }
+
     if (previewImageModel != null) {
         ZoomableImagePreviewDialog(
             model = previewImageModel,
@@ -238,10 +242,14 @@ internal fun MessageDetailCoreContent(
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
                 Column {
-                    Text(
+                    SelectablePlainTextRenderer(
                         text = message.title,
-                        style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Bold),
-                        color = MaterialTheme.colorScheme.onSurface
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("action.message.copy_title"),
+                        typeface = remember { android.graphics.Typeface.create("sans-serif", android.graphics.Typeface.BOLD) },
+                        textSizeSp = MaterialTheme.typography.headlineSmall.fontSize.value,
+                        textColorArgb = MaterialTheme.colorScheme.onSurface.toArgb(),
                     )
                     Spacer(modifier = Modifier.height(8.dp))
                     Row(
@@ -308,12 +316,21 @@ internal fun MessageDetailCoreContent(
                 if (message.severity == MessageSeverity.CRITICAL) {
                     CriticalSeverityHintCard()
                 }
-                FullMarkdownRenderer(
-                    text = resolvedBodyText,
-                    modifier = Modifier.fillMaxWidth(),
-                    onOpenLink = onOpenUrl,
-                    onOpenImage = { imageUrl -> onOpenImage(imageUrl) },
-                )
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(14.dp))
+                        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.24f))
+                        .padding(horizontal = 14.dp, vertical = 12.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    FullMarkdownRenderer(
+                        text = resolvedBodyText,
+                        modifier = Modifier.fillMaxWidth(),
+                        onOpenLink = onOpenUrl,
+                        onOpenImage = { imageUrl -> onOpenImage(imageUrl) },
+                    )
+                }
                 if (!message.url.isNullOrBlank()) {
                     Button(
                         onClick = { onOpenUrl(message.url.orEmpty()) },
