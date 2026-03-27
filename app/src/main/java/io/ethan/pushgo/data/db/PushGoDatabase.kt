@@ -22,10 +22,12 @@ import io.ethan.pushgo.automation.PushGoAutomation
         TopLevelEventHeadEntity::class,
         ThingHeadEntity::class,
         ThingSubMessageEntity::class,
+        PendingThingMessageEntity::class,
+        PendingThingEventEntity::class,
         ChannelSubscriptionEntity::class,
         AppSettingsEntity::class,
     ],
-    version = 19,
+    version = 21,
     exportSchema = false,
 )
 abstract class PushGoDatabase : RoomDatabase() {
@@ -41,12 +43,14 @@ abstract class PushGoDatabase : RoomDatabase() {
     abstract fun topLevelEventHeadDao(): TopLevelEventHeadDao
     abstract fun thingHeadDao(): ThingHeadDao
     abstract fun thingSubMessageDao(): ThingSubMessageDao
+    abstract fun pendingThingMessageDao(): PendingThingMessageDao
+    abstract fun pendingThingEventDao(): PendingThingEventDao
     abstract fun channelSubscriptionDao(): ChannelSubscriptionDao
     abstract fun appSettingsDao(): AppSettingsDao
 
     companion object {
         // No backward-compatibility for old local data: always use current store file.
-        private const val DATABASE_NAME = "pushgo-v19.db"
+        private const val DATABASE_NAME = "pushgo-v21.db"
 
         fun build(context: Context): PushGoDatabase {
             return runCatching { newBuilder(context).build() }.getOrElse { error ->

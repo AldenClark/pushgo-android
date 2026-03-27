@@ -31,7 +31,8 @@ class PushGoMessagingService : FirebaseMessagingService() {
             return
         }
         if (NotificationIngressParser.isPrivateWakeupPayload(message.data)) {
-            container.privateChannelClient.triggerWakeupPull()
+            val deliveryId = message.data["delivery_id"]?.trim()?.takeIf { it.isNotEmpty() }
+            container.privateChannelClient.triggerWakeupPull(deliveryId)
             return
         }
         val messageRepository = container.messageRepository

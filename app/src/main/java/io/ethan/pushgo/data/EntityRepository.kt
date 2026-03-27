@@ -5,6 +5,8 @@ import io.ethan.pushgo.data.db.EventChangeLogDao
 import io.ethan.pushgo.data.db.EventChangeLogEntity
 import io.ethan.pushgo.data.db.InboundDeliveryLedgerDao
 import io.ethan.pushgo.data.db.OperationLedgerDao
+import io.ethan.pushgo.data.db.PendingThingEventDao
+import io.ethan.pushgo.data.db.PendingThingEventEntity
 import io.ethan.pushgo.data.db.PushGoDatabase
 import io.ethan.pushgo.data.db.ThingChangeLogDao
 import io.ethan.pushgo.data.db.ThingChangeLogEntity
@@ -57,7 +59,15 @@ class EntityRepository(
     private val topLevelEventHeadDao: TopLevelEventHeadDao,
     private val thingHeadDao: ThingHeadDao,
     private val thingSubMessageDao: ThingSubMessageDao,
+    private val pendingThingEventDao: PendingThingEventDao,
 ) {
+    suspend fun wouldPersistAsPending(entity: IncomingEntityRecord): Boolean {
+        val entityType = entity.entityType.trim().lowercase()
+        if (entityType != "event") return false
+        val thingId = entity.thingId?.trim()?.takeIf { it.isNotEmpty() } ?: return false
+        return !thingHeadDao.existsByThingId(thingId)
+    }
+
     fun observeEventCount(): Flow<Int> = topLevelEventHeadDao.observeCount().distinctUntilChanged()
 
     fun observeEventRefreshToken(): Flow<Long> {
@@ -324,6 +334,7 @@ class EntityRepository(
             }
         } else {
             if (!thingHeadDao.existsByThingId(thingId)) {
+                pendingThingEventDao.insert(PendingThingEventEntity.fromIncoming(entity))
                 false
             } else if (deliveryId != null && thingSubEventDao.getByDeliveryId(deliveryId) != null) {
                 false
@@ -341,7 +352,31 @@ class EntityRepository(
         }
         thingChangeLogDao.insert(ThingChangeLogEntity.fromIncoming(entity))
         thingHeadDao.upsert(ThingHeadEntity.fromIncoming(entity))
+        val thingId = entity.thingId?.trim()?.takeIf { it.isNotEmpty() } ?: entity.entityId
+        replayPendingForThing(thingId)
         return true
+    }
+
+    suspend fun replayPendingForThing(thingId: String) {
+        val normalizedThingId = thingId.trim().takeIf { it.isNotEmpty() } ?: return
+        database.withTransaction {
+            val pending = pendingThingEventDao.loadByThingId(normalizedThingId)
+            if (pending.isEmpty()) return@withTransaction
+            val consumedIds = mutableListOf<String>()
+            pending.forEach { row ->
+                val incoming = row.toIncomingEntityRecord()
+                val deliveryId = incoming.deliveryId?.trim()?.takeIf { it.isNotEmpty() }
+                if (deliveryId != null && thingSubEventDao.getByDeliveryId(deliveryId) != null) {
+                    consumedIds += row.id
+                    return@forEach
+                }
+                thingSubEventDao.insert(ThingSubEventEntity.fromIncoming(incoming))
+                consumedIds += row.id
+            }
+            if (consumedIds.isNotEmpty()) {
+                pendingThingEventDao.deleteByIds(consumedIds)
+            }
+        }
     }
 
     private fun mergeAndSort(

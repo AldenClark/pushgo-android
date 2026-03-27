@@ -73,7 +73,7 @@ interface MessageDao {
         """
         SELECT * FROM messages
         WHERE event_id IS NOT NULL
-        ORDER BY COALESCE(event_time_epoch, received_at) DESC, received_at DESC
+        ORDER BY COALESCE(event_time_epoch, occurred_at_epoch, received_at) DESC, received_at DESC
         """
     )
     suspend fun getEventProjectionMessages(): List<MessageEntity>
@@ -82,7 +82,7 @@ interface MessageDao {
         """
         SELECT * FROM messages
         WHERE thing_id IS NOT NULL
-        ORDER BY COALESCE(event_time_epoch, received_at) DESC, received_at DESC
+        ORDER BY COALESCE(occurred_at_epoch, event_time_epoch, received_at) DESC, received_at DESC
         """
     )
     suspend fun getThingProjectionMessages(): List<MessageEntity>

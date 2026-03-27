@@ -120,9 +120,9 @@ dependencies = [
 
 [[package]]
 name = "cmake"
-version = "0.1.57"
+version = "0.1.58"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "75443c44cd6b379beb8c5b45d85d0773baf31cce901fe7bb252f4eff3008ef7d"
+checksum = "c0f78a02292a74a88ac736019ab962ece0bc380e3f977bf72e376c5d78ff0678"
 dependencies = [
  "cc",
 ]
@@ -740,7 +740,7 @@ dependencies = [
 [[package]]
 name = "pushgo-warp-profile"
 version = "0.1.0"
-source = "git+https://github.com/AldenClark/warp-link.git?rev=f68556a6758238754e1dc2bc56faf4034f85aa3a#f68556a6758238754e1dc2bc56faf4034f85aa3a"
+source = "git+https://github.com/AldenClark/warp-link?rev=830721e14d59e645a64808af2ec1b0f74d23e4cc#830721e14d59e645a64808af2ec1b0f74d23e4cc"
 dependencies = [
  "bytes",
  "postcard",
@@ -1326,7 +1326,7 @@ dependencies = [
 [[package]]
 name = "warp-link"
 version = "0.1.0"
-source = "git+https://github.com/AldenClark/warp-link.git?rev=f68556a6758238754e1dc2bc56faf4034f85aa3a#f68556a6758238754e1dc2bc56faf4034f85aa3a"
+source = "git+https://github.com/AldenClark/warp-link?rev=830721e14d59e645a64808af2ec1b0f74d23e4cc#830721e14d59e645a64808af2ec1b0f74d23e4cc"
 dependencies = [
  "async-trait",
  "bytes",
@@ -1344,7 +1344,7 @@ dependencies = [
 [[package]]
 name = "warp-link-core"
 version = "0.1.0"
-source = "git+https://github.com/AldenClark/warp-link.git?rev=f68556a6758238754e1dc2bc56faf4034f85aa3a#f68556a6758238754e1dc2bc56faf4034f85aa3a"
+source = "git+https://github.com/AldenClark/warp-link?rev=830721e14d59e645a64808af2ec1b0f74d23e4cc#830721e14d59e645a64808af2ec1b0f74d23e4cc"
 dependencies = [
  "async-trait",
  "bytes",
@@ -1354,7 +1354,7 @@ dependencies = [
 [[package]]
 name = "warp-link-transport"
 version = "0.1.0"
-source = "git+https://github.com/AldenClark/warp-link.git?rev=f68556a6758238754e1dc2bc56faf4034f85aa3a#f68556a6758238754e1dc2bc56faf4034f85aa3a"
+source = "git+https://github.com/AldenClark/warp-link?rev=830721e14d59e645a64808af2ec1b0f74d23e4cc#830721e14d59e645a64808af2ec1b0f74d23e4cc"
 dependencies = [
  "bytes",
  "futures-util",

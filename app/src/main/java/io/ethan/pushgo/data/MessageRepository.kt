@@ -13,6 +13,8 @@ import io.ethan.pushgo.data.db.InboundDeliveryLedgerDao
 import io.ethan.pushgo.data.db.MessageMetadataIndexDao
 import io.ethan.pushgo.data.db.MessageMetadataIndexEntity
 import io.ethan.pushgo.data.db.OperationLedgerDao
+import io.ethan.pushgo.data.db.PendingThingMessageDao
+import io.ethan.pushgo.data.db.PendingThingMessageEntity
 import io.ethan.pushgo.data.db.PushGoDatabase
 import io.ethan.pushgo.data.db.ThingHeadDao
 import io.ethan.pushgo.data.db.ThingSubMessageDao
@@ -35,7 +37,13 @@ class MessageRepository(
     private val operationLedgerDao: OperationLedgerDao,
     private val thingHeadDao: ThingHeadDao,
     private val thingSubMessageDao: ThingSubMessageDao,
+    private val pendingThingMessageDao: PendingThingMessageDao,
 ) {
+    suspend fun wouldPersistAsPending(message: PushMessage): Boolean {
+        val canonical = canonicalMessage(message)
+        return isThingScopedMessage(canonical) && !hasThingHead(canonical.thingId)
+    }
+
     private companion object {
         const val MAX_QUERY_TOKENS = 6
         const val MAX_TOKEN_LENGTH = 32
@@ -143,6 +151,7 @@ class MessageRepository(
             val stableMessageId = canonicalMessage.messageId?.trim()?.takeIf { it.isNotEmpty() }
             if (isThingScopedMessage(canonicalMessage)) {
                 if (!hasThingHead(canonicalMessage.thingId)) {
+                    enqueuePendingThingMessage(canonicalMessage)
                     return@withTransaction false
                 }
                 if (stableMessageId != null) {
@@ -212,6 +221,7 @@ class MessageRepository(
             val stableMessageId = canonicalMessage.messageId?.trim()?.takeIf { it.isNotEmpty() }
             if (isThingScopedMessage(canonicalMessage)) {
                 if (!hasThingHead(canonicalMessage.thingId)) {
+                    enqueuePendingThingMessage(canonicalMessage)
                     return@withTransaction
                 }
                 if (stableMessageId != null) {
@@ -284,6 +294,7 @@ class MessageRepository(
                 }
                 if (isThingScopedMessage(canonicalMessage)) {
                     if (!hasThingHead(canonicalMessage.thingId)) {
+                        enqueuePendingThingMessage(canonicalMessage)
                         return@forEach
                     }
                     thingScopedMessages += canonicalMessage
@@ -906,6 +917,47 @@ class MessageRepository(
         return thingHeadDao.existsByThingId(normalizedThingId)
     }
 
+    suspend fun replayPendingForThing(thingId: String) {
+        val normalizedThingId = thingId.trim().takeIf { it.isNotEmpty() } ?: return
+        database.withTransaction {
+            val pending = pendingThingMessageDao.loadByThingId(normalizedThingId)
+            if (pending.isEmpty()) return@withTransaction
+            val consumedIds = mutableListOf<String>()
+            pending.forEach { row ->
+                val inserted = tryInsertThingSubMessage(
+                    ThingSubMessageEntity(
+                        id = row.id,
+                        messageId = row.messageId,
+                        title = row.title,
+                        body = row.body,
+                        channel = row.channel,
+                        url = row.url,
+                        receivedAt = row.receivedAt,
+                        rawPayloadJson = row.rawPayloadJson,
+                        status = row.status,
+                        decryptionState = row.decryptionState,
+                        notificationId = row.notificationId,
+                        serverId = row.serverId,
+                        bodyPreview = row.bodyPreview,
+                        entityType = row.entityType,
+                        entityId = row.entityId,
+                        eventId = row.eventId,
+                        thingId = row.thingId,
+                        eventState = row.eventState,
+                        eventTimeEpoch = row.eventTimeEpoch,
+                        occurredAtEpoch = row.occurredAtEpoch,
+                    )
+                )
+                if (inserted) {
+                    consumedIds += row.id
+                }
+            }
+            if (consumedIds.isNotEmpty()) {
+                pendingThingMessageDao.deleteByIds(consumedIds)
+            }
+        }
+    }
+
     private suspend fun tryInsertTopLevelMessage(entity: MessageEntity): Boolean {
         return runCatching {
             dao.insert(entity)
@@ -956,6 +1008,20 @@ class MessageRepository(
         val entityType = message.entityType.trim().lowercase()
         val thingId = message.thingId?.trim()?.takeIf { it.isNotEmpty() }
         return entityType == "message" && thingId != null
+    }
+
+    private suspend fun enqueuePendingThingMessage(message: PushMessage) {
+        val thingScoped = ThingSubMessageEntity.fromModel(message)
+        val thingId = thingScoped.thingId?.trim()?.takeIf { it.isNotEmpty() } ?: return
+        val stableMessageId = thingScoped.messageId?.trim()?.takeIf { it.isNotEmpty() } ?: return
+        pendingThingMessageDao.insert(
+            PendingThingMessageEntity.fromThingScopedMessage(
+                thingScoped.copy(
+                    thingId = thingId,
+                    messageId = stableMessageId,
+                )
+            )
+        )
     }
 
     private fun isMessageEntity(message: PushMessage): Boolean {

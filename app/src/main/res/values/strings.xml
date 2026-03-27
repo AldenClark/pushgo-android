@@ -93,6 +93,8 @@
     <string name="label_notification_transport">Notification transport</string>
     <string name="label_notification_transport_hint">Choose whether Android receives pushes through FCM or the private channel.</string>
     <string name="label_notification_transport_private_only_hint">This device does not support FCM. Pushes will use the private channel.</string>
+    <string name="label_notification_transport_gateway_private_disabled_hint">Gateway private channel is disabled. Android can only use FCM on this gateway.</string>
+    <string name="label_notification_transport_unavailable_hint">Gateway private channel is disabled and this device does not support FCM. Push delivery is unavailable.</string>
     <string name="label_transport_fcm">FCM</string>
     <string name="label_transport_private">Private</string>
     <string name="label_fcm_wakeup_pull_mode">Use wakeup pull mode</string>
@@ -119,6 +121,7 @@
     <string name="private_transport_status_network_unavailable">Network unavailable</string>
     <string name="private_transport_status_waiting_retry">Waiting to retry</string>
     <string name="private_transport_status_keepalive_lost">Background keepalive lost</string>
+    <string name="private_transport_status_gateway_disabled">Gateway private channel is disabled</string>
     <string name="private_channel_service_notification_title">PushGo private channel is active. Do not dismiss this notification.</string>
     <string name="private_channel_service_channel_name">Private channel keepalive</string>
     <string name="private_channel_service_channel_description">Keeps the private channel connection alive and shows its current status.</string>
@@ -221,6 +224,8 @@
     <string name="error_unable_to_get_fcm_token">Unable to get FCM token</string>
     <string name="error_fcm_not_supported">This device does not support FCM</string>
     <string name="error_fcm_token_timeout">FCM token request timed out</string>
+    <string name="error_gateway_private_disabled_use_fcm">Gateway private channel is disabled. Please use FCM.</string>
+    <string name="error_private_disabled_and_fcm_unavailable">Gateway private channel is disabled and this device cannot use FCM. Push is unavailable.</string>
     <string name="error_request_failed">Request failed. Please retry.</string>
     <string name="error_channel_create_requires_fcm">Creating a new channel requires FCM. Use an existing Channel ID on devices without FCM.</string>
     <string name="error_private_channel_create_failed">Private channel create failed. Please retry.</string>

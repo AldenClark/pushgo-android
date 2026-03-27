@@ -191,7 +191,7 @@ class PrivateChannelForegroundService : Service() {
     companion object {
         private const val TAG = "PrivateChannelFGService"
         private const val CHANNEL_ID = "pushgo_private_channel_service"
-        private const val PRIVATE_CHANNEL_NOTIFICATION_GROUP_KEY = "io.ethan.pushgo.notifications.private_channel_service"
+        private const val PRIVATE_CHANNEL_NOTIFICATION_GROUP_KEY = "io.ethan.pushgo.private_channel_service"
         private const val NOTIFICATION_WATCHDOG_INTERVAL_MS = 5_000L
         const val NOTIFICATION_ID = 20_501
         const val ACTION_REFRESH_STATUS = "io.ethan.pushgo.private_channel.REFRESH_STATUS"

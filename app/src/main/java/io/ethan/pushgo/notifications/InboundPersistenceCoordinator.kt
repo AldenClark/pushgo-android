@@ -29,8 +29,10 @@ sealed interface InboundPersistenceRequest {
 }
 
 enum class InboundPersistenceStatus {
-    PERSISTED,
+    PERSISTED_MAIN,
+    PERSISTED_PENDING,
     DUPLICATE,
+    REJECTED,
     FAILED,
 }
 
@@ -64,6 +66,7 @@ object InboundPersistenceCoordinator {
 
             is InboundPersistenceRequest.Entity -> persistEntity(
                 context = context,
+                messageRepository = messageRepository,
                 entityRepository = entityRepository,
                 inboundDeliveryLedgerRepository = inboundDeliveryLedgerRepository,
                 settingsRepository = settingsRepository,
@@ -98,8 +101,13 @@ object InboundPersistenceCoordinator {
             )
         }
         if (!inserted) {
+            val pending = messageRepository.wouldPersistAsPending(inbound.message)
             return InboundPersistenceOutcome(
-                status = InboundPersistenceStatus.DUPLICATE,
+                status = if (pending) {
+                    InboundPersistenceStatus.PERSISTED_PENDING
+                } else {
+                    InboundPersistenceStatus.DUPLICATE
+                },
                 notified = false,
                 shouldAck = inboundDeliveryLedgerRepository.shouldAck(inbound.message.deliveryId),
             )
@@ -108,7 +116,7 @@ object InboundPersistenceCoordinator {
         settingsRepository.reenablePageForEntity("message")
         if (!inbound.shouldNotify) {
             return InboundPersistenceOutcome(
-                status = InboundPersistenceStatus.PERSISTED,
+                status = InboundPersistenceStatus.PERSISTED_MAIN,
                 notified = false,
                 shouldAck = inboundDeliveryLedgerRepository.shouldAck(inbound.message.deliveryId),
             )
@@ -121,7 +129,7 @@ object InboundPersistenceCoordinator {
             level = inbound.level,
         )
         return InboundPersistenceOutcome(
-            status = InboundPersistenceStatus.PERSISTED,
+            status = InboundPersistenceStatus.PERSISTED_MAIN,
             notified = true,
             shouldAck = inboundDeliveryLedgerRepository.shouldAck(inbound.message.deliveryId),
         )
@@ -129,6 +137,7 @@ object InboundPersistenceCoordinator {
 
     private suspend fun persistEntity(
         context: Context,
+        messageRepository: MessageRepository,
         entityRepository: EntityRepository,
         inboundDeliveryLedgerRepository: InboundDeliveryLedgerRepository,
         settingsRepository: SettingsRepository,
@@ -186,15 +195,26 @@ object InboundPersistenceCoordinator {
         }
         settingsRepository.reenablePageForEntity(resolvedInbound.record.entityType)
         if (!inserted) {
+            val pending = entityRepository.wouldPersistAsPending(resolvedInbound.record)
             return InboundPersistenceOutcome(
-                status = InboundPersistenceStatus.DUPLICATE,
+                status = if (pending) {
+                    InboundPersistenceStatus.PERSISTED_PENDING
+                } else {
+                    InboundPersistenceStatus.DUPLICATE
+                },
                 notified = false,
                 shouldAck = inboundDeliveryLedgerRepository.shouldAck(resolvedInbound.record.deliveryId),
             )
         }
         if (!resolvedInbound.shouldNotify) {
+            if (resolvedInbound.record.entityType == "thing") {
+                val thingId = resolvedInbound.record.thingId?.trim()?.takeIf { it.isNotEmpty() }
+                    ?: resolvedInbound.record.entityId
+                messageRepository.replayPendingForThing(thingId)
+                entityRepository.replayPendingForThing(thingId)
+            }
             return InboundPersistenceOutcome(
-                status = InboundPersistenceStatus.PERSISTED,
+                status = InboundPersistenceStatus.PERSISTED_MAIN,
                 notified = false,
                 shouldAck = inboundDeliveryLedgerRepository.shouldAck(resolvedInbound.record.deliveryId),
             )
@@ -211,8 +231,14 @@ object InboundPersistenceCoordinator {
             body = resolvedInbound.notificationBody,
             level = resolvedInbound.level,
         )
+        if (resolvedInbound.record.entityType == "thing") {
+            val thingId = resolvedInbound.record.thingId?.trim()?.takeIf { it.isNotEmpty() }
+                ?: resolvedInbound.record.entityId
+            messageRepository.replayPendingForThing(thingId)
+            entityRepository.replayPendingForThing(thingId)
+        }
         return InboundPersistenceOutcome(
-            status = InboundPersistenceStatus.PERSISTED,
+            status = InboundPersistenceStatus.PERSISTED_MAIN,
             notified = true,
             shouldAck = inboundDeliveryLedgerRepository.shouldAck(resolvedInbound.record.deliveryId),
         )

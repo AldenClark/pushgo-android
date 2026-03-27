@@ -50,6 +50,11 @@ data class DeviceChannelUpsertResult(
 )
 
 class ChannelSubscriptionService {
+    companion object {
+        internal const val DEVICE_REGISTER_ENDPOINT = "/device/register"
+        internal const val DEVICE_CHANNEL_DELETE_ENDPOINT = "/channel/device/delete"
+    }
+
     data class EventSendResult(
         val eventId: String,
         val thingId: String?,
@@ -125,39 +130,19 @@ class ChannelSubscriptionService {
         return@withContext data.optBoolean("removed", false)
     }
 
-    suspend fun registerDevice(
-        baseUrl: String,
-        token: String?,
-        platform: String,
-        existingDeviceKey: String?,
-    ): String = withContext(Dispatchers.IO) {
-        val endpoint = buildUrl(baseUrl, "/device/register")
-        val payload = JSONObject().apply {
-            put("platform", platform)
-            if (!existingDeviceKey.isNullOrBlank()) {
-                put("device_key", existingDeviceKey.trim())
-            }
-        }
-        val response = execute(endpoint, token, "POST", payload)
-        val data = response.data ?: throw ChannelSubscriptionException("Invalid response")
-        val deviceKey = data.optString("device_key", "").trim()
-        if (deviceKey.isEmpty()) {
-            throw ChannelSubscriptionException("gateway response missing device_key")
-        }
-        return@withContext deviceKey
-    }
-
     suspend fun upsertDeviceChannel(
         baseUrl: String,
         token: String?,
-        deviceKey: String,
+        deviceKey: String?,
         platform: String,
         channelType: String,
         providerToken: String?,
     ): DeviceChannelUpsertResult = withContext(Dispatchers.IO) {
-        val endpoint = buildUrl(baseUrl, "/channel/device")
+        val endpoint = buildUrl(baseUrl, DEVICE_REGISTER_ENDPOINT)
         val payload = JSONObject().apply {
-            put("device_key", deviceKey)
+            if (!deviceKey.isNullOrBlank()) {
+                put("device_key", deviceKey.trim())
+            }
             put("platform", platform.trim().lowercase())
             put("channel_type", channelType.trim().lowercase())
             if (!providerToken.isNullOrBlank()) {
@@ -167,7 +152,11 @@ class ChannelSubscriptionService {
         val response = execute(endpoint, token, "POST", payload)
         val data = response.data
         val returnedKey = data?.optString("device_key", "")?.trim().orEmpty()
-        val resolved = if (returnedKey.isEmpty()) deviceKey.trim() else returnedKey
+        val fallbackKey = deviceKey?.trim().orEmpty()
+        val resolved = if (returnedKey.isEmpty()) fallbackKey else returnedKey
+        if (resolved.isEmpty()) {
+            throw ChannelSubscriptionException("gateway response missing device_key")
+        }
         DeviceChannelUpsertResult(deviceKey = resolved)
     }
 
@@ -177,7 +166,7 @@ class ChannelSubscriptionService {
         deviceKey: String,
         channelType: String,
     ) = withContext(Dispatchers.IO) {
-        val endpoint = buildUrl(baseUrl, "/channel/device/delete")
+        val endpoint = buildUrl(baseUrl, DEVICE_CHANNEL_DELETE_ENDPOINT)
         val payload = JSONObject().apply {
             put("device_key", deviceKey)
             put("channel_type", channelType.trim().lowercase())

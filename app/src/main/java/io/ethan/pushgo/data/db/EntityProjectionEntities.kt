@@ -372,7 +372,7 @@ data class ThingHeadEntity(
     tableName = "thing_sub_messages",
     indices = [
         Index(value = ["message_id"], unique = true, name = "index_thing_sub_messages_message_id_unique"),
-        Index(value = ["thing_id", "event_time_epoch"]),
+        Index(value = ["thing_id", "occurred_at_epoch", "event_time_epoch"]),
         Index(value = ["channel"]),
         Index(value = ["received_at"]),
     ],
@@ -410,6 +410,8 @@ data class ThingSubMessageEntity(
     val eventState: String?,
     @ColumnInfo(name = "event_time_epoch")
     val eventTimeEpoch: Long?,
+    @ColumnInfo(name = "occurred_at_epoch")
+    val occurredAtEpoch: Long?,
 ) {
     fun asModel(): PushMessage {
         val statusValue = runCatching { MessageStatus.valueOf(status) }.getOrNull() ?: MessageStatus.NORMAL
@@ -435,6 +437,7 @@ data class ThingSubMessageEntity(
         fun fromModel(message: PushMessage): ThingSubMessageEntity {
             val payload = runCatching { JSONObject(message.rawPayloadJson) }.getOrNull()
             val eventTimeEpoch = payload?.optLong("event_time")?.takeIf { it > 0L }?.times(1000)
+            val occurredAtEpoch = payload?.optLong("occurred_at")?.takeIf { it > 0L }?.times(1000)
             val stableMessageId = message.messageId
                 ?.trim()
                 ?.takeIf { it.isNotEmpty() }
@@ -463,6 +466,7 @@ data class ThingSubMessageEntity(
                 thingId = message.thingId,
                 eventState = message.eventState,
                 eventTimeEpoch = eventTimeEpoch,
+                occurredAtEpoch = occurredAtEpoch,
             )
         }
     }

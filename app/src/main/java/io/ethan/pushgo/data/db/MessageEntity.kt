@@ -20,7 +20,7 @@ import java.time.Instant
         Index(value = ["received_at"]),
         Index(value = ["entity_type", "event_time_epoch"]),
         Index(value = ["event_id", "event_time_epoch"]),
-        Index(value = ["thing_id", "event_time_epoch"]),
+        Index(value = ["thing_id", "occurred_at_epoch", "event_time_epoch"]),
     ]
 )
 data class MessageEntity(
@@ -58,6 +58,8 @@ data class MessageEntity(
     val eventState: String?,
     @ColumnInfo(name = "event_time_epoch")
     val eventTimeEpoch: Long?,
+    @ColumnInfo(name = "occurred_at_epoch")
+    val occurredAtEpoch: Long?,
 ) {
     fun asModel(): PushMessage {
         val state = decryptionState?.let { runCatching { DecryptionState.valueOf(it) }.getOrNull() }
@@ -94,6 +96,8 @@ data class MessageEntity(
             val eventState: String?,
             @ColumnInfo(name = "event_time_epoch")
             val eventTimeEpoch: Long?,
+            @ColumnInfo(name = "occurred_at_epoch")
+            val occurredAtEpoch: Long?,
         )
 
         fun fromModel(message: PushMessage): MessageEntity {
@@ -130,6 +134,7 @@ data class MessageEntity(
                 thingId = projection.thingId,
                 eventState = projection.eventState,
                 eventTimeEpoch = projection.eventTimeEpoch,
+                occurredAtEpoch = projection.occurredAtEpoch,
             )
         }
 
@@ -157,6 +162,9 @@ data class MessageEntity(
             val eventTimeEpoch = payload?.optLong("event_time")
                 ?.takeIf { it > 0L }
                 ?.times(1000)
+            val occurredAtEpoch = payload?.optLong("occurred_at")
+                ?.takeIf { it > 0L }
+                ?.times(1000)
 
             return EntityProjection(
                 entityType = entityType,
@@ -165,6 +173,7 @@ data class MessageEntity(
                 thingId = thingId,
                 eventState = eventState,
                 eventTimeEpoch = eventTimeEpoch,
+                occurredAtEpoch = occurredAtEpoch,
             )
         }
     }

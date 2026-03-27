@@ -14,7 +14,6 @@ import io.ethan.pushgo.automation.PushGoAutomation
 import io.ethan.pushgo.notifications.KeepaliveState
 import io.ethan.pushgo.notifications.AlertPlaybackController
 import io.ethan.pushgo.notifications.NotificationHelper
-import io.ethan.pushgo.notifications.PrivateAckOutboxWorkScheduler
 import io.ethan.pushgo.notifications.PrivateChannelServiceManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -119,7 +118,6 @@ class PushGoApp : Application(), ImageLoaderFactory {
         }
         initializePushRuntime()
         scheduleStartupSyncIfNeeded()
-        PrivateAckOutboxWorkScheduler.enqueue(this)
         registerActivityLifecycleCallbacks(object : ActivityLifecycleCallbacks {
             override fun onActivityStarted(activity: android.app.Activity) {
                 startedActivities += 1

@@ -33,6 +33,7 @@ class AppContainer(context: Context) {
         operationLedgerDao = database.operationLedgerDao(),
         thingHeadDao = database.thingHeadDao(),
         thingSubMessageDao = database.thingSubMessageDao(),
+        pendingThingMessageDao = database.pendingThingMessageDao(),
     )
     val entityRepository = EntityRepository(
         database = database,
@@ -44,6 +45,7 @@ class AppContainer(context: Context) {
         topLevelEventHeadDao = database.topLevelEventHeadDao(),
         thingHeadDao = database.thingHeadDao(),
         thingSubMessageDao = database.thingSubMessageDao(),
+        pendingThingEventDao = database.pendingThingEventDao(),
     )
     val messageStateCoordinator = MessageStateCoordinator(
         context = appContext,

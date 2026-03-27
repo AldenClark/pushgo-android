@@ -331,7 +331,7 @@ interface ThingSubMessageDao {
     @Query(
         """
         SELECT * FROM thing_sub_messages
-        ORDER BY COALESCE(event_time_epoch, received_at) DESC, received_at DESC
+        ORDER BY COALESCE(occurred_at_epoch, event_time_epoch, received_at) DESC, received_at DESC
         """
     )
     suspend fun getAllProjection(): List<ThingSubMessageEntity>

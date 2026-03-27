@@ -59,6 +59,9 @@ object PrivateTransportStatusPresenter {
             "reconnecting", "recovering", "goaway", "closed" -> {
                 context.getString(R.string.private_transport_status_reconnecting)
             }
+            "gateway_private_disabled" -> {
+                context.getString(R.string.private_transport_status_gateway_disabled)
+            }
             "backoff" -> context.getString(R.string.private_transport_status_waiting_retry)
             "offline_wait" -> context.getString(R.string.private_transport_status_network_unavailable)
             else -> context.getString(R.string.private_transport_status_disconnected)

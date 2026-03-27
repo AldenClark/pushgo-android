@@ -7,10 +7,18 @@ import androidx.room.Update
 
 @Dao
 interface ChannelSubscriptionDao {
-    @Query("SELECT * FROM channel_subscriptions WHERE is_deleted = 0 AND gateway_url = :gatewayUrl ORDER BY updated_at DESC")
+    @Query(
+        "SELECT * FROM channel_subscriptions " +
+            "WHERE is_deleted = 0 AND gateway_url = :gatewayUrl " +
+            "ORDER BY updated_at DESC, channel_id ASC"
+    )
     suspend fun getActive(gatewayUrl: String): List<ChannelSubscriptionEntity>
 
-    @Query("SELECT * FROM channel_subscriptions WHERE gateway_url = :gatewayUrl ORDER BY updated_at DESC")
+    @Query(
+        "SELECT * FROM channel_subscriptions " +
+            "WHERE gateway_url = :gatewayUrl " +
+            "ORDER BY updated_at DESC, channel_id ASC"
+    )
     suspend fun getAll(gatewayUrl: String): List<ChannelSubscriptionEntity>
 
     @Query("SELECT * FROM channel_subscriptions WHERE channel_id = :channelId AND gateway_url = :gatewayUrl LIMIT 1")

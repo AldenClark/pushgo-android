@@ -207,18 +207,28 @@ fun SettingsScreen(
                         rowTestTag = "row.settings.notification_transport",
                         icon = Icons.Outlined.NotificationsActive,
                         title = stringResource(R.string.label_notification_transport),
-                        subtitle = if (fcmSupported) {
+                        subtitle = if (!fcmSupported && viewModel.gatewayPrivateChannelEnabled == false) {
+                            stringResource(R.string.label_notification_transport_unavailable_hint)
+                        } else if (fcmSupported && viewModel.gatewayPrivateChannelEnabled == false) {
+                            stringResource(R.string.label_notification_transport_gateway_private_disabled_hint)
+                        } else if (fcmSupported) {
                             stringResource(R.string.label_notification_transport_hint)
                         } else {
                             stringResource(R.string.label_notification_transport_private_only_hint)
                         },
-                        selectedUseFcm = viewModel.useFcmChannel && fcmSupported,
+                        selectedUseFcm = (viewModel.useFcmChannel && fcmSupported)
+                            || viewModel.gatewayPrivateChannelEnabled == false,
                         isFcmSupported = fcmSupported,
+                        isPrivateSupported = viewModel.gatewayPrivateChannelEnabled != false,
                         onSelectUseFcm = { useFcm -> viewModel.updateUseFcmChannel(context, useFcm) },
                     )
                 }
             }
-            if (viewModel.isChannelModeLoaded && (!fcmSupported || !viewModel.useFcmChannel)) {
+            if (
+                viewModel.isChannelModeLoaded
+                && viewModel.gatewayPrivateChannelEnabled != false
+                && (!fcmSupported || !viewModel.useFcmChannel)
+            ) {
                 item {
                     SettingsRow(
                         testTag = "row.settings.private_transport",
@@ -479,6 +489,7 @@ private fun TransportSelectorRow(
     subtitle: String?,
     selectedUseFcm: Boolean,
     isFcmSupported: Boolean,
+    isPrivateSupported: Boolean,
     onSelectUseFcm: (Boolean) -> Unit,
 ) {
     SettingsItemContainer {
@@ -520,6 +531,7 @@ private fun TransportSelectorRow(
                                     onSelectUseFcm(false)
                                 }
                             },
+                            enabled = isPrivateSupported,
                             shape = SegmentedButtonDefaults.itemShape(index = 1, count = 2),
                             modifier = Modifier.testTag("option.settings.notification_transport.private"),
                             icon = {},

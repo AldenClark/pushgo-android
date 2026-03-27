@@ -117,6 +117,7 @@ object NotificationIngressParser {
         sanitized["body"] = sanitizedTitleBody.second
         val sentAt = parseEpochSeconds(sanitized["sent_at"])
         val ttl = parseEpochSeconds(sanitized["ttl"])
+        val occurredAtEpoch = parseEpochMillis(sanitized["occurred_at"])
         val receivedAt = sentAt?.let { Instant.ofEpochSecond(it) } ?: now
         val isExpired = ttl?.let { now.epochSecond > it } ?: false
 
@@ -135,6 +136,10 @@ object NotificationIngressParser {
         }.let(JsonCompat::stringify)
 
         if (entityType == "message") {
+            val thingScopedMessageId = sanitized["thing_id"]?.trim()?.takeIf { it.isNotEmpty() }
+            if (thingScopedMessageId != null && occurredAtEpoch == null) {
+                return null
+            }
             if (messageId == null) {
                 return null
             }

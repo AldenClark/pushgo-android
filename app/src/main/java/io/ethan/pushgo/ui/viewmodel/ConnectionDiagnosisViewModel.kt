@@ -1555,7 +1555,7 @@ class ConnectionDiagnosisViewModel(
         gatewayBaseUrl: String,
         gatewayToken: String?,
     ): ChannelProbeResult = withContext(Dispatchers.IO) {
-        val profileEndpoint = "${gatewayBaseUrl.removeSuffix("/")}/private/profile"
+        val profileEndpoint = "${gatewayBaseUrl.removeSuffix("/")}/gateway/profile"
         val profileResult = executeJsonRequest(
             endpoint = profileEndpoint,
             token = gatewayToken,
@@ -1567,15 +1567,30 @@ class ConnectionDiagnosisViewModel(
                 mode = "private",
                 success = false,
                 profileRttMs = profileResult.latencyMs,
-                summary = "private · fail · /private/profile 不可用 · rtt=${profileResult.latencyMs}ms",
-                prettySummary = "[PRIVATE] FAIL\n  /private/profile status=${profileResult.httpStatus ?: -1} latency=${profileResult.latencyMs}ms code=${profileResult.errorCode ?: "HTTP_FAIL"} error=${profileResult.error ?: "unknown"}",
+                summary = "private · fail · /gateway/profile 不可用 · rtt=${profileResult.latencyMs}ms",
+                prettySummary = "[PRIVATE] FAIL\n  /gateway/profile status=${profileResult.httpStatus ?: -1} latency=${profileResult.latencyMs}ms code=${profileResult.errorCode ?: "HTTP_FAIL"} error=${profileResult.error ?: "unknown"}",
                 legs = emptyList(),
-                logLine = "私有通道测试失败：/private/profile status=${profileResult.httpStatus ?: -1} rtt=${profileResult.latencyMs}ms error=${profileResult.error ?: "unknown"}",
+                logLine = "私有通道测试失败：/gateway/profile status=${profileResult.httpStatus ?: -1} rtt=${profileResult.latencyMs}ms error=${profileResult.error ?: "unknown"}",
             )
         }
 
         val root = profileResult.body
         val data = root.optJSONObject("data") ?: JSONObject()
+        val privateEnabled = data.optBoolean(
+            "private_channel_enabled",
+            data.optBoolean("private_enabled", false),
+        )
+        if (!privateEnabled) {
+            return@withContext ChannelProbeResult(
+                mode = "private",
+                success = false,
+                profileRttMs = profileResult.latencyMs,
+                summary = "private · fail · gateway private channel disabled · rtt=${profileResult.latencyMs}ms",
+                prettySummary = "[PRIVATE] FAIL\n  gateway private channel disabled\n  /gateway/profile latency=${profileResult.latencyMs}ms",
+                legs = emptyList(),
+                logLine = "私有通道测试失败：gateway private channel disabled rtt=${profileResult.latencyMs}ms",
+            )
+        }
         val transport = data.optJSONObject("transport") ?: JSONObject()
         val quicEnabled = transport.optBoolean("quic_enabled", true)
         val quicPort = transport.optInt("quic_port", 443).coerceAtLeast(1)

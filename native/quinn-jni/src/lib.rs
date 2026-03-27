@@ -15,7 +15,8 @@ use tokio::sync::{mpsc, watch};
 use warp_link::{client_run_with_shutdown, warp_link_core};
 use warp_link_core::{
     AppDecision, ClientApp, ClientAppStateHint, ClientConfig, ClientEvent, ClientPolicy,
-    ClientPowerHint, ClientPowerTier, HelloCtx, ProbeRttSource,
+    ClientPowerHint, ClientPowerTier, HelloCtx, PinnedTransport, PolicyInput, ProbeRttSource,
+    TransportKind,
 };
 
 const PRIVATE_CONNECT_BUDGET_MS: u64 = 13_000;
@@ -25,6 +26,18 @@ const PRIVATE_TCP_DELAY_BACKGROUND_MS: u64 = 1_500;
 const PRIVATE_WSS_DELAY_BACKGROUND_MS: u64 = 3_500;
 const WIRE_VERSION_V2: u8 = 2;
 const DEFAULT_WSS_SUBPROTOCOL: &str = "pushgo-private.v1";
+
+#[derive(Debug, Clone)]
+struct NativePinnedTransport {
+    transport: TransportKind,
+    expires_at_unix_ms: Option<i64>,
+}
+
+#[derive(Debug, Clone, Default)]
+struct NativeSchedulerPolicy {
+    force_reconnect_nonce: u64,
+    pinned_transport: Option<NativePinnedTransport>,
+}
 
 #[derive(Debug, Deserialize)]
 struct SessionConfig {
@@ -62,6 +75,20 @@ struct SessionConfig {
     app_state: Option<String>,
     #[serde(default)]
     ack_wait_timeout_ms: Option<u64>,
+    #[serde(default)]
+    connect_budget_ms: Option<u64>,
+    #[serde(default)]
+    backoff_max_ms: Option<u64>,
+    #[serde(default)]
+    scheduler_v2_enabled: Option<bool>,
+    #[serde(default)]
+    drain_timeout_ms: Option<u64>,
+    #[serde(default)]
+    cutover_guard_ms: Option<u64>,
+    #[serde(default)]
+    initial_pin_transport: Option<String>,
+    #[serde(default)]
+    initial_pin_ttl_ms: Option<u64>,
 }
 
 #[derive(Clone)]
@@ -72,6 +99,7 @@ struct EventApp {
     next_ack_id: Arc<AtomicU64>,
     probe_request_epoch: Arc<AtomicU64>,
     consumed_probe_epoch: Arc<AtomicU64>,
+    scheduler_policy: Arc<Mutex<NativeSchedulerPolicy>>,
     ack_wait_timeout_ms: u64,
     session_started_at: Instant,
     tx: mpsc::UnboundedSender<String>,
@@ -164,6 +192,21 @@ impl ClientApp for EventApp {
             .store(requested, Ordering::Relaxed);
         true
     }
+
+    fn scheduler_policy(&self) -> PolicyInput {
+        let snapshot = self.scheduler_policy.lock().map(|value| value.clone()).ok();
+        let Some(snapshot) = snapshot else {
+            return PolicyInput::default();
+        };
+        PolicyInput {
+            disabled_transports: Vec::new(),
+            pinned_transport: snapshot.pinned_transport.map(|value| PinnedTransport {
+                transport: value.transport,
+                expires_at_unix_ms: value.expires_at_unix_ms,
+            }),
+            force_reconnect_nonce: snapshot.force_reconnect_nonce,
+        }
+    }
 }
 
 struct Session {
@@ -174,6 +217,7 @@ struct Session {
     power_hint: Arc<Mutex<Option<ClientPowerHint>>>,
     pending_acks: Arc<Mutex<HashMap<u64, std_mpsc::SyncSender<AppDecision>>>>,
     probe_request_epoch: Arc<AtomicU64>,
+    scheduler_policy: Arc<Mutex<NativeSchedulerPolicy>>,
 }
 
 static NEXT_HANDLE: AtomicU64 = AtomicU64::new(1);
@@ -226,9 +270,16 @@ pub extern "system" fn Java_io_ethan_pushgo_notifications_WarpLinkNativeBridge_n
     let mut policy = ClientPolicy::default();
     let (tcp_delay_ms, wss_delay_ms) =
         private_transport_connect_delays(parsed.app_state.as_deref());
-    policy.connect_budget_ms = PRIVATE_CONNECT_BUDGET_MS;
+    policy.connect_budget_ms = parsed
+        .connect_budget_ms
+        .unwrap_or(PRIVATE_CONNECT_BUDGET_MS)
+        .clamp(1_500, 30_000);
     policy.tcp_delay_ms = tcp_delay_ms;
     policy.wss_delay_ms = wss_delay_ms;
+    policy.backoff_max_ms = parsed.backoff_max_ms.unwrap_or(policy.backoff_max_ms).clamp(10_000, 180_000);
+    policy.scheduler_v2_enabled = parsed.scheduler_v2_enabled.unwrap_or(true);
+    policy.drain_timeout_ms = parsed.drain_timeout_ms.unwrap_or(8_000);
+    policy.cutover_guard_ms = parsed.cutover_guard_ms.unwrap_or(1_500);
 
     let config = ClientConfig {
         host: parsed.host,
@@ -261,6 +312,18 @@ pub extern "system" fn Java_io_ethan_pushgo_notifications_WarpLinkNativeBridge_n
     let next_ack_id = Arc::new(AtomicU64::new(1));
     let probe_request_epoch = Arc::new(AtomicU64::new(0));
     let consumed_probe_epoch = Arc::new(AtomicU64::new(0));
+    let initial_pin_transport = parsed
+        .initial_pin_transport
+        .as_deref()
+        .and_then(parse_transport_kind);
+    let initial_pin_ttl_ms = parsed.initial_pin_ttl_ms.filter(|value| *value > 0);
+    let scheduler_policy = Arc::new(Mutex::new(NativeSchedulerPolicy {
+        force_reconnect_nonce: 0,
+        pinned_transport: initial_pin_transport.map(|transport| NativePinnedTransport {
+            transport,
+            expires_at_unix_ms: initial_pin_ttl_ms.map(|ttl| epoch_millis_now().saturating_add(ttl as i64)),
+        }),
+    }));
     let app = EventApp {
         hello: Arc::clone(&hello),
         power_hint: Arc::clone(&power_hint),
@@ -268,6 +331,7 @@ pub extern "system" fn Java_io_ethan_pushgo_notifications_WarpLinkNativeBridge_n
         next_ack_id,
         probe_request_epoch: Arc::clone(&probe_request_epoch),
         consumed_probe_epoch,
+        scheduler_policy: Arc::clone(&scheduler_policy),
         ack_wait_timeout_ms,
         session_started_at: Instant::now(),
         tx,
@@ -319,6 +383,7 @@ pub extern "system" fn Java_io_ethan_pushgo_notifications_WarpLinkNativeBridge_n
             power_hint,
             pending_acks,
             probe_request_epoch,
+            scheduler_policy,
         }),
     );
     handle as jlong
@@ -469,9 +534,98 @@ pub extern "system" fn Java_io_ethan_pushgo_notifications_WarpLinkNativeBridge_n
     let Some(session) = session else {
         return 0;
     };
-    session
-        .probe_request_epoch
-        .fetch_add(1, Ordering::Relaxed);
+    session.probe_request_epoch.fetch_add(1, Ordering::Relaxed);
+    1
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_io_ethan_pushgo_notifications_WarpLinkNativeBridge_nativeSessionForceReconnect(
+    _env: EnvUnowned,
+    _class: JClass,
+    handle: jlong,
+) -> jint {
+    if handle == 0 {
+        return 0;
+    }
+    let session = match SESSIONS.lock() {
+        Ok(guard) => guard.get(&(handle as u64)).cloned(),
+        Err(_) => return 0,
+    };
+    let Some(session) = session else {
+        return 0;
+    };
+    let mut policy = match session.scheduler_policy.lock() {
+        Ok(guard) => guard,
+        Err(_) => return 0,
+    };
+    policy.force_reconnect_nonce = policy.force_reconnect_nonce.saturating_add(1);
+    1
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_io_ethan_pushgo_notifications_WarpLinkNativeBridge_nativeSessionPinTransport(
+    mut env: EnvUnowned,
+    _class: JClass,
+    handle: jlong,
+    transport: JString,
+    ttl_ms: jlong,
+) -> jint {
+    if handle == 0 {
+        return 0;
+    }
+    let transport_raw = match jstring_to_rust(&mut env, &transport) {
+        Some(value) => value,
+        None => return 0,
+    };
+    let Some(transport) = parse_transport_kind(transport_raw.as_str()) else {
+        return 0;
+    };
+    let expires_at_unix_ms = if ttl_ms > 0 {
+        Some(epoch_millis_now().saturating_add(ttl_ms))
+    } else {
+        None
+    };
+    let session = match SESSIONS.lock() {
+        Ok(guard) => guard.get(&(handle as u64)).cloned(),
+        Err(_) => return 0,
+    };
+    let Some(session) = session else {
+        return 0;
+    };
+    let mut policy = match session.scheduler_policy.lock() {
+        Ok(guard) => guard,
+        Err(_) => return 0,
+    };
+    policy.pinned_transport = Some(NativePinnedTransport {
+        transport,
+        expires_at_unix_ms,
+    });
+    policy.force_reconnect_nonce = policy.force_reconnect_nonce.saturating_add(1);
+    1
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_io_ethan_pushgo_notifications_WarpLinkNativeBridge_nativeSessionClearPin(
+    _env: EnvUnowned,
+    _class: JClass,
+    handle: jlong,
+) -> jint {
+    if handle == 0 {
+        return 0;
+    }
+    let session = match SESSIONS.lock() {
+        Ok(guard) => guard.get(&(handle as u64)).cloned(),
+        Err(_) => return 0,
+    };
+    let Some(session) = session else {
+        return 0;
+    };
+    let mut policy = match session.scheduler_policy.lock() {
+        Ok(guard) => guard,
+        Err(_) => return 0,
+    };
+    policy.pinned_transport = None;
+    policy.force_reconnect_nonce = policy.force_reconnect_nonce.saturating_add(1);
     1
 }
 
@@ -608,6 +762,95 @@ fn event_to_json(event: &ClientEvent, session_started_at: Instant) -> String {
             "elapsed_ms": elapsed_ms,
         })
         .to_string(),
+        ClientEvent::SchedulerStateChanged { state, reason_code } => serde_json::json!({
+            "type": "scheduler_state_changed",
+            "state": format!("{state:?}").to_ascii_lowercase(),
+            "reason_code": reason_code,
+            "elapsed_ms": elapsed_ms,
+        })
+        .to_string(),
+        ClientEvent::CandidateStarted {
+            from,
+            to,
+            decision_id,
+        } => serde_json::json!({
+            "type": "candidate_started",
+            "from": from.to_string(),
+            "to": to.to_string(),
+            "decision_id": decision_id,
+            "elapsed_ms": elapsed_ms,
+        })
+        .to_string(),
+        ClientEvent::CandidateReady {
+            from,
+            to,
+            decision_id,
+        } => serde_json::json!({
+            "type": "candidate_ready",
+            "from": from.to_string(),
+            "to": to.to_string(),
+            "decision_id": decision_id,
+            "elapsed_ms": elapsed_ms,
+        })
+        .to_string(),
+        ClientEvent::CutoverCommitted {
+            from,
+            to,
+            decision_id,
+        } => serde_json::json!({
+            "type": "cutover_committed",
+            "from": from.to_string(),
+            "to": to.to_string(),
+            "decision_id": decision_id,
+            "elapsed_ms": elapsed_ms,
+        })
+        .to_string(),
+        ClientEvent::CutoverRollback {
+            restored,
+            failed,
+            decision_id,
+            reason,
+        } => serde_json::json!({
+            "type": "cutover_rollback",
+            "restored": restored.to_string(),
+            "failed": failed.to_string(),
+            "decision_id": decision_id,
+            "reason": reason,
+            "elapsed_ms": elapsed_ms,
+        })
+        .to_string(),
+        ClientEvent::DeadConnectionDetected {
+            transport,
+            reason_code,
+        } => serde_json::json!({
+            "type": "dead_connection_detected",
+            "transport": transport.to_string(),
+            "reason_code": reason_code,
+            "elapsed_ms": elapsed_ms,
+        })
+        .to_string(),
+        ClientEvent::RecoveryTierEntered { tier, reason_code } => serde_json::json!({
+            "type": "recovery_tier_entered",
+            "tier": tier,
+            "reason_code": reason_code,
+            "elapsed_ms": elapsed_ms,
+        })
+        .to_string(),
+        ClientEvent::DecisionTrace { trace } => serde_json::json!({
+            "type": "decision_trace",
+            "decision_id": trace.decision_id,
+            "winner_layer": format!("{:?}", trace.winner_layer).to_ascii_lowercase(),
+            "reason_code": trace.reason_code,
+            "selected_transport": trace.selected_transport.map(|value| value.to_string()),
+            "inputs_digest": trace.inputs_digest,
+            "suppressed_candidates": trace
+                .suppressed_candidates
+                .iter()
+                .map(ToString::to_string)
+                .collect::<Vec<_>>(),
+            "elapsed_ms": elapsed_ms,
+        })
+        .to_string(),
         ClientEvent::Message { .. } => serde_json::json!({
             "type": "internal_error",
             "error": "message event path should be handled in ClientApp",
@@ -617,7 +860,27 @@ fn event_to_json(event: &ClientEvent, session_started_at: Instant) -> String {
 }
 
 fn elapsed_ms(session_started_at: Instant) -> u64 {
-    session_started_at.elapsed().as_millis().try_into().unwrap_or(u64::MAX)
+    session_started_at
+        .elapsed()
+        .as_millis()
+        .try_into()
+        .unwrap_or(u64::MAX)
+}
+
+fn epoch_millis_now() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|value| value.as_millis() as i64)
+        .unwrap_or(0)
+}
+
+fn parse_transport_kind(raw: &str) -> Option<TransportKind> {
+    match raw.trim().to_ascii_lowercase().as_str() {
+        "quic" => Some(TransportKind::Quic),
+        "tcp" => Some(TransportKind::Tcp),
+        "wss" | "ws" => Some(TransportKind::Wss),
+        _ => None,
+    }
 }
 
 fn decode_payload_map(bytes: &[u8]) -> (serde_json::Value, bool) {

@@ -172,6 +172,8 @@ class AlertPlaybackService : Service() {
             .setOnlyAlertOnce(true)
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .setCategory(NotificationCompat.CATEGORY_ALARM)
+            .setGroup(ALERT_PLAYBACK_NOTIFICATION_GROUP_KEY)
+            .setLocalOnly(true)
             .setSound(null)
             .build()
     }
@@ -195,5 +197,6 @@ class AlertPlaybackService : Service() {
 
         private const val SERVICE_CHANNEL_ID = "pushgo_alert_playback"
         private const val SERVICE_NOTIFICATION_ID = 84_201
+        private const val ALERT_PLAYBACK_NOTIFICATION_GROUP_KEY = "io.ethan.pushgo.alert_playback_service"
     }
 }

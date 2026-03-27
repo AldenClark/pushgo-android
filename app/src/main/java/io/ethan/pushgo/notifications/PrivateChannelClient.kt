@@ -53,16 +53,6 @@ enum class AckDrainOutcome {
     FAILED,
 }
 
-internal fun ackDrainOutcomeForCounts(
-    pendingCount: Int,
-    ackedCount: Int,
-): AckDrainOutcome = when {
-    pendingCount <= 0 -> AckDrainOutcome.IDLE
-    ackedCount <= 0 -> AckDrainOutcome.FAILED
-    ackedCount < pendingCount -> AckDrainOutcome.PARTIAL
-    else -> AckDrainOutcome.DRAINED
-}
-
 internal fun parseAckedDeliveryIds(response: JSONObject): Set<String> {
     val ackedArray = response.optJSONArray("acked_delivery_ids") ?: return emptySet()
     val rawValues = ArrayList<String>(ackedArray.length())
@@ -140,10 +130,10 @@ class PrivateChannelClient(
     private var lastRouteRepairAtMs = 0L
     private var currentDeviceState: DeviceState? = null
     private val wakeupPullMutex = Mutex()
-    private val ackDrainMutex = Mutex()
     private val routeEnsureMutex = Mutex()
     private var wakeupPullInFlight = false
     private var wakeupPullPending = false
+    private val pendingWakeupPullDeliveryIds = linkedSetOf<String>()
     private var routeEnsureInFlight: CompletableDeferred<Unit>? = null
     private var routeEnsureInFlightFingerprint: String? = null
     @Volatile
@@ -248,6 +238,13 @@ class PrivateChannelClient(
         refreshLoop()
     }
 
+    suspend fun gatewayPrivateChannelEnabled(): Boolean? {
+        val (baseUrl, token) = channelRepository.loadGatewayConfig()
+        return runCatching {
+            fetchGatewayProfileSnapshot(baseUrl, token).privateChannelEnabled
+        }.getOrNull()
+    }
+
     fun setKeepaliveServiceActive(active: Boolean) {
         val changed = keepaliveServiceActive != active
         keepaliveServiceActive = active
@@ -269,8 +266,8 @@ class PrivateChannelClient(
         refreshLoop()
     }
 
-    fun triggerWakeupPull() {
-        scope.launch { requestWakeupPull() }
+    fun triggerWakeupPull(deliveryId: String? = null) {
+        scope.launch { requestWakeupPull(deliveryId) }
     }
 
     private fun shouldPreferWakeupStreamRecovery(): Boolean {
@@ -283,23 +280,17 @@ class PrivateChannelClient(
     }
 
     suspend fun drainAckOutboxNow(): AckDrainOutcome {
-        val pendingDeliveryIds = inboundDeliveryLedgerRepository.loadPendingAckIds()
-        if (pendingDeliveryIds.isEmpty()) return AckDrainOutcome.IDLE
-
-        val (baseUrl, token) = channelRepository.loadGatewayConfig()
-        val state = withDeviceStateRetry(baseUrl, token) { state ->
-            ensurePrivateRoute(baseUrl, token, state)
-            state
-        }
-        return drainPendingAckOutbox(
-            baseUrl = baseUrl,
-            token = token,
-            deviceKey = state.deviceKey,
-            pendingDeliveryIds = pendingDeliveryIds,
-        )
+        // Wakeup-pull no longer requires HTTP ACK draining.
+        return AckDrainOutcome.IDLE
     }
 
-    private suspend fun requestWakeupPull() {
+    private suspend fun requestWakeupPull(deliveryId: String? = null) {
+        val normalizedDeliveryId = deliveryId?.trim()?.takeIf { it.isNotEmpty() }
+        if (normalizedDeliveryId != null) {
+            wakeupPullMutex.withLock {
+                pendingWakeupPullDeliveryIds += normalizedDeliveryId
+            }
+        }
         if (shouldPreferWakeupStreamRecovery()) {
             nextAllowedPullAtMs = 0L
             failureStreak = 0
@@ -484,8 +475,10 @@ class PrivateChannelClient(
                     detail = "network restored, reconnecting private stream",
                 )
                 recomputeKeepaliveState()
-                stopActiveSession(reason)
-                restartLoop()
+                if (!requestActiveSessionForceReconnect("network_restored:$reason")) {
+                    stopActiveSession(reason)
+                    restartLoop()
+                }
             } else {
                 recomputeKeepaliveState()
             }
@@ -512,7 +505,7 @@ class PrivateChannelClient(
     ) {
         val (baseUrl, token) = channelRepository.loadGatewayConfig()
         withDeviceStateRetry(baseUrl, token) { state ->
-            privatePost(baseUrl, token, "/channel/device", JSONObject().apply {
+            privatePost(baseUrl, token, "/device/register", JSONObject().apply {
                 put("device_key", state.deviceKey)
                 put("platform", "android")
                 put("channel_type", channelType.trim().lowercase())
@@ -534,7 +527,7 @@ class PrivateChannelClient(
         val (baseUrl, token) = channelRepository.loadGatewayConfig()
         withDeviceStateRetry(baseUrl, token) { state ->
             if (!providerToken.isNullOrBlank()) {
-                privatePost(baseUrl, token, "/channel/device", JSONObject().apply {
+                privatePost(baseUrl, token, "/device/register", JSONObject().apply {
                     put("device_key", state.deviceKey)
                     put("platform", "android")
                     put("channel_type", channelType.trim().lowercase())
@@ -648,6 +641,12 @@ class PrivateChannelClient(
     private suspend fun pullWakeupOnce() {
         val nowMs = System.currentTimeMillis()
         if (nowMs < nextAllowedPullAtMs) return
+        val deliveryIds = wakeupPullMutex.withLock {
+            val ids = pendingWakeupPullDeliveryIds.toList()
+            pendingWakeupPullDeliveryIds.clear()
+            ids
+        }
+        if (deliveryIds.isEmpty()) return
         val (baseUrl, token) = channelRepository.loadGatewayConfig()
         try {
             val state = withDeviceStateRetry(baseUrl, token) { state ->
@@ -655,110 +654,53 @@ class PrivateChannelClient(
                 subscribeAll(baseUrl, token, state)
                 state
             }
-            scheduleAckDrainIfNeeded(
-                drainPendingAckOutbox(baseUrl, token, state.deviceKey)
-            )
-            val items = privatePull(baseUrl, token, state, 100)
-            val ackCandidates = ArrayList<String>()
+            val items = privatePull(baseUrl, token, state, deliveryIds)
             for (item in items) {
                 if (item.deliveryId.isEmpty()) continue
-                val handledOk = handlePulledMessage(item.payload, item.deliveryId)
-                if (!handledOk) continue
-                if (!inboundDeliveryLedgerRepository.shouldAck(item.deliveryId)) continue
-                ackCandidates += item.deliveryId
+                val shouldMarkAcked = handlePulledMessage(item.payload, item.deliveryId)
+                if (!shouldMarkAcked) continue
+                runCatching { inboundDeliveryLedgerRepository.markAcked(listOf(item.deliveryId)) }
+                    .onFailure { error ->
+                        io.ethan.pushgo.util.SilentSink.w(
+                            TAG,
+                            "wakeup pull local ack mark failed deliveryId=${item.deliveryId} error=${error.message}",
+                            error,
+                        )
+                    }
             }
-            inboundDeliveryLedgerRepository.enqueueAcks(ackCandidates)
-            if (ackCandidates.isNotEmpty()) {
-                PrivateAckOutboxWorkScheduler.enqueue(appContext)
-            }
-            scheduleAckDrainIfNeeded(
-                drainPendingAckOutbox(baseUrl, token, state.deviceKey)
-            )
             onSuccess()
         } catch (error: Throwable) {
+            wakeupPullMutex.withLock {
+                pendingWakeupPullDeliveryIds.addAll(deliveryIds)
+            }
             onFailure("pull", error)
-        }
-    }
-
-    private suspend fun drainPendingAckOutbox(
-        baseUrl: String,
-        token: String?,
-        deviceKey: String,
-        pendingDeliveryIds: List<String>? = null,
-    ): AckDrainOutcome = ackDrainMutex.withLock {
-        val pending = pendingDeliveryIds ?: inboundDeliveryLedgerRepository.loadPendingAckIds()
-        if (pending.isEmpty()) return@withLock AckDrainOutcome.IDLE
-        val ackedDeliveryIds = runCatching {
-            privateAckBatch(baseUrl, token, deviceKey, pending)
-        }.getOrElse {
-            io.ethan.pushgo.util.SilentSink.w(TAG, "private batch ack failed error=${it.message}")
-            PushGoAutomation.recordRuntimeError(
-                source = "private.ack.batch",
-                error = it,
-                category = "private",
-            )
-            return@withLock AckDrainOutcome.FAILED
-        }
-        inboundDeliveryLedgerRepository.markAcked(ackedDeliveryIds)
-        return@withLock ackDrainOutcomeForCounts(pending.size, ackedDeliveryIds.size)
-    }
-
-    private fun scheduleAckDrainIfNeeded(outcome: AckDrainOutcome) {
-        if (outcome == AckDrainOutcome.PARTIAL || outcome == AckDrainOutcome.FAILED) {
-            PrivateAckOutboxWorkScheduler.enqueue(appContext)
-        }
-    }
-
-    private suspend fun privateAckBatch(
-        baseUrl: String,
-        token: String?,
-        deviceKey: String,
-        deliveryIds: List<String>,
-    ): Set<String> {
-        val normalized = deliveryIds
-            .asSequence()
-            .map { it.trim() }
-            .filter { it.isNotEmpty() }
-            .distinct()
-            .toList()
-        if (normalized.isEmpty()) return emptySet()
-        return try {
-            val response = privatePost(baseUrl, token, "/messages/ack/batch", JSONObject().apply {
-                put("device_key", deviceKey)
-                put("delivery_ids", org.json.JSONArray(normalized))
-            })
-            parseAckedDeliveryIds(response)
-        } catch (error: ChannelSubscriptionException) {
-            throw error
         }
     }
 
     private suspend fun privatePull(
         baseUrl: String,
         token: String?,
-        state: DeviceState,
-        limit: Int,
+        _state: DeviceState,
+        deliveryIds: List<String>,
     ): List<PulledItem> {
-        val credentials = channelRepository.loadActiveCredentials()
-        if (credentials.isEmpty()) return emptyList()
-        val out = ArrayList<PulledItem>()
-        credentials.forEach { (channelId, password) ->
-            val data = privatePost(baseUrl, token, "/messages/pull", JSONObject().apply {
-                put("device_key", state.deviceKey)
-                put("channel_id", channelId)
-                put("password", password)
-                put("limit", limit)
-            })
-            val arr = data.optJSONArray("items") ?: return@forEach
-            for (i in 0 until arr.length()) {
-                val item = arr.optJSONObject(i) ?: continue
-                val deliveryId = item.optString("delivery_id").trim()
-                if (deliveryId.isEmpty()) continue
-                val payload = item.optJSONObject("payload") ?: JSONObject()
-                out += PulledItem(deliveryId = deliveryId, payload = payload)
-            }
+        val normalizedIds = normalizePendingAckDeliveryIds(deliveryIds)
+        if (normalizedIds.isEmpty()) return emptyList()
+        val pulled = ArrayList<PulledItem>(normalizedIds.size)
+        for (deliveryId in normalizedIds) {
+            val response = privatePost(
+                baseUrl,
+                token,
+                "/messages/pull",
+                JSONObject().apply {
+                    put("delivery_id", deliveryId)
+                }
+            )
+            val item = response.optJSONObject("item") ?: continue
+            val payload = item.optJSONObject("payload") ?: continue
+            val resolvedDeliveryId = item.optString("delivery_id").trim().ifEmpty { deliveryId }
+            pulled += PulledItem(deliveryId = resolvedDeliveryId, payload = payload)
         }
-        return out
+        return pulled
     }
 
     private suspend fun handlePulledMessage(payload: JSONObject, deliveryId: String): Boolean {
@@ -851,15 +793,32 @@ class PrivateChannelClient(
         transportProfile: PrivateTransportProfile,
     ): Boolean {
         latestNativeSessionProfile = null
+        val effectiveProfile = profileWithFreshHints(transportProfile)
+        val localConnectBudgetMs = if (foregroundActive) {
+            PRIVATE_CONNECT_BUDGET_MS.toLong()
+        } else {
+            null
+        }
+        val effectiveConnectBudgetMs = (localConnectBudgetMs
+            ?: effectiveProfile.suggestedConnectBudgetMs
+            ?: PRIVATE_CONNECT_BUDGET_MS.toLong()).coerceIn(1_500L, 30_000L)
+        val effectiveBackoffCapMs = (effectiveProfile.suggestedBackoffCapMs
+            ?: PRIVATE_BACKOFF_CAP_MS).coerceIn(10_000L, 180_000L)
+        val initialPinTransport = effectiveProfile.recommendedTransport
+            ?.trim()
+            ?.lowercase()
+            ?.takeIf { it == "quic" || it == "tcp" || it == "wss" }
+        val initialPinTtlMs = effectiveProfile.transportPenaltyWindowMs
+            ?.coerceIn(30_000L, 600_000L)
         val handle = runInterruptible(Dispatchers.IO) {
             WarpLinkNativeBridge.sessionStart(
                 JSONObject().apply {
                     put("host", host)
-                    put("quic_port", transportProfile.quicPort)
-                    put("wss_port", transportProfile.wssPort)
-                    put("tcp_port", transportProfile.tcpPort)
-                    put("wss_path", transportProfile.wssPath)
-                    put("wss_subprotocol", transportProfile.wsSubprotocol)
+                    put("quic_port", effectiveProfile.quicPort)
+                    put("wss_port", effectiveProfile.wssPort)
+                    put("tcp_port", effectiveProfile.tcpPort)
+                    put("wss_path", effectiveProfile.wssPath)
+                    put("wss_subprotocol", effectiveProfile.wsSubprotocol)
                     put("bearer_token", bearerToken ?: JSONObject.NULL)
                     put("cert_pin_sha256", privateCertPinSha256() ?: JSONObject.NULL)
                     put("identity", state.deviceKey)
@@ -869,6 +828,13 @@ class PrivateChannelClient(
                     put("perf_tier", effectivePerformanceMode(foregroundActive).wireValue)
                     put("app_state", if (foregroundActive) "foreground" else "background")
                     put("ack_wait_timeout_ms", ACK_WAIT_TIMEOUT_MS)
+                    put("connect_budget_ms", effectiveConnectBudgetMs)
+                    put("backoff_max_ms", effectiveBackoffCapMs)
+                    put("scheduler_v2_enabled", true)
+                    put("drain_timeout_ms", 8_000L)
+                    put("cutover_guard_ms", 1_500L)
+                    put("initial_pin_transport", initialPinTransport ?: JSONObject.NULL)
+                    put("initial_pin_ttl_ms", initialPinTtlMs ?: JSONObject.NULL)
                 }.toString()
             )
         }
@@ -1002,6 +968,28 @@ class PrivateChannelClient(
         }
     }
 
+    private fun requestActiveSessionForceReconnect(reason: String): Boolean {
+        val handle = activeSessionHandle
+        if (handle <= 0L) return false
+        val accepted = runCatching {
+            WarpLinkNativeBridge.sessionForceReconnect(handle)
+        }.getOrDefault(false)
+        if (!accepted) {
+            io.ethan.pushgo.util.SilentSink.w(
+                TAG,
+                "session force reconnect failed reason=$reason",
+            )
+            return false
+        }
+        saveTransportStatus(
+            route = "private",
+            transport = transportStatusState.value.transport,
+            stage = "reconnecting",
+            detail = "force reconnect requested: $reason",
+        )
+        return true
+    }
+
     private fun syncActiveSessionPowerHint() {
         val handle = activeSessionHandle
         if (handle <= 0L) return
@@ -1116,13 +1104,8 @@ class PrivateChannelClient(
                     io.ethan.pushgo.util.SilentSink.w(TAG, "stream deliver failed id=$deliveryId error=${it.message}")
                 }
                 val handledOk = handledResult.getOrDefault(false)
-                if (handledOk && inboundDeliveryLedgerRepository.shouldAck(deliveryId)) {
-                    inboundDeliveryLedgerRepository.enqueueAcks(
-                        deliveryIds = listOf(deliveryId),
-                        source = "private_stream",
-                    )
-                    PrivateAckOutboxWorkScheduler.enqueue(appContext)
-                }
+                val shouldMarkAcked = handledOk && inboundDeliveryLedgerRepository.shouldAck(deliveryId)
+                var streamAcked = false
                 if (ackId > 0L) {
                     val status = PrivateStreamAckPolicy.statusForHandledResult(handledResult)
                     val resolved = runInterruptible(Dispatchers.IO) {
@@ -1130,7 +1113,12 @@ class PrivateChannelClient(
                     }
                     if (!resolved) {
                         io.ethan.pushgo.util.SilentSink.w(TAG, "stream resolve message failed id=$deliveryId ackId=$ackId")
+                    } else if (status == PRIVATE_STREAM_ACK_STATUS_OK) {
+                        streamAcked = true
                     }
+                }
+                if (shouldMarkAcked && streamAcked) {
+                    inboundDeliveryLedgerRepository.markAcked(listOf(deliveryId))
                 }
                 if (handledOk && seq > 0L) {
                     updateResumeState(null, seq)
@@ -1162,6 +1150,64 @@ class PrivateChannelClient(
                     transport = "none",
                     stage = "backoff",
                     detail = "attempt=$attempt next_retry=${backoffMs}ms",
+                )
+            }
+            "scheduler_state_changed" -> {
+                val state = root.optString("state").trim().ifEmpty { "unknown" }
+                val reasonCode = root.optString("reason_code").trim().ifEmpty { "none" }
+                io.ethan.pushgo.util.SilentSink.i(
+                    TAG,
+                    "scheduler_state_changed state=$state reason_code=$reasonCode",
+                )
+            }
+            "cutover_committed" -> {
+                val from = root.optString("from").trim().ifEmpty { "unknown" }
+                val to = root.optString("to").trim().ifEmpty { "unknown" }
+                val decisionId = root.optLong("decision_id", 0L)
+                saveTransportStatus(
+                    route = "private",
+                    transport = to,
+                    stage = "connected",
+                    detail = "cutover committed from=$from to=$to decision=$decisionId",
+                )
+            }
+            "cutover_rollback" -> {
+                val restored = root.optString("restored").trim().ifEmpty { "unknown" }
+                val failed = root.optString("failed").trim().ifEmpty { "unknown" }
+                val decisionId = root.optLong("decision_id", 0L)
+                val reason = root.optString("reason").trim().ifEmpty { "unknown" }
+                saveTransportStatus(
+                    route = "private",
+                    transport = restored,
+                    stage = "recovering",
+                    detail = "cutover rollback failed=$failed restored=$restored decision=$decisionId reason=$reason",
+                )
+            }
+            "decision_trace" -> {
+                val winnerLayer = root.optString("winner_layer").trim().ifEmpty { "unknown" }
+                val reasonCode = root.optString("reason_code").trim().ifEmpty { "unknown" }
+                val selected = root.optString("selected_transport").trim().ifEmpty { "none" }
+                io.ethan.pushgo.util.SilentSink.i(
+                    TAG,
+                    "decision_trace winner=$winnerLayer reason_code=$reasonCode selected=$selected",
+                )
+            }
+            "dead_connection_detected" -> {
+                val reasonCode = root.optString("reason_code").trim().ifEmpty { "unknown" }
+                val eventTransport = root.optString("transport").trim().ifEmpty { "none" }
+                saveTransportStatus(
+                    route = "private",
+                    transport = eventTransport,
+                    stage = "recovering",
+                    detail = "dead connection detected: $reasonCode",
+                )
+            }
+            "recovery_tier_entered" -> {
+                val tier = root.optInt("tier", 0).coerceAtLeast(0)
+                val reasonCode = root.optString("reason_code").trim().ifEmpty { "unknown" }
+                io.ethan.pushgo.util.SilentSink.i(
+                    TAG,
+                    "recovery_tier_entered tier=$tier reason_code=$reasonCode",
                 )
             }
             "fatal" -> {
@@ -1296,6 +1342,7 @@ class PrivateChannelClient(
         }
         val register = privatePost(baseUrl, token, "/device/register", JSONObject().apply {
             put("platform", "android")
+            put("channel_type", "private")
             if (!existing?.deviceKey.isNullOrBlank()) {
                 put("device_key", existing.deviceKey)
             }
@@ -1361,7 +1408,7 @@ class PrivateChannelClient(
         }
         val owner = createdDeferred ?: return
         try {
-            privatePost(baseUrl, token, "/channel/device", JSONObject().apply {
+            privatePost(baseUrl, token, "/device/register", JSONObject().apply {
                 put("device_key", state.deviceKey)
                 put("platform", "android")
                 put("channel_type", "private")
@@ -1668,10 +1715,17 @@ class PrivateChannelClient(
         token: String?,
     ): PrivateTransportProfile {
         return try {
-            val profile = fetchPrivateTransportProfile(baseUrl, token)
+            val gatewayProfile = fetchGatewayProfileSnapshot(baseUrl, token)
+            if (!gatewayProfile.privateChannelEnabled) {
+                throw ChannelSubscriptionException("private_channel_disabled: gateway private channel is disabled")
+            }
+            val profile = gatewayProfile.transport ?: defaultPrivateTransportProfile()
             savePrivateTransportProfileCache(baseUrl, profile)
             profile
         } catch (error: ChannelSubscriptionException) {
+            if (isGatewayPrivateDisabledError(error)) {
+                throw error
+            }
             loadPrivateTransportProfileCache(baseUrl)?.also {
                 io.ethan.pushgo.util.SilentSink.w(
                     TAG,
@@ -1687,17 +1741,33 @@ class PrivateChannelClient(
         }
     }
 
-    private suspend fun fetchPrivateTransportProfile(
+    private suspend fun fetchGatewayProfileSnapshot(
         baseUrl: String,
         token: String?,
-    ): PrivateTransportProfile {
-        val data = privateGet(baseUrl, token, "/private/profile")
-        val transport = data.optJSONObject("transport")
-            ?: throw ChannelSubscriptionException("private profile missing transport")
-        return parsePrivateTransportProfile(transport)
+    ): GatewayProfileSnapshot {
+        val data = privateGet(baseUrl, token, GATEWAY_PROFILE_ENDPOINT)
+        return parseGatewayProfileSnapshot(data)
     }
 
-    private fun parsePrivateTransportProfile(transport: JSONObject): PrivateTransportProfile {
+    private fun parseGatewayProfileSnapshot(data: JSONObject): GatewayProfileSnapshot {
+        val privateEnabled = data.optBoolean(
+            "private_channel_enabled",
+            data.optBoolean("private_enabled", false),
+        )
+        val transport = data.optJSONObject("transport")
+            ?.let { transport ->
+                parsePrivateTransportProfile(data, transport)
+            }
+        return GatewayProfileSnapshot(
+            privateChannelEnabled = privateEnabled,
+            transport = transport,
+        )
+    }
+
+    private fun parsePrivateTransportProfile(
+        root: JSONObject,
+        transport: JSONObject,
+    ): PrivateTransportProfile {
         val defaultProfile = defaultPrivateTransportProfile()
         return PrivateTransportProfile(
             quicEnabled = transport.optBoolean("quic_enabled", true),
@@ -1713,7 +1783,43 @@ class PrivateChannelClient(
                 .ifEmpty { defaultProfile.wssPath },
             wsSubprotocol = transport.optString("ws_subprotocol").trim()
                 .ifEmpty { defaultProfile.wsSubprotocol },
+            recommendedTransport = root.optString("recommended_transport").trim().ifEmpty { null },
+            transportPenaltyWindowMs = root.optLong("transport_penalty_window_ms", 0L)
+                .takeIf { it > 0L },
+            suggestedConnectBudgetMs = root.optLong("suggested_connect_budget_ms", 0L)
+                .takeIf { it > 0L },
+            suggestedBackoffCapMs = root.optLong("suggested_backoff_cap_ms", 0L)
+                .takeIf { it > 0L },
+            profileGeneratedAtMs = root.optLong("profile_generated_at_ms", 0L)
+                .takeIf { it > 0L },
+            profileTtlMs = root.optLong("profile_ttl_ms", 0L)
+                .takeIf { it > 0L },
         )
+    }
+
+    private fun profileWithFreshHints(profile: PrivateTransportProfile): PrivateTransportProfile {
+        if (!profile.hasDynamicHints()) return profile
+        if (profile.hintsAreFresh(System.currentTimeMillis())) return profile
+        return profile.copy(
+            recommendedTransport = null,
+            transportPenaltyWindowMs = null,
+            suggestedConnectBudgetMs = null,
+            suggestedBackoffCapMs = null,
+        )
+    }
+
+    private fun PrivateTransportProfile.hasDynamicHints(): Boolean {
+        return !recommendedTransport.isNullOrBlank()
+            || transportPenaltyWindowMs != null
+            || suggestedConnectBudgetMs != null
+            || suggestedBackoffCapMs != null
+    }
+
+    private fun PrivateTransportProfile.hintsAreFresh(nowMs: Long): Boolean {
+        val generatedAt = profileGeneratedAtMs ?: return true
+        val ttlMs = profileTtlMs ?: return true
+        val expiresAt = generatedAt + ttlMs
+        return nowMs <= expiresAt
     }
 
     private fun loadPrivateTransportProfileCache(baseUrl: String): PrivateTransportProfile? {
@@ -1725,7 +1831,7 @@ class PrivateChannelClient(
                 return null
             }
             val transport = obj.optJSONObject("transport") ?: return null
-            parsePrivateTransportProfile(transport)
+            parsePrivateTransportProfile(obj, transport)
         }.getOrNull()
     }
 
@@ -1745,6 +1851,12 @@ class PrivateChannelClient(
                     put("ws_subprotocol", profile.wsSubprotocol)
                 }
             )
+            put("recommended_transport", profile.recommendedTransport ?: JSONObject.NULL)
+            put("transport_penalty_window_ms", profile.transportPenaltyWindowMs ?: JSONObject.NULL)
+            put("suggested_connect_budget_ms", profile.suggestedConnectBudgetMs ?: JSONObject.NULL)
+            put("suggested_backoff_cap_ms", profile.suggestedBackoffCapMs ?: JSONObject.NULL)
+            put("profile_generated_at_ms", profile.profileGeneratedAtMs ?: JSONObject.NULL)
+            put("profile_ttl_ms", profile.profileTtlMs ?: JSONObject.NULL)
         }
         prefs.edit().putString(KEY_PROFILE_CACHE, obj.toString()).apply()
     }
@@ -1761,6 +1873,14 @@ class PrivateChannelClient(
             || message.contains("connect")
             || message.contains("connection reset")
             || message.contains("broken pipe")
+    }
+
+    private fun isGatewayPrivateDisabledError(error: ChannelSubscriptionException): Boolean {
+        val message = error.message?.lowercase().orEmpty()
+        if (message.isBlank()) return false
+        return message.contains("private_channel_disabled")
+            || message.contains("private channel is disabled")
+            || message.contains("private_channel_enabled=false")
     }
 
     private fun onSuccess() {
@@ -1787,16 +1907,43 @@ class PrivateChannelClient(
             stage = "reconnecting",
             detail = "app foregrounded, retrying private stream immediately",
         )
-        stopActiveSession("foreground_recovery")
-        triggerWakeupPull()
+        if (!requestActiveSessionForceReconnect("foreground_recovery")) {
+            stopActiveSession("foreground_recovery")
+            triggerWakeupPull()
+        }
     }
 
     private fun onFailure(stage: String, error: Throwable) {
+        if (error is ChannelSubscriptionException && isGatewayPrivateDisabledError(error)) {
+            failureStreak = 0
+            nextAllowedPullAtMs = System.currentTimeMillis() + 120_000L
+            saveTransportStatus(
+                route = "private",
+                transport = "none",
+                stage = "gateway_private_disabled",
+                detail = "gateway private channel is disabled; switch to FCM",
+            )
+            io.ethan.pushgo.util.SilentSink.w(TAG, "stage=$stage gateway private channel disabled")
+            return
+        }
         PushGoAutomation.recordRuntimeError(
             source = "private.$stage",
             error = error,
             category = "private",
         )
+        if (stage.startsWith("stream_")) {
+            // Phase C: keep reconnect authority inside warp-link runtime, app loop only gates on network/manual triggers.
+            failureStreak = 0
+            nextAllowedPullAtMs = 0L
+            saveTransportStatus(
+                route = if (fcmAvailable) "provider" else "private",
+                transport = transportStatusState.value.transport,
+                stage = "reconnecting",
+                detail = "stage=$stage reconnect delegated to warp-link runtime error=${error.message.orEmpty().take(120)}",
+            )
+            io.ethan.pushgo.util.SilentSink.w(TAG, "stage=$stage delegated reconnect error=${error.message}")
+            return
+        }
         if (isQuickRecoverableFailure(stage, error)) {
             failureStreak = (failureStreak + 1).coerceIn(1, 3)
             val jitterMs = Random.nextLong(120, 420)
@@ -1879,6 +2026,39 @@ class PrivateChannelClient(
         return WarpLinkNativeBridge.sessionRequestProbe(handle)
     }
 
+    fun requestForceReconnect(reason: String = "manual"): Boolean {
+        if (fcmAvailable) return false
+        val triggered = requestActiveSessionForceReconnect("manual:$reason")
+        if (!triggered) {
+            saveTransportStatus(
+                route = "private",
+                transport = "none",
+                stage = "reconnecting",
+                detail = "manual reconnect requested: $reason",
+            )
+            restartLoop()
+        }
+        return true
+    }
+
+    fun pinTransport(transport: String, ttlMs: Long = 0L): Boolean {
+        if (fcmAvailable) return false
+        val normalized = transport.trim().lowercase()
+        if (normalized != "quic" && normalized != "tcp" && normalized != "wss") {
+            return false
+        }
+        val handle = activeSessionHandle
+        if (handle <= 0L) return true
+        return WarpLinkNativeBridge.sessionPinTransport(handle, normalized, ttlMs)
+    }
+
+    fun clearPinnedTransport(): Boolean {
+        if (fcmAvailable) return false
+        val handle = activeSessionHandle
+        if (handle <= 0L) return true
+        return WarpLinkNativeBridge.sessionClearPin(handle)
+    }
+
     fun summarizeConnectionStatus(snapshot: ConnectionSnapshot, privateModeEnabled: Boolean): String {
         if (!privateModeEnabled) {
             return appContext.getString(R.string.private_transport_status_disconnected)
@@ -1911,6 +2091,7 @@ class PrivateChannelClient(
         latestTransportSelectionInsight = null
         wakeupPullInFlight = false
         wakeupPullPending = false
+        pendingWakeupPullDeliveryIds.clear()
         lastTransportStatusFingerprint = null
         prefs.edit().clear().apply()
         saveTransportStatus(
@@ -2113,6 +2294,17 @@ class PrivateChannelClient(
         val wssPort: Int,
         val wssPath: String,
         val wsSubprotocol: String,
+        val recommendedTransport: String? = null,
+        val transportPenaltyWindowMs: Long? = null,
+        val suggestedConnectBudgetMs: Long? = null,
+        val suggestedBackoffCapMs: Long? = null,
+        val profileGeneratedAtMs: Long? = null,
+        val profileTtlMs: Long? = null,
+    )
+
+    private data class GatewayProfileSnapshot(
+        val privateChannelEnabled: Boolean,
+        val transport: PrivateTransportProfile?,
     )
 
     data class ChannelCreateResult(
@@ -2240,6 +2432,7 @@ class PrivateChannelClient(
         private const val KEY_TRANSPORT_STATUS = "transport_status"
         private const val KEY_PERF_MODE = "performance_mode"
         private const val KEY_PROFILE_CACHE = "transport_profile_cache"
+        private const val GATEWAY_PROFILE_ENDPOINT = "/gateway/profile"
         private const val PRIVATE_QUIC_PORT = 443
         private const val PRIVATE_TCP_PORT = 5223
         private const val PRIVATE_HTTP_CONNECT_TIMEOUT_MS = 10_000
@@ -2251,6 +2444,8 @@ class PrivateChannelClient(
         private const val PRIVATE_PAYLOAD_VERSION_V1 = 1
         private const val ACK_WAIT_TIMEOUT_MS = 10_000
         private const val PRIVATE_WELCOME_STALL_TIMEOUT_MS = 20_000L
+        private const val PRIVATE_CONNECT_BUDGET_MS = 12_000
+        private const val PRIVATE_BACKOFF_CAP_MS = 60_000L
 
         private fun defaultPrivateTransportProfile(): PrivateTransportProfile {
             return PrivateTransportProfile(
@@ -2262,6 +2457,12 @@ class PrivateChannelClient(
                 wssPort = PRIVATE_QUIC_PORT,
                 wssPath = "/private/ws",
                 wsSubprotocol = "pushgo-private.v1",
+                recommendedTransport = null,
+                transportPenaltyWindowMs = null,
+                suggestedConnectBudgetMs = null,
+                suggestedBackoffCapMs = null,
+                profileGeneratedAtMs = null,
+                profileTtlMs = null,
             )
         }
     }

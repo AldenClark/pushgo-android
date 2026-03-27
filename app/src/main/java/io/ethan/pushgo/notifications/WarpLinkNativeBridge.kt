@@ -90,6 +90,38 @@ object WarpLinkNativeBridge {
         }
     }
 
+    fun sessionForceReconnect(handle: Long): Boolean {
+        if (!loaded || handle == 0L) return false
+        return runCatching {
+            nativeSessionForceReconnect(handle) == 1
+        }.getOrElse {
+            io.ethan.pushgo.util.SilentSink.w(TAG, "native session force reconnect failed: ${it.message}")
+            false
+        }
+    }
+
+    fun sessionPinTransport(handle: Long, transport: String, ttlMs: Long): Boolean {
+        if (!loaded || handle == 0L) return false
+        val normalizedTransport = transport.trim()
+        if (normalizedTransport.isEmpty()) return false
+        return runCatching {
+            nativeSessionPinTransport(handle, normalizedTransport, ttlMs) == 1
+        }.getOrElse {
+            io.ethan.pushgo.util.SilentSink.w(TAG, "native session pin transport failed: ${it.message}")
+            false
+        }
+    }
+
+    fun sessionClearPin(handle: Long): Boolean {
+        if (!loaded || handle == 0L) return false
+        return runCatching {
+            nativeSessionClearPin(handle) == 1
+        }.getOrElse {
+            io.ethan.pushgo.util.SilentSink.w(TAG, "native session clear pin failed: ${it.message}")
+            false
+        }
+    }
+
     @JvmStatic
     private external fun nativeSessionStart(configJson: String): Long
 
@@ -110,4 +142,13 @@ object WarpLinkNativeBridge {
 
     @JvmStatic
     private external fun nativeSessionRequestProbe(handle: Long): Int
+
+    @JvmStatic
+    private external fun nativeSessionForceReconnect(handle: Long): Int
+
+    @JvmStatic
+    private external fun nativeSessionPinTransport(handle: Long, transport: String, ttlMs: Long): Int
+
+    @JvmStatic
+    private external fun nativeSessionClearPin(handle: Long): Int
 }

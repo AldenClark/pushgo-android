@@ -247,18 +247,11 @@ class ChannelSubscriptionRepository(
             settingsRepository.setFcmToken(normalizedToken)
         }
         val existingDeviceKey = settingsRepository.getProviderDeviceKey(platform = "android")
-        val deviceKey = service.registerDevice(
-            baseUrl = config.address,
-            token = config.token,
-            platform = "android",
-            existingDeviceKey = existingDeviceKey,
-        )
-        settingsRepository.setProviderDeviceKey(platform = "android", deviceKey = deviceKey)
         if (!previousToken.isNullOrBlank() && previousToken != normalizedToken) {
             runCatching {
                 retireOldProviderToken(
                     config = config,
-                    deviceKey = deviceKey,
+                    deviceKey = existingDeviceKey?.trim().orEmpty(),
                     oldProviderToken = previousToken,
                 )
             }.onFailure { error ->
@@ -268,12 +261,12 @@ class ChannelSubscriptionRepository(
         val upserted = service.upsertDeviceChannel(
             baseUrl = config.address,
             token = config.token,
-            deviceKey = deviceKey,
+            deviceKey = existingDeviceKey,
             platform = "android",
             channelType = FCM_CHANNEL_TYPE,
             providerToken = normalizedToken,
         )
-        val resolvedDeviceKey = upserted.deviceKey.trim().ifEmpty { deviceKey }
+        val resolvedDeviceKey = upserted.deviceKey.trim()
         settingsRepository.setProviderDeviceKey(platform = "android", deviceKey = resolvedDeviceKey)
         return resolvedDeviceKey
     }
@@ -285,15 +278,16 @@ class ChannelSubscriptionRepository(
     ) {
         val normalizedOldToken = oldProviderToken.trim()
         if (normalizedOldToken.isEmpty()) return
+        val requestedDeviceKey = deviceKey.trim().ifEmpty { null }
         val upserted = service.upsertDeviceChannel(
             baseUrl = config.address,
             token = config.token,
-            deviceKey = deviceKey,
+            deviceKey = requestedDeviceKey,
             platform = "android",
             channelType = FCM_CHANNEL_TYPE,
             providerToken = normalizedOldToken,
         )
-        val resolvedDeviceKey = upserted.deviceKey.trim().ifEmpty { deviceKey }
+        val resolvedDeviceKey = upserted.deviceKey.trim()
         settingsRepository.setProviderDeviceKey(platform = "android", deviceKey = resolvedDeviceKey)
         service.deleteDeviceChannel(
             baseUrl = config.address,

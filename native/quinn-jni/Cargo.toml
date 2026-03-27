@@ -18,5 +18,5 @@ tokio = { version = "1.49.0", features = [
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 postcard = { version = "1.1.3", features = ["use-std"] }
-warp-link = { git = "https://github.com/AldenClark/warp-link.git", rev = "f68556a6758238754e1dc2bc56faf4034f85aa3a" }
-pushgo-warp-profile = { git = "https://github.com/AldenClark/warp-link.git", rev = "f68556a6758238754e1dc2bc56faf4034f85aa3a" }
+warp-link = { git = "https://github.com/AldenClark/warp-link", rev = "830721e14d59e645a64808af2ec1b0f74d23e4cc" }
+pushgo-warp-profile = { git = "https://github.com/AldenClark/warp-link", rev = "830721e14d59e645a64808af2ec1b0f74d23e4cc" }

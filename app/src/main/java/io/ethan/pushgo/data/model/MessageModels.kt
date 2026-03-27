@@ -90,6 +90,12 @@ data class PushMessage(
     val eventState: String?
         get() = rawPayloadString("event_state")
 
+    val occurredAtEpoch: Long?
+        get() {
+            val raw = rawPayloadString("occurred_at") ?: return null
+            return raw.toLongOrNull()?.takeIf { it > 0L }?.times(1000)
+        }
+
     val severity: MessageSeverity?
         get() = MessageSeverity.fromRaw(rawPayloadString("severity"))
 

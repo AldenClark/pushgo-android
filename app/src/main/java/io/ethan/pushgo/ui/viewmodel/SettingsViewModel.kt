@@ -72,6 +72,7 @@ class SettingsViewModel(
     var useFcmChannel by mutableStateOf(true)
         private set
     var isFcmSupported by mutableStateOf(true)
+    var gatewayPrivateChannelEnabled by mutableStateOf<Boolean?>(null)
         private set
     var isChannelModeLoaded by mutableStateOf(false)
         private set
@@ -135,6 +136,7 @@ class SettingsViewModel(
             deviceToken = settingsRepository.getFcmToken()
             useFcmChannel = settingsRepository.getUseFcmChannel()
             isFcmSupported = true
+            gatewayPrivateChannelEnabled = privateChannelClient.gatewayPrivateChannelEnabled()
             val currentKey = settingsRepository.getNotificationKeyBytes()
             isDecryptionConfigured = currentKey?.isNotEmpty() == true
             decryptionUpdatedAt = settingsRepository.getNotificationKeyUpdatedAt()
@@ -209,6 +211,12 @@ class SettingsViewModel(
             if (supported || !useFcmChannel) {
                 return@launch
             }
+            val privateEnabled = privateChannelClient.gatewayPrivateChannelEnabled()
+            gatewayPrivateChannelEnabled = privateEnabled
+            if (privateEnabled == false) {
+                errorMessage = ResMessage(R.string.error_private_disabled_and_fcm_unavailable)
+                return@launch
+            }
             settingsRepository.setUseFcmChannel(false)
             settingsRepository.setFcmToken(null)
             useFcmChannel = false
@@ -220,6 +228,22 @@ class SettingsViewModel(
     fun updateUseFcmChannel(context: Context, enabled: Boolean) {
         viewModelScope.launch {
             isFcmSupported = isFcmSupported(context)
+            if (!enabled) {
+                val privateEnabled = privateChannelClient.gatewayPrivateChannelEnabled()
+                gatewayPrivateChannelEnabled = privateEnabled
+                if (privateEnabled == false) {
+                    if (isFcmSupported) {
+                        errorMessage = ResMessage(R.string.error_gateway_private_disabled_use_fcm)
+                    } else {
+                        errorMessage = ResMessage(R.string.error_private_disabled_and_fcm_unavailable)
+                    }
+                    settingsRepository.setUseFcmChannel(true)
+                    useFcmChannel = true
+                    enableFcmProvider(context, keepEnabledWhenTokenMissing = true)
+                    PrivateChannelServiceManager.refreshForMode(context, true)
+                    return@launch
+                }
+            }
             if (enabled == useFcmChannel) {
                 if (!enabled || isFcmSupported) {
                     return@launch
@@ -375,6 +399,7 @@ class SettingsViewModel(
                 settingsRepository.setServerAddress(normalizedAddress)
                 settingsRepository.setGatewayToken(token)
                 gatewayAddress = normalizedAddress
+                gatewayPrivateChannelEnabled = privateChannelClient.gatewayPrivateChannelEnabled()
                 var activeFcmToken: String? = null
                 if (shouldUseFcm(context)) {
                     val fcmToken = requireFcmToken(context) ?: return@launch
@@ -382,6 +407,18 @@ class SettingsViewModel(
                     activeFcmToken = fcmToken
                     privateChannelClient.setRuntime(fcmAvailable = true, systemToken = fcmToken)
                 } else {
+                    if (gatewayPrivateChannelEnabled == false) {
+                        if (isFcmSupported(context)) {
+                            settingsRepository.setUseFcmChannel(true)
+                            useFcmChannel = true
+                            enableFcmProvider(context, keepEnabledWhenTokenMissing = true)
+                            PrivateChannelServiceManager.refreshForMode(context, true)
+                            errorMessage = ResMessage(R.string.error_gateway_private_disabled_use_fcm)
+                        } else {
+                            errorMessage = ResMessage(R.string.error_private_disabled_and_fcm_unavailable)
+                        }
+                        return@launch
+                    }
                     val previousFcmToken = settingsRepository.getFcmToken()
                     settingsRepository.setFcmToken(null)
                     privateChannelClient.setRuntime(fcmAvailable = false, systemToken = null)
