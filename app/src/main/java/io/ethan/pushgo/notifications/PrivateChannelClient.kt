@@ -129,17 +129,15 @@ class PrivateChannelClient(
     private var lastRouteEnsureFingerprint: String? = null
     private var lastRouteRepairAtMs = 0L
     private var currentDeviceState: DeviceState? = null
-    private val wakeupPullMutex = Mutex()
     private val routeEnsureMutex = Mutex()
-    private var wakeupPullInFlight = false
-    private var wakeupPullPending = false
-    private val pendingWakeupPullDeliveryIds = linkedSetOf<String>()
     private var routeEnsureInFlight: CompletableDeferred<Unit>? = null
     private var routeEnsureInFlightFingerprint: String? = null
     @Volatile
     private var activeSessionHandle: Long = 0L
     @Volatile
     private var networkAvailable = true
+    @Volatile
+    private var resetAckWatermarkOnReconnect = false
     @Volatile
     private var welcomeMaxBackoffSecs = 60
     @Volatile
@@ -285,49 +283,23 @@ class PrivateChannelClient(
     }
 
     private suspend fun requestWakeupPull(deliveryId: String? = null) {
-        val normalizedDeliveryId = deliveryId?.trim()?.takeIf { it.isNotEmpty() }
-        if (normalizedDeliveryId != null) {
-            wakeupPullMutex.withLock {
-                pendingWakeupPullDeliveryIds += normalizedDeliveryId
-            }
-        }
-        if (shouldPreferWakeupStreamRecovery()) {
-            nextAllowedPullAtMs = 0L
-            failureStreak = 0
-            saveTransportStatus(
-                route = "private",
-                transport = transportStatusState.value.transport,
-                stage = "reconnecting",
-                detail = "wakeup requested, recovering private stream loop",
-            )
+        if (!runtimeConfigured || fcmAvailable) return
+        val deliveryHint = deliveryId?.trim()?.takeIf { it.isNotEmpty() }
+        nextAllowedPullAtMs = 0L
+        failureStreak = 0
+        saveTransportStatus(
+            route = "private",
+            transport = transportStatusState.value.transport,
+            stage = "reconnecting",
+            detail = if (deliveryHint != null) {
+                "wakeup delivery received, recovering private stream loop"
+            } else {
+                "wakeup requested, recovering private stream loop"
+            },
+        )
+        if (!shouldPreferWakeupStreamRecovery() || !requestActiveSessionForceReconnect("wakeup_stream_recovery")) {
             stopActiveSession("wakeup_stream_recovery")
             restartLoop()
-            return
-        }
-        val shouldStart = wakeupPullMutex.withLock {
-            if (wakeupPullInFlight) {
-                wakeupPullPending = true
-                false
-            } else {
-                wakeupPullInFlight = true
-                true
-            }
-        }
-        if (!shouldStart) return
-
-        try {
-            while (true) {
-                wakeupPullMutex.withLock {
-                    wakeupPullPending = false
-                }
-                pullWakeupOnce()
-                val rerun = wakeupPullMutex.withLock { wakeupPullPending }
-                if (!rerun) break
-            }
-        } finally {
-            wakeupPullMutex.withLock {
-                wakeupPullInFlight = false
-            }
         }
     }
 
@@ -466,6 +438,7 @@ class PrivateChannelClient(
                 || ((stage == "backoff" || stage == "recovering" || stage == "reconnecting")
                     && activeSessionHandle == 0L)
             if (shouldForceRecovery) {
+                forceResetAckWatermarkIfNeeded("network_restored:$reason")
                 nextAllowedPullAtMs = 0L
                 failureStreak = 0
                 saveTransportStatus(
@@ -485,6 +458,7 @@ class PrivateChannelClient(
             return
         }
         if (changed || transportStatusState.value.stage != "offline_wait") {
+            resetAckWatermarkOnReconnect = true
             saveTransportStatus(
                 route = "private",
                 transport = "none",
@@ -638,71 +612,6 @@ class PrivateChannelClient(
         refreshLoop()
     }
 
-    private suspend fun pullWakeupOnce() {
-        val nowMs = System.currentTimeMillis()
-        if (nowMs < nextAllowedPullAtMs) return
-        val deliveryIds = wakeupPullMutex.withLock {
-            val ids = pendingWakeupPullDeliveryIds.toList()
-            pendingWakeupPullDeliveryIds.clear()
-            ids
-        }
-        if (deliveryIds.isEmpty()) return
-        val (baseUrl, token) = channelRepository.loadGatewayConfig()
-        try {
-            val state = withDeviceStateRetry(baseUrl, token) { state ->
-                ensurePrivateRoute(baseUrl, token, state)
-                subscribeAll(baseUrl, token, state)
-                state
-            }
-            val items = privatePull(baseUrl, token, state, deliveryIds)
-            for (item in items) {
-                if (item.deliveryId.isEmpty()) continue
-                val shouldMarkAcked = handlePulledMessage(item.payload, item.deliveryId)
-                if (!shouldMarkAcked) continue
-                runCatching { inboundDeliveryLedgerRepository.markAcked(listOf(item.deliveryId)) }
-                    .onFailure { error ->
-                        io.ethan.pushgo.util.SilentSink.w(
-                            TAG,
-                            "wakeup pull local ack mark failed deliveryId=${item.deliveryId} error=${error.message}",
-                            error,
-                        )
-                    }
-            }
-            onSuccess()
-        } catch (error: Throwable) {
-            wakeupPullMutex.withLock {
-                pendingWakeupPullDeliveryIds.addAll(deliveryIds)
-            }
-            onFailure("pull", error)
-        }
-    }
-
-    private suspend fun privatePull(
-        baseUrl: String,
-        token: String?,
-        _state: DeviceState,
-        deliveryIds: List<String>,
-    ): List<PulledItem> {
-        val normalizedIds = normalizePendingAckDeliveryIds(deliveryIds)
-        if (normalizedIds.isEmpty()) return emptyList()
-        val pulled = ArrayList<PulledItem>(normalizedIds.size)
-        for (deliveryId in normalizedIds) {
-            val response = privatePost(
-                baseUrl,
-                token,
-                "/messages/pull",
-                JSONObject().apply {
-                    put("delivery_id", deliveryId)
-                }
-            )
-            val item = response.optJSONObject("item") ?: continue
-            val payload = item.optJSONObject("payload") ?: continue
-            val resolvedDeliveryId = item.optString("delivery_id").trim().ifEmpty { deliveryId }
-            pulled += PulledItem(deliveryId = resolvedDeliveryId, payload = payload)
-        }
-        return pulled
-    }
-
     private suspend fun handlePulledMessage(payload: JSONObject, deliveryId: String): Boolean {
         val payloadMap = payloadStringMap(payload).toMutableMap().apply {
             if (this["delivery_id"].isNullOrBlank()) {
@@ -854,6 +763,10 @@ class PrivateChannelClient(
             while (true) {
                 val nowMs = System.currentTimeMillis()
                 if (nowMs >= nextControlSyncAtMs) {
+                    val hasNetwork = refreshNetworkAvailabilityFromSystem(reason = "session_control_tick")
+                    if (!hasNetwork) {
+                        throw IllegalStateException("network unavailable during active private session")
+                    }
                     val latestAuthToken = runCatching {
                         channelRepository.loadGatewayConfig().second?.trim()?.ifEmpty { null }
                     }.getOrNull()
@@ -2089,9 +2002,6 @@ class PrivateChannelClient(
         keepaliveState = KeepaliveState.NOT_REQUIRED
         latestNativeSessionProfile = null
         latestTransportSelectionInsight = null
-        wakeupPullInFlight = false
-        wakeupPullPending = false
-        pendingWakeupPullDeliveryIds.clear()
         lastTransportStatusFingerprint = null
         prefs.edit().clear().apply()
         saveTransportStatus(
@@ -2280,11 +2190,6 @@ class PrivateChannelClient(
         val lastAckedSeq: Long = 0L,
     )
 
-    private data class PulledItem(
-        val deliveryId: String,
-        val payload: JSONObject
-    )
-
     private data class PrivateTransportProfile(
         val quicEnabled: Boolean,
         val quicPort: Int,
@@ -2378,6 +2283,10 @@ class PrivateChannelClient(
         var ackedSeq = existing.lastAckedSeq
         if (!newResumeToken.isNullOrBlank() && newResumeToken != resumeToken) {
             resumeToken = newResumeToken
+            // Resume token rotates when gateway resets server-side session state.
+            // The sequence space restarts with the new token, so the client ACK watermark
+            // must also reset to avoid falsely ACKing unseen deliveries after reconnect.
+            ackedSeq = 0L
             changed = true
         }
         if (newAckedSeq != null && newAckedSeq > ackedSeq) {
@@ -2388,6 +2297,24 @@ class PrivateChannelClient(
         val next = existing.copy(resumeToken = resumeToken, lastAckedSeq = ackedSeq)
         currentDeviceState = next
         saveState(next)
+    }
+
+    private fun forceResetAckWatermarkIfNeeded(reason: String) {
+        if (!resetAckWatermarkOnReconnect) {
+            return
+        }
+        resetAckWatermarkOnReconnect = false
+        val existing = currentDeviceState ?: return
+        if (existing.lastAckedSeq <= 0L) {
+            return
+        }
+        val next = existing.copy(lastAckedSeq = 0L)
+        currentDeviceState = next
+        saveState(next)
+        io.ethan.pushgo.util.SilentSink.i(
+            TAG,
+            "private ack watermark reset before reconnect reason=$reason",
+        )
     }
 
     enum class PrivatePerformanceMode(val wireValue: String) {
