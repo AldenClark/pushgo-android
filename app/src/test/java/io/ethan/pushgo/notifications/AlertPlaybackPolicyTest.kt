@@ -18,7 +18,7 @@ class AlertPlaybackPolicyTest {
     fun high_isTimed() {
         val high = AlertPlaybackPolicy.specForLevel("high")
         assertEquals(AlertPlaybackMode.TIMED, high.mode)
-        assertTrue((high.maxDurationMs ?: 0L) > 0L)
+        assertEquals(15_000L, high.maxDurationMs)
     }
 
     @Test

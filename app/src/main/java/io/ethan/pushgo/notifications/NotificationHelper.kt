@@ -4,6 +4,7 @@ import android.Manifest
 import android.annotation.SuppressLint
 import android.app.Notification
 import android.app.NotificationChannel
+import android.app.NotificationChannelGroup
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
@@ -25,6 +26,7 @@ import io.ethan.pushgo.markdown.MessagePreviewExtractor
 object NotificationHelper {
     private const val LEGACY_SUMMARY_NOTIFICATION_ID = 10_001
     private const val NOTIFICATION_GROUP_PREFIX = "io.ethan.pushgo.notifications.groups."
+    private const val MESSAGE_CHANNEL_GROUP_ID = "io.ethan.pushgo.notification_channels.messages"
     private val managedLevels = listOf("critical", "high", "normal", "low")
 
     const val EXTRA_MESSAGE_ID = "extra_message_id"
@@ -58,6 +60,7 @@ object NotificationHelper {
         val channelId =
             "${AppConstants.notificationChannelBaseId}_v${AppConstants.notificationChannelSchemaVersion}_${ringtoneId}_${priorityTag}"
         val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        ensureMessageChannelGroup(context, manager)
         val existing = manager.getNotificationChannel(channelId)
         if (existing != null) return channelId
         val channel = NotificationChannel(
@@ -65,9 +68,10 @@ object NotificationHelper {
             channelNameForProfile(context, profile),
             profile.channelImportance,
         ).apply {
+            group = MESSAGE_CHANNEL_GROUP_ID
             description = channelDescriptionForProfile(context, profile)
             setShowBadge(true)
-            lockscreenVisibility = NotificationCompat.VISIBILITY_PUBLIC
+            lockscreenVisibility = profile.lockscreenVisibility
             enableLights(profile.isHighPriority)
             enableVibration(profile.shouldVibrate)
             vibrationPattern = profile.vibrationPattern
@@ -76,10 +80,30 @@ object NotificationHelper {
                 .setUsage(AudioAttributes.USAGE_NOTIFICATION)
                 .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
                 .build()
-            setSound(Settings.System.DEFAULT_NOTIFICATION_URI, attributes)
+            if (profile.enableSound) {
+                setSound(Settings.System.DEFAULT_NOTIFICATION_URI, attributes)
+            } else {
+                setSound(null, null)
+            }
+            setBypassDnd(profile.bypassDnd)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                setAllowBubbles(profile.allowBubbles)
+            }
         }
         manager.createNotificationChannel(channel)
         return channelId
+    }
+
+    private fun ensureMessageChannelGroup(
+        context: Context,
+        manager: NotificationManager,
+    ) {
+        manager.createNotificationChannelGroup(
+            NotificationChannelGroup(
+                MESSAGE_CHANNEL_GROUP_ID,
+                context.getString(R.string.notification_channel_group_messages_name),
+            ),
+        )
     }
 
     fun cleanupObsoleteChannels(context: Context) {
@@ -133,9 +157,9 @@ object NotificationHelper {
             .setPriority(profile.compatPriority)
             .setCategory(NotificationCompat.CATEGORY_MESSAGE)
             .setBadgeIconType(NotificationCompat.BADGE_ICON_SMALL)
-            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+            .setVisibility(profile.lockscreenVisibility)
             .setGroup(route.groupKey)
-            .setGroupAlertBehavior(NotificationCompat.GROUP_ALERT_SUMMARY)
+            .setGroupAlertBehavior(NotificationCompat.GROUP_ALERT_CHILDREN)
             .setLights(profile.lightColor, 1_500, 1_000)
             .setDeleteIntent(alertStopDeleteIntent(context, route.notificationId))
 
@@ -194,9 +218,9 @@ object NotificationHelper {
             .setPriority(profile.compatPriority)
             .setCategory(NotificationCompat.CATEGORY_STATUS)
             .setBadgeIconType(NotificationCompat.BADGE_ICON_SMALL)
-            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+            .setVisibility(profile.lockscreenVisibility)
             .setGroup(route.groupKey)
-            .setGroupAlertBehavior(NotificationCompat.GROUP_ALERT_SUMMARY)
+            .setGroupAlertBehavior(NotificationCompat.GROUP_ALERT_CHILDREN)
             .setLights(profile.lightColor, 1_500, 1_000)
             .setDeleteIntent(alertStopDeleteIntent(context, route.notificationId))
 
@@ -314,7 +338,7 @@ object NotificationHelper {
             .setContentIntent(summaryContentIntent)
             .setGroup(groupKey)
             .setGroupSummary(true)
-            .setGroupAlertBehavior(NotificationCompat.GROUP_ALERT_SUMMARY)
+            .setGroupAlertBehavior(NotificationCompat.GROUP_ALERT_CHILDREN)
             .setAutoCancel(false)
             .setOnlyAlertOnce(true)
             .setPriority(NotificationCompat.PRIORITY_LOW)
@@ -475,8 +499,12 @@ object NotificationHelper {
         val isHighPriority: Boolean,
         val channelImportance: Int,
         val compatPriority: Int,
+        val enableSound: Boolean,
         val shouldVibrate: Boolean,
         val vibrationPattern: LongArray?,
+        val bypassDnd: Boolean,
+        val lockscreenVisibility: Int,
+        val allowBubbles: Boolean,
         val lightColor: Int,
     )
 
@@ -489,8 +517,12 @@ object NotificationHelper {
                 isHighPriority = true,
                 channelImportance = NotificationManager.IMPORTANCE_HIGH,
                 compatPriority = NotificationCompat.PRIORITY_MAX,
+                enableSound = true,
                 shouldVibrate = true,
                 vibrationPattern = longArrayOf(0L, 300L, 180L, 300L, 180L, 420L),
+                bypassDnd = true,
+                lockscreenVisibility = NotificationCompat.VISIBILITY_PUBLIC,
+                allowBubbles = true,
                 lightColor = Color.RED,
             )
             "high" -> LevelProfile(
@@ -499,38 +531,54 @@ object NotificationHelper {
                 isHighPriority = true,
                 channelImportance = NotificationManager.IMPORTANCE_HIGH,
                 compatPriority = NotificationCompat.PRIORITY_HIGH,
+                enableSound = true,
                 shouldVibrate = true,
                 vibrationPattern = longArrayOf(0L, 240L, 160L, 240L),
+                bypassDnd = false,
+                lockscreenVisibility = NotificationCompat.VISIBILITY_PUBLIC,
+                allowBubbles = true,
                 lightColor = Color.WHITE,
             )
             "normal" -> LevelProfile(
                 channelTag = "normal",
                 isCritical = false,
-                isHighPriority = true,
-                channelImportance = NotificationManager.IMPORTANCE_HIGH,
-                compatPriority = NotificationCompat.PRIORITY_HIGH,
+                isHighPriority = false,
+                channelImportance = NotificationManager.IMPORTANCE_DEFAULT,
+                compatPriority = NotificationCompat.PRIORITY_DEFAULT,
+                enableSound = true,
                 shouldVibrate = true,
-                vibrationPattern = longArrayOf(0L, 120L, 80L, 120L),
+                vibrationPattern = longArrayOf(0L, 80L),
+                bypassDnd = false,
+                lockscreenVisibility = NotificationCompat.VISIBILITY_PUBLIC,
+                allowBubbles = true,
                 lightColor = Color.WHITE,
             )
             "low" -> LevelProfile(
                 channelTag = "low",
                 isCritical = false,
-                isHighPriority = true,
-                channelImportance = NotificationManager.IMPORTANCE_HIGH,
-                compatPriority = NotificationCompat.PRIORITY_HIGH,
+                isHighPriority = false,
+                channelImportance = NotificationManager.IMPORTANCE_LOW,
+                compatPriority = NotificationCompat.PRIORITY_LOW,
+                enableSound = false,
                 shouldVibrate = false,
                 vibrationPattern = null,
+                bypassDnd = false,
+                lockscreenVisibility = NotificationCompat.VISIBILITY_PRIVATE,
+                allowBubbles = false,
                 lightColor = Color.WHITE,
             )
             else -> LevelProfile(
                 channelTag = "normal",
                 isCritical = false,
-                isHighPriority = true,
-                channelImportance = NotificationManager.IMPORTANCE_HIGH,
-                compatPriority = NotificationCompat.PRIORITY_HIGH,
+                isHighPriority = false,
+                channelImportance = NotificationManager.IMPORTANCE_DEFAULT,
+                compatPriority = NotificationCompat.PRIORITY_DEFAULT,
+                enableSound = true,
                 shouldVibrate = true,
-                vibrationPattern = longArrayOf(0L, 120L, 80L, 120L),
+                vibrationPattern = longArrayOf(0L, 80L),
+                bypassDnd = false,
+                lockscreenVisibility = NotificationCompat.VISIBILITY_PUBLIC,
+                allowBubbles = true,
                 lightColor = Color.WHITE,
             )
         }

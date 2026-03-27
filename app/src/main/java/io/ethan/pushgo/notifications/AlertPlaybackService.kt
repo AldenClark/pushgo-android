@@ -2,6 +2,7 @@ package io.ethan.pushgo.notifications
 
 import android.app.Notification
 import android.app.NotificationChannel
+import android.app.NotificationChannelGroup
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
@@ -42,7 +43,13 @@ class AlertPlaybackService : Service() {
             ACTION_START_OR_UPDATE -> {
                 val notificationId = intent.getIntExtra(EXTRA_NOTIFICATION_ID, 0)
                 if (notificationId != 0) {
-                    ensureForegroundStarted()
+                    val requireForeground = intent.getBooleanExtra(EXTRA_REQUIRE_FOREGROUND, true)
+                    if (requireForeground) {
+                        ensureForegroundStarted()
+                    } else if (foregroundStarted) {
+                        stopForeground(STOP_FOREGROUND_REMOVE)
+                        foregroundStarted = false
+                    }
                     val level = intent.getStringExtra(EXTRA_LEVEL)
                     val channelId = intent.getStringExtra(EXTRA_CHANNEL_ID).orEmpty()
                     startOrUpdatePlayback(notificationId, level, channelId)
@@ -132,20 +139,32 @@ class AlertPlaybackService : Service() {
 
     private fun resolveSoundUri(channelId: String): Uri? {
         val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        val channelSound = manager.getNotificationChannel(channelId)?.sound
-        if (channelSound != null) {
-            return channelSound
+        val channel = manager.getNotificationChannel(channelId)
+        if (channel != null) {
+            return channel.sound
         }
         return Settings.System.DEFAULT_NOTIFICATION_URI
     }
 
     private fun ensureServiceChannel() {
         val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        val existing = manager.getNotificationChannel(SERVICE_CHANNEL_ID)
+        if (existing != null && existing.group == ALERT_PLAYBACK_NOTIFICATION_CHANNEL_GROUP_ID) return
+        if (existing != null) {
+            manager.deleteNotificationChannel(SERVICE_CHANNEL_ID)
+        }
+        manager.createNotificationChannelGroup(
+            NotificationChannelGroup(
+                ALERT_PLAYBACK_NOTIFICATION_CHANNEL_GROUP_ID,
+                getString(R.string.alert_playback_service_channel_name),
+            ),
+        )
         val channel = NotificationChannel(
             SERVICE_CHANNEL_ID,
             getString(R.string.alert_playback_service_channel_name),
             NotificationManager.IMPORTANCE_MIN,
         ).apply {
+            group = ALERT_PLAYBACK_NOTIFICATION_CHANNEL_GROUP_ID
             description = getString(R.string.alert_playback_service_channel_description)
             setSound(null, null)
             enableVibration(false)
@@ -194,9 +213,12 @@ class AlertPlaybackService : Service() {
         const val EXTRA_NOTIFICATION_ID = "extra_notification_id"
         const val EXTRA_LEVEL = "extra_level"
         const val EXTRA_CHANNEL_ID = "extra_channel_id"
+        const val EXTRA_REQUIRE_FOREGROUND = "extra_require_foreground"
 
         private const val SERVICE_CHANNEL_ID = "pushgo_alert_playback"
         private const val SERVICE_NOTIFICATION_ID = 84_201
+        private const val ALERT_PLAYBACK_NOTIFICATION_CHANNEL_GROUP_ID =
+            "io.ethan.pushgo.notification_channels.alert_playback_service"
         private const val ALERT_PLAYBACK_NOTIFICATION_GROUP_KEY = "io.ethan.pushgo.alert_playback_service"
     }
 }

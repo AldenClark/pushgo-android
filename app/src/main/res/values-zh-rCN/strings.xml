@@ -33,6 +33,7 @@
     <string name="label_unsubscribe_keep_history">取消订阅但保留历史消息</string><string name="label_channel_select_hint">请先创建或订阅一个频道。</string>
     <string name="label_channel_manage">管理订阅</string>
     <string name="notification_channel_name_with_level">PushGo 消息 · %1$s</string>
+    <string name="notification_channel_group_messages_name">PushGo 消息通知</string>
     <string name="notification_channel_suffix_critical">紧急</string>
     <string name="notification_channel_suffix_high">高</string>
     <string name="notification_channel_suffix_normal">普通</string>

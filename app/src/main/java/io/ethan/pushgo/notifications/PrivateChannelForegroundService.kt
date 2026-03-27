@@ -3,6 +3,7 @@ package io.ethan.pushgo.notifications
 import android.app.ForegroundServiceStartNotAllowedException
 import android.app.Notification
 import android.app.NotificationChannel
+import android.app.NotificationChannelGroup
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
@@ -148,12 +149,22 @@ class PrivateChannelForegroundService : Service() {
     private fun ensureNotificationChannel() {
         val manager = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
         val existing = manager.getNotificationChannel(CHANNEL_ID)
-        if (existing != null) return
+        if (existing != null && existing.group == PRIVATE_CHANNEL_NOTIFICATION_CHANNEL_GROUP_ID) return
+        if (existing != null) {
+            manager.deleteNotificationChannel(CHANNEL_ID)
+        }
+        manager.createNotificationChannelGroup(
+            NotificationChannelGroup(
+                PRIVATE_CHANNEL_NOTIFICATION_CHANNEL_GROUP_ID,
+                getString(R.string.private_channel_service_channel_name),
+            ),
+        )
         val channel = NotificationChannel(
             CHANNEL_ID,
             getString(R.string.private_channel_service_channel_name),
             NotificationManager.IMPORTANCE_LOW,
         ).apply {
+            group = PRIVATE_CHANNEL_NOTIFICATION_CHANNEL_GROUP_ID
             description = getString(R.string.private_channel_service_channel_description)
             setShowBadge(false)
             setSound(null, null)
@@ -191,6 +202,8 @@ class PrivateChannelForegroundService : Service() {
     companion object {
         private const val TAG = "PrivateChannelFGService"
         private const val CHANNEL_ID = "pushgo_private_channel_service"
+        private const val PRIVATE_CHANNEL_NOTIFICATION_CHANNEL_GROUP_ID =
+            "io.ethan.pushgo.notification_channels.private_channel_service"
         private const val PRIVATE_CHANNEL_NOTIFICATION_GROUP_KEY = "io.ethan.pushgo.private_channel_service"
         private const val NOTIFICATION_WATCHDOG_INTERVAL_MS = 5_000L
         const val NOTIFICATION_ID = 20_501

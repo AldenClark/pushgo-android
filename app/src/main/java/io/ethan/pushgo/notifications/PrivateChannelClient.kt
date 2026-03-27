@@ -111,6 +111,10 @@ class PrivateChannelClient(
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val prefs = appContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+    @Volatile
+    private var localFailureBucketStats: LocalFailureBucketStats = loadLocalFailureBucketStats()
+    @Volatile
+    private var lastFailureBucketFingerprint: String? = null
     private val transportStatusState = MutableStateFlow(loadTransportStatusSnapshot())
     private var loopJob: Job? = null
     private var foregroundActive = false
@@ -155,6 +159,20 @@ class PrivateChannelClient(
     private var latestNativeSessionProfile: NativeSessionProfile? = null
     @Volatile
     private var latestTransportSelectionInsight: TransportSelectionInsight? = null
+    @Volatile
+    private var activeSessionNetworkClass: String = "unknown"
+    @Volatile
+    private var lastLocalPinnedTransport: String? = null
+    @Volatile
+    private var lastLocalPinnedNetworkClass: String? = null
+    @Volatile
+    private var lastAuthRouteHealAtMs: Long = 0L
+    @Volatile
+    private var observedNetworkClass: String = "unknown"
+    @Volatile
+    private var observedNetworkFingerprint: String = "unknown"
+    @Volatile
+    private var lastNetworkSwitchReconnectAtMs: Long = 0L
 
     init {
         io.ethan.pushgo.util.SilentSink.i(TAG, "private channel client revision=$CLIENT_REV")
@@ -388,12 +406,30 @@ class PrivateChannelClient(
 
     private fun refreshNetworkAvailabilityFromSystem(reason: String): Boolean {
         val cm = connectivityManager ?: return networkAvailable
-        val available = runCatching {
+        val snapshot = runCatching {
             val active = cm.activeNetwork
-            computeNetworkAvailability(cm.getNetworkCapabilities(active))
-        }.getOrElse { networkAvailable }
-        applyNetworkAvailability(available = available, reason = reason)
-        return available
+            val capabilities = cm.getNetworkCapabilities(active)
+            ActiveNetworkSnapshot(
+                available = computeNetworkAvailability(capabilities),
+                networkClass = classifyNetworkClass(capabilities),
+                networkFingerprint = buildNetworkFingerprint(active, capabilities),
+            )
+        }.getOrElse {
+            ActiveNetworkSnapshot(
+                available = networkAvailable,
+                networkClass = observedNetworkClass,
+                networkFingerprint = observedNetworkFingerprint,
+            )
+        }
+        applyNetworkAvailability(available = snapshot.available, reason = reason)
+        if (snapshot.available) {
+            handleNetworkTopologyChanged(
+                newFingerprint = snapshot.networkFingerprint,
+                newNetworkClass = snapshot.networkClass,
+                reason = reason,
+            )
+        }
+        return snapshot.available
     }
 
     private fun computeNetworkAvailability(capabilities: NetworkCapabilities?): Boolean {
@@ -422,6 +458,92 @@ class PrivateChannelClient(
             return false
         }
         return true
+    }
+
+    private fun classifyNetworkClass(capabilities: NetworkCapabilities?): String {
+        return when {
+            capabilities?.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) == true -> "wifi"
+            capabilities?.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) == true -> "cellular"
+            capabilities?.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET) == true -> "ethernet"
+            capabilities?.hasTransport(NetworkCapabilities.TRANSPORT_BLUETOOTH) == true -> "other"
+            else -> "unknown"
+        }
+    }
+
+    private fun buildNetworkFingerprint(
+        activeNetwork: Network?,
+        capabilities: NetworkCapabilities?,
+    ): String {
+        if (activeNetwork == null) return "unknown"
+        val networkClass = classifyNetworkClass(capabilities)
+        return "${activeNetwork}|$networkClass"
+    }
+
+    private fun handleNetworkTopologyChanged(
+        newFingerprint: String,
+        newNetworkClass: String,
+        reason: String,
+    ) {
+        val previousFingerprint = observedNetworkFingerprint
+        val previousClass = observedNetworkClass
+        observedNetworkFingerprint = newFingerprint
+        observedNetworkClass = newNetworkClass
+        if (newFingerprint == previousFingerprint) {
+            return
+        }
+        if (previousFingerprint == "unknown" || newFingerprint == "unknown") {
+            return
+        }
+        invalidateLocalPinOnNetworkSwitch(
+            networkClass = newNetworkClass,
+            reason = reason,
+            previousClass = previousClass,
+        )
+    }
+
+    private fun invalidateLocalPinOnNetworkSwitch(
+        networkClass: String,
+        reason: String,
+        previousClass: String,
+    ) {
+        val preference = loadLocalTransportPreference(networkClass) ?: return
+        val nowMs = System.currentTimeMillis()
+        val switchCooldownMs = networkSwitchPinCooldownMs(networkClass)
+        val reducedConfidence = (preference.confidence - 1).coerceAtLeast(0)
+        saveLocalTransportPreference(
+            preference.copy(
+                confidence = reducedConfidence,
+                updatedAtMs = nowMs,
+                cooldownUntilMs = nowMs + switchCooldownMs,
+            )
+        )
+        io.ethan.pushgo.util.SilentSink.w(
+            TAG,
+            "network switch pin invalidate class=$networkClass previousClass=$previousClass confidence=$reducedConfidence cooldown=${switchCooldownMs}ms reason=$reason",
+        )
+        if (!runtimeConfigured || fcmAvailable) {
+            return
+        }
+        val handle = activeSessionHandle
+        if (handle <= 0L) {
+            return
+        }
+        if (nowMs - lastNetworkSwitchReconnectAtMs < NETWORK_SWITCH_RECONNECT_MIN_INTERVAL_MS) {
+            return
+        }
+        lastNetworkSwitchReconnectAtMs = nowMs
+        nextAllowedPullAtMs = 0L
+        failureStreak = 0
+        saveTransportStatus(
+            route = "private",
+            transport = transportStatusState.value.transport,
+            stage = "reconnecting",
+            detail = "network switched($previousClass->$networkClass), local pin reset and reconnect",
+        )
+        if (!requestActiveSessionForceReconnect("network_switch:$reason")) {
+            stopActiveSession("network_switch:$reason")
+            restartLoop()
+        }
     }
 
     private fun applyNetworkAvailability(available: Boolean, reason: String) {
@@ -702,29 +824,42 @@ class PrivateChannelClient(
         transportProfile: PrivateTransportProfile,
     ): Boolean {
         latestNativeSessionProfile = null
-        val effectiveProfile = profileWithFreshHints(transportProfile)
-        val localConnectBudgetMs = if (foregroundActive) {
-            PRIVATE_CONNECT_BUDGET_MS.toLong()
-        } else {
+        val effectiveProfile = transportProfile
+        val runtimePolicy = localRuntimePolicy(foregroundActive)
+        val effectiveConnectBudgetMs = runtimePolicy.connectBudgetMs
+        val effectiveBackoffCapMs = runtimePolicy.backoffCapMs
+        val sessionNetworkClass = currentNetworkClass()
+        activeSessionNetworkClass = sessionNetworkClass
+        val initialPinTransport = localPinnedTransportCandidate(
+            networkClass = sessionNetworkClass,
+            nowMs = System.currentTimeMillis(),
+            isForeground = foregroundActive,
+        )
+        val initialPinTtlMs = if (initialPinTransport == null) {
             null
+        } else {
+            localPinnedTransportTtlMs(
+                networkClass = sessionNetworkClass,
+                isForeground = foregroundActive,
+            )
         }
-        val effectiveConnectBudgetMs = (localConnectBudgetMs
-            ?: effectiveProfile.suggestedConnectBudgetMs
-            ?: PRIVATE_CONNECT_BUDGET_MS.toLong()).coerceIn(1_500L, 30_000L)
-        val effectiveBackoffCapMs = (effectiveProfile.suggestedBackoffCapMs
-            ?: PRIVATE_BACKOFF_CAP_MS).coerceIn(10_000L, 180_000L)
-        val initialPinTransport = effectiveProfile.recommendedTransport
-            ?.trim()
-            ?.lowercase()
-            ?.takeIf { it == "quic" || it == "tcp" || it == "wss" }
-        val initialPinTtlMs = effectiveProfile.transportPenaltyWindowMs
-            ?.coerceIn(30_000L, 600_000L)
+        lastLocalPinnedTransport = initialPinTransport
+        lastLocalPinnedNetworkClass = if (initialPinTransport == null) null else sessionNetworkClass
+        if (initialPinTransport != null) {
+            io.ethan.pushgo.util.SilentSink.i(
+                TAG,
+                "apply local transport pin transport=$initialPinTransport network=$sessionNetworkClass ttl=${initialPinTtlMs ?: 0}ms",
+            )
+        }
         val handle = runInterruptible(Dispatchers.IO) {
             WarpLinkNativeBridge.sessionStart(
                 JSONObject().apply {
                     put("host", host)
+                    put("quic_enabled", effectiveProfile.quicEnabled)
                     put("quic_port", effectiveProfile.quicPort)
+                    put("wss_enabled", effectiveProfile.wssEnabled)
                     put("wss_port", effectiveProfile.wssPort)
+                    put("tcp_enabled", effectiveProfile.tcpEnabled)
                     put("tcp_port", effectiveProfile.tcpPort)
                     put("wss_path", effectiveProfile.wssPath)
                     put("wss_subprotocol", effectiveProfile.wsSubprotocol)
@@ -855,12 +990,24 @@ class PrivateChannelClient(
         } catch (_: CancellationException) {
             false
         } catch (error: Throwable) {
+            val authRouteRecoverable = isAuthRouteRecoverableError(
+                error.message?.lowercase().orEmpty()
+            )
+            if (!welcomeReceived && !authRouteRecoverable) {
+                recordPinnedTransportFailure(
+                    reason = "session_end_before_welcome",
+                    detail = error.message.orEmpty(),
+                )
+            }
             onFailure("stream_session", error)
             false
         } finally {
             if (activeSessionHandle == handle) {
                 activeSessionHandle = 0L
             }
+            activeSessionNetworkClass = "unknown"
+            lastLocalPinnedTransport = null
+            lastLocalPinnedNetworkClass = null
             runCatching {
                 runInterruptible(Dispatchers.IO) {
                     WarpLinkNativeBridge.sessionStop(handle)
@@ -966,6 +1113,10 @@ class PrivateChannelClient(
                     },
                 )
                 logAttemptInference(transport = transport, elapsedMs = elapsedMs)
+                recordTransportSuccess(
+                    transport = transport,
+                    networkClass = activeSessionNetworkClass,
+                )
             }
             "welcome" -> {
                 val wireVersion = root.optInt("wire_version", WIRE_VERSION_V2)
@@ -1221,6 +1372,201 @@ class PrivateChannelClient(
             }
             else -> null
         }
+    }
+
+    private fun localRuntimePolicy(isForeground: Boolean): LocalRuntimePolicy {
+        return if (isForeground) {
+            LocalRuntimePolicy(
+                connectBudgetMs = PRIVATE_CONNECT_BUDGET_FG_MS,
+                backoffCapMs = PRIVATE_BACKOFF_CAP_FG_MS,
+            )
+        } else {
+            LocalRuntimePolicy(
+                connectBudgetMs = PRIVATE_CONNECT_BUDGET_BG_MS,
+                backoffCapMs = PRIVATE_BACKOFF_CAP_BG_MS,
+            )
+        }
+    }
+
+    private fun localPinnedTransportTtlMs(networkClass: String, isForeground: Boolean): Long {
+        val policy = localPinPolicy(networkClass)
+        return if (isForeground) {
+            policy.ttlForegroundMs
+        } else {
+            policy.ttlBackgroundMs
+        }
+    }
+
+    private fun currentNetworkClass(): String {
+        if (observedNetworkClass != "unknown") {
+            return observedNetworkClass
+        }
+        val cm = connectivityManager ?: return "unknown"
+        val capabilities = runCatching {
+            cm.getNetworkCapabilities(cm.activeNetwork)
+        }.getOrNull()
+        return classifyNetworkClass(capabilities)
+    }
+
+    private fun localPinnedTransportCandidate(
+        networkClass: String,
+        nowMs: Long,
+        isForeground: Boolean,
+    ): String? {
+        val preference = loadLocalTransportPreference(networkClass) ?: return null
+        val policy = localPinPolicy(networkClass)
+        val minConfidence = policy.minConfidenceFor(isForeground)
+        if (preference.confidence < minConfidence) return null
+        if (nowMs - preference.updatedAtMs > policy.maxAgeMs) return null
+        if (preference.cooldownUntilMs?.let { nowMs < it } == true) return null
+        return preference.transport
+    }
+
+    private fun recordTransportSuccess(transport: String, networkClass: String) {
+        val normalized = normalizeTransportName(transport) ?: return
+        if (networkClass == "unknown") return
+        val nowMs = System.currentTimeMillis()
+        val existing = loadLocalTransportPreference(networkClass)
+        val confidence = if (existing?.transport == normalized) {
+            (existing.confidence + 1).coerceAtMost(LOCAL_PIN_MAX_CONFIDENCE)
+        } else {
+            LOCAL_PIN_INIT_CONFIDENCE
+        }
+        saveLocalTransportPreference(
+            LocalTransportPreference(
+                networkClass = networkClass,
+                transport = normalized,
+                confidence = confidence,
+                updatedAtMs = nowMs,
+                cooldownUntilMs = null,
+            )
+        )
+    }
+
+    private fun recordPinnedTransportFailure(reason: String, detail: String) {
+        val pinnedTransport = lastLocalPinnedTransport ?: return
+        val pinnedNetworkClass = lastLocalPinnedNetworkClass ?: return
+        val normalized = normalizeTransportName(pinnedTransport) ?: return
+        val existing = loadLocalTransportPreference(pinnedNetworkClass) ?: return
+        if (existing.transport != normalized) return
+        val policy = localPinPolicy(pinnedNetworkClass)
+        val nowMs = System.currentTimeMillis()
+        val reducedConfidence = (existing.confidence - 2).coerceAtLeast(0)
+        val minConfidence = policy.minConfidenceFor(foregroundActive)
+        val cooldownUntilMs = if (reducedConfidence < minConfidence) {
+            nowMs + policy.failureCooldownMs
+        } else {
+            existing.cooldownUntilMs
+        }
+        saveLocalTransportPreference(
+            existing.copy(
+                confidence = reducedConfidence,
+                updatedAtMs = nowMs,
+                cooldownUntilMs = cooldownUntilMs,
+            )
+        )
+        io.ethan.pushgo.util.SilentSink.w(
+            TAG,
+            "local pin degraded transport=$normalized network=$pinnedNetworkClass confidence=$reducedConfidence reason=$reason detail=${detail.take(120)}",
+        )
+    }
+
+    private fun normalizeTransportName(raw: String?): String? {
+        return raw
+            ?.trim()
+            ?.lowercase()
+            ?.takeIf { it == "quic" || it == "tcp" || it == "wss" }
+    }
+
+    private fun localPinPolicy(networkClass: String): LocalPinPolicy {
+        return when (networkClass) {
+            "cellular" -> LocalPinPolicy(
+                minConfidenceForeground = LOCAL_PIN_CELLULAR_MIN_CONFIDENCE_FG,
+                minConfidenceBackground = LOCAL_PIN_CELLULAR_MIN_CONFIDENCE_BG,
+                maxAgeMs = LOCAL_PIN_CELLULAR_MAX_AGE_MS,
+                failureCooldownMs = LOCAL_PIN_CELLULAR_FAILURE_COOLDOWN_MS,
+                ttlForegroundMs = LOCAL_PIN_CELLULAR_TTL_FG_MS,
+                ttlBackgroundMs = LOCAL_PIN_CELLULAR_TTL_BG_MS,
+            )
+            "wifi", "ethernet" -> LocalPinPolicy(
+                minConfidenceForeground = LOCAL_PIN_DEFAULT_MIN_CONFIDENCE_FG,
+                minConfidenceBackground = LOCAL_PIN_DEFAULT_MIN_CONFIDENCE_BG,
+                maxAgeMs = LOCAL_PIN_DEFAULT_MAX_AGE_MS,
+                failureCooldownMs = LOCAL_PIN_DEFAULT_FAILURE_COOLDOWN_MS,
+                ttlForegroundMs = LOCAL_PIN_DEFAULT_TTL_FG_MS,
+                ttlBackgroundMs = LOCAL_PIN_DEFAULT_TTL_BG_MS,
+            )
+            else -> LocalPinPolicy(
+                minConfidenceForeground = LOCAL_PIN_OTHER_MIN_CONFIDENCE_FG,
+                minConfidenceBackground = LOCAL_PIN_OTHER_MIN_CONFIDENCE_BG,
+                maxAgeMs = LOCAL_PIN_OTHER_MAX_AGE_MS,
+                failureCooldownMs = LOCAL_PIN_OTHER_FAILURE_COOLDOWN_MS,
+                ttlForegroundMs = LOCAL_PIN_OTHER_TTL_FG_MS,
+                ttlBackgroundMs = LOCAL_PIN_OTHER_TTL_BG_MS,
+            )
+        }
+    }
+
+    private fun networkSwitchPinCooldownMs(networkClass: String): Long {
+        return when (networkClass) {
+            "cellular" -> NETWORK_SWITCH_PIN_COOLDOWN_CELLULAR_MS
+            "wifi", "ethernet" -> NETWORK_SWITCH_PIN_COOLDOWN_DEFAULT_MS
+            else -> NETWORK_SWITCH_PIN_COOLDOWN_OTHER_MS
+        }
+    }
+
+    private fun loadLocalTransportPreference(networkClass: String): LocalTransportPreference? {
+        val raw = prefs.getString(KEY_LOCAL_TRANSPORT_PREF, null) ?: return null
+        val root = runCatching { JSONObject(raw) }.getOrNull() ?: return null
+        val node = root.optJSONObject(networkClass) ?: return null
+        val transport = normalizeTransportName(node.optString("transport")) ?: return null
+        val confidence = node.optInt("confidence", 0).coerceIn(0, LOCAL_PIN_MAX_CONFIDENCE)
+        val updatedAtMs = node.optLong("updated_at_ms", 0L).coerceAtLeast(0L)
+        val cooldownUntilMs = node.optLong("cooldown_until_ms", 0L).takeIf { it > 0L }
+        return LocalTransportPreference(
+            networkClass = networkClass,
+            transport = transport,
+            confidence = confidence,
+            updatedAtMs = updatedAtMs,
+            cooldownUntilMs = cooldownUntilMs,
+        )
+    }
+
+    private fun saveLocalTransportPreference(preference: LocalTransportPreference) {
+        val root = runCatching {
+            JSONObject(prefs.getString(KEY_LOCAL_TRANSPORT_PREF, null) ?: "{}")
+        }.getOrElse { JSONObject() }
+        root.put(
+            preference.networkClass,
+            JSONObject().apply {
+                put("transport", preference.transport)
+                put("confidence", preference.confidence)
+                put("updated_at_ms", preference.updatedAtMs)
+                put("cooldown_until_ms", preference.cooldownUntilMs ?: JSONObject.NULL)
+            }
+        )
+        prefs.edit().putString(KEY_LOCAL_TRANSPORT_PREF, root.toString()).apply()
+    }
+
+    private fun loadLocalFailureBucketStats(): LocalFailureBucketStats {
+        val raw = prefs.getString(KEY_LOCAL_FAILURE_BUCKETS, null) ?: return LocalFailureBucketStats()
+        val root = runCatching { JSONObject(raw) }.getOrNull() ?: return LocalFailureBucketStats()
+        return LocalFailureBucketStats(
+            transportFailures = root.optInt("transport_failures", 0).coerceIn(0, 9_999),
+            authFailures = root.optInt("auth_failures", 0).coerceIn(0, 9_999),
+            routeFailures = root.optInt("route_failures", 0).coerceIn(0, 9_999),
+            updatedAtMs = root.optLong("updated_at_ms", 0L).coerceAtLeast(0L),
+        )
+    }
+
+    private fun saveLocalFailureBucketStats(stats: LocalFailureBucketStats) {
+        val root = JSONObject().apply {
+            put("transport_failures", stats.transportFailures)
+            put("auth_failures", stats.authFailures)
+            put("route_failures", stats.routeFailures)
+            put("updated_at_ms", stats.updatedAtMs)
+        }
+        prefs.edit().putString(KEY_LOCAL_FAILURE_BUCKETS, root.toString()).apply()
     }
 
     private fun maybeRepairPrivateRoute(reason: String) {
@@ -1669,7 +2015,7 @@ class PrivateChannelClient(
         )
         val transport = data.optJSONObject("transport")
             ?.let { transport ->
-                parsePrivateTransportProfile(data, transport)
+                parsePrivateTransportProfile(transport)
             }
         return GatewayProfileSnapshot(
             privateChannelEnabled = privateEnabled,
@@ -1677,10 +2023,7 @@ class PrivateChannelClient(
         )
     }
 
-    private fun parsePrivateTransportProfile(
-        root: JSONObject,
-        transport: JSONObject,
-    ): PrivateTransportProfile {
+    private fun parsePrivateTransportProfile(transport: JSONObject): PrivateTransportProfile {
         val defaultProfile = defaultPrivateTransportProfile()
         return PrivateTransportProfile(
             quicEnabled = transport.optBoolean("quic_enabled", true),
@@ -1696,43 +2039,7 @@ class PrivateChannelClient(
                 .ifEmpty { defaultProfile.wssPath },
             wsSubprotocol = transport.optString("ws_subprotocol").trim()
                 .ifEmpty { defaultProfile.wsSubprotocol },
-            recommendedTransport = root.optString("recommended_transport").trim().ifEmpty { null },
-            transportPenaltyWindowMs = root.optLong("transport_penalty_window_ms", 0L)
-                .takeIf { it > 0L },
-            suggestedConnectBudgetMs = root.optLong("suggested_connect_budget_ms", 0L)
-                .takeIf { it > 0L },
-            suggestedBackoffCapMs = root.optLong("suggested_backoff_cap_ms", 0L)
-                .takeIf { it > 0L },
-            profileGeneratedAtMs = root.optLong("profile_generated_at_ms", 0L)
-                .takeIf { it > 0L },
-            profileTtlMs = root.optLong("profile_ttl_ms", 0L)
-                .takeIf { it > 0L },
         )
-    }
-
-    private fun profileWithFreshHints(profile: PrivateTransportProfile): PrivateTransportProfile {
-        if (!profile.hasDynamicHints()) return profile
-        if (profile.hintsAreFresh(System.currentTimeMillis())) return profile
-        return profile.copy(
-            recommendedTransport = null,
-            transportPenaltyWindowMs = null,
-            suggestedConnectBudgetMs = null,
-            suggestedBackoffCapMs = null,
-        )
-    }
-
-    private fun PrivateTransportProfile.hasDynamicHints(): Boolean {
-        return !recommendedTransport.isNullOrBlank()
-            || transportPenaltyWindowMs != null
-            || suggestedConnectBudgetMs != null
-            || suggestedBackoffCapMs != null
-    }
-
-    private fun PrivateTransportProfile.hintsAreFresh(nowMs: Long): Boolean {
-        val generatedAt = profileGeneratedAtMs ?: return true
-        val ttlMs = profileTtlMs ?: return true
-        val expiresAt = generatedAt + ttlMs
-        return nowMs <= expiresAt
     }
 
     private fun loadPrivateTransportProfileCache(baseUrl: String): PrivateTransportProfile? {
@@ -1744,7 +2051,7 @@ class PrivateChannelClient(
                 return null
             }
             val transport = obj.optJSONObject("transport") ?: return null
-            parsePrivateTransportProfile(obj, transport)
+            parsePrivateTransportProfile(transport)
         }.getOrNull()
     }
 
@@ -1764,12 +2071,6 @@ class PrivateChannelClient(
                     put("ws_subprotocol", profile.wsSubprotocol)
                 }
             )
-            put("recommended_transport", profile.recommendedTransport ?: JSONObject.NULL)
-            put("transport_penalty_window_ms", profile.transportPenaltyWindowMs ?: JSONObject.NULL)
-            put("suggested_connect_budget_ms", profile.suggestedConnectBudgetMs ?: JSONObject.NULL)
-            put("suggested_backoff_cap_ms", profile.suggestedBackoffCapMs ?: JSONObject.NULL)
-            put("profile_generated_at_ms", profile.profileGeneratedAtMs ?: JSONObject.NULL)
-            put("profile_ttl_ms", profile.profileTtlMs ?: JSONObject.NULL)
         }
         prefs.edit().putString(KEY_PROFILE_CACHE, obj.toString()).apply()
     }
@@ -1794,6 +2095,108 @@ class PrivateChannelClient(
         return message.contains("private_channel_disabled")
             || message.contains("private channel is disabled")
             || message.contains("private_channel_enabled=false")
+    }
+
+    private fun isAuthFailureError(message: String): Boolean {
+        return message.contains("auth failed")
+            || message.contains("authentication failed")
+            || message.contains("unauthorized")
+            || message.contains("gateway token invalid")
+    }
+
+    private fun isRouteRecoverableError(message: String): Boolean {
+        return message.contains("device_key not found")
+            || message.contains("device key not found")
+            || message.contains("device not on private channel")
+            || message.contains("device route is provider")
+            || message.contains("provider_token required")
+    }
+
+    private fun isAuthRouteRecoverableError(message: String): Boolean {
+        return isAuthFailureError(message) || isRouteRecoverableError(message)
+    }
+
+    private fun maybeScheduleAuthRouteSelfHeal(error: Throwable): Boolean {
+        val message = error.message?.lowercase().orEmpty()
+        if (!isAuthRouteRecoverableError(message)) {
+            return false
+        }
+        val nowMs = System.currentTimeMillis()
+        if (nowMs - lastAuthRouteHealAtMs < AUTH_ROUTE_HEAL_MIN_INTERVAL_MS) {
+            return false
+        }
+        lastAuthRouteHealAtMs = nowMs
+        failureStreak = (failureStreak + 1).coerceIn(1, 4)
+        val baseDelayMs = 1_000L * (1L shl (failureStreak - 1))
+        val jitterMs = Random.nextLong(100, 500)
+        val delayMs = (baseDelayMs + jitterMs).coerceAtMost(15_000L)
+        nextAllowedPullAtMs = nowMs + delayMs
+        saveTransportStatus(
+            route = "private",
+            transport = transportStatusState.value.transport,
+            stage = "backoff",
+            detail = "auth_route_self_heal next_retry=${delayMs}ms error=${error.message.orEmpty().take(120)}",
+        )
+        scope.launch {
+            runCatching {
+                val (baseUrl, token) = channelRepository.loadGatewayConfig()
+                val refreshed = ensureDeviceState(baseUrl, token, forceRefresh = true)
+                currentDeviceState = refreshed
+                lastRouteEnsureAtMs = 0L
+                lastRouteEnsureFingerprint = null
+                ensurePrivateRoute(baseUrl, token, refreshed, force = true)
+                if (!requestActiveSessionForceReconnect("auth_route_self_heal")) {
+                    stopActiveSession("auth_route_self_heal")
+                    restartLoop()
+                }
+            }.onFailure { healError ->
+                io.ethan.pushgo.util.SilentSink.w(
+                    TAG,
+                    "auth/route self heal failed error=${healError.message}",
+                )
+            }
+        }
+        io.ethan.pushgo.util.SilentSink.w(
+            TAG,
+            "auth/route self heal scheduled delay=${delayMs}ms error=${error.message}",
+        )
+        return true
+    }
+
+    private fun recordLocalFailureBucket(stage: String, error: Throwable) {
+        val message = error.message?.lowercase().orEmpty()
+        val nowMs = System.currentTimeMillis()
+        val next = when {
+            isRouteRecoverableError(message) -> {
+                localFailureBucketStats.copy(
+                    routeFailures = (localFailureBucketStats.routeFailures + 1).coerceAtMost(9_999),
+                    updatedAtMs = nowMs,
+                )
+            }
+            isAuthFailureError(message) -> {
+                localFailureBucketStats.copy(
+                    authFailures = (localFailureBucketStats.authFailures + 1).coerceAtMost(9_999),
+                    updatedAtMs = nowMs,
+                )
+            }
+            else -> {
+                localFailureBucketStats.copy(
+                    transportFailures = (localFailureBucketStats.transportFailures + 1).coerceAtMost(9_999),
+                    updatedAtMs = nowMs,
+                )
+            }
+        }
+        localFailureBucketStats = next
+        saveLocalFailureBucketStats(next)
+        connectionSnapshotState.value = buildConnectionSnapshot()
+        val fingerprint = "${next.transportFailures}|${next.authFailures}|${next.routeFailures}"
+        if (fingerprint != lastFailureBucketFingerprint) {
+            lastFailureBucketFingerprint = fingerprint
+            io.ethan.pushgo.util.SilentSink.i(
+                TAG,
+                "failure_bucket stage=$stage transport=${next.transportFailures} auth=${next.authFailures} route=${next.routeFailures}",
+            )
+        }
     }
 
     private fun onSuccess() {
@@ -1837,6 +2240,10 @@ class PrivateChannelClient(
                 detail = "gateway private channel is disabled; switch to FCM",
             )
             io.ethan.pushgo.util.SilentSink.w(TAG, "stage=$stage gateway private channel disabled")
+            return
+        }
+        recordLocalFailureBucket(stage, error)
+        if (stage == "stream_session" && maybeScheduleAuthRouteSelfHeal(error)) {
             return
         }
         PushGoAutomation.recordRuntimeError(
@@ -2002,6 +2409,11 @@ class PrivateChannelClient(
         keepaliveState = KeepaliveState.NOT_REQUIRED
         latestNativeSessionProfile = null
         latestTransportSelectionInsight = null
+        observedNetworkClass = "unknown"
+        observedNetworkFingerprint = "unknown"
+        lastNetworkSwitchReconnectAtMs = 0L
+        localFailureBucketStats = LocalFailureBucketStats()
+        lastFailureBucketFingerprint = null
         lastTransportStatusFingerprint = null
         prefs.edit().clear().apply()
         saveTransportStatus(
@@ -2087,6 +2499,7 @@ class PrivateChannelClient(
             foregroundActive = foregroundActive,
             privateModeEnabled = !fcmAvailable,
             selectionInsight = latestTransportSelectionInsight,
+            failureBucketStats = localFailureBucketStats,
         )
     }
 
@@ -2199,12 +2612,6 @@ class PrivateChannelClient(
         val wssPort: Int,
         val wssPath: String,
         val wsSubprotocol: String,
-        val recommendedTransport: String? = null,
-        val transportPenaltyWindowMs: Long? = null,
-        val suggestedConnectBudgetMs: Long? = null,
-        val suggestedBackoffCapMs: Long? = null,
-        val profileGeneratedAtMs: Long? = null,
-        val profileTtlMs: Long? = null,
     )
 
     private data class GatewayProfileSnapshot(
@@ -2234,6 +2641,7 @@ class PrivateChannelClient(
         val foregroundActive: Boolean,
         val privateModeEnabled: Boolean,
         val selectionInsight: TransportSelectionInsight?,
+        val failureBucketStats: LocalFailureBucketStats,
     )
 
     private data class NativeSessionProfile(
@@ -2243,6 +2651,49 @@ class PrivateChannelClient(
         val quicPort: Int,
         val tcpPort: Int,
         val wssPort: Int,
+    )
+
+    private data class LocalRuntimePolicy(
+        val connectBudgetMs: Long,
+        val backoffCapMs: Long,
+    )
+
+    private data class LocalPinPolicy(
+        val minConfidenceForeground: Int,
+        val minConfidenceBackground: Int,
+        val maxAgeMs: Long,
+        val failureCooldownMs: Long,
+        val ttlForegroundMs: Long,
+        val ttlBackgroundMs: Long,
+    ) {
+        fun minConfidenceFor(isForeground: Boolean): Int {
+            return if (isForeground) {
+                minConfidenceForeground
+            } else {
+                minConfidenceBackground
+            }
+        }
+    }
+
+    private data class ActiveNetworkSnapshot(
+        val available: Boolean,
+        val networkClass: String,
+        val networkFingerprint: String,
+    )
+
+    private data class LocalTransportPreference(
+        val networkClass: String,
+        val transport: String,
+        val confidence: Int,
+        val updatedAtMs: Long,
+        val cooldownUntilMs: Long?,
+    )
+
+    data class LocalFailureBucketStats(
+        val transportFailures: Int = 0,
+        val authFailures: Int = 0,
+        val routeFailures: Int = 0,
+        val updatedAtMs: Long = 0L,
     )
 
     data class TransportSelectionInsight(
@@ -2353,12 +2804,14 @@ class PrivateChannelClient(
 
     companion object {
         private const val TAG = "PrivateChannelClient"
-        private const val CLIENT_REV = "2026-02-25-r7"
+        private const val CLIENT_REV = "2026-03-27-r9"
         private const val PREFS_NAME = "private_push_client"
         private const val KEY_STATE = "device_state"
         private const val KEY_TRANSPORT_STATUS = "transport_status"
         private const val KEY_PERF_MODE = "performance_mode"
         private const val KEY_PROFILE_CACHE = "transport_profile_cache"
+        private const val KEY_LOCAL_TRANSPORT_PREF = "local_transport_pref"
+        private const val KEY_LOCAL_FAILURE_BUCKETS = "local_failure_buckets"
         private const val GATEWAY_PROFILE_ENDPOINT = "/gateway/profile"
         private const val PRIVATE_QUIC_PORT = 443
         private const val PRIVATE_TCP_PORT = 5223
@@ -2371,8 +2824,35 @@ class PrivateChannelClient(
         private const val PRIVATE_PAYLOAD_VERSION_V1 = 1
         private const val ACK_WAIT_TIMEOUT_MS = 10_000
         private const val PRIVATE_WELCOME_STALL_TIMEOUT_MS = 20_000L
-        private const val PRIVATE_CONNECT_BUDGET_MS = 12_000
-        private const val PRIVATE_BACKOFF_CAP_MS = 60_000L
+        private const val PRIVATE_CONNECT_BUDGET_FG_MS = 4_500L
+        private const val PRIVATE_CONNECT_BUDGET_BG_MS = 9_000L
+        private const val PRIVATE_BACKOFF_CAP_FG_MS = 45_000L
+        private const val PRIVATE_BACKOFF_CAP_BG_MS = 120_000L
+        private const val LOCAL_PIN_INIT_CONFIDENCE = 2
+        private const val LOCAL_PIN_MAX_CONFIDENCE = 6
+        private const val LOCAL_PIN_DEFAULT_MIN_CONFIDENCE_FG = 3
+        private const val LOCAL_PIN_DEFAULT_MIN_CONFIDENCE_BG = 3
+        private const val LOCAL_PIN_DEFAULT_MAX_AGE_MS = 15 * 60_000L
+        private const val LOCAL_PIN_DEFAULT_FAILURE_COOLDOWN_MS = 5 * 60_000L
+        private const val LOCAL_PIN_DEFAULT_TTL_FG_MS = 90_000L
+        private const val LOCAL_PIN_DEFAULT_TTL_BG_MS = 180_000L
+        private const val LOCAL_PIN_CELLULAR_MIN_CONFIDENCE_FG = 4
+        private const val LOCAL_PIN_CELLULAR_MIN_CONFIDENCE_BG = 5
+        private const val LOCAL_PIN_CELLULAR_MAX_AGE_MS = 8 * 60_000L
+        private const val LOCAL_PIN_CELLULAR_FAILURE_COOLDOWN_MS = 3 * 60_000L
+        private const val LOCAL_PIN_CELLULAR_TTL_FG_MS = 45_000L
+        private const val LOCAL_PIN_CELLULAR_TTL_BG_MS = 90_000L
+        private const val LOCAL_PIN_OTHER_MIN_CONFIDENCE_FG = 5
+        private const val LOCAL_PIN_OTHER_MIN_CONFIDENCE_BG = 5
+        private const val LOCAL_PIN_OTHER_MAX_AGE_MS = 5 * 60_000L
+        private const val LOCAL_PIN_OTHER_FAILURE_COOLDOWN_MS = 2 * 60_000L
+        private const val LOCAL_PIN_OTHER_TTL_FG_MS = 30_000L
+        private const val LOCAL_PIN_OTHER_TTL_BG_MS = 60_000L
+        private const val NETWORK_SWITCH_PIN_COOLDOWN_DEFAULT_MS = 45_000L
+        private const val NETWORK_SWITCH_PIN_COOLDOWN_CELLULAR_MS = 90_000L
+        private const val NETWORK_SWITCH_PIN_COOLDOWN_OTHER_MS = 60_000L
+        private const val NETWORK_SWITCH_RECONNECT_MIN_INTERVAL_MS = 5_000L
+        private const val AUTH_ROUTE_HEAL_MIN_INTERVAL_MS = 8_000L
 
         private fun defaultPrivateTransportProfile(): PrivateTransportProfile {
             return PrivateTransportProfile(
@@ -2384,12 +2864,6 @@ class PrivateChannelClient(
                 wssPort = PRIVATE_QUIC_PORT,
                 wssPath = "/private/ws",
                 wsSubprotocol = "pushgo-private.v1",
-                recommendedTransport = null,
-                transportPenaltyWindowMs = null,
-                suggestedConnectBudgetMs = null,
-                suggestedBackoffCapMs = null,
-                profileGeneratedAtMs = null,
-                profileTtlMs = null,
             )
         }
     }

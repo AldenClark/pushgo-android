@@ -32,6 +32,7 @@
     <string name="label_unsubscribe_keep_history">取消訂閱但保留歷史訊息</string><string name="label_channel_select_hint">請先建立或訂閱一個頻道。</string>
     <string name="label_channel_manage">管理訂閱</string>
     <string name="notification_channel_name_with_level">PushGo 訊息 · %1$s</string>
+    <string name="notification_channel_group_messages_name">PushGo 訊息通知</string>
     <string name="notification_channel_suffix_critical">緊急</string>
     <string name="notification_channel_suffix_high">高</string>
     <string name="notification_channel_suffix_normal">普通</string>

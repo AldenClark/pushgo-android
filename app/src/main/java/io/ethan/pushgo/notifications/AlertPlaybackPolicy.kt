@@ -15,7 +15,7 @@ enum class AlertPlaybackMode {
 }
 
 object AlertPlaybackPolicy {
-    private const val HIGH_DURATION_MS = 20_000L
+    private const val HIGH_DURATION_MS = 15_000L
 
     fun specForLevel(level: String?): AlertPlaybackSpec {
         return when (normalize(level)) {

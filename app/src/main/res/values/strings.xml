@@ -35,6 +35,7 @@
     <string name="label_unsubscribe_keep_history">Unsubscribe and keep history</string><string name="label_channel_select_hint">Create or subscribe to a channel first.</string>
     <string name="label_channel_manage">Manage subscriptions</string>
     <string name="notification_channel_name_with_level">PushGo Messages · %1$s</string>
+    <string name="notification_channel_group_messages_name">PushGo message alerts</string>
     <string name="notification_channel_suffix_critical">Critical</string>
     <string name="notification_channel_suffix_high">High</string>
     <string name="notification_channel_suffix_normal">Normal</string>

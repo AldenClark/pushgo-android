@@ -106,7 +106,7 @@ object NotificationIngressParser {
             body = rewriteVisibleUrlsInText(decryptResult.body),
             images = sanitizeImageCandidates(decryptResult.images),
         )
-        val level = normalizeLevel(sanitized["severity"])
+        val level = resolveNotificationLevel(sanitized)
         val entityType = normalizeEntityType(sanitized["entity_type"]) ?: return null
         val sanitizedTitleBody = sanitizeGatewayPlaceholderText(
             entityType = entityType,
@@ -356,10 +356,31 @@ object NotificationIngressParser {
         return value?.takeIf { it.isNotEmpty() }
     }
 
+    private fun resolveNotificationLevel(data: Map<String, String>): String? {
+        return normalizeLevel(
+            data["severity"]
+                ?: data["level"]
+                ?: data["priority"],
+        )
+    }
+
     private fun normalizeLevel(level: String?): String? {
         val normalized = level?.trim()?.lowercase().orEmpty()
+        if (normalized.isEmpty()) return null
+        val numeric = normalized.toIntOrNull()
+        if (numeric != null) {
+            return when {
+                numeric >= 5 -> "critical"
+                numeric == 4 -> "high"
+                numeric <= 2 -> "low"
+                else -> "normal"
+            }
+        }
         return when (normalized) {
-            "critical", "high", "normal", "low" -> normalized
+            "critical", "emergency", "urgent", "max" -> "critical"
+            "high", "important" -> "high"
+            "normal", "medium", "default" -> "normal"
+            "low", "min", "silent" -> "low"
             else -> null
         }
     }

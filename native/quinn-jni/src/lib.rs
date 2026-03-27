@@ -19,11 +19,11 @@ use warp_link_core::{
     TransportKind,
 };
 
-const PRIVATE_CONNECT_BUDGET_MS: u64 = 13_000;
-const PRIVATE_TCP_DELAY_FOREGROUND_MS: u64 = 700;
-const PRIVATE_WSS_DELAY_FOREGROUND_MS: u64 = 1_800;
-const PRIVATE_TCP_DELAY_BACKGROUND_MS: u64 = 1_500;
-const PRIVATE_WSS_DELAY_BACKGROUND_MS: u64 = 3_500;
+const PRIVATE_CONNECT_BUDGET_MS: u64 = 4_500;
+const PRIVATE_TCP_DELAY_FOREGROUND_MS: u64 = 350;
+const PRIVATE_WSS_DELAY_FOREGROUND_MS: u64 = 1_300;
+const PRIVATE_TCP_DELAY_BACKGROUND_MS: u64 = 1_000;
+const PRIVATE_WSS_DELAY_BACKGROUND_MS: u64 = 2_800;
 const WIRE_VERSION_V2: u8 = 2;
 const DEFAULT_WSS_SUBPROTOCOL: &str = "pushgo-private.v1";
 
@@ -37,6 +37,7 @@ struct NativePinnedTransport {
 struct NativeSchedulerPolicy {
     force_reconnect_nonce: u64,
     pinned_transport: Option<NativePinnedTransport>,
+    disabled_transports: Vec<TransportKind>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -45,9 +46,15 @@ struct SessionConfig {
     #[serde(default)]
     quic_port: Option<u16>,
     #[serde(default)]
+    quic_enabled: Option<bool>,
+    #[serde(default)]
     wss_port: Option<u16>,
     #[serde(default)]
+    wss_enabled: Option<bool>,
+    #[serde(default)]
     tcp_port: Option<u16>,
+    #[serde(default)]
+    tcp_enabled: Option<bool>,
     #[serde(default)]
     wss_path: Option<String>,
     #[serde(default)]
@@ -199,7 +206,7 @@ impl ClientApp for EventApp {
             return PolicyInput::default();
         };
         PolicyInput {
-            disabled_transports: Vec::new(),
+            disabled_transports: snapshot.disabled_transports.clone(),
             pinned_transport: snapshot.pinned_transport.map(|value| PinnedTransport {
                 transport: value.transport,
                 expires_at_unix_ms: value.expires_at_unix_ms,
@@ -317,12 +324,23 @@ pub extern "system" fn Java_io_ethan_pushgo_notifications_WarpLinkNativeBridge_n
         .as_deref()
         .and_then(parse_transport_kind);
     let initial_pin_ttl_ms = parsed.initial_pin_ttl_ms.filter(|value| *value > 0);
+    let mut disabled_transports = Vec::new();
+    if parsed.quic_enabled == Some(false) {
+        disabled_transports.push(TransportKind::Quic);
+    }
+    if parsed.tcp_enabled == Some(false) {
+        disabled_transports.push(TransportKind::Tcp);
+    }
+    if parsed.wss_enabled == Some(false) {
+        disabled_transports.push(TransportKind::Wss);
+    }
     let scheduler_policy = Arc::new(Mutex::new(NativeSchedulerPolicy {
         force_reconnect_nonce: 0,
         pinned_transport: initial_pin_transport.map(|transport| NativePinnedTransport {
             transport,
             expires_at_unix_ms: initial_pin_ttl_ms.map(|ttl| epoch_millis_now().saturating_add(ttl as i64)),
         }),
+        disabled_transports,
     }));
     let app = EventApp {
         hello: Arc::clone(&hello),
@@ -344,7 +362,7 @@ pub extern "system" fn Java_io_ethan_pushgo_notifications_WarpLinkNativeBridge_n
     let task = runtime.spawn(async move {
         let profile_event = serde_json::json!({
             "type": "session_profile",
-            "connect_budget_ms": PRIVATE_CONNECT_BUDGET_MS,
+            "connect_budget_ms": config.policy.connect_budget_ms,
             "tcp_delay_ms": tcp_delay_ms,
             "wss_delay_ms": wss_delay_ms,
             "quic_port": config.quic_port,

@@ -132,4 +132,52 @@ class NotificationIngressParserTest {
         val raw = JsonCompat.parseObject(message.rawPayloadJson) ?: emptyMap()
         assertEquals(richBody, raw["body"])
     }
+
+    @Test
+    fun parseMessage_resolvesLegacyLevelAliasWhenSeverityMissing() {
+        val payload = mapOf(
+            "entity_type" to "message",
+            "message_id" to "m-level-alias-1",
+            "entity_id" to "m-level-alias-1",
+            "title" to "hello",
+            "body" to "world",
+            "level" to "medium",
+        )
+
+        val parsed = NotificationIngressParser.parse(
+            data = payload,
+            transportMessageId = null,
+            keyBytes = null,
+            now = Instant.ofEpochSecond(1_710_000_000),
+        )
+        val message = (parsed as? InboundPersistenceRequest.Message)?.message
+        assertNotNull(message)
+        message ?: return
+        val raw = JsonCompat.parseObject(message.rawPayloadJson) ?: emptyMap()
+        assertEquals("normal", raw["severity"])
+    }
+
+    @Test
+    fun parseMessage_resolvesNumericPriorityAliasWhenSeverityMissing() {
+        val payload = mapOf(
+            "entity_type" to "message",
+            "message_id" to "m-priority-alias-1",
+            "entity_id" to "m-priority-alias-1",
+            "title" to "hello",
+            "body" to "world",
+            "priority" to "5",
+        )
+
+        val parsed = NotificationIngressParser.parse(
+            data = payload,
+            transportMessageId = null,
+            keyBytes = null,
+            now = Instant.ofEpochSecond(1_710_000_000),
+        )
+        val message = (parsed as? InboundPersistenceRequest.Message)?.message
+        assertNotNull(message)
+        message ?: return
+        val raw = JsonCompat.parseObject(message.rawPayloadJson) ?: emptyMap()
+        assertEquals("critical", raw["severity"])
+    }
 }
