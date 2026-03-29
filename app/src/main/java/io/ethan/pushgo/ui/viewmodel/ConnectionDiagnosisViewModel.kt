@@ -16,6 +16,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.core.content.FileProvider
 import io.ethan.pushgo.BuildConfig
+import io.ethan.pushgo.R
 import io.ethan.pushgo.data.AppConstants
 import io.ethan.pushgo.data.SettingsRepository
 import io.ethan.pushgo.notifications.KeepaliveState
@@ -65,6 +66,8 @@ class ConnectionDiagnosisViewModel(
     private val settingsRepository: SettingsRepository,
     private val privateChannelClient: PrivateChannelClient,
 ) : ViewModel() {
+    private fun tr(resId: Int, vararg args: Any): String = appContext.getString(resId, *args)
+
     companion object {
         private const val MAX_UI_LOGS = 320
         private const val DIAG_DURATION_MS = 75_000L
@@ -89,23 +92,23 @@ class ConnectionDiagnosisViewModel(
         private set
     var isCompleted by mutableStateOf(false)
         private set
-    var statusTitle by mutableStateOf("等待开始")
+    var statusTitle by mutableStateOf(tr(R.string.label_connection_diagnosis_status_waiting))
         private set
-    var statusDetail by mutableStateOf("进入页面后会自动开始一次 75 秒的网络诊断。")
+    var statusDetail by mutableStateOf(tr(R.string.label_connection_diagnosis_status_auto_start_detail))
         private set
-    var networkSummary by mutableStateOf("尚未采集")
+    var networkSummary by mutableStateOf(tr(R.string.label_connection_diagnosis_not_collected))
         private set
-    var natSummary by mutableStateOf("尚未采集")
+    var natSummary by mutableStateOf(tr(R.string.label_connection_diagnosis_not_collected))
         private set
-    var proxySummary by mutableStateOf("尚未采集")
+    var proxySummary by mutableStateOf(tr(R.string.label_connection_diagnosis_not_collected))
         private set
-    var gatewaySummary by mutableStateOf("尚未采集")
+    var gatewaySummary by mutableStateOf(tr(R.string.label_connection_diagnosis_not_collected))
         private set
-    var channelProbeSummary by mutableStateOf("尚未采集")
+    var channelProbeSummary by mutableStateOf(tr(R.string.label_connection_diagnosis_not_collected))
         private set
-    var transportSummary by mutableStateOf("尚未采集")
+    var transportSummary by mutableStateOf(tr(R.string.label_connection_diagnosis_not_collected))
         private set
-    var recommendation by mutableStateOf("尚未形成诊断结论")
+    var recommendation by mutableStateOf(tr(R.string.label_connection_diagnosis_not_concluded))
         private set
     var logLines by mutableStateOf<List<ConnectionDiagnosisLogLine>>(emptyList())
         private set
@@ -215,7 +218,7 @@ class ConnectionDiagnosisViewModel(
 
     fun updateSessionMode(mode: DiagnosisSessionMode) {
         if (isRunning) {
-            toastMessage = "诊断进行中，当前不可切换模式"
+            toastMessage = tr(R.string.error_connection_diagnosis_running_mode_locked)
             return
         }
         sessionMode = mode
@@ -223,7 +226,7 @@ class ConnectionDiagnosisViewModel(
 
     fun updateDiagnosisProfile(profile: DiagnosisProfile) {
         if (isRunning) {
-            toastMessage = "诊断进行中，当前不可切换模板"
+            toastMessage = tr(R.string.error_connection_diagnosis_running_profile_locked)
             return
         }
         diagnosisProfile = profile
@@ -259,11 +262,11 @@ class ConnectionDiagnosisViewModel(
         val clipboard = appContext.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
         val payload = currentReportText()
         if (clipboard == null || payload.isBlank()) {
-            toastMessage = "当前没有可复制的诊断结果"
+            toastMessage = tr(R.string.error_connection_diagnosis_no_report_to_copy)
             return
         }
         clipboard.setPrimaryClip(ClipData.newPlainText("pushgo-connection-diagnosis", payload))
-        toastMessage = "诊断日志已复制"
+        toastMessage = tr(R.string.message_connection_diagnosis_report_copied)
     }
 
     fun exportReportToUri(
@@ -289,17 +292,20 @@ class ConnectionDiagnosisViewModel(
             }
             exported.onSuccess {
                 toastMessage = when (format) {
-                    DiagnosisExportFormat.TEXT -> "诊断日志 TXT 已导出"
+                    DiagnosisExportFormat.TEXT -> tr(R.string.message_connection_diagnosis_txt_exported)
                     DiagnosisExportFormat.JSON -> {
                         if (scope == DiagnosisExportScope.FAIL_ONLY) {
-                            "诊断日志 JSON（仅失败链路）已导出"
+                            tr(R.string.message_connection_diagnosis_json_fail_only_exported)
                         } else {
-                            "诊断日志 JSON 已导出"
+                            tr(R.string.message_connection_diagnosis_json_exported)
                         }
                     }
                 }
             }.onFailure {
-                toastMessage = "导出失败: ${it.message?.trim().ifNullOrBlank { it::class.java.simpleName }}"
+                toastMessage = tr(
+                    R.string.error_connection_diagnosis_export_failed,
+                    it.message?.trim().ifNullOrBlank { it::class.java.simpleName },
+                )
             }
         }
     }
@@ -328,9 +334,12 @@ class ConnectionDiagnosisViewModel(
             }
             prepared.onSuccess { uris ->
                 pendingShareUris = uris
-                toastMessage = "支持包已生成，可选择目标应用分享"
+                toastMessage = tr(R.string.message_connection_diagnosis_bundle_ready)
             }.onFailure {
-                toastMessage = "生成支持包失败: ${it.message?.trim().ifNullOrBlank { it::class.java.simpleName }}"
+                toastMessage = tr(
+                    R.string.error_connection_diagnosis_bundle_failed,
+                    it.message?.trim().ifNullOrBlank { it::class.java.simpleName },
+                )
             }
         }
     }
@@ -358,11 +367,11 @@ class ConnectionDiagnosisViewModel(
             sessionDurationMs = sessionMode.durationMs
             sessionElapsedMs = 0L
             startSessionProgressTicker()
-            statusTitle = "正在诊断"
-            statusDetail = "正在持续采集网络、网关和私有连接状态，达到窗口后会自动停止。"
+            statusTitle = tr(R.string.label_connection_diagnosis_status_running)
+            statusDetail = tr(R.string.label_connection_diagnosis_status_running_detail)
             appendLog(
                 "session",
-                "开始连接诊断，采集窗口 ${sessionMode.durationMs / 1000} 秒 mode=${sessionMode.wireValue}",
+                "Diagnosis started, collection window ${sessionMode.durationMs / 1000}s mode=${sessionMode.wireValue}",
             )
             recordGatewayConfiguration()
             attachAppLogListener()
@@ -389,7 +398,7 @@ class ConnectionDiagnosisViewModel(
         sessionUseFcmChannel = useFcmChannel
         appendLog(
             "session",
-            "应用版本=${BuildConfig.VERSION_NAME} gateway=$gatewayBaseUrl token_present=$gatewayTokenPresent use_fcm=$useFcmChannel",
+            "App version=${BuildConfig.VERSION_NAME} gateway=$gatewayBaseUrl token_present=$gatewayTokenPresent use_fcm=$useFcmChannel",
         )
         clientCapabilities = buildClientCapabilities(useFcmChannel)
         privateChannelClient.refreshNetworkStateFromSystem()
@@ -428,12 +437,12 @@ class ConnectionDiagnosisViewModel(
         if (probe.success) {
             appendLog(
                 "gateway",
-                "网关探测成功 latency=${probe.latencyMs}ms observed_ip=${probe.observedClientIp ?: "unknown"} nat_hint=${probe.natHint ?: "unknown"} proxy=${probe.proxyDetected}",
+                "Gateway probe success latency=${probe.latencyMs}ms observed_ip=${probe.observedClientIp ?: "unknown"} nat_hint=${probe.natHint ?: "unknown"} proxy=${probe.proxyDetected}",
             )
         } else {
             appendLog(
                 "gateway",
-                "网关探测失败 status=${probe.httpStatus ?: -1} error=${probe.errorMessage ?: "unknown"}",
+                "Gateway probe failed status=${probe.httpStatus ?: -1} error=${probe.errorMessage ?: "unknown"}",
             )
         }
         refreshSummary()
@@ -448,7 +457,7 @@ class ConnectionDiagnosisViewModel(
         if (emitLog) {
             appendLog(
                 "channel-probe",
-                "开始独立通道连通性测试 mode=${if (useFcmChannel) "fcm" else "private"}",
+                "Channel connectivity probe started mode=${if (useFcmChannel) "fcm" else "private"}",
             )
         }
         val probeRequestAtMs = if (!useFcmChannel && privateChannelClient.requestInSessionProbe()) {
@@ -559,7 +568,7 @@ class ConnectionDiagnosisViewModel(
                         if (isRunning) {
                             appendLog(
                                 "channel-probe",
-                                "持续链路探测异常: ${error.message?.trim().ifNullOrBlank { error::class.java.simpleName }}",
+                                "Continuous channel probe failed: ${error.message?.trim().ifNullOrBlank { error::class.java.simpleName }}",
                             )
                         }
                     }
@@ -668,7 +677,7 @@ class ConnectionDiagnosisViewModel(
         if (shouldLogNetworkChange(previous, sample)) {
             appendLog(
                 "network",
-                "网络采样[$reason] transport=${sample.transport} validated=${sample.validated} vpn=${sample.vpn} metered=${sample.meteredLabel()} roaming=${sample.roamingLabel()} proxy=${sample.proxy ?: "none"} iface=${sample.interfaceName ?: "unknown"}",
+                "Network sample[$reason] transport=${sample.transport} validated=${sample.validated} vpn=${sample.vpn} metered=${sample.meteredLabel()} roaming=${sample.roamingLabel()} proxy=${sample.proxy ?: "none"} iface=${sample.interfaceName ?: "unknown"}",
             )
         }
         refreshSummary()
@@ -688,7 +697,7 @@ class ConnectionDiagnosisViewModel(
     }
 
     private fun appendAppLog(entry: DiagnosticLogEntry, historical: Boolean) {
-        val prefix = if (historical) "历史应用日志" else "应用日志"
+        val prefix = if (historical) "Historical app log" else "App log"
         appendLog(
             "app",
             "$prefix ${entry.tag} ${entry.level.name.lowercase(Locale.US)} ${entry.message}",
@@ -727,7 +736,7 @@ class ConnectionDiagnosisViewModel(
         networkCallback = callback
         runCatching { cm.registerDefaultNetworkCallback(callback) }
             .onFailure {
-                appendLog("network", "注册系统网络回调失败: ${it.message ?: it::class.java.simpleName}")
+                appendLog("network", "Failed to register system network callback: ${it.message ?: it::class.java.simpleName}")
             }
     }
 
@@ -782,7 +791,7 @@ class ConnectionDiagnosisViewModel(
         }
         appendLog(
             "transport",
-            "连接状态[$source] route=${transportStatus.route} transport=${transportStatus.transport} stage=${transportStatus.stage} keepalive=${snapshot.keepaliveState.name.lowercase(Locale.US)} network=${snapshot.networkAvailable} detail=${transportStatus.detail ?: "-"}",
+            "Connection state[$source] route=${transportStatus.route} transport=${transportStatus.transport} stage=${transportStatus.stage} keepalive=${snapshot.keepaliveState.name.lowercase(Locale.US)} network=${snapshot.networkAvailable} detail=${transportStatus.detail ?: "-"}",
         )
         refreshSummary()
     }
@@ -884,13 +893,20 @@ class ConnectionDiagnosisViewModel(
         isRunning = false
         isCompleted = true
         if (manuallyStopped) {
-            statusTitle = "诊断已停止"
-            statusDetail = "已手动停止采集。可以复制或导出日志并附带给排查人员。"
+            statusTitle = tr(R.string.label_connection_diagnosis_status_stopped)
+            statusDetail = tr(R.string.label_connection_diagnosis_status_stopped_detail)
         } else {
-            statusTitle = "诊断已完成"
-            statusDetail = "采集窗口结束，已停止继续记录。可以复制日志并附带给排查人员。"
+            statusTitle = tr(R.string.label_connection_diagnosis_status_completed)
+            statusDetail = tr(R.string.label_connection_diagnosis_status_completed_detail)
         }
-        appendLog("session", if (manuallyStopped) "诊断已手动停止，已生成可复制报告" else "诊断完成，已生成可复制报告")
+        appendLog(
+            "session",
+            if (manuallyStopped) {
+                tr(R.string.label_connection_diagnosis_log_stopped_with_report)
+            } else {
+                tr(R.string.label_connection_diagnosis_log_completed_with_report)
+            },
+        )
         refreshSummary()
         reportText = buildReportText(redact = redactSensitiveData)
     }
@@ -925,15 +941,15 @@ class ConnectionDiagnosisViewModel(
         channelProbeAccumulators.clear()
         isRunning = false
         isCompleted = false
-        statusTitle = "准备开始"
-        statusDetail = "正在初始化诊断环境。"
-        networkSummary = "尚未采集"
-        natSummary = "尚未采集"
-        proxySummary = "尚未采集"
-        gatewaySummary = "尚未采集"
-        channelProbeSummary = "尚未采集"
-        transportSummary = "尚未采集"
-        recommendation = "尚未形成诊断结论"
+        statusTitle = tr(R.string.label_connection_diagnosis_status_preparing)
+        statusDetail = tr(R.string.label_connection_diagnosis_status_preparing_detail)
+        networkSummary = tr(R.string.label_connection_diagnosis_not_collected)
+        natSummary = tr(R.string.label_connection_diagnosis_not_collected)
+        proxySummary = tr(R.string.label_connection_diagnosis_not_collected)
+        gatewaySummary = tr(R.string.label_connection_diagnosis_not_collected)
+        channelProbeSummary = tr(R.string.label_connection_diagnosis_not_collected)
+        transportSummary = tr(R.string.label_connection_diagnosis_not_collected)
+        recommendation = tr(R.string.label_connection_diagnosis_not_concluded)
         logLines = emptyList()
         reportText = ""
         toastMessage = null
@@ -1023,26 +1039,26 @@ class ConnectionDiagnosisViewModel(
     }
 
     private fun buildChannelProbeSummary(): String {
-        val probe = latestChannelProbe ?: return "尚未探测"
+        val probe = latestChannelProbe ?: return tr(R.string.label_connection_diagnosis_not_probed)
         return probe.prettySummary
     }
 
     private fun buildNetworkSummary(): String {
-        if (networkSamples.isEmpty()) return "尚未采集"
+        if (networkSamples.isEmpty()) return tr(R.string.label_connection_diagnosis_not_collected)
         val transports = networkSamples.map { it.transport }.distinct()
         val validatedCount = networkSamples.count { it.validated }
         val vpnSeen = networkSamples.any { it.vpn }
         return buildString {
             append(transports.joinToString(" -> "))
-            append(" · 已验证 $validatedCount/${networkSamples.size}")
-            if (vpnSeen) append(" · 期间检测到 VPN")
+            append(" · validated $validatedCount/${networkSamples.size}")
+            if (vpnSeen) append(" · VPN detected during session")
         }
     }
 
     private fun buildNatSummary(): String {
         val hints = gatewayProbes.mapNotNull { it.natHint }.distinct()
         val scopes = gatewayProbes.mapNotNull { it.observedIpScope }.distinct()
-        if (hints.isEmpty() && scopes.isEmpty()) return "尚未拿到网关出口判断"
+        if (hints.isEmpty() && scopes.isEmpty()) return tr(R.string.label_connection_diagnosis_no_gateway_nat_observation)
         return buildString {
             if (hints.isNotEmpty()) {
                 append(hints.joinToString(" / "))
@@ -1052,7 +1068,8 @@ class ConnectionDiagnosisViewModel(
                 append("ip_scope=")
                 append(scopes.joinToString("/"))
             }
-            append(" · 该结果基于网关反射，只能作为 NAT 提示，不等于完整 STUN 分类")
+            append(" · ")
+            append(tr(R.string.label_connection_diagnosis_nat_reflection_note))
         }
     }
 
@@ -1060,30 +1077,40 @@ class ConnectionDiagnosisViewModel(
         val proxies = networkSamples.mapNotNull { it.proxy }.distinct()
         val gatewayProxyDetected = gatewayProbes.any { it.proxyDetected }
         return when {
-            proxies.isEmpty() && !gatewayProxyDetected -> "未发现系统代理或网关代理迹象"
-            proxies.isNotEmpty() && gatewayProxyDetected -> "系统代理=${proxies.joinToString()} · 网关侧也看到了代理头"
-            proxies.isNotEmpty() -> "系统代理=${proxies.joinToString()}"
-            else -> "本机未见系统代理，但网关侧看到了代理头"
+            proxies.isEmpty() && !gatewayProxyDetected -> tr(R.string.label_connection_diagnosis_proxy_none)
+            proxies.isNotEmpty() && gatewayProxyDetected -> tr(
+                R.string.label_connection_diagnosis_proxy_system_and_gateway,
+                proxies.joinToString(),
+            )
+            proxies.isNotEmpty() -> tr(R.string.label_connection_diagnosis_proxy_system_only, proxies.joinToString())
+            else -> tr(R.string.label_connection_diagnosis_proxy_gateway_only)
         }
     }
 
     private fun buildGatewaySummary(): String {
-        if (gatewayProbes.isEmpty()) return "尚未探测"
+        if (gatewayProbes.isEmpty()) return tr(R.string.label_connection_diagnosis_not_probed)
         val success = gatewayProbes.filter { it.success }
         if (success.isEmpty()) {
             val latest = gatewayProbes.last()
-            return "连续失败 ${gatewayProbes.size} 次 · 最近错误=${latest.errorMessage ?: "unknown"}"
+            return tr(
+                R.string.label_connection_diagnosis_gateway_all_failed,
+                gatewayProbes.size,
+                latest.errorMessage ?: "unknown",
+            )
         }
         val avgLatency = success.map { it.latencyMs }.average().roundToInt()
         val minLatency = success.minOf { it.latencyMs }
         val maxLatency = success.maxOf { it.latencyMs }
         val failures = gatewayProbes.size - success.size
-        return buildString {
-            append("成功 ${success.size}/${gatewayProbes.size}")
-            append(" · RTT ${minLatency}-${maxLatency}ms")
-            append(" · 平均 ${avgLatency}ms")
-            if (failures > 0) append(" · 失败 $failures 次")
-        }
+        return tr(
+            R.string.label_connection_diagnosis_gateway_summary,
+            success.size,
+            gatewayProbes.size,
+            minLatency,
+            maxLatency,
+            avgLatency,
+            failures,
+        )
     }
 
     private fun buildGatewayAggregate(): GatewayAggregate {
@@ -1112,13 +1139,13 @@ class ConnectionDiagnosisViewModel(
     }
 
     private fun buildTransportSummary(): String {
-        if (connectionEvents.isEmpty()) return "尚未采集"
+        if (connectionEvents.isEmpty()) return tr(R.string.label_connection_diagnosis_not_collected)
         val privateModeEnabled = connectionEvents.any { it.privateModeEnabled }
         if (!privateModeEnabled) {
             return buildString {
-                append("当前仍处于 FCM 模式，私有链路日志有限")
+                append(tr(R.string.label_connection_diagnosis_transport_fcm_limited))
                 latestChannelProbe?.let { probe ->
-                    append(" · 独立测试=")
+                    append(" · probe=")
                     append(probe.mode)
                     append("/")
                     append(if (probe.success) "ok" else "fail")
@@ -1139,13 +1166,13 @@ class ConnectionDiagnosisViewModel(
             .firstOrNull { it.selectionInsight != null }
             ?.selectionInsight
         return buildString {
-            append("最近状态=${last.stage}/${last.transport}")
+            append("latest=${last.stage}/${last.transport}")
             if (transports.isNotEmpty()) {
                 append(" · transport=")
                 append(transports.joinToString("/"))
             }
             append(" · connected=$connectedCount")
-            append(" · 重连/断链=$reconnectCount")
+            append(" · reconnect_or_drop=$reconnectCount")
             append(" · keepalive=${last.keepaliveState.name.lowercase(Locale.US)}")
             latestChannelProbe?.let { probe ->
                 append(" · probe=")
@@ -1166,10 +1193,10 @@ class ConnectionDiagnosisViewModel(
 
     private fun buildRecommendation(): String {
         if (gatewayProbes.isEmpty()) {
-            return "继续等待诊断窗口结束，以便形成更稳定的结论"
+            return tr(R.string.label_connection_diagnosis_recommendation_waiting)
         }
         if (connectionEvents.isEmpty()) {
-            return "继续等待诊断窗口结束，以便形成更稳定的结论"
+            return tr(R.string.label_connection_diagnosis_recommendation_waiting)
         }
         val gatewayFailureRate = gatewayProbes.count { !it.success }.toDouble() / gatewayProbes.size.toDouble()
         val reconnectCount = connectionEvents.count {
@@ -1178,11 +1205,11 @@ class ConnectionDiagnosisViewModel(
         val proxySeen = networkSamples.any { it.proxy != null } || gatewayProbes.any { it.proxyDetected }
         val networkChanged = networkSamples.map { it.transport }.distinct().size > 1
         return when {
-            gatewayFailureRate >= 0.5 -> "网关探测失败占比过高，先排查当前网络到网关的基础可达性、DNS 与 TLS。"
-            proxySeen -> "本次采集看到了代理迹象，优先排查代理、企业网关或系统 VPN 对长连接和 UDP 的影响。"
-            reconnectCount >= 4 && gatewayFailureRate < 0.25 -> "HTTP 反射基本正常，但私有链路仍频繁回退，问题更像是 QUIC/TCP 长连接稳定性或系统后台策略。"
-            networkChanged -> "诊断期间网络制式发生切换，断链可能与 Wi-Fi/蜂窝切换或验证状态抖动有关。"
-            else -> "当前更像是单一网络环境下的私有通道稳定性问题，建议结合复制出的日志继续对照 gateway 侧连接记录。"
+            gatewayFailureRate >= 0.5 -> tr(R.string.label_connection_diagnosis_recommendation_gateway_failure)
+            proxySeen -> tr(R.string.label_connection_diagnosis_recommendation_proxy_seen)
+            reconnectCount >= 4 && gatewayFailureRate < 0.25 -> tr(R.string.label_connection_diagnosis_recommendation_reconnect)
+            networkChanged -> tr(R.string.label_connection_diagnosis_recommendation_network_changed)
+            else -> tr(R.string.label_connection_diagnosis_recommendation_default)
         }
     }
 
@@ -1547,7 +1574,7 @@ class ConnectionDiagnosisViewModel(
                     note = if (tokenPresent) "token_present=true" else "token_present=false",
                 ),
             ),
-            logLine = "FCM TLS 链路探测 gateway=$gatewayBaseUrl auth_token_present=${gatewayToken != null} host=$FCM_PROBE_HOST port=$FCM_PROBE_PORT token_present=$tokenPresent result=${tlsProbe.outcome} latency=${tlsProbe.latencyMs}ms",
+            logLine = "FCM TLS probe gateway=$gatewayBaseUrl auth_token_present=${gatewayToken != null} host=$FCM_PROBE_HOST port=$FCM_PROBE_PORT token_present=$tokenPresent result=${tlsProbe.outcome} latency=${tlsProbe.latencyMs}ms",
         )
     }
 
@@ -1567,10 +1594,10 @@ class ConnectionDiagnosisViewModel(
                 mode = "private",
                 success = false,
                 profileRttMs = profileResult.latencyMs,
-                summary = "private · fail · /gateway/profile 不可用 · rtt=${profileResult.latencyMs}ms",
+                summary = "private · fail · /gateway/profile unavailable · rtt=${profileResult.latencyMs}ms",
                 prettySummary = "[PRIVATE] FAIL\n  /gateway/profile status=${profileResult.httpStatus ?: -1} latency=${profileResult.latencyMs}ms code=${profileResult.errorCode ?: "HTTP_FAIL"} error=${profileResult.error ?: "unknown"}",
                 legs = emptyList(),
-                logLine = "私有通道测试失败：/gateway/profile status=${profileResult.httpStatus ?: -1} rtt=${profileResult.latencyMs}ms error=${profileResult.error ?: "unknown"}",
+                logLine = "Private channel probe failed: /gateway/profile status=${profileResult.httpStatus ?: -1} rtt=${profileResult.latencyMs}ms error=${profileResult.error ?: "unknown"}",
             )
         }
 
@@ -1588,7 +1615,7 @@ class ConnectionDiagnosisViewModel(
                 summary = "private · fail · gateway private channel disabled · rtt=${profileResult.latencyMs}ms",
                 prettySummary = "[PRIVATE] FAIL\n  gateway private channel disabled\n  /gateway/profile latency=${profileResult.latencyMs}ms",
                 legs = emptyList(),
-                logLine = "私有通道测试失败：gateway private channel disabled rtt=${profileResult.latencyMs}ms",
+                logLine = "Private channel probe failed: gateway private channel disabled rtt=${profileResult.latencyMs}ms",
             )
         }
         val transport = data.optJSONObject("transport") ?: JSONObject()
@@ -1606,10 +1633,10 @@ class ConnectionDiagnosisViewModel(
                 mode = "private",
                 success = false,
                 profileRttMs = profileResult.latencyMs,
-                summary = "private · fail · 网关主机名无效",
-                prettySummary = "[PRIVATE] FAIL\n  网关主机名无效 gateway=$gatewayBaseUrl",
+                summary = "private · fail · invalid gateway hostname",
+                prettySummary = "[PRIVATE] FAIL\n  invalid gateway hostname gateway=$gatewayBaseUrl",
                 legs = emptyList(),
-                logLine = "私有通道测试失败：无法从 gateway 解析主机名 gateway=$gatewayBaseUrl",
+                logLine = "Private channel probe failed: unable to resolve gateway hostname gateway=$gatewayBaseUrl",
             )
         }
 
@@ -1889,7 +1916,7 @@ class ConnectionDiagnosisViewModel(
     private fun runEnhancedProbeInternal(leg: ChannelProbeLeg): EnhancedProbeReport {
         val startedAtMs = System.currentTimeMillis()
         val stages = mutableListOf<EnhancedProbeStage>()
-        val traceNote = "Android 常规权限下无法稳定获取逐跳路由（traceroute/ICMP），本结果为分阶段定位。"
+        val traceNote = "Android app-level permissions cannot reliably provide per-hop route traces (traceroute/ICMP); this is a staged diagnostic result."
 
         val dnsStart = SystemClock.elapsedRealtime()
         val dnsResult = runCatching {
@@ -2162,8 +2189,8 @@ enum class DiagnosisSessionMode(
     val durationMs: Long,
     val label: String,
 ) {
-    QUICK("quick", 30_000L, "快速"),
-    FULL("full", 75_000L, "完整"),
+    QUICK("quick", 30_000L, "Quick"),
+    FULL("full", 75_000L, "Full"),
 }
 
 enum class DiagnosisProfile(
@@ -2176,7 +2203,7 @@ enum class DiagnosisProfile(
 ) {
     BALANCED(
         wireValue = "balanced",
-        label = "平衡诊断",
+        label = "Balanced",
         collectTransportSnapshots = true,
         periodicChannelProbe = false,
         networkSampleIntervalMs = 5_000L,
@@ -2184,7 +2211,7 @@ enum class DiagnosisProfile(
     ),
     GATEWAY_REACHABILITY(
         wireValue = "gateway_reachability",
-        label = "网关可达性",
+        label = "Gateway Reachability",
         collectTransportSnapshots = false,
         periodicChannelProbe = false,
         networkSampleIntervalMs = 4_000L,
@@ -2192,7 +2219,7 @@ enum class DiagnosisProfile(
     ),
     LINK_STABILITY(
         wireValue = "link_stability",
-        label = "链路稳定性",
+        label = "Link Stability",
         collectTransportSnapshots = true,
         periodicChannelProbe = true,
         networkSampleIntervalMs = 5_000L,

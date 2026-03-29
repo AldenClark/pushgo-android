@@ -281,4 +281,87 @@
     <string name="thing_meta_related_events_count">Verknüpfte Ereignisse: %1$d</string>
     <string name="thing_meta_tags_count">Schlagwörter: %1$d</string>
     <string name="thing_meta_updated">Aktualisiert: %1$s</string>
+    <string name="notification_channel_group_messages_name">PushGo message alerts</string>
+    <string name="label_notification_transport_gateway_private_disabled_hint">Gateway private channel is disabled. Android can only use FCM on this gateway.</string>
+    <string name="label_notification_transport_unavailable_hint">Gateway private channel is disabled and this device does not support FCM. Push delivery is unavailable.</string>
+    <string name="private_transport_status_gateway_disabled">Gateway private channel is disabled</string>
+    <string name="alert_playback_service_notification_title">PushGo alarm is ringing</string>
+    <string name="alert_playback_service_notification_text">Open PushGo or dismiss the related notification to stop it.</string>
+    <string name="alert_playback_service_channel_name">PushGo alert playback</string>
+    <string name="alert_playback_service_channel_description">Foreground audio playback for timed and continuous alerts.</string>
+    <plurals name="message_notification_group_summary">
+        <item quantity="one">%1$d message notification</item>
+        <item quantity="other">%1$d message notifications</item>
+    </plurals>
+    <plurals name="entity_notification_group_summary">
+        <item quantity="one">%1$d event or object notification</item>
+        <item quantity="other">%1$d event or object notifications</item>
+    </plurals>
+    <string name="error_gateway_private_disabled_use_fcm">Gateway private channel is disabled. Please use FCM.</string>
+    <string name="error_private_disabled_and_fcm_unavailable">Gateway private channel is disabled and this device cannot use FCM. Push is unavailable.</string>
+    <string name="label_connection_diagnosis_share_bundle">Supportpaket teilen</string>
+    <string name="label_connection_diagnosis_export_json">JSON exportieren</string>
+    <string name="error_connection_diagnosis_open_share_failed">Freigabedialog konnte nicht geöffnet werden: %1$s</string>
+    <string name="label_connection_diagnosis_collecting_progress">Sammeln %1$d%% · %2$ds/%3$ds</string>
+    <string name="label_connection_diagnosis_background_probe">Link-Matrix-Prüfung läuft weiter</string>
+    <string name="action_connection_diagnosis_stop">Erfassung stoppen</string>
+    <string name="label_connection_diagnosis_redact_on">Maskierung: Ein</string>
+    <string name="label_connection_diagnosis_redact_off">Maskierung: Aus</string>
+    <string name="label_connection_diagnosis_live_mode">Live-Aktualisierung</string>
+    <string name="label_connection_diagnosis_background_mode">Im Hintergrund aktiv</string>
+    <string name="label_connection_diagnosis_link_matrix">Link-Matrix</string>
+    <string name="label_connection_diagnosis_link_matrix_empty">Noch keine Link-Probe-Daten</string>
+    <string name="label_connection_diagnosis_failure_reason">Fehlerursache: %1$s</string>
+    <string name="action_connection_diagnosis_enhanced_probe">Erweiterte Probe</string>
+    <string name="label_connection_diagnosis_selection_history">Verlauf der Protokollauswahl</string>
+    <string name="label_connection_diagnosis_enhanced_running">Erweiterte Probe läuft · %1$s</string>
+    <string name="label_connection_diagnosis_enhanced_running_hint">Stufenweise Prüfung läuft (DNS/Connect/TLS oder UDP).</string>
+    <string name="label_connection_diagnosis_enhanced_result">Ergebnis der erweiterten Probe · %1$s</string>
+    <string name="label_connection_diagnosis_failed_stage">Fehlgeschlagene Stufe: %1$s</string>
+
+    <string name="label_connection_diagnosis_status_waiting">Warten auf Start</string>
+    <string name="label_connection_diagnosis_status_auto_start_detail">Nach dem Öffnen dieser Seite startet automatisch eine 75-Sekunden-Netzwerkdiagnose.</string>
+    <string name="label_connection_diagnosis_status_running">Diagnose läuft</string>
+    <string name="label_connection_diagnosis_status_running_detail">Netzwerk-, Gateway- und private Transportzustände werden fortlaufend erfasst. Nach Ablauf des Fensters wird automatisch gestoppt.</string>
+    <string name="label_connection_diagnosis_status_stopped">Diagnose gestoppt</string>
+    <string name="label_connection_diagnosis_status_stopped_detail">Erfassung manuell gestoppt. Du kannst Protokolle zum Troubleshooting kopieren oder exportieren.</string>
+    <string name="label_connection_diagnosis_status_completed">Diagnose abgeschlossen</string>
+    <string name="label_connection_diagnosis_status_completed_detail">Erfassungsfenster beendet. Du kannst Protokolle zum Troubleshooting kopieren oder exportieren.</string>
+    <string name="label_connection_diagnosis_status_preparing">Vorbereitung</string>
+    <string name="label_connection_diagnosis_status_preparing_detail">Diagnoseumgebung wird initialisiert.</string>
+
+    <string name="label_connection_diagnosis_not_collected">Noch nicht erfasst</string>
+    <string name="label_connection_diagnosis_not_concluded">Noch keine Schlussfolgerung</string>
+    <string name="label_connection_diagnosis_not_probed">Noch nicht geprüft</string>
+    <string name="label_connection_diagnosis_no_gateway_nat_observation">Noch keine Gateway-Ausgangsbeobachtung</string>
+    <string name="label_connection_diagnosis_nat_reflection_note">Dieses Ergebnis basiert auf Gateway-Reflexion und ist nur ein NAT-Hinweis, keine vollständige STUN-Klassifizierung.</string>
+    <string name="label_connection_diagnosis_proxy_none">Kein Signal für System- oder Gateway-Proxy erkannt</string>
+    <string name="label_connection_diagnosis_proxy_system_and_gateway">System-Proxy=%1$s · Gateway-Seite hat ebenfalls Proxy-Header erkannt</string>
+    <string name="label_connection_diagnosis_proxy_system_only">System-Proxy=%1$s</string>
+    <string name="label_connection_diagnosis_proxy_gateway_only">Kein lokaler System-Proxy, aber Gateway-Seite hat Proxy-Header erkannt</string>
+    <string name="label_connection_diagnosis_gateway_all_failed">Fortlaufend %1$d Fehlversuche · letzter Fehler=%2$s</string>
+    <string name="label_connection_diagnosis_gateway_summary">Erfolg %1$d/%2$d · RTT %3$d-%4$dms · Ø %5$dms · Fehler %6$d</string>
+    <string name="label_connection_diagnosis_transport_fcm_limited">Noch im FCM-Modus; private Transport-Logs sind begrenzt</string>
+
+    <string name="label_connection_diagnosis_recommendation_waiting">Bitte bis zum Ende des Diagnosefensters weiter erfassen, um ein stabileres Ergebnis zu erhalten.</string>
+    <string name="label_connection_diagnosis_recommendation_gateway_failure">Die Ausfallquote der Gateway-Probe ist hoch. Prüfe zuerst Erreichbarkeit, DNS und TLS.</string>
+    <string name="label_connection_diagnosis_recommendation_proxy_seen">Proxy-Signal erkannt. Prüfe zuerst Proxy, Unternehmens-Gateway oder VPN-Einfluss auf Langverbindungen und UDP.</string>
+    <string name="label_connection_diagnosis_recommendation_reconnect">HTTP-Reflexion ist meist normal, aber private Transporte fallen häufig zurück. Das deutet eher auf QUIC/TCP-Stabilität oder Hintergrundrichtlinien hin.</string>
+    <string name="label_connection_diagnosis_recommendation_network_changed">Der Netztransport wechselte während der Diagnose. Abbrüche können mit WLAN/Mobilfunk-Wechseln oder Validierungsjitter zusammenhängen.</string>
+    <string name="label_connection_diagnosis_recommendation_default">Wahrscheinlich ein Stabilitätsproblem des privaten Kanals in einer einzelnen Netzwerkumgebung. Mit den kopierten Logs gegen Gateway-Verbindungsprotokolle prüfen.</string>
+
+    <string name="error_connection_diagnosis_running_mode_locked">Diagnose läuft; Modus kann jetzt nicht geändert werden.</string>
+    <string name="error_connection_diagnosis_running_profile_locked">Diagnose läuft; Profil kann jetzt nicht geändert werden.</string>
+    <string name="error_connection_diagnosis_no_report_to_copy">Kein Diagnosebericht zum Kopieren verfügbar.</string>
+    <string name="error_connection_diagnosis_export_failed">Export fehlgeschlagen: %1$s</string>
+    <string name="error_connection_diagnosis_bundle_failed">Supportpaket konnte nicht erstellt werden: %1$s</string>
+
+    <string name="message_connection_diagnosis_report_copied">Diagnosebericht kopiert.</string>
+    <string name="message_connection_diagnosis_txt_exported">Diagnose-TXT exportiert.</string>
+    <string name="message_connection_diagnosis_json_exported">Diagnose-JSON exportiert.</string>
+    <string name="message_connection_diagnosis_json_fail_only_exported">Diagnose-JSON (nur Fehlerpfade) exportiert.</string>
+    <string name="message_connection_diagnosis_bundle_ready">Supportpaket erstellt. Bitte Ziel-App zum Teilen auswählen.</string>
+    <string name="label_connection_diagnosis_log_stopped_with_report">Diagnose manuell gestoppt; kopierbarer Bericht erzeugt.</string>
+    <string name="label_connection_diagnosis_log_completed_with_report">Diagnose abgeschlossen; kopierbarer Bericht erzeugt.</string>
+    <string name="error_connection_diagnosis_open_share_failed_prefix">Freigabedialog konnte nicht geöffnet werden: </string>
 </resources>

@@ -278,4 +278,87 @@
     <string name="thing_meta_related_events_count">연관 이벤트: %1$d</string>
     <string name="thing_meta_tags_count">태그: %1$d</string>
     <string name="thing_meta_updated">업데이트: %1$s</string>
+    <string name="notification_channel_group_messages_name">PushGo message alerts</string>
+    <string name="label_notification_transport_gateway_private_disabled_hint">Gateway private channel is disabled. Android can only use FCM on this gateway.</string>
+    <string name="label_notification_transport_unavailable_hint">Gateway private channel is disabled and this device does not support FCM. Push delivery is unavailable.</string>
+    <string name="private_transport_status_gateway_disabled">Gateway private channel is disabled</string>
+    <string name="alert_playback_service_notification_title">PushGo alarm is ringing</string>
+    <string name="alert_playback_service_notification_text">Open PushGo or dismiss the related notification to stop it.</string>
+    <string name="alert_playback_service_channel_name">PushGo alert playback</string>
+    <string name="alert_playback_service_channel_description">Foreground audio playback for timed and continuous alerts.</string>
+    <plurals name="message_notification_group_summary">
+        <item quantity="one">%1$d message notification</item>
+        <item quantity="other">%1$d message notifications</item>
+    </plurals>
+    <plurals name="entity_notification_group_summary">
+        <item quantity="one">%1$d event or object notification</item>
+        <item quantity="other">%1$d event or object notifications</item>
+    </plurals>
+    <string name="error_gateway_private_disabled_use_fcm">Gateway private channel is disabled. Please use FCM.</string>
+    <string name="error_private_disabled_and_fcm_unavailable">Gateway private channel is disabled and this device cannot use FCM. Push is unavailable.</string>
+    <string name="label_connection_diagnosis_share_bundle">지원 번들 공유</string>
+    <string name="label_connection_diagnosis_export_json">JSON 내보내기</string>
+    <string name="error_connection_diagnosis_open_share_failed">공유 패널을 열 수 없습니다: %1$s</string>
+    <string name="label_connection_diagnosis_collecting_progress">수집 중 %1$d%% · %2$ds/%3$ds</string>
+    <string name="label_connection_diagnosis_background_probe">링크 매트릭스 프로브가 계속 실행 중입니다</string>
+    <string name="action_connection_diagnosis_stop">수집 중지</string>
+    <string name="label_connection_diagnosis_redact_on">마스킹: 켜짐</string>
+    <string name="label_connection_diagnosis_redact_off">마스킹: 꺼짐</string>
+    <string name="label_connection_diagnosis_live_mode">실시간 업데이트</string>
+    <string name="label_connection_diagnosis_background_mode">백그라운드 지속</string>
+    <string name="label_connection_diagnosis_link_matrix">링크 매트릭스</string>
+    <string name="label_connection_diagnosis_link_matrix_empty">아직 링크 프로브 데이터가 없습니다</string>
+    <string name="label_connection_diagnosis_failure_reason">실패 원인: %1$s</string>
+    <string name="action_connection_diagnosis_enhanced_probe">고급 탐지</string>
+    <string name="label_connection_diagnosis_selection_history">프로토콜 선택 이력</string>
+    <string name="label_connection_diagnosis_enhanced_running">고급 탐지 실행 중 · %1$s</string>
+    <string name="label_connection_diagnosis_enhanced_running_hint">단계별 점검 실행 중 (DNS/연결/TLS 또는 UDP).</string>
+    <string name="label_connection_diagnosis_enhanced_result">고급 탐지 결과 · %1$s</string>
+    <string name="label_connection_diagnosis_failed_stage">실패 단계: %1$s</string>
+
+    <string name="label_connection_diagnosis_status_waiting">시작 대기 중</string>
+    <string name="label_connection_diagnosis_status_auto_start_detail">이 페이지에 들어오면 75초 네트워크 진단이 자동으로 시작됩니다.</string>
+    <string name="label_connection_diagnosis_status_running">진단 실행 중</string>
+    <string name="label_connection_diagnosis_status_running_detail">네트워크, 게이트웨이, 프라이빗 전송 상태를 지속 수집 중입니다. 창이 끝나면 자동으로 중지됩니다.</string>
+    <string name="label_connection_diagnosis_status_stopped">진단 중지됨</string>
+    <string name="label_connection_diagnosis_status_stopped_detail">수집을 수동으로 중지했습니다. 문제 분석을 위해 로그를 복사하거나 내보낼 수 있습니다.</string>
+    <string name="label_connection_diagnosis_status_completed">진단 완료</string>
+    <string name="label_connection_diagnosis_status_completed_detail">수집 창이 종료되었습니다. 문제 분석을 위해 로그를 복사하거나 내보낼 수 있습니다.</string>
+    <string name="label_connection_diagnosis_status_preparing">준비 중</string>
+    <string name="label_connection_diagnosis_status_preparing_detail">진단 환경을 초기화하는 중입니다.</string>
+
+    <string name="label_connection_diagnosis_not_collected">아직 수집되지 않음</string>
+    <string name="label_connection_diagnosis_not_concluded">아직 결론 없음</string>
+    <string name="label_connection_diagnosis_not_probed">아직 탐지되지 않음</string>
+    <string name="label_connection_diagnosis_no_gateway_nat_observation">아직 게이트웨이 egress 관측 결과가 없습니다</string>
+    <string name="label_connection_diagnosis_nat_reflection_note">이 결과는 게이트웨이 반사 기반 NAT 힌트이며 완전한 STUN 분류가 아닙니다.</string>
+    <string name="label_connection_diagnosis_proxy_none">시스템/게이트웨이 프록시 징후가 감지되지 않았습니다</string>
+    <string name="label_connection_diagnosis_proxy_system_and_gateway">시스템 프록시=%1$s · 게이트웨이 측에서도 프록시 헤더가 감지되었습니다</string>
+    <string name="label_connection_diagnosis_proxy_system_only">시스템 프록시=%1$s</string>
+    <string name="label_connection_diagnosis_proxy_gateway_only">로컬 시스템 프록시는 없지만 게이트웨이 측에서 프록시 헤더가 감지되었습니다</string>
+    <string name="label_connection_diagnosis_gateway_all_failed">연속 실패 %1$d회 · 최근 오류=%2$s</string>
+    <string name="label_connection_diagnosis_gateway_summary">성공 %1$d/%2$d · RTT %3$d-%4$dms · 평균 %5$dms · 실패 %6$d회</string>
+    <string name="label_connection_diagnosis_transport_fcm_limited">현재도 FCM 모드라 프라이빗 전송 로그가 제한적입니다</string>
+
+    <string name="label_connection_diagnosis_recommendation_waiting">더 안정적인 결론을 위해 진단 창이 끝날 때까지 수집을 계속하세요.</string>
+    <string name="label_connection_diagnosis_recommendation_gateway_failure">게이트웨이 프로브 실패 비율이 높습니다. 기본 도달성, DNS, TLS를 먼저 점검하세요.</string>
+    <string name="label_connection_diagnosis_recommendation_proxy_seen">이번 세션에서 프록시 징후가 감지되었습니다. 프록시, 기업 게이트웨이, VPN이 장기 연결과 UDP에 미치는 영향을 우선 점검하세요.</string>
+    <string name="label_connection_diagnosis_recommendation_reconnect">HTTP 반사는 대체로 정상이나 프라이빗 전송이 자주 폴백됩니다. QUIC/TCP 장기 연결 안정성 또는 백그라운드 정책 문제일 가능성이 큽니다.</string>
+    <string name="label_connection_diagnosis_recommendation_network_changed">진단 중 네트워크 전송이 변경되었습니다. 끊김은 Wi-Fi/셀룰러 전환이나 검증 지터와 관련될 수 있습니다.</string>
+    <string name="label_connection_diagnosis_recommendation_default">단일 네트워크 환경에서의 프라이빗 채널 안정성 문제로 보입니다. 복사한 로그와 게이트웨이 연결 기록을 함께 확인하세요.</string>
+
+    <string name="error_connection_diagnosis_running_mode_locked">진단이 실행 중이라 지금은 모드를 변경할 수 없습니다.</string>
+    <string name="error_connection_diagnosis_running_profile_locked">진단이 실행 중이라 지금은 프로필을 변경할 수 없습니다.</string>
+    <string name="error_connection_diagnosis_no_report_to_copy">복사할 진단 보고서가 없습니다.</string>
+    <string name="error_connection_diagnosis_export_failed">내보내기 실패: %1$s</string>
+    <string name="error_connection_diagnosis_bundle_failed">지원 번들 생성 실패: %1$s</string>
+
+    <string name="message_connection_diagnosis_report_copied">진단 보고서를 복사했습니다.</string>
+    <string name="message_connection_diagnosis_txt_exported">진단 TXT를 내보냈습니다.</string>
+    <string name="message_connection_diagnosis_json_exported">진단 JSON을 내보냈습니다.</string>
+    <string name="message_connection_diagnosis_json_fail_only_exported">진단 JSON(실패 경로만)을 내보냈습니다.</string>
+    <string name="message_connection_diagnosis_bundle_ready">지원 번들이 생성되었습니다. 공유할 앱을 선택하세요.</string>
+    <string name="label_connection_diagnosis_log_stopped_with_report">진단을 수동 중지했고 복사 가능한 보고서가 생성되었습니다.</string>
+    <string name="label_connection_diagnosis_log_completed_with_report">진단이 완료되어 복사 가능한 보고서가 생성되었습니다.</string>
+    <string name="error_connection_diagnosis_open_share_failed_prefix">공유 패널을 열 수 없습니다: </string>
 </resources>

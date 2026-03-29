@@ -284,4 +284,69 @@
     <string name="thing_detail_tab_updates">变更</string>
     <string name="thing_detail_no_related_updates">暂无变更记录。</string>
     <string name="thing_detail_message_id">消息：%1$s</string>
+    <string name="label_connection_diagnosis_share_bundle">分享支持包</string>
+    <string name="label_connection_diagnosis_export_json">导出 JSON</string>
+    <string name="error_connection_diagnosis_open_share_failed">无法打开分享面板：%1$s</string>
+    <string name="label_connection_diagnosis_collecting_progress">采集中 %1$d%% · %2$ds/%3$ds</string>
+    <string name="label_connection_diagnosis_background_probe">链路矩阵探测持续运行中</string>
+    <string name="action_connection_diagnosis_stop">停止采集</string>
+    <string name="label_connection_diagnosis_redact_on">脱敏：开</string>
+    <string name="label_connection_diagnosis_redact_off">脱敏：关</string>
+    <string name="label_connection_diagnosis_live_mode">实时更新</string>
+    <string name="label_connection_diagnosis_background_mode">后台持续</string>
+    <string name="label_connection_diagnosis_link_matrix">链路矩阵</string>
+    <string name="label_connection_diagnosis_link_matrix_empty">尚无链路探测数据</string>
+    <string name="label_connection_diagnosis_failure_reason">失败原因：%1$s</string>
+    <string name="action_connection_diagnosis_enhanced_probe">增强探测</string>
+    <string name="label_connection_diagnosis_selection_history">协议选择历史</string>
+    <string name="label_connection_diagnosis_enhanced_running">增强探测进行中 · %1$s</string>
+    <string name="label_connection_diagnosis_enhanced_running_hint">正在执行分阶段检查（DNS/连接/TLS 或 UDP）。</string>
+    <string name="label_connection_diagnosis_enhanced_result">增强探测结果 · %1$s</string>
+    <string name="label_connection_diagnosis_failed_stage">失败阶段：%1$s</string>
+
+    <string name="label_connection_diagnosis_status_waiting">等待开始</string>
+    <string name="label_connection_diagnosis_status_auto_start_detail">进入页面后会自动开始一次 75 秒网络诊断。</string>
+    <string name="label_connection_diagnosis_status_running">诊断进行中</string>
+    <string name="label_connection_diagnosis_status_running_detail">持续采集网络、网关和私有链路状态，窗口结束后会自动停止。</string>
+    <string name="label_connection_diagnosis_status_stopped">诊断已停止</string>
+    <string name="label_connection_diagnosis_status_stopped_detail">已手动停止采集。你可以复制或导出日志用于排查。</string>
+    <string name="label_connection_diagnosis_status_completed">诊断已完成</string>
+    <string name="label_connection_diagnosis_status_completed_detail">采集窗口已结束。你可以复制或导出日志用于排查。</string>
+    <string name="label_connection_diagnosis_status_preparing">准备中</string>
+    <string name="label_connection_diagnosis_status_preparing_detail">正在初始化诊断环境。</string>
+
+    <string name="label_connection_diagnosis_not_collected">尚未采集</string>
+    <string name="label_connection_diagnosis_not_concluded">尚无诊断结论</string>
+    <string name="label_connection_diagnosis_not_probed">尚未探测</string>
+    <string name="label_connection_diagnosis_no_gateway_nat_observation">尚未拿到网关出口观测结果</string>
+    <string name="label_connection_diagnosis_nat_reflection_note">该结果基于网关反射，仅可作为 NAT 提示，不等同于完整 STUN 分类。</string>
+    <string name="label_connection_diagnosis_proxy_none">未发现系统代理或网关代理迹象</string>
+    <string name="label_connection_diagnosis_proxy_system_and_gateway">系统代理=%1$s · 网关侧也检测到代理头</string>
+    <string name="label_connection_diagnosis_proxy_system_only">系统代理=%1$s</string>
+    <string name="label_connection_diagnosis_proxy_gateway_only">本机未发现系统代理，但网关侧检测到代理头</string>
+    <string name="label_connection_diagnosis_gateway_all_failed">连续失败 %1$d 次 · 最近错误=%2$s</string>
+    <string name="label_connection_diagnosis_gateway_summary">成功 %1$d/%2$d · RTT %3$d-%4$dms · 平均 %5$dms · 失败 %6$d 次</string>
+    <string name="label_connection_diagnosis_transport_fcm_limited">当前仍为 FCM 模式，私有链路日志有限</string>
+
+    <string name="label_connection_diagnosis_recommendation_waiting">建议继续采集到窗口结束，以获得更稳定的结论。</string>
+    <string name="label_connection_diagnosis_recommendation_gateway_failure">网关探测失败占比过高，建议先排查基础可达性、DNS 与 TLS。</string>
+    <string name="label_connection_diagnosis_recommendation_proxy_seen">本次采集存在代理迹象，优先排查代理、企业网关或 VPN 对长连接与 UDP 的影响。</string>
+    <string name="label_connection_diagnosis_recommendation_reconnect">HTTP 反射基本正常，但私有链路仍频繁回退，更像 QUIC/TCP 长连接稳定性或后台策略问题。</string>
+    <string name="label_connection_diagnosis_recommendation_network_changed">诊断期间网络传输发生切换，断链可能与 Wi-Fi/蜂窝切换或验证抖动有关。</string>
+    <string name="label_connection_diagnosis_recommendation_default">更像单一网络环境下的私有通道稳定性问题。建议结合复制日志继续对照网关侧连接记录。</string>
+
+    <string name="error_connection_diagnosis_running_mode_locked">诊断进行中，暂时不能切换模式。</string>
+    <string name="error_connection_diagnosis_running_profile_locked">诊断进行中，暂时不能切换模板。</string>
+    <string name="error_connection_diagnosis_no_report_to_copy">当前没有可复制的诊断报告。</string>
+    <string name="error_connection_diagnosis_export_failed">导出失败：%1$s</string>
+    <string name="error_connection_diagnosis_bundle_failed">生成支持包失败：%1$s</string>
+
+    <string name="message_connection_diagnosis_report_copied">诊断报告已复制。</string>
+    <string name="message_connection_diagnosis_txt_exported">诊断 TXT 已导出。</string>
+    <string name="message_connection_diagnosis_json_exported">诊断 JSON 已导出。</string>
+    <string name="message_connection_diagnosis_json_fail_only_exported">诊断 JSON（仅失败链路）已导出。</string>
+    <string name="message_connection_diagnosis_bundle_ready">支持包已生成，请选择目标应用分享。</string>
+    <string name="label_connection_diagnosis_log_stopped_with_report">诊断已手动停止，已生成可复制报告。</string>
+    <string name="label_connection_diagnosis_log_completed_with_report">诊断已完成，已生成可复制报告。</string>
+    <string name="error_connection_diagnosis_open_share_failed_prefix">无法打开分享面板：</string>
 </resources>

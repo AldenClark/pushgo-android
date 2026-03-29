@@ -278,4 +278,87 @@
     <string name="thing_meta_related_events_count">関連イベント: %1$d</string>
     <string name="thing_meta_tags_count">タグ: %1$d</string>
     <string name="thing_meta_updated">更新: %1$s</string>
+    <string name="notification_channel_group_messages_name">PushGo message alerts</string>
+    <string name="label_notification_transport_gateway_private_disabled_hint">Gateway private channel is disabled. Android can only use FCM on this gateway.</string>
+    <string name="label_notification_transport_unavailable_hint">Gateway private channel is disabled and this device does not support FCM. Push delivery is unavailable.</string>
+    <string name="private_transport_status_gateway_disabled">Gateway private channel is disabled</string>
+    <string name="alert_playback_service_notification_title">PushGo alarm is ringing</string>
+    <string name="alert_playback_service_notification_text">Open PushGo or dismiss the related notification to stop it.</string>
+    <string name="alert_playback_service_channel_name">PushGo alert playback</string>
+    <string name="alert_playback_service_channel_description">Foreground audio playback for timed and continuous alerts.</string>
+    <plurals name="message_notification_group_summary">
+        <item quantity="one">%1$d message notification</item>
+        <item quantity="other">%1$d message notifications</item>
+    </plurals>
+    <plurals name="entity_notification_group_summary">
+        <item quantity="one">%1$d event or object notification</item>
+        <item quantity="other">%1$d event or object notifications</item>
+    </plurals>
+    <string name="error_gateway_private_disabled_use_fcm">Gateway private channel is disabled. Please use FCM.</string>
+    <string name="error_private_disabled_and_fcm_unavailable">Gateway private channel is disabled and this device cannot use FCM. Push is unavailable.</string>
+    <string name="label_connection_diagnosis_share_bundle">サポートバンドルを共有</string>
+    <string name="label_connection_diagnosis_export_json">JSON をエクスポート</string>
+    <string name="error_connection_diagnosis_open_share_failed">共有パネルを開けません：%1$s</string>
+    <string name="label_connection_diagnosis_collecting_progress">収集中 %1$d%% · %2$ds/%3$ds</string>
+    <string name="label_connection_diagnosis_background_probe">リンクマトリクスのプローブは継続中です</string>
+    <string name="action_connection_diagnosis_stop">収集を停止</string>
+    <string name="label_connection_diagnosis_redact_on">マスキング：オン</string>
+    <string name="label_connection_diagnosis_redact_off">マスキング：オフ</string>
+    <string name="label_connection_diagnosis_live_mode">リアルタイム更新</string>
+    <string name="label_connection_diagnosis_background_mode">バックグラウンド継続</string>
+    <string name="label_connection_diagnosis_link_matrix">リンクマトリクス</string>
+    <string name="label_connection_diagnosis_link_matrix_empty">リンクプローブデータはまだありません</string>
+    <string name="label_connection_diagnosis_failure_reason">失敗理由：%1$s</string>
+    <string name="action_connection_diagnosis_enhanced_probe">拡張プローブ</string>
+    <string name="label_connection_diagnosis_selection_history">プロトコル選択履歴</string>
+    <string name="label_connection_diagnosis_enhanced_running">拡張プローブ実行中 · %1$s</string>
+    <string name="label_connection_diagnosis_enhanced_running_hint">段階的チェックを実行中（DNS/接続/TLS または UDP）。</string>
+    <string name="label_connection_diagnosis_enhanced_result">拡張プローブ結果 · %1$s</string>
+    <string name="label_connection_diagnosis_failed_stage">失敗ステージ：%1$s</string>
+
+    <string name="label_connection_diagnosis_status_waiting">開始待ち</string>
+    <string name="label_connection_diagnosis_status_auto_start_detail">このページを開くと 75 秒間のネットワーク診断が自動開始されます。</string>
+    <string name="label_connection_diagnosis_status_running">診断実行中</string>
+    <string name="label_connection_diagnosis_status_running_detail">ネットワーク、ゲートウェイ、プライベート転送の状態を継続収集しています。ウィンドウ終了後に自動停止します。</string>
+    <string name="label_connection_diagnosis_status_stopped">診断停止</string>
+    <string name="label_connection_diagnosis_status_stopped_detail">収集を手動で停止しました。トラブルシュート用にログをコピーまたはエクスポートできます。</string>
+    <string name="label_connection_diagnosis_status_completed">診断完了</string>
+    <string name="label_connection_diagnosis_status_completed_detail">収集ウィンドウが終了しました。トラブルシュート用にログをコピーまたはエクスポートできます。</string>
+    <string name="label_connection_diagnosis_status_preparing">準備中</string>
+    <string name="label_connection_diagnosis_status_preparing_detail">診断環境を初期化しています。</string>
+
+    <string name="label_connection_diagnosis_not_collected">未収集</string>
+    <string name="label_connection_diagnosis_not_concluded">まだ結論なし</string>
+    <string name="label_connection_diagnosis_not_probed">未プローブ</string>
+    <string name="label_connection_diagnosis_no_gateway_nat_observation">ゲートウェイ出口観測結果はまだありません</string>
+    <string name="label_connection_diagnosis_nat_reflection_note">この結果はゲートウェイ反射に基づく NAT のヒントであり、完全な STUN 分類ではありません。</string>
+    <string name="label_connection_diagnosis_proxy_none">システム/ゲートウェイのプロキシ兆候は検出されませんでした</string>
+    <string name="label_connection_diagnosis_proxy_system_and_gateway">システムプロキシ=%1$s · ゲートウェイ側でもプロキシヘッダーを検出</string>
+    <string name="label_connection_diagnosis_proxy_system_only">システムプロキシ=%1$s</string>
+    <string name="label_connection_diagnosis_proxy_gateway_only">ローカルのシステムプロキシはありませんが、ゲートウェイ側でプロキシヘッダーが検出されました</string>
+    <string name="label_connection_diagnosis_gateway_all_failed">連続失敗 %1$d 回 · 最新エラー=%2$s</string>
+    <string name="label_connection_diagnosis_gateway_summary">成功 %1$d/%2$d · RTT %3$d-%4$dms · 平均 %5$dms · 失敗 %6$d 回</string>
+    <string name="label_connection_diagnosis_transport_fcm_limited">現在も FCM モードのため、プライベート転送ログは限定的です</string>
+
+    <string name="label_connection_diagnosis_recommendation_waiting">より安定した結論のため、診断ウィンドウ終了まで収集を継続してください。</string>
+    <string name="label_connection_diagnosis_recommendation_gateway_failure">ゲートウェイプローブの失敗率が高いです。まず基本到達性、DNS、TLS を確認してください。</string>
+    <string name="label_connection_diagnosis_recommendation_proxy_seen">このセッションでプロキシ兆候が検出されました。まずプロキシ、企業ゲートウェイ、VPN が長時間接続や UDP に与える影響を確認してください。</string>
+    <string name="label_connection_diagnosis_recommendation_reconnect">HTTP 反射は概ね正常ですが、プライベート転送のフォールバックが頻発しています。QUIC/TCP 長時間接続の安定性またはバックグラウンド方針の問題の可能性が高いです。</string>
+    <string name="label_connection_diagnosis_recommendation_network_changed">診断中にネットワーク伝送が切り替わりました。切断は Wi-Fi/モバイル切替や検証ジッタに起因する可能性があります。</string>
+    <string name="label_connection_diagnosis_recommendation_default">単一ネットワーク環境でのプライベートチャネル安定性の問題に見えます。コピーしたログとゲートウェイ側接続記録を突き合わせて確認してください。</string>
+
+    <string name="error_connection_diagnosis_running_mode_locked">診断中のため、現在モードは変更できません。</string>
+    <string name="error_connection_diagnosis_running_profile_locked">診断中のため、現在プロファイルは変更できません。</string>
+    <string name="error_connection_diagnosis_no_report_to_copy">コピー可能な診断レポートがありません。</string>
+    <string name="error_connection_diagnosis_export_failed">エクスポート失敗：%1$s</string>
+    <string name="error_connection_diagnosis_bundle_failed">サポートバンドルの生成に失敗しました：%1$s</string>
+
+    <string name="message_connection_diagnosis_report_copied">診断レポートをコピーしました。</string>
+    <string name="message_connection_diagnosis_txt_exported">診断 TXT をエクスポートしました。</string>
+    <string name="message_connection_diagnosis_json_exported">診断 JSON をエクスポートしました。</string>
+    <string name="message_connection_diagnosis_json_fail_only_exported">診断 JSON（失敗経路のみ）をエクスポートしました。</string>
+    <string name="message_connection_diagnosis_bundle_ready">サポートバンドルを生成しました。共有先アプリを選択してください。</string>
+    <string name="label_connection_diagnosis_log_stopped_with_report">診断を手動停止し、コピー可能なレポートを生成しました。</string>
+    <string name="label_connection_diagnosis_log_completed_with_report">診断が完了し、コピー可能なレポートを生成しました。</string>
+    <string name="error_connection_diagnosis_open_share_failed_prefix">共有パネルを開けません：</string>
 </resources>

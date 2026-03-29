@@ -7,6 +7,7 @@ import android.text.Layout
 import android.text.Selection
 import android.text.Spannable
 import android.text.method.LinkMovementMethod
+import android.graphics.text.LineBreaker
 import android.text.style.URLSpan
 import android.util.TypedValue
 import android.view.MotionEvent
@@ -60,14 +61,14 @@ fun SelectablePlainTextRenderer(
                     textLocales = LocaleList.forLanguageTags("zh-CN,en-US")
                 }
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                    breakStrategy = Layout.BREAK_STRATEGY_HIGH_QUALITY
+                    breakStrategy = LineBreaker.BREAK_STRATEGY_HIGH_QUALITY
                     hyphenationFrequency = Layout.HYPHENATION_FREQUENCY_NORMAL
                 }
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
                     isFallbackLineSpacing = true
                 }
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                    justificationMode = Layout.JUSTIFICATION_MODE_NONE
+                    justificationMode = LineBreaker.JUSTIFICATION_MODE_NONE
                 }
             }
         },
@@ -213,14 +214,14 @@ fun FullMarkdownRenderer(
                     textLocales = LocaleList.forLanguageTags("zh-CN,en-US")
                 }
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                    breakStrategy = Layout.BREAK_STRATEGY_HIGH_QUALITY
+                    breakStrategy = LineBreaker.BREAK_STRATEGY_HIGH_QUALITY
                     hyphenationFrequency = Layout.HYPHENATION_FREQUENCY_NORMAL
                 }
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
                     isFallbackLineSpacing = true
                 }
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                    justificationMode = Layout.JUSTIFICATION_MODE_NONE
+                    justificationMode = LineBreaker.JUSTIFICATION_MODE_NONE
                 }
             }
         },

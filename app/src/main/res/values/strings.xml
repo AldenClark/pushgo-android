@@ -101,19 +101,19 @@
     <string name="label_fcm_wakeup_pull_mode">Use wakeup pull mode</string>
     <string name="label_fcm_wakeup_pull_mode_hint">Send wakeup via FCM, then pull full message over HTTP.</string>
     <string name="label_private_transport_status">Private transport status</string>
-    <string name="label_connection_diagnosis">网络诊断</string>
-    <string name="label_connection_diagnosis_hint">自动采集网络制式、代理/NAT 提示、网关反射结果和私有连接日志，结束后可复制。</string>
-    <string name="label_connection_diagnosis_logs">诊断日志</string>
-    <string name="label_connection_diagnosis_running">采集中</string>
-    <string name="label_connection_diagnosis_finished">已停止</string>
-    <string name="label_connection_diagnosis_copy">复制日志</string>
-    <string name="label_connection_diagnosis_restart">重新诊断</string>
-    <string name="label_connection_diagnosis_network">网络状态</string>
-    <string name="label_connection_diagnosis_nat">NAT 提示</string>
-    <string name="label_connection_diagnosis_proxy">代理</string>
-    <string name="label_connection_diagnosis_gateway">网关探测</string>
-    <string name="label_connection_diagnosis_transport">私有链路</string>
-    <string name="label_connection_diagnosis_recommendation">诊断结论</string>
+    <string name="label_connection_diagnosis">Network diagnosis</string>
+    <string name="label_connection_diagnosis_hint">Collect network mode, proxy/NAT hints, gateway reflection results, and private-channel logs automatically. You can copy the output when finished.</string>
+    <string name="label_connection_diagnosis_logs">Diagnosis logs</string>
+    <string name="label_connection_diagnosis_running">Collecting</string>
+    <string name="label_connection_diagnosis_finished">Stopped</string>
+    <string name="label_connection_diagnosis_copy">Copy logs</string>
+    <string name="label_connection_diagnosis_restart">Run again</string>
+    <string name="label_connection_diagnosis_network">Network status</string>
+    <string name="label_connection_diagnosis_nat">NAT hint</string>
+    <string name="label_connection_diagnosis_proxy">Proxy</string>
+    <string name="label_connection_diagnosis_gateway">Gateway probe</string>
+    <string name="label_connection_diagnosis_transport">Private transport</string>
+    <string name="label_connection_diagnosis_recommendation">Recommendation</string>
     <string name="private_transport_status_disconnected">Not connected</string>
     <string name="private_transport_status_connecting">Connecting</string>
     <string name="private_transport_status_connected">Connected</string>
@@ -296,4 +296,69 @@
     <string name="thing_detail_tab_updates">Updates</string>
     <string name="thing_detail_no_related_updates">No related updates.</string>
     <string name="thing_detail_message_id">Message: %1$s</string>
+    <string name="label_connection_diagnosis_share_bundle">Share support bundle</string>
+    <string name="label_connection_diagnosis_export_json">Export JSON</string>
+    <string name="error_connection_diagnosis_open_share_failed">Unable to open share panel: %1$s</string>
+    <string name="label_connection_diagnosis_collecting_progress">Collecting %1$d%% · %2$ds/%3$ds</string>
+    <string name="label_connection_diagnosis_background_probe">Link matrix probing remains active</string>
+    <string name="action_connection_diagnosis_stop">Stop collection</string>
+    <string name="label_connection_diagnosis_redact_on">Redact: On</string>
+    <string name="label_connection_diagnosis_redact_off">Redact: Off</string>
+    <string name="label_connection_diagnosis_live_mode">Live updates</string>
+    <string name="label_connection_diagnosis_background_mode">Background continuous</string>
+    <string name="label_connection_diagnosis_link_matrix">Link matrix</string>
+    <string name="label_connection_diagnosis_link_matrix_empty">No link probe data yet</string>
+    <string name="label_connection_diagnosis_failure_reason">Failure reason: %1$s</string>
+    <string name="action_connection_diagnosis_enhanced_probe">Enhanced probe</string>
+    <string name="label_connection_diagnosis_selection_history">Protocol selection history</string>
+    <string name="label_connection_diagnosis_enhanced_running">Enhanced probe running · %1$s</string>
+    <string name="label_connection_diagnosis_enhanced_running_hint">Running staged checks (DNS/connect/TLS or UDP).</string>
+    <string name="label_connection_diagnosis_enhanced_result">Enhanced probe result · %1$s</string>
+    <string name="label_connection_diagnosis_failed_stage">Failed stage: %1$s</string>
+
+    <string name="label_connection_diagnosis_status_waiting">Waiting to start</string>
+    <string name="label_connection_diagnosis_status_auto_start_detail">A 75-second network diagnosis starts automatically after entering this page.</string>
+    <string name="label_connection_diagnosis_status_running">Running diagnosis</string>
+    <string name="label_connection_diagnosis_status_running_detail">Collecting network, gateway, and private transport states continuously. It will stop automatically after the window ends.</string>
+    <string name="label_connection_diagnosis_status_stopped">Diagnosis stopped</string>
+    <string name="label_connection_diagnosis_status_stopped_detail">Collection stopped manually. You can copy or export logs for troubleshooting.</string>
+    <string name="label_connection_diagnosis_status_completed">Diagnosis completed</string>
+    <string name="label_connection_diagnosis_status_completed_detail">Collection window ended. You can copy or export logs for troubleshooting.</string>
+    <string name="label_connection_diagnosis_status_preparing">Preparing</string>
+    <string name="label_connection_diagnosis_status_preparing_detail">Initializing diagnosis environment.</string>
+
+    <string name="label_connection_diagnosis_not_collected">Not collected yet</string>
+    <string name="label_connection_diagnosis_not_concluded">No conclusion yet</string>
+    <string name="label_connection_diagnosis_not_probed">Not probed yet</string>
+    <string name="label_connection_diagnosis_no_gateway_nat_observation">No gateway egress observation yet</string>
+    <string name="label_connection_diagnosis_nat_reflection_note">This result is based on gateway reflection and is only a NAT hint, not full STUN classification.</string>
+    <string name="label_connection_diagnosis_proxy_none">No system proxy or gateway proxy signal detected</string>
+    <string name="label_connection_diagnosis_proxy_system_and_gateway">System proxy=%1$s · gateway side also observed proxy headers</string>
+    <string name="label_connection_diagnosis_proxy_system_only">System proxy=%1$s</string>
+    <string name="label_connection_diagnosis_proxy_gateway_only">No local system proxy, but gateway side observed proxy headers</string>
+    <string name="label_connection_diagnosis_gateway_all_failed">Continuous failures %1$d times · latest_error=%2$s</string>
+    <string name="label_connection_diagnosis_gateway_summary">Success %1$d/%2$d · RTT %3$d-%4$dms · avg %5$dms · failures %6$d</string>
+    <string name="label_connection_diagnosis_transport_fcm_limited">Still in FCM mode; private transport logs are limited</string>
+
+    <string name="label_connection_diagnosis_recommendation_waiting">Keep collecting until the diagnosis window ends for a more stable conclusion.</string>
+    <string name="label_connection_diagnosis_recommendation_gateway_failure">Gateway probe failure ratio is high. Check basic reachability, DNS, and TLS first.</string>
+    <string name="label_connection_diagnosis_recommendation_proxy_seen">Proxy signal detected in this session. Prioritize checking proxy, enterprise gateway, or VPN impact on long connections and UDP.</string>
+    <string name="label_connection_diagnosis_recommendation_reconnect">HTTP reflection is mostly normal, but private transport still falls back frequently. This looks more like QUIC/TCP long-connection stability or background policy behavior.</string>
+    <string name="label_connection_diagnosis_recommendation_network_changed">Network transport changed during diagnosis. Drops may be related to Wi-Fi/cellular switching or validation jitter.</string>
+    <string name="label_connection_diagnosis_recommendation_default">This appears to be private-channel stability under a single network environment. Continue troubleshooting with copied logs and gateway-side connection records.</string>
+
+    <string name="error_connection_diagnosis_running_mode_locked">Diagnosis is running; mode cannot be changed now.</string>
+    <string name="error_connection_diagnosis_running_profile_locked">Diagnosis is running; profile cannot be changed now.</string>
+    <string name="error_connection_diagnosis_no_report_to_copy">No diagnosis report available to copy.</string>
+    <string name="error_connection_diagnosis_export_failed">Export failed: %1$s</string>
+    <string name="error_connection_diagnosis_bundle_failed">Failed to build support bundle: %1$s</string>
+
+    <string name="message_connection_diagnosis_report_copied">Diagnosis report copied.</string>
+    <string name="message_connection_diagnosis_txt_exported">Diagnosis TXT exported.</string>
+    <string name="message_connection_diagnosis_json_exported">Diagnosis JSON exported.</string>
+    <string name="message_connection_diagnosis_json_fail_only_exported">Diagnosis JSON (failures only) exported.</string>
+    <string name="message_connection_diagnosis_bundle_ready">Support bundle generated. Choose a target app to share.</string>
+    <string name="label_connection_diagnosis_log_stopped_with_report">Diagnosis manually stopped; copyable report generated.</string>
+    <string name="label_connection_diagnosis_log_completed_with_report">Diagnosis completed; copyable report generated.</string>
+    <string name="error_connection_diagnosis_open_share_failed_prefix">Unable to open share panel: </string>
 </resources>

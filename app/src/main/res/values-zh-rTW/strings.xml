@@ -266,4 +266,69 @@
     <string name="thing_meta_related_events_count">相關事件：%1$d</string>
     <string name="thing_meta_tags_count">標籤：%1$d</string>
     <string name="thing_meta_updated">更新時間：%1$s</string>
+    <string name="label_connection_diagnosis_share_bundle">分享支援包</string>
+    <string name="label_connection_diagnosis_export_json">匯出 JSON</string>
+    <string name="error_connection_diagnosis_open_share_failed">無法開啟分享面板：%1$s</string>
+    <string name="label_connection_diagnosis_collecting_progress">採集中 %1$d%% · %2$ds/%3$ds</string>
+    <string name="label_connection_diagnosis_background_probe">鏈路矩陣探測持續進行中</string>
+    <string name="action_connection_diagnosis_stop">停止採集</string>
+    <string name="label_connection_diagnosis_redact_on">去識別：開</string>
+    <string name="label_connection_diagnosis_redact_off">去識別：關</string>
+    <string name="label_connection_diagnosis_live_mode">即時更新</string>
+    <string name="label_connection_diagnosis_background_mode">背景持續</string>
+    <string name="label_connection_diagnosis_link_matrix">鏈路矩陣</string>
+    <string name="label_connection_diagnosis_link_matrix_empty">尚未產生鏈路探測資料</string>
+    <string name="label_connection_diagnosis_failure_reason">失敗原因：%1$s</string>
+    <string name="action_connection_diagnosis_enhanced_probe">增強探測</string>
+    <string name="label_connection_diagnosis_selection_history">協議選擇歷史</string>
+    <string name="label_connection_diagnosis_enhanced_running">增強探測進行中 · %1$s</string>
+    <string name="label_connection_diagnosis_enhanced_running_hint">正在執行分階段檢查（DNS/連線/TLS 或 UDP）。</string>
+    <string name="label_connection_diagnosis_enhanced_result">增強探測結果 · %1$s</string>
+    <string name="label_connection_diagnosis_failed_stage">失敗階段：%1$s</string>
+
+    <string name="label_connection_diagnosis_status_waiting">等待開始</string>
+    <string name="label_connection_diagnosis_status_auto_start_detail">進入頁面後會自動開始一次 75 秒網路診斷。</string>
+    <string name="label_connection_diagnosis_status_running">診斷進行中</string>
+    <string name="label_connection_diagnosis_status_running_detail">持續採集網路、閘道與私有鏈路狀態，視窗結束後會自動停止。</string>
+    <string name="label_connection_diagnosis_status_stopped">診斷已停止</string>
+    <string name="label_connection_diagnosis_status_stopped_detail">已手動停止採集。你可以複製或匯出日誌用於排查。</string>
+    <string name="label_connection_diagnosis_status_completed">診斷已完成</string>
+    <string name="label_connection_diagnosis_status_completed_detail">採集視窗已結束。你可以複製或匯出日誌用於排查。</string>
+    <string name="label_connection_diagnosis_status_preparing">準備中</string>
+    <string name="label_connection_diagnosis_status_preparing_detail">正在初始化診斷環境。</string>
+
+    <string name="label_connection_diagnosis_not_collected">尚未採集</string>
+    <string name="label_connection_diagnosis_not_concluded">尚無診斷結論</string>
+    <string name="label_connection_diagnosis_not_probed">尚未探測</string>
+    <string name="label_connection_diagnosis_no_gateway_nat_observation">尚未取得閘道出口觀測結果</string>
+    <string name="label_connection_diagnosis_nat_reflection_note">此結果基於閘道反射，僅可作為 NAT 提示，非完整 STUN 分類。</string>
+    <string name="label_connection_diagnosis_proxy_none">未發現系統代理或閘道代理跡象</string>
+    <string name="label_connection_diagnosis_proxy_system_and_gateway">系統代理=%1$s · 閘道側也觀測到代理標頭</string>
+    <string name="label_connection_diagnosis_proxy_system_only">系統代理=%1$s</string>
+    <string name="label_connection_diagnosis_proxy_gateway_only">本機未見系統代理，但閘道側觀測到代理標頭</string>
+    <string name="label_connection_diagnosis_gateway_all_failed">連續失敗 %1$d 次 · 最近錯誤=%2$s</string>
+    <string name="label_connection_diagnosis_gateway_summary">成功 %1$d/%2$d · RTT %3$d-%4$dms · 平均 %5$dms · 失敗 %6$d 次</string>
+    <string name="label_connection_diagnosis_transport_fcm_limited">目前仍為 FCM 模式，私有鏈路日誌有限</string>
+
+    <string name="label_connection_diagnosis_recommendation_waiting">建議繼續採集至視窗結束，以獲得更穩定的結論。</string>
+    <string name="label_connection_diagnosis_recommendation_gateway_failure">閘道探測失敗比例過高，請先排查基礎可達性、DNS 與 TLS。</string>
+    <string name="label_connection_diagnosis_recommendation_proxy_seen">本次採集偵測到代理跡象，優先排查代理、企業閘道或 VPN 對長連線與 UDP 的影響。</string>
+    <string name="label_connection_diagnosis_recommendation_reconnect">HTTP 反射基本正常，但私有鏈路仍頻繁回退，更像 QUIC/TCP 長連線穩定性或背景策略問題。</string>
+    <string name="label_connection_diagnosis_recommendation_network_changed">診斷期間網路傳輸發生切換，斷鏈可能與 Wi-Fi/行動網路切換或驗證抖動有關。</string>
+    <string name="label_connection_diagnosis_recommendation_default">較像單一網路環境下的私有通道穩定性問題。建議結合複製出的日誌持續對照閘道側連線記錄。</string>
+
+    <string name="error_connection_diagnosis_running_mode_locked">診斷進行中，暫時無法切換模式。</string>
+    <string name="error_connection_diagnosis_running_profile_locked">診斷進行中，暫時無法切換模板。</string>
+    <string name="error_connection_diagnosis_no_report_to_copy">目前沒有可複製的診斷報告。</string>
+    <string name="error_connection_diagnosis_export_failed">匯出失敗：%1$s</string>
+    <string name="error_connection_diagnosis_bundle_failed">生成支援包失敗：%1$s</string>
+
+    <string name="message_connection_diagnosis_report_copied">診斷報告已複製。</string>
+    <string name="message_connection_diagnosis_txt_exported">診斷 TXT 已匯出。</string>
+    <string name="message_connection_diagnosis_json_exported">診斷 JSON 已匯出。</string>
+    <string name="message_connection_diagnosis_json_fail_only_exported">診斷 JSON（僅失敗鏈路）已匯出。</string>
+    <string name="message_connection_diagnosis_bundle_ready">支援包已生成，請選擇目標 App 分享。</string>
+    <string name="label_connection_diagnosis_log_stopped_with_report">診斷已手動停止，已生成可複製報告。</string>
+    <string name="label_connection_diagnosis_log_completed_with_report">診斷已完成，已生成可複製報告。</string>
+    <string name="error_connection_diagnosis_open_share_failed_prefix">無法開啟分享面板：</string>
 </resources>

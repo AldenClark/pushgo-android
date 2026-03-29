@@ -75,6 +75,8 @@ fun ConnectionDiagnosisScreen(
     factory: PushGoViewModelFactory,
 ) {
     val context = LocalContext.current
+    val shareBundleChooserLabel = stringResource(R.string.label_connection_diagnosis_share_bundle)
+    val openShareFailedPrefix = stringResource(R.string.error_connection_diagnosis_open_share_failed_prefix)
     val viewModel: ConnectionDiagnosisViewModel = viewModel(factory = factory)
     val exportJsonLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.CreateDocument("application/json"),
@@ -103,9 +105,19 @@ fun ConnectionDiagnosisScreen(
                 putExtra(Intent.EXTRA_SUBJECT, "PushGo Diagnosis Support Bundle")
                 addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
             }
-            context.startActivity(Intent.createChooser(shareIntent, "分享诊断支持包"))
+            context.startActivity(
+                Intent.createChooser(
+                    shareIntent,
+                    shareBundleChooserLabel,
+                ),
+            )
         }.onFailure {
-            Toast.makeText(context, "无法打开分享面板: ${it.message ?: "unknown"}", Toast.LENGTH_SHORT).show()
+            val errorText = openShareFailedPrefix + (it.message ?: "unknown")
+            Toast.makeText(
+                context,
+                errorText,
+                Toast.LENGTH_SHORT,
+            ).show()
         }
         viewModel.consumePendingShareUris()
     }
@@ -149,7 +161,7 @@ fun ConnectionDiagnosisScreen(
                     ) {
                         Icon(
                             imageVector = Icons.Outlined.Share,
-                            contentDescription = "分享支持包",
+                            contentDescription = stringResource(R.string.label_connection_diagnosis_share_bundle),
                         )
                     }
                     IconButton(
@@ -160,7 +172,7 @@ fun ConnectionDiagnosisScreen(
                     ) {
                         Icon(
                             imageVector = Icons.Outlined.Download,
-                            contentDescription = "导出 JSON",
+                            contentDescription = stringResource(R.string.label_connection_diagnosis_export_json),
                         )
                     }
                 },
@@ -296,9 +308,14 @@ private fun DiagnosisStatusCard(
                     )
                     Text(
                         text = if (isRunning) {
-                            "采集中 ${progressPercent}% · ${elapsedSeconds}s/${totalSeconds}s"
+                            stringResource(
+                                R.string.label_connection_diagnosis_collecting_progress,
+                                progressPercent,
+                                elapsedSeconds,
+                                totalSeconds,
+                            )
                         } else {
-                            "链路矩阵保持活跃探测"
+                            stringResource(R.string.label_connection_diagnosis_background_probe)
                         },
                         style = MaterialTheme.typography.bodySmall.copy(fontStyle = FontStyle.Italic),
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -318,15 +335,35 @@ private fun DiagnosisStatusCard(
             ) {
                 AssistChip(
                     onClick = onStopOrRestart,
-                    label = { Text(if (isRunning) "停止采集" else "重新诊断") },
+                    label = {
+                        Text(
+                            if (isRunning) {
+                                stringResource(R.string.action_connection_diagnosis_stop)
+                            } else {
+                                stringResource(R.string.label_connection_diagnosis_restart)
+                            },
+                        )
+                    },
                 )
                 AssistChip(
                     onClick = { onRedactToggle(!redactEnabled) },
-                    label = { Text(if (redactEnabled) "脱敏: 开" else "脱敏: 关") },
+                    label = {
+                        Text(
+                            if (redactEnabled) {
+                                stringResource(R.string.label_connection_diagnosis_redact_on)
+                            } else {
+                                stringResource(R.string.label_connection_diagnosis_redact_off)
+                            },
+                        )
+                    },
                 )
                 Spacer(modifier = Modifier.weight(1f))
                 Text(
-                    text = if (isRunning) "实时更新" else "后台持续",
+                    text = if (isRunning) {
+                        stringResource(R.string.label_connection_diagnosis_live_mode)
+                    } else {
+                        stringResource(R.string.label_connection_diagnosis_background_mode)
+                    },
                     style = MaterialTheme.typography.labelSmall.copy(
                         color = statusColor,
                         fontWeight = FontWeight.SemiBold,
@@ -364,7 +401,7 @@ private fun LinkMatrixCard(
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             Text(
-                text = "链路矩阵",
+                text = stringResource(R.string.label_connection_diagnosis_link_matrix),
                 style = MaterialTheme.typography.labelMedium.copy(
                     color = MaterialTheme.colorScheme.primary,
                     fontWeight = FontWeight.Bold,
@@ -381,7 +418,7 @@ private fun LinkMatrixCard(
             )
             if (sortedLegs.isEmpty()) {
                 Text(
-                    text = "尚未产生链路探测数据",
+                    text = stringResource(R.string.label_connection_diagnosis_link_matrix_empty),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -451,14 +488,14 @@ private fun LinkMatrixCard(
                         }
                         if (leg.result.equals("FAIL", ignoreCase = true)) {
                             Text(
-                                text = "失败原因: ${buildFailureReason(leg)}",
+                                text = stringResource(R.string.label_connection_diagnosis_failure_reason, buildFailureReason(leg)),
                                 style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold),
                                 color = MaterialTheme.colorScheme.error,
                             )
                         }
                         AssistChip(
                             onClick = { onEnhancedProbeClick(leg) },
-                            label = { Text("增强探测") },
+                            label = { Text(stringResource(R.string.action_connection_diagnosis_enhanced_probe)) },
                         )
                         leg.lastProbeAtMs?.let { last ->
                             Text(
@@ -473,7 +510,7 @@ private fun LinkMatrixCard(
                 if (selectionHistory.isNotEmpty()) {
                     HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f))
                     Text(
-                        text = "协议选择原因历史",
+                        text = stringResource(R.string.label_connection_diagnosis_selection_history),
                         style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold),
                         color = MaterialTheme.colorScheme.primary,
                     )
@@ -520,7 +557,10 @@ private fun EnhancedProbeSheet(
             when (state) {
                 is EnhancedProbeState.Running -> {
                     Text(
-                        text = "增强探测中 · ${state.leg.name.uppercase()}",
+                        text = stringResource(
+                            R.string.label_connection_diagnosis_enhanced_running,
+                            state.leg.name.uppercase(),
+                        ),
                         style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
                     )
                     Text(
@@ -530,7 +570,7 @@ private fun EnhancedProbeSheet(
                     )
                     LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
                     Text(
-                        text = "正在执行分阶段探测（DNS/连接/TLS或UDP）。",
+                        text = stringResource(R.string.label_connection_diagnosis_enhanced_running_hint),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -538,7 +578,10 @@ private fun EnhancedProbeSheet(
                 is EnhancedProbeState.Result -> {
                     val report = state.report
                     Text(
-                        text = "增强探测结果 · ${report.leg.name.uppercase()}",
+                        text = stringResource(
+                            R.string.label_connection_diagnosis_enhanced_result,
+                            report.leg.name.uppercase(),
+                        ),
                         style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
                     )
                     Text(
@@ -553,7 +596,7 @@ private fun EnhancedProbeSheet(
                     )
                     report.failedAt?.let {
                         Text(
-                            text = "失败阶段: $it",
+                            text = stringResource(R.string.label_connection_diagnosis_failed_stage, it),
                             style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold),
                             color = MaterialTheme.colorScheme.error,
                         )
@@ -729,7 +772,7 @@ private fun buildFailureReason(leg: ChannelProbeLeg): String {
         !leg.errorCode.isNullOrBlank() -> leg.errorCode
         !leg.errorDetail.isNullOrBlank() -> leg.errorDetail
         !leg.note.isNullOrBlank() -> leg.note
-        else -> "网络层探测失败（无详细错误）"
+        else -> "Network probe failed (no detailed error)"
     }
 }
 
