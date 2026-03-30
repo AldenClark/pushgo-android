@@ -33,7 +33,7 @@ val releaseStoreFile = project.resolveSigningProperty("PUSHGO_RELEASE_STORE_FILE
 val releaseStorePassword = project.resolveSigningProperty("PUSHGO_RELEASE_STORE_PASSWORD")
 val releaseKeyAlias = project.resolveSigningProperty("PUSHGO_RELEASE_KEY_ALIAS")
 val releaseKeyPassword = project.resolveSigningProperty("PUSHGO_RELEASE_KEY_PASSWORD")
-val appVersionName = "1.1.34"
+val appVersionName = "1.1.35"
 val appVersionCode = parseVersionCodeFromName(appVersionName)
 val enableAbiSplits = when (val value = providers.gradleProperty("pushgo.enableAbiSplits").orNull?.trim()?.lowercase()) {
     null -> true
@@ -162,6 +162,21 @@ tasks.register("printReleaseVersionInfo") {
         println("versionName=$appVersionName")
         println("applicationId=io.ethan.pushgo")
         println("abiSplitsEnabled=$enableAbiSplits")
+    }
+}
+
+// APK-only distribution policy: disable release AAB tasks to avoid accidental bundle publishing.
+tasks.configureEach {
+    if (name in setOf(
+            "buildReleasePreBundle",
+            "bundleRelease",
+            "packageReleaseBundle",
+            "signReleaseBundle",
+            "produceReleaseBundleIdeListingFile",
+            "createReleaseBundleListingFileRedirect",
+        )
+    ) {
+        enabled = false
     }
 }
 

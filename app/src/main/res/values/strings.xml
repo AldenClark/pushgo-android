@@ -4,10 +4,13 @@
     <string name="tab_settings">Settings</string><string name="action_mark_read">Mark read</string>
     <string name="action_mark_all_read">Mark all as read</string>
     <string name="action_delete">Delete</string>
+    <string name="action_batch_select">Select</string>
     <string name="action_close_event">Close event</string>
     <string name="confirm_close_event">This event will be closed. Continue?</string>
     <string name="action_copy">Copy</string>
-    <string name="label_more_actions">More actions</string><string name="filter_unread">Unread</string><string name="label_server_address">Server address</string>
+    <string name="label_more_actions">More actions</string><string name="filter_all">All</string><string name="filter_unread">Only show unread messages</string><string name="filter_open_events">Ongoing events</string><string name="filter_active_things">Active things</string><string name="label_server_address">Server address</string>
+    <string name="label_filter">Filter</string>
+    <string name="section_status">Status</string>
     <string name="label_server_token">Token (optional)</string>
     <string name="label_save">Save</string>
     <string name="label_save_gateway">Save gateway</string>
@@ -56,6 +59,7 @@
     <string name="label_key_encoding_plaintext">Plain text</string>
     <string name="label_app_version">App version</string><string name="label_app_version_format">%1$s</string>
     <string name="label_yesterday">Yesterday</string>
+    <string name="label_selected_count">%1$d selected</string>
     <string name="label_confirm">Confirm</string>
     <string name="confirm_cleanup_messages">Confirm cleanup</string><string name="confirm_cleanup_read_messages_channel">This will remove read messages in the current channel and cannot be undone.</string><string name="confirm_cleanup_read_messages_all">This will remove all read messages and cannot be undone.</string>
     <string name="confirm_cleanup_messages_channel">This will remove all messages in the current channel and cannot be undone.</string>
@@ -64,6 +68,11 @@
     <string name="confirm_cleanup_events_all">This will remove all event records and cannot be undone.</string>
     <string name="confirm_cleanup_things_channel">This will remove object records in the current channel and cannot be undone.</string>
     <string name="confirm_cleanup_things_all">This will remove all object records and cannot be undone.</string>
+    <string name="confirm_delete_selected_messages">Delete %1$d selected messages?</string>
+    <string name="confirm_delete_selected_events">Delete %1$d selected events?</string>
+    <string name="confirm_delete_selected_things">Delete %1$d selected objects?</string>
+    <string name="message_deleted_selected_count">Deleted %1$d items</string>
+    <string name="message_marked_read_selected_count">Marked %1$d messages as read</string>
     <string name="clean_channel_messages">Clean read messages</string>
     <string name="clean_channel_messages_hint">Choose what to clean in the current channel.</string>
     <string name="clean_all_messages">Clear all messages</string>

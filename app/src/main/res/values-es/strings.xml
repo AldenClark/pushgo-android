@@ -5,7 +5,7 @@
     <string name="action_mark_all_read">Marcar todo como leído</string>
     <string name="action_delete">Eliminar</string>
     <string name="action_copy">Copiar</string>
-    <string name="label_more_actions">Más acciones</string><string name="filter_unread">No leídos</string><string name="label_server_address">Dirección del servidor</string>
+    <string name="label_more_actions">Más acciones</string><string name="filter_unread">Mostrar solo mensajes no leídos</string><string name="label_server_address">Dirección del servidor</string>
     <string name="label_server_token">Token (opcional)</string>
     <string name="label_save">Guardar</string>
     <string name="label_save_gateway">Guardar puerta de enlace</string>
@@ -366,4 +366,21 @@
     <string name="label_connection_diagnosis_log_stopped_with_report">Diagnóstico detenido manualmente; se generó un informe copiable.</string>
     <string name="label_connection_diagnosis_log_completed_with_report">Diagnóstico completado; se generó un informe copiable.</string>
     <string name="error_connection_diagnosis_open_share_failed_prefix">No se puede abrir el panel de compartir: </string>
+    <string name="action_batch_select">Seleccionar</string>
+    <string name="filter_all">Todos</string>
+    <string name="filter_open_events">Eventos en curso</string>
+    <string name="filter_active_things">Objetos activos</string>
+    <string name="label_filter">Filtro</string>
+    <string name="section_status">Estado</string>
+    <string name="label_gateway_change_channel_reset_hint">Después de cambiar el gateway, se borrarán las suscripciones de canal existentes en este dispositivo. Vuelve a crear o suscribirte manualmente a los canales en el nuevo gateway.</string>
+    <string name="label_key_encoding">Codificación</string>
+    <string name="label_selected_count">%1$d seleccionados</string>
+    <string name="confirm_delete_selected_messages">¿Eliminar %1$d mensajes seleccionados?</string>
+    <string name="confirm_delete_selected_events">¿Eliminar %1$d eventos seleccionados?</string>
+    <string name="confirm_delete_selected_things">¿Eliminar %1$d objetos seleccionados?</string>
+    <string name="message_deleted_selected_count">Se eliminaron %1$d elementos</string>
+    <string name="message_marked_read_selected_count">Se marcaron %1$d mensajes como leídos</string>
+    <string name="label_got_it">Entendido</string>
+    <string name="dialog_private_channel_whitelist_title">Mantén PushGo en segundo plano</string>
+    <string name="dialog_private_channel_whitelist_body">El canal privado necesita conectividad persistente en segundo plano. Añade PushGo a la lista blanca de batería/segundo plano del sistema y desactiva la limpieza agresiva; de lo contrario, los mensajes pueden llegar con retraso o perderse.</string>
 </resources>

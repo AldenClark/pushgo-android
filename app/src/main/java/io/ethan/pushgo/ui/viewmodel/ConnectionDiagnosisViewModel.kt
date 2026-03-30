@@ -74,7 +74,7 @@ class ConnectionDiagnosisViewModel(
         private const val NETWORK_SAMPLE_INTERVAL_MS = 5_000L
         private const val GATEWAY_PROBE_INTERVAL_MS = 12_000L
         private const val CHANNEL_PROBE_STABILITY_INTERVAL_MS = 25_000L
-        private const val CONTINUOUS_CHANNEL_PROBE_INTERVAL_MS = 1_000L
+        private const val CONTINUOUS_CHANNEL_PROBE_INTERVAL_MS = 15_000L
         private const val CHANNEL_PROBE_ROLLING_WINDOW_MS = 30_000L
         private const val GATEWAY_CONNECT_TIMEOUT_MS = 8_000
         private const val GATEWAY_READ_TIMEOUT_MS = 12_000
@@ -199,7 +199,6 @@ class ConnectionDiagnosisViewModel(
     private var latestChannelProbe: ChannelProbeResult? = null
 
     fun startDiagnosisIfIdle() {
-        ensureContinuousChannelProbeLoop()
         if (sessionJob?.isActive == true) return
         startDiagnosis(forceRestart = false)
     }
@@ -546,6 +545,10 @@ class ConnectionDiagnosisViewModel(
         if (continuousChannelProbeJob?.isActive == true) return
         continuousChannelProbeJob = viewModelScope.launch {
             while (currentCoroutineContext().isActive) {
+                if (!isRunning) {
+                    delay(CONTINUOUS_CHANNEL_PROBE_INTERVAL_MS)
+                    continue
+                }
                 var baseUrl = sessionGatewayBaseUrl
                 if (baseUrl.isNullOrBlank()) {
                     baseUrl = settingsRepository.getServerAddress()?.trim()?.ifEmpty { null }
@@ -885,6 +888,8 @@ class ConnectionDiagnosisViewModel(
 
     private suspend fun completeDiagnosis(manuallyStopped: Boolean = false) {
         sessionProgressJob?.cancel()
+        continuousChannelProbeJob?.cancel()
+        continuousChannelProbeJob = null
         cleanupSessionResources()
         sessionFinishedAtMs = System.currentTimeMillis()
         if (!manuallyStopped) {

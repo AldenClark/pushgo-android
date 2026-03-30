@@ -173,6 +173,12 @@ class PrivateChannelClient(
     private var observedNetworkFingerprint: String = "unknown"
     @Volatile
     private var lastNetworkSwitchReconnectAtMs: Long = 0L
+    @Volatile
+    private var forceProfileRefreshOnce: Boolean = false
+    @Volatile
+    private var consecutiveStreamFailureCount: Int = 0
+    @Volatile
+    private var lastForcedProfileRefreshAtMs: Long = 0L
 
     init {
         io.ethan.pushgo.util.SilentSink.i(TAG, "private channel client revision=$CLIENT_REV")
@@ -195,6 +201,8 @@ class PrivateChannelClient(
             // Force a fresh route upsert when switching from provider to private mode.
             lastRouteEnsureAtMs = 0L
             lastRouteEnsureFingerprint = null
+            forceProfileRefreshOnce = true
+            maybeForceProfileRefreshForAppVersion()
         }
         if (fcmAvailable) {
             saveTransportStatus(
@@ -224,6 +232,7 @@ class PrivateChannelClient(
         lastRouteEnsureFingerprint = null
         lastRouteRepairAtMs = 0L
         nextAllowedPullAtMs = 0L
+        forceProfileRefreshOnce = true
 
         loopJob?.cancel()
         loopJob = null
@@ -1973,6 +1982,14 @@ class PrivateChannelClient(
         baseUrl: String,
         token: String?,
     ): PrivateTransportProfile {
+        val forceRefresh = forceProfileRefreshOnce
+        if (forceRefresh) {
+            forceProfileRefreshOnce = false
+        }
+        val cached = loadPrivateTransportProfileCache(baseUrl)
+        if (!forceRefresh && cached != null && isPrivateTransportProfileCacheFresh(cached.fetchedAtMs)) {
+            return cached.profile
+        }
         return try {
             val gatewayProfile = fetchGatewayProfileSnapshot(baseUrl, token)
             if (!gatewayProfile.privateChannelEnabled) {
@@ -1985,7 +2002,7 @@ class PrivateChannelClient(
             if (isGatewayPrivateDisabledError(error)) {
                 throw error
             }
-            loadPrivateTransportProfileCache(baseUrl)?.also {
+            cached?.profile?.also {
                 io.ethan.pushgo.util.SilentSink.w(
                     TAG,
                     "private profile fetch failed, using cached profile error=${error.message}",
@@ -2042,7 +2059,7 @@ class PrivateChannelClient(
         )
     }
 
-    private fun loadPrivateTransportProfileCache(baseUrl: String): PrivateTransportProfile? {
+    private fun loadPrivateTransportProfileCache(baseUrl: String): CachedPrivateTransportProfile? {
         val raw = prefs.getString(KEY_PROFILE_CACHE, null) ?: return null
         return runCatching {
             val obj = JSONObject(raw)
@@ -2051,13 +2068,17 @@ class PrivateChannelClient(
                 return null
             }
             val transport = obj.optJSONObject("transport") ?: return null
-            parsePrivateTransportProfile(transport)
+            CachedPrivateTransportProfile(
+                profile = parsePrivateTransportProfile(transport),
+                fetchedAtMs = obj.optLong("fetched_at_ms", 0L).coerceAtLeast(0L),
+            )
         }.getOrNull()
     }
 
     private fun savePrivateTransportProfileCache(baseUrl: String, profile: PrivateTransportProfile) {
         val obj = JSONObject().apply {
             put("gateway_base_url", normalizedGatewayBaseUrl(baseUrl))
+            put("fetched_at_ms", System.currentTimeMillis())
             put(
                 "transport",
                 JSONObject().apply {
@@ -2073,6 +2094,11 @@ class PrivateChannelClient(
             )
         }
         prefs.edit().putString(KEY_PROFILE_CACHE, obj.toString()).apply()
+    }
+
+    private fun isPrivateTransportProfileCacheFresh(fetchedAtMs: Long): Boolean {
+        if (fetchedAtMs <= 0L) return false
+        return System.currentTimeMillis() - fetchedAtMs <= PRIVATE_PROFILE_REFRESH_INTERVAL_MS
     }
 
     private fun normalizedGatewayBaseUrl(baseUrl: String): String {
@@ -2202,6 +2228,7 @@ class PrivateChannelClient(
     private fun onSuccess() {
         failureStreak = 0
         nextAllowedPullAtMs = 0L
+        consecutiveStreamFailureCount = 0
     }
 
     private fun maybeForceForegroundRecovery() {
@@ -2230,6 +2257,7 @@ class PrivateChannelClient(
     }
 
     private fun onFailure(stage: String, error: Throwable) {
+        maybeForceProfileRefreshForConsecutiveFailures(stage)
         if (error is ChannelSubscriptionException && isGatewayPrivateDisabledError(error)) {
             failureStreak = 0
             nextAllowedPullAtMs = System.currentTimeMillis() + 120_000L
@@ -2348,6 +2376,8 @@ class PrivateChannelClient(
 
     fun requestForceReconnect(reason: String = "manual"): Boolean {
         if (fcmAvailable) return false
+        forceProfileRefreshOnce = true
+        lastForcedProfileRefreshAtMs = System.currentTimeMillis()
         val triggered = requestActiveSessionForceReconnect("manual:$reason")
         if (!triggered) {
             saveTransportStatus(
@@ -2359,6 +2389,37 @@ class PrivateChannelClient(
             restartLoop()
         }
         return true
+    }
+
+    private fun maybeForceProfileRefreshForConsecutiveFailures(stage: String) {
+        if (!stage.startsWith("stream_")) {
+            return
+        }
+        consecutiveStreamFailureCount = (consecutiveStreamFailureCount + 1).coerceAtMost(256)
+        if (consecutiveStreamFailureCount < PROFILE_FORCE_REFRESH_FAILURE_THRESHOLD) {
+            return
+        }
+        val nowMs = System.currentTimeMillis()
+        if (nowMs - lastForcedProfileRefreshAtMs < PROFILE_FORCE_REFRESH_FAILURE_COOLDOWN_MS) {
+            return
+        }
+        forceProfileRefreshOnce = true
+        lastForcedProfileRefreshAtMs = nowMs
+        consecutiveStreamFailureCount = 0
+        io.ethan.pushgo.util.SilentSink.i(
+            TAG,
+            "profile refresh forced after repeated stream failures",
+        )
+    }
+
+    private fun maybeForceProfileRefreshForAppVersion() {
+        val currentVersion = BuildConfig.VERSION_NAME.trim().ifEmpty { return }
+        val lastVersion = prefs.getString(KEY_LAST_PRIVATE_PROFILE_REFRESH_VERSION, null)?.trim()
+        if (lastVersion == currentVersion) {
+            return
+        }
+        forceProfileRefreshOnce = true
+        prefs.edit().putString(KEY_LAST_PRIVATE_PROFILE_REFRESH_VERSION, currentVersion).apply()
     }
 
     fun pinTransport(transport: String, ttlMs: Long = 0L): Boolean {
@@ -2614,6 +2675,11 @@ class PrivateChannelClient(
         val wsSubprotocol: String,
     )
 
+    private data class CachedPrivateTransportProfile(
+        val profile: PrivateTransportProfile,
+        val fetchedAtMs: Long,
+    )
+
     private data class GatewayProfileSnapshot(
         val privateChannelEnabled: Boolean,
         val transport: PrivateTransportProfile?,
@@ -2810,6 +2876,7 @@ class PrivateChannelClient(
         private const val KEY_TRANSPORT_STATUS = "transport_status"
         private const val KEY_PERF_MODE = "performance_mode"
         private const val KEY_PROFILE_CACHE = "transport_profile_cache"
+        private const val KEY_LAST_PRIVATE_PROFILE_REFRESH_VERSION = "last_private_profile_refresh_version"
         private const val KEY_LOCAL_TRANSPORT_PREF = "local_transport_pref"
         private const val KEY_LOCAL_FAILURE_BUCKETS = "local_failure_buckets"
         private const val GATEWAY_PROFILE_ENDPOINT = "/gateway/profile"
@@ -2819,6 +2886,9 @@ class PrivateChannelClient(
         private const val PRIVATE_HTTP_READ_TIMEOUT_MS = 20_000
         private const val PRIVATE_HTTP_MAX_ATTEMPTS = 3
         private const val PRIVATE_HTTP_RETRY_BASE_MS = 450L
+        private const val PRIVATE_PROFILE_REFRESH_INTERVAL_MS = 6 * 60 * 60_000L
+        private const val PROFILE_FORCE_REFRESH_FAILURE_THRESHOLD = 3
+        private const val PROFILE_FORCE_REFRESH_FAILURE_COOLDOWN_MS = 10 * 60_000L
         private const val PRIVATE_ROUTE_REPAIR_INTERVAL_MS = 5_000L
         private const val WIRE_VERSION_V2 = 2
         private const val PRIVATE_PAYLOAD_VERSION_V1 = 1

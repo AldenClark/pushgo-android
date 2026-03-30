@@ -5,7 +5,7 @@
     <string name="action_mark_all_read">모두 읽음으로 표시</string>
     <string name="action_delete">삭제</string>
     <string name="action_copy">복사</string>
-    <string name="label_more_actions">추가 작업</string><string name="filter_unread">읽지 않음</string><string name="label_server_address">서버 주소</string>
+    <string name="label_more_actions">추가 작업</string><string name="filter_unread">읽지 않은 메시지만 표시</string><string name="label_server_address">서버 주소</string>
     <string name="label_server_token">인증 토큰 (선택)</string>
     <string name="label_save">저장</string>
     <string name="label_save_gateway">게이트웨이 설정 저장</string>
@@ -361,4 +361,21 @@
     <string name="label_connection_diagnosis_log_stopped_with_report">진단을 수동 중지했고 복사 가능한 보고서가 생성되었습니다.</string>
     <string name="label_connection_diagnosis_log_completed_with_report">진단이 완료되어 복사 가능한 보고서가 생성되었습니다.</string>
     <string name="error_connection_diagnosis_open_share_failed_prefix">공유 패널을 열 수 없습니다: </string>
+    <string name="action_batch_select">선택</string>
+    <string name="filter_all">전체</string>
+    <string name="filter_open_events">진행 중 이벤트</string>
+    <string name="filter_active_things">활성 객체</string>
+    <string name="label_filter">필터</string>
+    <string name="section_status">상태</string>
+    <string name="label_gateway_change_channel_reset_hint">게이트웨이를 전환하면 이 기기의 기존 채널 구독이 삭제됩니다. 새 게이트웨이에서 채널을 수동으로 다시 생성하거나 재구독하세요.</string>
+    <string name="label_key_encoding">인코딩</string>
+    <string name="label_selected_count">%1$d개 선택됨</string>
+    <string name="confirm_delete_selected_messages">선택한 메시지 %1$d개를 삭제할까요?</string>
+    <string name="confirm_delete_selected_events">선택한 이벤트 %1$d개를 삭제할까요?</string>
+    <string name="confirm_delete_selected_things">선택한 객체 %1$d개를 삭제할까요?</string>
+    <string name="message_deleted_selected_count">%1$d개 항목을 삭제했습니다</string>
+    <string name="message_marked_read_selected_count">%1$d개 메시지를 읽음으로 표시했습니다</string>
+    <string name="label_got_it">확인</string>
+    <string name="dialog_private_channel_whitelist_title">PushGo를 백그라운드에서 유지</string>
+    <string name="dialog_private_channel_whitelist_body">프라이빗 채널은 백그라운드 지속 연결이 필요합니다. PushGo를 시스템 배터리/백그라운드 화이트리스트에 추가하고 공격적인 정리 정책을 비활성화하세요. 그렇지 않으면 메시지가 지연되거나 누락될 수 있습니다.</string>
 </resources>

@@ -4,8 +4,9 @@
     <string name="tab_settings">设置</string><string name="action_mark_read">标记为已读</string>
     <string name="action_mark_all_read">全部标记为已读</string>
     <string name="action_delete">删除</string>
+    <string name="action_batch_select">批量</string>
     <string name="action_copy">复制</string>
-    <string name="label_more_actions">更多操作</string><string name="filter_unread">未读</string><string name="label_server_address">服务器地址</string>
+    <string name="label_more_actions">更多操作</string><string name="filter_all">全部</string><string name="filter_unread">仅显示未读消息</string><string name="filter_open_events">进行中</string><string name="filter_active_things">活跃</string><string name="label_server_address">服务器地址</string>
     <string name="label_server_token">认证令牌（可选）</string>
     <string name="label_save">保存</string>
     <string name="label_save_gateway">保存网关设置</string>
@@ -54,12 +55,18 @@
     <string name="label_key_encoding_plaintext">纯文本</string>
     <string name="label_app_version">应用版本</string><string name="label_app_version_format">%1$s</string>
     <string name="label_yesterday">昨天</string>
+    <string name="label_selected_count">已选择 %1$d 项</string>
     <string name="label_confirm">确认</string>
     <string name="confirm_cleanup_messages">确认清除</string><string name="confirm_cleanup_read_messages_channel">将清理当前频道已读消息，且无法撤销。</string><string name="confirm_cleanup_read_messages_all">将清理全部已读消息，且无法撤销。</string>
     <string name="confirm_cleanup_messages_channel">将清理当前频道全部消息，且无法撤销。</string>
     <string name="confirm_cleanup_messages_all">将清理全部消息，且无法撤销。</string>
     <string name="confirm_cleanup_things_channel">将清理当前频道对象记录，且无法撤销。</string>
     <string name="confirm_cleanup_things_all">将清理全部对象记录，且无法撤销。</string>
+    <string name="confirm_delete_selected_messages">确认删除已选择的 %1$d 条消息？</string>
+    <string name="confirm_delete_selected_events">确认删除已选择的 %1$d 条事件？</string>
+    <string name="confirm_delete_selected_things">确认删除已选择的 %1$d 个对象？</string>
+    <string name="message_deleted_selected_count">已删除 %1$d 项</string>
+    <string name="message_marked_read_selected_count">已标记 %1$d 条消息为已读</string>
     <string name="clean_channel_messages">清理已读消息</string>
     <string name="clean_channel_messages_hint">请选择要清理的内容。</string>
     <string name="clean_all_messages">清理全部消息</string>
@@ -353,4 +360,6 @@
     <string name="label_connection_diagnosis_log_stopped_with_report">诊断已手动停止，已生成可复制报告。</string>
     <string name="label_connection_diagnosis_log_completed_with_report">诊断已完成，已生成可复制报告。</string>
     <string name="error_connection_diagnosis_open_share_failed_prefix">无法打开分享面板：</string>
+    <string name="label_filter">筛选</string>
+    <string name="section_status">状态</string>
 </resources>

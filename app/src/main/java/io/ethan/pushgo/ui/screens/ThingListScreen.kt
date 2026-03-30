@@ -1,9 +1,14 @@
 package io.ethan.pushgo.ui.screens
 
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.outlined.Circle
 import android.widget.Toast
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -11,24 +16,31 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.FilterList as FilledFilterList
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.outlined.Check
+import androidx.compose.material.icons.outlined.Checklist
+import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.FilterList as OutlinedFilterList
 import androidx.compose.material.icons.outlined.Info
+import androidx.compose.material.icons.outlined.SelectAll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -50,10 +62,14 @@ import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.BottomSheetDefaults
 import androidx.compose.material3.Button
+import androidx.compose.material3.Card
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -62,8 +78,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInWindow
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
@@ -71,6 +92,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.unit.dp
+import androidx.activity.compose.BackHandler
 import coil.compose.AsyncImage
 import io.ethan.pushgo.R
 import io.ethan.pushgo.data.AppContainer
@@ -94,6 +116,7 @@ import org.json.JSONArray
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
+import androidx.compose.material3.Checkbox
 
 private data class ThingRelatedMessage(
     val message: PushMessage,
@@ -170,8 +193,7 @@ private fun thingStateTint(state: String?): Color {
         ThingLifecycleState.Unknown -> Color(0xFF6B7280)
     }
 }
-
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalFoundationApi::class, ExperimentalMaterial3Api::class)
 @Composable
 fun ThingListScreen(
     container: AppContainer,
@@ -180,6 +202,7 @@ fun ThingListScreen(
     onOpenThingHandled: () -> Unit,
     onThingDetailOpened: (String) -> Unit,
     onThingDetailClosed: () -> Unit,
+    onBatchModeChanged: (Boolean) -> Unit,
 ) {
     var allThings by remember { mutableStateOf<List<ThingCardModel>>(emptyList()) }
     var hasLoadedOnce by remember { mutableStateOf(false) }
@@ -187,15 +210,78 @@ fun ThingListScreen(
     var hasMoreThings by remember { mutableStateOf(true) }
     var isLoadingMoreThings by remember { mutableStateOf(false) }
     var selectedThing by remember { mutableStateOf<ThingCardModel?>(null) }
+    var isSelectionMode by remember { mutableStateOf(false) }
+    var selectedThingIds by remember { mutableStateOf<Set<String>>(emptySet()) }
+    var initialSelectionStateForDrag by remember { mutableStateOf<Boolean?>(null) }
+    var showBatchDeleteConfirmation by remember { mutableStateOf(false) }
     var selectedRelatedEvent by remember { mutableStateOf<EventCardModel?>(null) }
     var selectedRelatedMessage by remember { mutableStateOf<ThingRelatedMessage?>(null) }
     var selectedRelatedUpdate by remember { mutableStateOf<ThingRelatedUpdate?>(null) }
     var searchQuery by remember { mutableStateOf("") }
     var channelFilter by remember { mutableStateOf<String?>(null) }
+    var showOnlyActive by remember { mutableStateOf(false) }
     var channelNameMap by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
+    val haptic = LocalHapticFeedback.current
     val scope = rememberCoroutineScope()
     val context = container.appContext
     val noThingsText = stringResource(R.string.label_no_things_title)
+    val listState = rememberLazyListState()
+    var listTopInWindow by remember { mutableFloatStateOf(0f) }
+    var selectionRailTopInWindow by remember { mutableFloatStateOf(0f) }
+
+    fun exitSelectionMode() {
+        isSelectionMode = false
+        selectedThingIds = emptySet()
+        initialSelectionStateForDrag = null
+    }
+
+    fun toggleSelection(thingId: String) {
+        selectedThingIds = if (selectedThingIds.contains(thingId)) {
+            selectedThingIds - thingId
+        } else {
+            selectedThingIds + thingId
+        }
+        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+    }
+
+    fun selectIfNeeded(thingId: String) {
+        if (!selectedThingIds.contains(thingId)) {
+            selectedThingIds = selectedThingIds + thingId
+            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+        }
+    }
+
+    fun updateSelectionAtRailY(railLocalY: Float, targetState: Boolean, filteredThings: List<ThingCardModel>) {
+        val listLocalY = railLocalY + (selectionRailTopInWindow - listTopInWindow)
+        val target = listState.layoutInfo.visibleItemsInfo.firstOrNull { item ->
+            listLocalY in item.offset.toFloat()..(item.offset + item.size).toFloat()
+        }
+        val rowIndex = (target?.index ?: -1) - 1
+        val thingId = filteredThings.getOrNull(rowIndex)?.thingId
+        if (thingId != null) {
+            val isSelected = selectedThingIds.contains(thingId)
+            if (isSelected != targetState) {
+                selectedThingIds = if (targetState) {
+                    selectedThingIds + thingId
+                } else {
+                    selectedThingIds - thingId
+                }
+                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+            }
+        }
+    }
+
+    BackHandler(enabled = isSelectionMode) {
+        exitSelectionMode()
+    }
+
+    LaunchedEffect(isSelectionMode) {
+        onBatchModeChanged(isSelectionMode)
+    }
+
+    DisposableEffect(Unit) {
+        onDispose { onBatchModeChanged(false) }
+    }
 
     fun showToast(message: String) {
         Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
@@ -262,12 +348,15 @@ fun ThingListScreen(
         channelNameMap = container.channelRepository.loadSubscriptionLookup(includeDeleted = true)
     }
 
-    val filteredThings = remember(allThings, searchQuery, channelFilter) {
+    val filteredThings = remember(allThings, searchQuery, channelFilter, showOnlyActive) {
         val query = searchQuery.trim().lowercase()
         allThings
             .asSequence()
             .filter { thing ->
                 channelFilter == null || thing.channelId == channelFilter
+            }
+            .filter { thing ->
+                !showOnlyActive || ThingLifecycleState.fromRaw(thing.state) == ThingLifecycleState.Active
             }
             .filter { thing ->
                 if (query.isEmpty()) {
@@ -323,7 +412,7 @@ fun ThingListScreen(
         }
     }
 
-    if (selectedThing != null) {
+    if (selectedThing != null && !isSelectionMode) {
         val thingSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
         ModalBottomSheet(
             sheetState = thingSheetState,
@@ -460,87 +549,154 @@ fun ThingListScreen(
         return
     }
 
-    LazyColumn(
-        modifier = Modifier.fillMaxSize(),
-        verticalArrangement = Arrangement.spacedBy(10.dp),
-    ) {
+    Box(modifier = Modifier.fillMaxSize()) {
+        LazyColumn(
+            modifier = Modifier
+                .fillMaxSize()
+                .onGloballyPositioned { coordinates ->
+                    listTopInWindow = coordinates.positionInWindow().y
+                },
+            state = listState,
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
         item {
             Column(
                 modifier = Modifier
                     .fillMaxWidth(),
             ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = ScreenHorizontalPadding, vertical = 16.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
+                if (isSelectionMode) {
                     Row(
                         modifier = Modifier
-                            .weight(1f)
-                            .heightIn(min = 56.dp)
-                            .clip(androidx.compose.foundation.shape.RoundedCornerShape(24.dp))
-                            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
+                            .fillMaxWidth()
+                            .padding(horizontal = ScreenHorizontalPadding, vertical = 16.dp),
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
-                        Spacer(modifier = Modifier.width(16.dp))
-                        Icon(
-                            Icons.Default.Search,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
-                        )
-                        TextField(
-                            value = searchQuery,
-                            onValueChange = { searchQuery = it },
+                        Text(
+                            text = stringResource(R.string.label_selected_count, selectedThingIds.size),
+                            style = MaterialTheme.typography.titleMedium,
                             modifier = Modifier.weight(1f),
-                            placeholder = {
-                                Text(
-                                    stringResource(R.string.label_search_things),
-                                    style = MaterialTheme.typography.bodyLarge,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
-                                )
-                            },
-                            colors = TextFieldDefaults.colors(
-                                focusedContainerColor = Color.Transparent,
-                                unfocusedContainerColor = Color.Transparent,
-                                disabledContainerColor = Color.Transparent,
-                                focusedIndicatorColor = Color.Transparent,
-                                unfocusedIndicatorColor = Color.Transparent,
-                            ),
-                            singleLine = true,
                         )
+                        IconButton(
+                            enabled = selectedThingIds.isNotEmpty(),
+                            onClick = { showBatchDeleteConfirmation = true },
+                        ) {
+                            Icon(
+                                imageVector = Icons.Outlined.Delete,
+                                contentDescription = stringResource(R.string.action_delete),
+                            )
+                        }
+                        TextButton(onClick = { exitSelectionMode() }) {
+                            Text(text = stringResource(R.string.label_cancel))
+                        }
+                    }
+                } else {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = ScreenHorizontalPadding, vertical = 16.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .weight(1f)
+                                .heightIn(min = 56.dp)
+                                .clip(androidx.compose.foundation.shape.RoundedCornerShape(24.dp))
+                                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        ) {
+                            Spacer(modifier = Modifier.width(16.dp))
+                            Icon(
+                                Icons.Default.Search,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                            )
+                            TextField(
+                                value = searchQuery,
+                                onValueChange = { searchQuery = it },
+                                modifier = Modifier.weight(1f),
+                                placeholder = {
+                                    Text(
+                                        stringResource(R.string.label_search_things),
+                                        style = MaterialTheme.typography.bodyLarge,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                                    )
+                                },
+                                colors = TextFieldDefaults.colors(
+                                    focusedContainerColor = Color.Transparent,
+                                    unfocusedContainerColor = Color.Transparent,
+                                    disabledContainerColor = Color.Transparent,
+                                    focusedIndicatorColor = Color.Transparent,
+                                    unfocusedIndicatorColor = Color.Transparent,
+                                ),
+                                singleLine = true,
+                            )
 
-                        var channelMenuExpanded by remember { mutableStateOf(false) }
-                        Box {
-                            IconButton(onClick = { channelMenuExpanded = true }) {
+                            Box {
+                                var channelMenuExpanded by remember { mutableStateOf(false) }
+                                IconButton(onClick = { channelMenuExpanded = true }) {
+                                    val hasActiveFilter = channelFilter != null || showOnlyActive
+                                    Icon(
+                                        imageVector = if (!hasActiveFilter) Icons.Outlined.OutlinedFilterList else Icons.Filled.FilledFilterList,
+                                        contentDescription = stringResource(R.string.label_channel_id),
+                                        tint = if (hasActiveFilter) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                                    )
+                                }
+
+                                DropdownMenu(
+                                    expanded = channelMenuExpanded,
+                                    onDismissRequest = { channelMenuExpanded = false },
+                                    modifier = Modifier.width(200.dp)
+                                ) {
+                                    // Toggle Status: Active things
+                                    DropdownMenuItem(
+                                        text = { Text(stringResource(R.string.filter_active_things)) },
+                                        onClick = {
+                                            showOnlyActive = !showOnlyActive
+                                            channelMenuExpanded = false
+                                        },
+                                        trailingIcon = {
+                                            if (showOnlyActive) {
+                                                Icon(Icons.Outlined.Check, null, modifier = Modifier.size(18.dp))
+                                            }
+                                        }
+                                    )
+
+                                    if (channelOptions.isNotEmpty()) {
+                                        HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+
+                                        channelOptions.forEach { channelId ->
+                                            val displayName = channelNameMap[channelId] ?: channelId
+                                            DropdownMenuItem(
+                                                text = { Text(displayName, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                                                onClick = {
+                                                    val newChannel = if (channelFilter == channelId) null else channelId
+                                                    channelFilter = newChannel
+                                                    channelMenuExpanded = false
+                                                },
+                                                trailingIcon = {
+                                                    if (channelFilter == channelId) {
+                                                        Icon(Icons.Outlined.Check, null, modifier = Modifier.size(18.dp))
+                                                    }
+                                                }
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                            IconButton(
+                                onClick = {
+                                    isSelectionMode = true
+                                    selectedThing = null
+                                    selectedThingIds = emptySet()
+                                },
+                            ) {
                                 Icon(
-                                    imageVector = if (channelFilter == null) Icons.Outlined.OutlinedFilterList else Icons.Filled.FilledFilterList,
-                                    contentDescription = stringResource(R.string.label_channel_id),
+                                    imageVector = Icons.Outlined.Checklist,
+                                    contentDescription = stringResource(R.string.action_batch_select),
                                     tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
                                 )
-                            }
-                            DropdownMenu(
-                                expanded = channelMenuExpanded,
-                                onDismissRequest = { channelMenuExpanded = false }
-                            ) {
-                                ChannelFilterMenuOption(
-                                    title = stringResource(R.string.label_channel_all),
-                                    isSelected = channelFilter == null,
-                                ) {
-                                        channelFilter = null
-                                        channelMenuExpanded = false
-                                    }
-                                channelOptions.forEach { channelId ->
-                                    val displayName = channelNameMap[channelId] ?: channelId
-                                    ChannelFilterMenuOption(
-                                        title = displayName,
-                                        isSelected = channelFilter == channelId,
-                                    ) {
-                                            channelFilter = channelId
-                                            channelMenuExpanded = false
-                                        }
-                                }
                             }
                         }
                     }
@@ -576,7 +732,16 @@ fun ThingListScreen(
                 }
                 ThingListRowItem(
                     thing = thing,
-                    onClick = { selectedThing = thing },
+                    onClick = {
+                        if (isSelectionMode) {
+                            toggleSelection(thing.thingId)
+                        } else {
+                            selectedThing = thing
+                        }
+                    },
+                    selectionMode = isSelectionMode,
+                    selected = selectedThingIds.contains(thing.thingId),
+                    onToggleSelection = { toggleSelection(thing.thingId) },
                 )
             }
             if (isLoadingMoreThings) {
@@ -599,6 +764,74 @@ fun ThingListScreen(
         }
 
         item { Spacer(modifier = Modifier.height(20.dp)) }
+        }
+
+        if (isSelectionMode) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopStart)
+                    .fillMaxHeight()
+                    .width(72.dp)
+                    .onGloballyPositioned { coordinates ->
+                        selectionRailTopInWindow = coordinates.positionInWindow().y
+                    }
+                    .pointerInput(filteredThings.size, listTopInWindow, selectionRailTopInWindow, showOnlyActive) {
+                        detectDragGestures(
+                            onDragStart = { point ->
+                                val listLocalY = point.y + (selectionRailTopInWindow - listTopInWindow)
+                                val target = listState.layoutInfo.visibleItemsInfo.firstOrNull { item ->
+                                    listLocalY in item.offset.toFloat()..(item.offset + item.size).toFloat()
+                                }
+                                val rowIndex = (target?.index ?: -1) - 1
+                                val thingId = filteredThings.getOrNull(rowIndex)?.thingId
+                                if (thingId != null) {
+                                    val isSelected = selectedThingIds.contains(thingId)
+                                    initialSelectionStateForDrag = !isSelected
+                                    updateSelectionAtRailY(point.y, !isSelected, filteredThings)
+                                }
+                            },
+                            onDrag = { change, _ ->
+                                initialSelectionStateForDrag?.let { targetState ->
+                                    updateSelectionAtRailY(change.position.y, targetState, filteredThings)
+                                }
+                            },
+                            onDragEnd = { initialSelectionStateForDrag = null },
+                            onDragCancel = { initialSelectionStateForDrag = null }
+                        )
+                    },
+            )
+        }
+    }
+
+    if (showBatchDeleteConfirmation) {
+        AlertDialog(
+            onDismissRequest = { showBatchDeleteConfirmation = false },
+            title = { Text(text = stringResource(R.string.action_delete)) },
+            text = { Text(text = stringResource(R.string.confirm_delete_selected_things, selectedThingIds.size)) },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showBatchDeleteConfirmation = false
+                        val targets = selectedThingIds.toList()
+                        scope.launch {
+                            targets.forEach { thingId ->
+                                container.entityRepository.deleteThing(thingId)
+                            }
+                            showToast(context.getString(R.string.message_deleted_selected_count, targets.size))
+                            reloadThings()
+                            exitSelectionMode()
+                        }
+                    },
+                ) {
+                    Text(text = stringResource(R.string.label_confirm))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showBatchDeleteConfirmation = false }) {
+                    Text(text = stringResource(R.string.label_cancel))
+                }
+            },
+        )
     }
 }
 
@@ -649,10 +882,82 @@ private enum class ThingDetailTab {
 }
 
 @Composable
+private fun ThingSelectionToggle(
+    selected: Boolean,
+    onToggle: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Box(
+        modifier = modifier
+            .size(40.dp)
+            .clickable(
+                interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
+                indication = androidx.compose.material3.ripple(bounded = false, radius = 20.dp),
+                onClick = onToggle
+            ),
+        contentAlignment = Alignment.Center
+    ) {
+        Icon(
+            imageVector = if (selected) Icons.Filled.CheckCircle else Icons.Outlined.Circle,
+            contentDescription = null,
+            tint = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline,
+            modifier = Modifier.size(24.dp)
+        )
+    }
+}
+
+@Composable
+private fun FilterOptionItem(
+    title: String,
+    isSelected: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    trailingText: String? = null,
+) {
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .heightIn(min = 52.dp)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 24.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        Text(
+            text = title,
+            style = MaterialTheme.typography.bodyLarge,
+            color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
+            fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
+            modifier = Modifier.weight(1f)
+        )
+        if (trailingText != null) {
+            Text(
+                text = trailingText,
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+            )
+        }
+        if (isSelected) {
+            Icon(
+                imageVector = Icons.Outlined.Check,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(24.dp)
+            )
+        }
+    }
+}
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
 private fun ThingListRowItem(
     thing: ThingCardModel,
     onClick: () -> Unit,
+    selectionMode: Boolean,
+    selected: Boolean,
+    onToggleSelection: () -> Unit,
 ) {
+    val haptic = LocalHapticFeedback.current
     val metaSummary = remember(thing.attrsJson, thing.summary, thing.thingId) {
         val attrs = parseThingDisplayAttributes(thing.attrsJson)
         when {
@@ -678,7 +983,28 @@ private fun ThingListRowItem(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(onClick = onClick)
+            .background(
+                if (selected) {
+                    MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f)
+                } else {
+                    Color.Transparent
+                }
+            )
+            .combinedClickable(
+                onClick = {
+                    if (selectionMode) {
+                        onToggleSelection()
+                    } else {
+                        onClick()
+                    }
+                },
+                onLongClick = {
+                    if (!selectionMode) {
+                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                        onToggleSelection()
+                    }
+                }
+            )
             .padding(horizontal = 12.dp, vertical = 10.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
@@ -686,6 +1012,13 @@ private fun ThingListRowItem(
             verticalAlignment = Alignment.Top,
             horizontalArrangement = Arrangement.spacedBy(10.dp),
         ) {
+            if (selectionMode) {
+                ThingSelectionToggle(
+                    selected = selected,
+                    onToggle = onToggleSelection,
+                    modifier = Modifier.padding(top = 2.dp)
+                )
+            }
             ThingImageThumb(url = thing.imageUrl)
             Column(
                 modifier = Modifier.weight(1f),
@@ -923,6 +1256,9 @@ private fun ThingDetailSheet(
                         EventListRowItem(
                             event = event,
                             onClick = { onOpenRelatedEvent(event) },
+                            selectionMode = false,
+                            selected = false,
+                            onToggleSelection = {},
                             showDivider = false,
                         )
                         HorizontalDivider(

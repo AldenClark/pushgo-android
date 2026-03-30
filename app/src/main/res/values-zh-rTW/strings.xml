@@ -5,7 +5,7 @@
     <string name="action_mark_all_read">全部標示為已讀</string>
     <string name="action_delete">刪除</string>
     <string name="action_copy">複製</string>
-    <string name="label_more_actions">更多操作</string><string name="filter_unread">未讀</string><string name="label_server_address">伺服器位址</string>
+    <string name="label_more_actions">更多操作</string><string name="filter_unread">僅顯示未讀訊息</string><string name="label_server_address">伺服器位址</string>
     <string name="label_server_token">認證令牌（可選）</string>
     <string name="label_save">儲存</string>
     <string name="label_save_gateway">儲存網關設定</string>
@@ -331,4 +331,21 @@
     <string name="label_connection_diagnosis_log_stopped_with_report">診斷已手動停止，已生成可複製報告。</string>
     <string name="label_connection_diagnosis_log_completed_with_report">診斷已完成，已生成可複製報告。</string>
     <string name="error_connection_diagnosis_open_share_failed_prefix">無法開啟分享面板：</string>
+    <string name="action_batch_select">批量</string>
+    <string name="filter_all">全部</string>
+    <string name="filter_open_events">進行中</string>
+    <string name="filter_active_things">活躍</string>
+    <string name="label_filter">篩選</string>
+    <string name="section_status">狀態</string>
+    <string name="label_gateway_change_channel_reset_hint">切換閘道後，當前裝置上的既有頻道訂閱會被清空。請在新閘道中手動重新建立或重新訂閱頻道。</string>
+    <string name="label_key_encoding">密鑰格式</string>
+    <string name="label_selected_count">已選擇 %1$d 項</string>
+    <string name="confirm_delete_selected_messages">確認刪除已選擇的 %1$d 條訊息？</string>
+    <string name="confirm_delete_selected_events">確認刪除已選擇的 %1$d 條事件？</string>
+    <string name="confirm_delete_selected_things">確認刪除已選擇的 %1$d 個物件？</string>
+    <string name="message_deleted_selected_count">已刪除 %1$d 項</string>
+    <string name="message_marked_read_selected_count">已標記 %1$d 條訊息為已讀</string>
+    <string name="label_got_it">知道了</string>
+    <string name="dialog_private_channel_whitelist_title">請保持 PushGo 背景執行</string>
+    <string name="dialog_private_channel_whitelist_body">私有通道依賴背景長連線。請將 PushGo 加入系統電池/背景白名單，並關閉激進省電清理，否則可能出現訊息延遲或收不到訊息。</string>
 </resources>

@@ -5,7 +5,7 @@
     <string name="action_mark_all_read">Alle als gelesen markieren</string>
     <string name="action_delete">Löschen</string>
     <string name="action_copy">Kopieren</string>
-    <string name="label_more_actions">Mehr Aktionen</string><string name="filter_unread">Ungelesen</string><string name="label_server_address">Serveradresse</string>
+    <string name="label_more_actions">Mehr Aktionen</string><string name="filter_unread">Nur ungelesene Nachrichten anzeigen</string><string name="label_server_address">Serveradresse</string>
     <string name="label_server_token">Token (optional)</string>
     <string name="label_save">Speichern</string>
     <string name="label_save_gateway">Gateway speichern</string>
@@ -364,4 +364,21 @@
     <string name="label_connection_diagnosis_log_stopped_with_report">Diagnose manuell gestoppt; kopierbarer Bericht erzeugt.</string>
     <string name="label_connection_diagnosis_log_completed_with_report">Diagnose abgeschlossen; kopierbarer Bericht erzeugt.</string>
     <string name="error_connection_diagnosis_open_share_failed_prefix">Freigabedialog konnte nicht geöffnet werden: </string>
+    <string name="action_batch_select">Auswählen</string>
+    <string name="filter_all">Alle</string>
+    <string name="filter_open_events">Laufende Ereignisse</string>
+    <string name="filter_active_things">Aktive Objekte</string>
+    <string name="label_filter">Filter</string>
+    <string name="section_status">Status</string>
+    <string name="label_gateway_change_channel_reset_hint">Nach dem Wechsel des Gateways werden bestehende Kanalabonnements auf diesem Gerät gelöscht. Bitte Kanäle im neuen Gateway manuell neu erstellen oder erneut abonnieren.</string>
+    <string name="label_key_encoding">Kodierung</string>
+    <string name="label_selected_count">%1$d ausgewählt</string>
+    <string name="confirm_delete_selected_messages">Ausgewählte %1$d Nachrichten löschen?</string>
+    <string name="confirm_delete_selected_events">Ausgewählte %1$d Ereignisse löschen?</string>
+    <string name="confirm_delete_selected_things">Ausgewählte %1$d Objekte löschen?</string>
+    <string name="message_deleted_selected_count">%1$d Einträge gelöscht</string>
+    <string name="message_marked_read_selected_count">%1$d Nachrichten als gelesen markiert</string>
+    <string name="label_got_it">Verstanden</string>
+    <string name="dialog_private_channel_whitelist_title">PushGo im Hintergrund aktiv halten</string>
+    <string name="dialog_private_channel_whitelist_body">Der private Kanal benötigt eine dauerhafte Hintergrundverbindung. Bitte PushGo zur System-Akku-/Hintergrund-Whitelist hinzufügen und aggressive Bereinigung deaktivieren, sonst können Nachrichten verzögert eintreffen oder verloren gehen.</string>
 </resources>

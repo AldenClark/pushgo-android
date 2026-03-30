@@ -74,6 +74,9 @@ fun PushGoAppRoot(
     var pendingThingIdToOpen by remember { mutableStateOf<String?>(null) }
     var openedEntityType by remember { mutableStateOf<String?>(null) }
     var openedEntityId by remember { mutableStateOf<String?>(null) }
+    var messageBatchMode by remember { mutableStateOf(false) }
+    var eventBatchMode by remember { mutableStateOf(false) }
+    var thingBatchMode by remember { mutableStateOf(false) }
     val unreadCount by container.messageRepository.observeUnreadCount().collectAsState(initial = 0)
     val eventCount by container.entityRepository.observeEventCount().collectAsState(initial = 0)
     val eventRefreshToken by container.entityRepository.observeEventRefreshToken().collectAsState(initial = 0L)
@@ -128,6 +131,12 @@ fun PushGoAppRoot(
     val currentRootRoute = currentRoute.rootRoute()
     val automationRequestVersion = PushGoAutomation.requestVersion
     val showBottomBar = items.any { it.route == currentRootRoute }
+    val hideBottomBarForBatchMode = when (currentRootRoute) {
+        "messages" -> messageBatchMode
+        "events" -> eventBatchMode
+        "things" -> thingBatchMode
+        else -> false
+    }
     val navBarColor = if (useDarkTheme) DarkNavigationBar else LightNavigationBar
 
     LaunchedEffect(startIntent) {
@@ -474,7 +483,7 @@ fun PushGoAppRoot(
 
     Scaffold(
         bottomBar = {
-            if (showBottomBar) {
+            if (showBottomBar && !hideBottomBarForBatchMode) {
                 NavigationBar(
                     modifier = Modifier.testTag("nav.bottom"),
                     containerColor = navBarColor,
@@ -515,10 +524,13 @@ fun PushGoAppRoot(
             initialRoute = initialRoute,
             padding = padding,
             onMessageClick = { selectedMessageId = it },
+            onMessageBatchModeChanged = { messageBatchMode = it },
             eventCount = eventCount,
             eventRefreshToken = eventRefreshToken,
+            onEventBatchModeChanged = { eventBatchMode = it },
             thingCount = thingCount,
             thingRefreshToken = thingRefreshToken,
+            onThingBatchModeChanged = { thingBatchMode = it },
             pendingEventIdToOpen = pendingEventIdToOpen,
             onPendingEventOpened = { pendingEventIdToOpen = null },
             onEventDetailOpened = { eventId ->
@@ -569,10 +581,13 @@ private fun PushGoNavHost(
     initialRoute: String,
     padding: PaddingValues,
     onMessageClick: (String) -> Unit,
+    onMessageBatchModeChanged: (Boolean) -> Unit,
     eventCount: Int,
     eventRefreshToken: Long,
+    onEventBatchModeChanged: (Boolean) -> Unit,
     thingCount: Int,
     thingRefreshToken: Long,
+    onThingBatchModeChanged: (Boolean) -> Unit,
     pendingEventIdToOpen: String?,
     onPendingEventOpened: () -> Unit,
     onEventDetailOpened: (String) -> Unit,
@@ -594,6 +609,7 @@ private fun PushGoNavHost(
                     container = container,
                     factory = factory,
                     onMessageClick = onMessageClick,
+                    onBatchModeChanged = onMessageBatchModeChanged,
                 )
             }
         }
@@ -614,6 +630,7 @@ private fun PushGoNavHost(
                     onOpenEventHandled = onPendingEventOpened,
                     onEventDetailOpened = onEventDetailOpened,
                     onEventDetailClosed = onEventDetailClosed,
+                    onBatchModeChanged = onEventBatchModeChanged,
                 )
             }
         }
@@ -626,6 +643,7 @@ private fun PushGoNavHost(
                     onOpenThingHandled = onPendingThingOpened,
                     onThingDetailOpened = onThingDetailOpened,
                     onThingDetailClosed = onThingDetailClosed,
+                    onBatchModeChanged = onThingBatchModeChanged,
                 )
             }
         }

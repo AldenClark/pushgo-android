@@ -1,6 +1,11 @@
 package io.ethan.pushgo.ui.screens
 
+import androidx.compose.material.icons.outlined.Check
+import androidx.compose.material.icons.outlined.Checklist
+import androidx.compose.material.icons.outlined.CheckCircle
+import androidx.compose.material.icons.outlined.Circle
 import androidx.compose.foundation.gestures.Orientation
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.draggable
 import androidx.compose.foundation.gestures.rememberDraggableState
 import androidx.compose.foundation.layout.offset
@@ -8,20 +13,27 @@ import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.DeleteSweep
 import androidx.compose.material.icons.outlined.Email
 import androidx.compose.material.icons.outlined.MarkEmailRead
+import androidx.compose.material.icons.outlined.SelectAll
 import android.content.Context
 import android.content.Intent
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.paging.compose.collectAsLazyPagingItems
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
@@ -30,6 +42,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -38,12 +51,19 @@ import androidx.compose.material.icons.filled.FilterList as FilledFilterList
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material.icons.outlined.FilterList as OutlinedFilterList
+import androidx.compose.material3.BottomSheetDefaults
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.rememberModalBottomSheetState
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
@@ -61,9 +81,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInWindow
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.AnnotatedString
@@ -104,17 +129,24 @@ import kotlin.math.roundToInt
 import android.os.Build
 import android.text.format.DateFormat
 import android.text.format.DateUtils
+import androidx.activity.compose.BackHandler
+import androidx.compose.material.icons.filled.CheckCircle
 import io.ethan.pushgo.data.model.ReadFilter
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Checkbox
+import androidx.compose.material3.TextButton
 
 private val ScreenHorizontalPadding = 12.dp
 private const val MessageListImagePreviewMaxItems = 3
 
+@OptIn(ExperimentalFoundationApi::class, ExperimentalMaterial3Api::class)
 @Composable
 fun MessageListScreen(
     navController: NavHostController,
     container: AppContainer,
     factory: PushGoViewModelFactory,
     onMessageClick: (String) -> Unit,
+    onBatchModeChanged: (Boolean) -> Unit,
 ) {
     val viewModel: MessageListViewModel = viewModel(factory = factory)
     val searchViewModel: MessageSearchViewModel = viewModel(factory = factory)
@@ -124,9 +156,121 @@ fun MessageListScreen(
     val query by searchViewModel.queryState.collectAsState()
     val searchResults by searchViewModel.results.collectAsState()
     val context = LocalContext.current
+    val appContext = context.applicationContext
+    val haptic = LocalHapticFeedback.current
     val scope = rememberCoroutineScope()
     val lifecycleOwner = LocalLifecycleOwner.current
+    val listState = rememberLazyListState()
     var channelNameMap by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
+    var isSelectionMode by remember { mutableStateOf(false) }
+    var selectedMessageIds by remember { mutableStateOf(emptySet<String>()) }
+    var initialSelectionStateForDrag by remember { mutableStateOf<Boolean?>(null) }
+    var showBatchDeleteConfirmation by remember { mutableStateOf(false) }
+    var listTopInWindow by remember { mutableFloatStateOf(0f) }
+    var selectionRailTopInWindow by remember { mutableFloatStateOf(0f) }
+
+    fun exitSelectionMode() {
+        isSelectionMode = false
+        selectedMessageIds = emptySet<String>()
+        initialSelectionStateForDrag = null
+    }
+
+    fun toggleSelection(messageId: String) {
+        selectedMessageIds = if (selectedMessageIds.contains(messageId)) {
+            selectedMessageIds - messageId
+        } else {
+            selectedMessageIds + messageId
+        }
+        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+    }
+
+    fun selectIfNeeded(messageId: String) {
+        if (!selectedMessageIds.contains(messageId)) {
+            selectedMessageIds = selectedMessageIds + messageId
+            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+        }
+    }
+
+    fun messageById(messageId: String): PushMessage? {
+        return if (query.isBlank()) {
+            messages.itemSnapshotList.items.firstOrNull { it.id == messageId }
+        } else {
+            searchResults.firstOrNull { it.id == messageId }
+        }
+    }
+
+    fun messageIdForVisibleItemIndex(itemIndex: Int): String? {
+        val rowIndex = itemIndex - 1
+        if (rowIndex < 0) return null
+        return if (query.isBlank()) {
+            if (rowIndex < messages.itemCount) {
+                messages.peek(rowIndex)?.id
+            } else {
+                null
+            }
+        } else {
+            searchResults.getOrNull(rowIndex)?.id
+        }
+    }
+
+    fun updateSelectionAtRailY(railLocalY: Float, targetState: Boolean) {
+        val listLocalY = railLocalY + (selectionRailTopInWindow - listTopInWindow)
+        val target = listState.layoutInfo.visibleItemsInfo.firstOrNull { item ->
+            listLocalY in item.offset.toFloat()..(item.offset + item.size).toFloat()
+        }
+        val messageId = target?.index?.let { index -> messageIdForVisibleItemIndex(index) }
+        if (messageId != null) {
+            val isSelected = selectedMessageIds.contains(messageId)
+            if (isSelected != targetState) {
+                selectedMessageIds = if (targetState) {
+                    selectedMessageIds + messageId
+                } else {
+                    selectedMessageIds - messageId
+                }
+                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+            }
+        }
+    }
+
+    suspend fun deleteSelectedMessages() {
+        val ids = selectedMessageIds.toList()
+        if (ids.isEmpty()) return
+        ids.forEach { messageId ->
+            container.messageStateCoordinator.deleteMessage(messageId)
+        }
+        announceForAccessibility(
+            context,
+            appContext.getString(R.string.message_deleted_selected_count, ids.size),
+        )
+        exitSelectionMode()
+    }
+
+    suspend fun markSelectedMessagesRead() {
+        val unreadIds = selectedMessageIds.filter { id ->
+            messageById(id)?.isRead == false
+        }
+        if (unreadIds.isEmpty()) return
+        unreadIds.forEach { messageId ->
+            viewModel.markRead(messageId)
+        }
+        announceForAccessibility(
+            context,
+            appContext.getString(R.string.message_marked_read_selected_count, unreadIds.size),
+        )
+        exitSelectionMode()
+    }
+
+    BackHandler(enabled = isSelectionMode) {
+        exitSelectionMode()
+    }
+
+    LaunchedEffect(isSelectionMode) {
+        onBatchModeChanged(isSelectionMode)
+    }
+
+    DisposableEffect(Unit) {
+        onDispose { onBatchModeChanged(false) }
+    }
 
     LaunchedEffect(Unit) {
         channelNameMap = container.channelRepository.loadSubscriptionLookup(includeDeleted = true)
@@ -147,6 +291,7 @@ fun MessageListScreen(
     }
 
     val unreadOnlySelected = filterState.readFilter == ReadFilter.UNREAD
+    val selectedHasUnread = selectedMessageIds.any { id -> messageById(id)?.isRead == false }
     val channelOptions = remember(channelCounts) {
         channelCounts.map { it.channel.trim() }.distinct()
     }
@@ -161,119 +306,176 @@ fun MessageListScreen(
         )
     }
 
-    LazyColumn(
-        modifier = Modifier
-            .fillMaxWidth()
-            .background(MaterialTheme.colorScheme.background),
-        verticalArrangement = Arrangement.spacedBy(0.dp),
-    ) {
+    Box(modifier = Modifier.fillMaxSize()) {
+        LazyColumn(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(MaterialTheme.colorScheme.background)
+                .onGloballyPositioned { coordinates ->
+                    listTopInWindow = coordinates.positionInWindow().y
+                },
+            state = listState,
+            verticalArrangement = Arrangement.spacedBy(0.dp),
+        ) {
         item {
             Column(modifier = Modifier.fillMaxWidth()) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = ScreenHorizontalPadding, vertical = 16.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    var searchMenuExpanded by remember { mutableStateOf(false) }
+                if (isSelectionMode) {
                     Row(
                         modifier = Modifier
-                            .weight(1f)
-                            .heightIn(min = 56.dp)
-                            .clip(RoundedCornerShape(24.dp))
-                            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
+                            .fillMaxWidth()
+                            .padding(horizontal = ScreenHorizontalPadding, vertical = 16.dp),
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
-                        Spacer(modifier = Modifier.width(16.dp))
-                        Icon(
-                            Icons.Default.Search,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                        Text(
+                            text = stringResource(R.string.label_selected_count, selectedMessageIds.size),
+                            style = MaterialTheme.typography.titleMedium,
+                            modifier = Modifier.weight(1f),
                         )
-                        TextField(
-                            value = query,
-                            onValueChange = searchViewModel::updateQuery,
-                            placeholder = {
-                                Text(
-                                    stringResource(R.string.label_search),
-                                    style = MaterialTheme.typography.bodyLarge,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
-                                )
-                            },
-                            modifier = Modifier
-                                .weight(1f)
-                                .testTag("field.message.search"),
-                            colors = TextFieldDefaults.colors(
-                                focusedContainerColor = Color.Transparent,
-                                unfocusedContainerColor = Color.Transparent,
-                                disabledContainerColor = Color.Transparent,
-                                focusedIndicatorColor = Color.Transparent,
-                                unfocusedIndicatorColor = Color.Transparent,
-                            ),
-                            singleLine = true,
-                        )
-
-                        Box {
-                            IconButton(
-                                modifier = Modifier.testTag("action.message.list.channel_filter"),
-                                onClick = { searchMenuExpanded = true },
-                            ) {
-                                Icon(
-                                    imageVector = if (filterState.channel == null) Icons.Outlined.OutlinedFilterList else Icons.Filled.FilledFilterList,
-                                    contentDescription = stringResource(R.string.label_channel_id),
-                                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
-                                )
-                            }
-                            DropdownMenu(
-                                expanded = searchMenuExpanded,
-                                onDismissRequest = { searchMenuExpanded = false }
-                            ) {
-                                ChannelFilterMenuOption(
-                                    title = stringResource(R.string.label_channel_all),
-                                    isSelected = filterState.channel == null,
-                                    modifier = Modifier.testTag("filter.message.channel.all"),
-                                ) {
-                                        viewModel.setChannel(null)
-                                        searchMenuExpanded = false
-                                    }
-                                val ungroupedLabel = stringResource(R.string.label_group_ungrouped)
-                                channelOptions.forEach { channel ->
-                                    val displayName = if (channel.isBlank()) {
-                                        ungroupedLabel
-                                    } else {
-                                        channelNameMap[channel] ?: channel
-                                    }
-                                    ChannelFilterMenuOption(
-                                        title = displayName,
-                                        isSelected = filterState.channel == channel,
-                                        modifier = Modifier.testTag(
-                                            "filter.message.channel.${channel.ifBlank { "ungrouped" }}"
-                                        ),
-                                    ) {
-                                            viewModel.setChannel(channel)
-                                            searchMenuExpanded = false
-                                        }
-                                }
-                            }
-                        }
                         IconButton(
-                            modifier = Modifier.testTag("action.message.list.unread_only"),
+                            enabled = selectedHasUnread,
                             onClick = {
-                                viewModel.setReadFilter(
-                                    if (unreadOnlySelected) ReadFilter.ALL else ReadFilter.UNREAD
-                                )
+                                scope.launch { markSelectedMessagesRead() }
                             },
                         ) {
                             Icon(
-                                imageVector = if (unreadOnlySelected) {
-                                    Icons.Filled.Email
-                                } else {
-                                    Icons.Outlined.Email
-                                },
-                                contentDescription = stringResource(R.string.filter_unread),
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                                imageVector = Icons.Outlined.MarkEmailRead,
+                                contentDescription = stringResource(R.string.action_mark_read),
                             )
+                        }
+                        IconButton(
+                            enabled = selectedMessageIds.isNotEmpty(),
+                            onClick = { showBatchDeleteConfirmation = true },
+                        ) {
+                            Icon(
+                                imageVector = Icons.Outlined.Delete,
+                                contentDescription = stringResource(R.string.action_delete),
+                            )
+                        }
+                        TextButton(onClick = { exitSelectionMode() }) {
+                            Text(text = stringResource(R.string.label_cancel))
+                        }
+                    }
+                } else {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = ScreenHorizontalPadding, vertical = 16.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        var searchMenuExpanded by remember { mutableStateOf(false) }
+                        Row(
+                            modifier = Modifier
+                                .weight(1f)
+                                .heightIn(min = 56.dp)
+                                .clip(RoundedCornerShape(24.dp))
+                                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Spacer(modifier = Modifier.width(16.dp))
+                            Icon(
+                                Icons.Default.Search,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                            )
+                            TextField(
+                                value = query,
+                                onValueChange = searchViewModel::updateQuery,
+                                placeholder = {
+                                    Text(
+                                        stringResource(R.string.label_search),
+                                        style = MaterialTheme.typography.bodyLarge,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                                    )
+                                },
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .testTag("field.message.search"),
+                                colors = TextFieldDefaults.colors(
+                                    focusedContainerColor = Color.Transparent,
+                                    unfocusedContainerColor = Color.Transparent,
+                                    disabledContainerColor = Color.Transparent,
+                                    focusedIndicatorColor = Color.Transparent,
+                                    unfocusedIndicatorColor = Color.Transparent,
+                                ),
+                                singleLine = true,
+                            )
+
+                            Box {
+                                IconButton(
+                                    modifier = Modifier.testTag("action.message.list.channel_filter"),
+                                    onClick = { searchMenuExpanded = true },
+                                ) {
+                                    val hasActiveFilter = filterState.channel != null || filterState.readFilter == ReadFilter.UNREAD
+                                    Icon(
+                                        imageVector = if (!hasActiveFilter) Icons.Outlined.OutlinedFilterList else Icons.Filled.FilledFilterList,
+                                        contentDescription = stringResource(R.string.label_channel_id),
+                                        tint = if (hasActiveFilter) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                                    )
+                                }
+
+                                DropdownMenu(
+                                    expanded = searchMenuExpanded,
+                                    onDismissRequest = { searchMenuExpanded = false },
+                                    modifier = Modifier.width(200.dp)
+                                ) {
+                                    // Toggle Status: Unread
+                                    DropdownMenuItem(
+                                        text = { Text(stringResource(R.string.filter_unread)) },
+                                        onClick = {
+                                            val newFilter = if (filterState.readFilter == ReadFilter.UNREAD) ReadFilter.ALL else ReadFilter.UNREAD
+                                            viewModel.setReadFilter(newFilter)
+                                            searchMenuExpanded = false
+                                        },
+                                        trailingIcon = {
+                                            if (filterState.readFilter == ReadFilter.UNREAD) {
+                                                Icon(Icons.Outlined.Check, null, modifier = Modifier.size(18.dp))
+                                            }
+                                        }
+                                    )
+
+                                    if (channelOptions.isNotEmpty()) {
+                                        HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+
+                                        val ungroupedLabel = stringResource(R.string.label_group_ungrouped)
+                                        channelOptions.forEach { channel ->
+                                            val displayName = if (channel.isBlank()) {
+                                                ungroupedLabel
+                                            } else {
+                                                channelNameMap[channel] ?: channel
+                                            }
+                                            DropdownMenuItem(
+                                                text = { Text(displayName, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                                                onClick = {
+                                                    val newChannel = if (filterState.channel == channel) null else channel
+                                                    viewModel.setChannel(newChannel)
+                                                    searchMenuExpanded = false
+                                                },
+                                                trailingIcon = {
+                                                    if (filterState.channel == channel) {
+                                                        Icon(Icons.Outlined.Check, null, modifier = Modifier.size(18.dp))
+                                                    }
+                                                }
+                                            )
+                                        }
+                                    }
+                                }
+
+                            }
+
+                            IconButton(
+                                onClick = {
+                                    isSelectionMode = true
+                                    selectedMessageIds = emptySet()
+                                },
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Outlined.Checklist,
+                                    contentDescription = stringResource(R.string.action_batch_select),
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                                )
+                            }
                         }
                     }
                 }
@@ -327,9 +529,18 @@ fun MessageListScreen(
                             modifier = Modifier.testTag("message.row.${message.id}"),
                             message = message,
                             imageModels = listImageModels,
-                            onClick = { onMessageClick(message.id) },
+                            onClick = {
+                                if (isSelectionMode) {
+                                    toggleSelection(message.id)
+                                } else {
+                                    onMessageClick(message.id)
+                                }
+                            },
                             onMarkRead = { viewModel.markRead(message.id) },
                             onDelete = { viewModel.deleteMessage(message.id) },
+                            selectionMode = isSelectionMode,
+                            selected = selectedMessageIds.contains(message.id),
+                            onToggleSelection = { toggleSelection(message.id) },
                         )
                     }
                 }
@@ -345,16 +556,127 @@ fun MessageListScreen(
                         modifier = Modifier.testTag("message.row.${message.id}"),
                         message = message,
                         imageModels = listImageModels,
-                        onClick = { onMessageClick(message.id) },
+                        onClick = {
+                            if (isSelectionMode) {
+                                toggleSelection(message.id)
+                            } else {
+                                onMessageClick(message.id)
+                            }
+                        },
                         onMarkRead = { viewModel.markRead(message.id) },
                         onDelete = { viewModel.deleteMessage(message.id) },
+                        selectionMode = isSelectionMode,
+                        selected = selectedMessageIds.contains(message.id),
+                        onToggleSelection = { toggleSelection(message.id) },
                     )
                 }
             }
         }
         item { Spacer(modifier = Modifier.height(24.dp)) }
+        }
+
+        if (isSelectionMode) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopStart)
+                    .fillMaxHeight()
+                    .width(72.dp)
+                    .onGloballyPositioned { coordinates ->
+                        selectionRailTopInWindow = coordinates.positionInWindow().y
+                    }
+                    .pointerInput(query, searchResults.size, messages.itemCount, listTopInWindow, selectionRailTopInWindow) {
+                        detectDragGestures(
+                            onDragStart = { point ->
+                                val listLocalY = point.y + (selectionRailTopInWindow - listTopInWindow)
+                                val target = listState.layoutInfo.visibleItemsInfo.firstOrNull { item ->
+                                    listLocalY in item.offset.toFloat()..(item.offset + item.size).toFloat()
+                                }
+                                val rowIndex = target?.index
+                                val messageId = rowIndex?.let { index -> messageIdForVisibleItemIndex(index) }
+                                if (messageId != null) {
+                                    val isSelected = selectedMessageIds.contains(messageId)
+                                    initialSelectionStateForDrag = !isSelected
+                                    updateSelectionAtRailY(point.y, !isSelected)
+                                }
+                            },
+                            onDrag = { change, _ ->
+                                initialSelectionStateForDrag?.let { targetState ->
+                                    updateSelectionAtRailY(change.position.y, targetState)
+                                }
+                            },
+                            onDragEnd = { initialSelectionStateForDrag = null },
+                            onDragCancel = { initialSelectionStateForDrag = null }
+                        )
+                    },
+            )
+        }
     }
 
+    if (showBatchDeleteConfirmation) {
+        AlertDialog(
+            onDismissRequest = { showBatchDeleteConfirmation = false },
+            title = { Text(text = stringResource(R.string.action_delete)) },
+            text = { Text(text = stringResource(R.string.confirm_delete_selected_messages, selectedMessageIds.size)) },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showBatchDeleteConfirmation = false
+                        scope.launch { deleteSelectedMessages() }
+                    },
+                ) {
+                    Text(text = stringResource(R.string.label_confirm))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showBatchDeleteConfirmation = false }) {
+                    Text(text = stringResource(R.string.label_cancel))
+                }
+            },
+        )
+    }
+
+}
+
+@Composable
+private fun FilterOptionItem(
+    title: String,
+    isSelected: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    trailingText: String? = null,
+) {
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .heightIn(min = 52.dp)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 24.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        Text(
+            text = title,
+            style = MaterialTheme.typography.bodyLarge,
+            color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
+            fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
+            modifier = Modifier.weight(1f)
+        )
+        if (trailingText != null) {
+            Text(
+                text = trailingText,
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+            )
+        }
+        if (isSelected) {
+            Icon(
+                imageVector = Icons.Outlined.Check,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(24.dp)
+            )
+        }
+    }
 }
 
 @Composable
@@ -416,6 +738,32 @@ private fun ChannelFilterMenuOption(
 }
 
 @Composable
+private fun MessageSelectionToggle(
+    selected: Boolean,
+    onToggle: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Box(
+        modifier = modifier
+            .size(40.dp)
+            .clickable(
+                interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
+                indication = androidx.compose.material3.ripple(bounded = false, radius = 20.dp),
+                onClick = onToggle
+            ),
+        contentAlignment = Alignment.Center
+    ) {
+        Icon(
+            imageVector = if (selected) Icons.Filled.CheckCircle else Icons.Outlined.Circle,
+            contentDescription = null,
+            tint = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline,
+            modifier = Modifier.size(24.dp)
+        )
+    }
+}
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
 private fun MessageRow(
     modifier: Modifier = Modifier,
     message: PushMessage,
@@ -423,8 +771,12 @@ private fun MessageRow(
     onClick: () -> Unit,
     onMarkRead: () -> Unit,
     onDelete: () -> Unit,
+    selectionMode: Boolean,
+    selected: Boolean,
+    onToggleSelection: () -> Unit,
 ) {
     val density = LocalDensity.current
+    val haptic = LocalHapticFeedback.current
     val hasMarkReadAction = !message.isRead
     val actionWidth = if (hasMarkReadAction) 140.dp else 72.dp
     val actionWidthPx = with(density) { actionWidth.toPx() }
@@ -447,85 +799,127 @@ private fun MessageRow(
             .fillMaxWidth()
             .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f))
     ) {
-        Row(
-            modifier = Modifier
-                .matchParentSize()
-                .padding(end = 16.dp),
-            horizontalArrangement = Arrangement.End,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            if (hasMarkReadAction) {
+        if (!selectionMode) {
+            Row(
+                modifier = Modifier
+                    .matchParentSize()
+                    .padding(end = 16.dp),
+                horizontalArrangement = Arrangement.End,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                if (hasMarkReadAction) {
+                    Box(
+                        modifier = Modifier
+                            .testTag("action.message.row.${message.id}.mark_read")
+                            .size(40.dp)
+                            .clip(CircleShape)
+                            .background(MaterialTheme.colorScheme.secondaryContainer)
+                            .clickable {
+                                offsetX = 0f
+                                onMarkRead()
+                            },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Outlined.MarkEmailRead,
+                            contentDescription = stringResource(R.string.action_mark_read),
+                            tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(12.dp))
+                }
                 Box(
                     modifier = Modifier
-                        .testTag("action.message.row.${message.id}.mark_read")
+                        .testTag("action.message.row.${message.id}.delete")
                         .size(40.dp)
                         .clip(CircleShape)
-                        .background(MaterialTheme.colorScheme.secondaryContainer)
+                        .background(MaterialTheme.colorScheme.errorContainer)
                         .clickable {
                             offsetX = 0f
-                            onMarkRead()
+                            onDelete()
                         },
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
-                        imageVector = Icons.Outlined.MarkEmailRead,
-                        contentDescription = stringResource(R.string.action_mark_read),
-                        tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                        imageVector = Icons.Outlined.Delete,
+                        contentDescription = stringResource(R.string.action_delete),
+                        tint = MaterialTheme.colorScheme.onErrorContainer,
                         modifier = Modifier.size(20.dp)
                     )
                 }
-                Spacer(modifier = Modifier.width(12.dp))
-            }
-            Box(
-                modifier = Modifier
-                    .testTag("action.message.row.${message.id}.delete")
-                    .size(40.dp)
-                    .clip(CircleShape)
-                    .background(MaterialTheme.colorScheme.errorContainer)
-                    .clickable {
-                        offsetX = 0f
-                        onDelete()
-                    },
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                    imageVector = Icons.Outlined.Delete,
-                    contentDescription = stringResource(R.string.action_delete),
-                    tint = MaterialTheme.colorScheme.onErrorContainer,
-                    modifier = Modifier.size(20.dp)
-                )
             }
         }
         Column(
             modifier = Modifier
                 .offset { IntOffset(offsetX.roundToInt(), 0) }
                 .fillMaxWidth()
-                .background(MaterialTheme.colorScheme.surface)
+                .background(
+                    if (selected) {
+                        MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f)
+                    } else {
+                        MaterialTheme.colorScheme.surface
+                    }
+                )
                 .testTag("message.row.content.${message.id}")
-                .clickable { onClick() }
+                .combinedClickable(
+                    onClick = {
+                        if (selectionMode) {
+                            onToggleSelection()
+                        } else {
+                            onClick()
+                        }
+                    },
+                    onLongClick = {
+                        if (!selectionMode) {
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            onToggleSelection()
+                        }
+                    }
+                )
                 .semantics(mergeDescendants = true) {
                     if (!message.isRead) {
                         stateDescription = unreadStateLabel
                     }
                 }
-                .draggable(
-                    orientation = Orientation.Horizontal,
-                    state = rememberDraggableState { delta ->
-                        offsetX = (offsetX + delta).coerceIn(-actionWidthPx, 0f)
-                    },
-                    onDragStopped = {
-                        offsetX = if (offsetX < -actionWidthPx / 2) -actionWidthPx else 0f
+                .then(
+                    if (selectionMode) {
+                        Modifier
+                    } else {
+                        Modifier.draggable(
+                            orientation = Orientation.Horizontal,
+                            state = rememberDraggableState { delta ->
+                                offsetX = (offsetX + delta).coerceIn(-actionWidthPx, 0f)
+                            },
+                            onDragStopped = {
+                                offsetX = if (offsetX < -actionWidthPx / 2) -actionWidthPx else 0f
+                            }
+                        )
                     }
                 )
                 .padding(horizontal = ScreenHorizontalPadding, vertical = 12.dp)
         ) {
-            MessageRowContent(
-                message = message,
-                imageModels = imageModels,
-                appName = appName,
-                timeText = timeText,
-                bodyPreview = bodyPreview,
-            )
+            Row(
+                verticalAlignment = Alignment.Top,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                if (selectionMode) {
+                    MessageSelectionToggle(
+                        selected = selected,
+                        onToggle = onToggleSelection,
+                        modifier = Modifier.padding(top = 2.dp)
+                    )
+                }
+                Column(modifier = Modifier.weight(1f)) {
+                    MessageRowContent(
+                        message = message,
+                        imageModels = imageModels,
+                        appName = appName,
+                        timeText = timeText,
+                        bodyPreview = bodyPreview,
+                    )
+                }
+            }
         }
     }
 
