@@ -120,10 +120,6 @@ jobs:
         shell: bash
         run: ./gradlew --no-daemon clean :app:assembleRelease
 
-      - name: Build release bundle
-        shell: bash
-        run: ./gradlew --no-daemon :app:bundleRelease -Ppushgo.enableAbiSplits=false
-
       - name: Verify signed release artifacts
         shell: bash
         run: |
@@ -137,13 +133,6 @@ jobs:
           for file in "${apk_files[@]}"; do
             apksigner verify --verbose --print-certs "$file"
           done
-
-          bundle_file="app/build/outputs/bundle/release/app-release.aab"
-          if [ ! -f "$bundle_file" ]; then
-            echo "Signed release AAB not found" >&2
-            exit 1
-          fi
-          jarsigner -verify -verbose -certs "$bundle_file" >/dev/null
 
       - name: Package release artifacts
         id: package
@@ -162,11 +151,6 @@ jobs:
             cp "$file" "dist/${prefix}-${normalized_base}"
           done
           shopt -u nullglob
-
-          bundle_file="app/build/outputs/bundle/release/app-release.aab"
-          if [ -f "$bundle_file" ]; then
-            cp "$bundle_file" "dist/${prefix}-release.aab"
-          fi
 
           {
             echo "tag=${GITHUB_REF_NAME}"
