@@ -120,6 +120,8 @@ class SettingsViewModel(
         private set
     var successMessage by mutableStateOf<UiMessage?>(null)
         private set
+    var shouldShowPrivateChannelWhitelistDialog by mutableStateOf(false)
+        private set
 
     private var hasLoadedGatewayAddress = false
     init {
@@ -227,6 +229,7 @@ class SettingsViewModel(
 
     fun updateUseFcmChannel(context: Context, enabled: Boolean) {
         viewModelScope.launch {
+            val previousUseFcmChannel = useFcmChannel
             isFcmSupported = isFcmSupported(context)
             if (!enabled) {
                 val privateEnabled = privateChannelClient.gatewayPrivateChannelEnabled()
@@ -270,6 +273,9 @@ class SettingsViewModel(
                 settingsRepository.setFcmToken(null)
                 privateChannelClient.setRuntime(fcmAvailable = false, systemToken = null)
                 PrivateChannelServiceManager.refreshForMode(context, false)
+                if (previousUseFcmChannel) {
+                    shouldShowPrivateChannelWhitelistDialog = true
+                }
             }
         }
     }
@@ -379,10 +385,12 @@ class SettingsViewModel(
         viewModelScope.launch {
             isSavingGateway = true
             try {
-                val previousAddress = settingsRepository.getServerAddress()
-                    ?.trim()
-                    ?.ifEmpty { null }
-                    ?: AppConstants.defaultServerAddress
+                val previousAddress = UrlValidators.normalizeGatewayBaseUrl(
+                    settingsRepository.getServerAddress()
+                        ?.trim()
+                        ?.ifEmpty { null }
+                        ?: AppConstants.defaultServerAddress
+                ) ?: AppConstants.defaultServerAddress
                 val previousToken = settingsRepository.getGatewayToken()
                     ?.trim()
                     ?.ifEmpty { null }
@@ -396,6 +404,14 @@ class SettingsViewModel(
                     return@launch
                 }
                 val token = gatewayToken.trim().ifBlank { null }
+                val oldIdentity = "${previousAddress}|${previousToken.orEmpty()}"
+                val newIdentity = "${normalizedAddress}|${token.orEmpty()}"
+                if (oldIdentity == newIdentity) {
+                    gatewayAddress = normalizedAddress
+                    gatewayToken = token.orEmpty()
+                    successMessage = ResMessage(R.string.message_gateway_saved)
+                    return@launch
+                }
                 settingsRepository.setServerAddress(normalizedAddress)
                 settingsRepository.setGatewayToken(token)
                 gatewayAddress = normalizedAddress
@@ -436,8 +452,6 @@ class SettingsViewModel(
                 activeFcmToken?.let {
                     channelRepository.syncSubscriptionsIfNeeded(it)
                 }
-                val oldIdentity = "${previousAddress}|${previousToken.orEmpty()}"
-                val newIdentity = "${normalizedAddress}|${token.orEmpty()}"
                 if (oldIdentity != newIdentity) {
                     privateChannelClient.onGatewayConfigChanged()
                 }
@@ -807,6 +821,10 @@ class SettingsViewModel(
 
     fun consumeSuccess() {
         successMessage = null
+    }
+
+    fun consumePrivateChannelWhitelistDialog() {
+        shouldShowPrivateChannelWhitelistDialog = false
     }
 
     private fun Throwable.toUiErrorMessage(@StringRes fallbackResId: Int): UiMessage {

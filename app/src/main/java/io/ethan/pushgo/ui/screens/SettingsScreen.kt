@@ -37,6 +37,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
@@ -45,15 +46,15 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -151,27 +152,35 @@ fun SettingsScreen(
     Scaffold(
         modifier = Modifier.testTag("screen.settings.content"),
         topBar = {
-            TopAppBar(
-                title = {
-                    Text(
-                        text = stringResource(R.string.tab_settings),
-                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
-                    )
-                },
-                navigationIcon = {
+            Column(
+                modifier = Modifier.background(MaterialTheme.colorScheme.background),
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 4.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
                     if (onBackClick != null) {
                         IconButton(onClick = onBackClick) {
                             Icon(
                                 imageVector = Icons.AutoMirrored.Filled.ArrowBack,
                                 contentDescription = stringResource(R.string.label_back),
+                                tint = MaterialTheme.colorScheme.onSurface,
                             )
                         }
                     }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = PushGoSheetContainerColor(),
-                ),
-            )
+                    Text(
+                        text = stringResource(R.string.tab_settings),
+                        style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Normal),
+                        modifier = Modifier
+                            .weight(1f)
+                            .semantics { heading() },
+                        color = MaterialTheme.colorScheme.onSurface,
+                    )
+                }
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.2f))
+            }
         },
     ) { scaffoldPadding ->
         LazyColumn(
@@ -232,7 +241,7 @@ fun SettingsScreen(
                 item {
                     SettingsRow(
                         testTag = "row.settings.private_transport",
-                        icon = Icons.Outlined.Info,
+                        icon = Icons.Outlined.NotificationsActive,
                         title = stringResource(R.string.label_private_transport_status),
                         subtitle = viewModel.privateTransportStatus,
                         onClick = null,
@@ -242,7 +251,7 @@ fun SettingsScreen(
             item {
                 SettingsRow(
                     testTag = "row.settings.connection_diagnosis",
-                    icon = Icons.Outlined.Info,
+                    icon = Icons.Outlined.Dns,
                     title = stringResource(R.string.label_connection_diagnosis),
                     subtitle = stringResource(R.string.label_connection_diagnosis_hint),
                     onClick = onOpenConnectionDiagnosis,
@@ -327,12 +336,6 @@ fun SettingsScreen(
                     text = stringResource(R.string.section_decryption),
                     style = MaterialTheme.typography.titleLarge,
                 )
-                Text(
-                    text = stringResource(R.string.label_decryption_hint),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(top = 6.dp, bottom = 16.dp),
-                )
                 DecryptionKeyForm(
                     viewModel = viewModel,
                     onSave = {
@@ -340,7 +343,9 @@ fun SettingsScreen(
                         showDecryptionSheet = false
                     },
                     fillRemaining = false,
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 12.dp),
                 )
             }
         }
@@ -370,6 +375,18 @@ fun SettingsScreen(
         }
     }
 
+    if (viewModel.shouldShowPrivateChannelWhitelistDialog) {
+        AlertDialog(
+            onDismissRequest = viewModel::consumePrivateChannelWhitelistDialog,
+            title = { Text(text = stringResource(R.string.dialog_private_channel_whitelist_title)) },
+            text = { Text(text = stringResource(R.string.dialog_private_channel_whitelist_body)) },
+            confirmButton = {
+                TextButton(onClick = viewModel::consumePrivateChannelWhitelistDialog) {
+                    Text(text = stringResource(R.string.label_got_it))
+                }
+            },
+        )
+    }
 }
 
 @Composable
@@ -746,37 +763,87 @@ private fun isFcmSupported(context: Context): Boolean {
 private fun GatewaySection(viewModel: SettingsViewModel) {
     val context = LocalContext.current
     Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 24.dp, vertical = 12.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(20.dp),
     ) {
-        OutlinedTextField(
+        GatewaySheetInputField(
             value = viewModel.gatewayAddress,
             onValueChange = viewModel::updateGatewayAddress,
-            label = { Text(stringResource(R.string.label_server_address)) },
+            labelText = stringResource(R.string.label_server_address),
             modifier = Modifier
                 .fillMaxWidth()
                 .testTag("field.settings.gateway.address"),
-            singleLine = true,
         )
-        OutlinedTextField(
+        GatewaySheetInputField(
             value = viewModel.gatewayToken,
             onValueChange = viewModel::updateGatewayToken,
-            label = { Text(stringResource(R.string.label_server_token)) },
+            labelText = stringResource(R.string.label_server_token),
             modifier = Modifier
                 .fillMaxWidth()
                 .testTag("field.settings.gateway.token"),
-            singleLine = true,
+        )
+        Text(
+            text = stringResource(R.string.label_gateway_change_channel_reset_hint),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.fillMaxWidth(),
         )
         Button(
             onClick = { viewModel.saveGatewayConfig(context) },
             enabled = !viewModel.isSavingGateway,
             modifier = Modifier
                 .fillMaxWidth()
-                .testTag("action.settings.gateway.save"),
+                .testTag("action.settings.gateway.save")
+                .height(56.dp),
+            shape = RoundedCornerShape(28.dp),
+            colors = ButtonDefaults.buttonColors(
+                containerColor = MaterialTheme.colorScheme.primary,
+                contentColor = MaterialTheme.colorScheme.onPrimary,
+            ),
+            elevation = ButtonDefaults.buttonElevation(
+                defaultElevation = 4.dp,
+                pressedElevation = 2.dp,
+            ),
         ) {
             Text(stringResource(R.string.label_save_gateway))
         }
     }
+}
+
+@Composable
+private fun GatewaySheetInputField(
+    value: String,
+    onValueChange: (String) -> Unit,
+    labelText: String,
+    modifier: Modifier = Modifier,
+) {
+    OutlinedTextField(
+        value = value,
+        onValueChange = onValueChange,
+        label = {
+            Text(
+                text = labelText.uppercase(),
+                style = MaterialTheme.typography.labelMedium.copy(
+                    color = MaterialTheme.colorScheme.primary,
+                    fontWeight = FontWeight.Bold,
+                    letterSpacing = 1.0.sp,
+                ),
+            )
+        },
+        placeholder = {
+            Text(
+                text = labelText,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        },
+        modifier = modifier,
+        singleLine = true,
+        shape = RoundedCornerShape(12.dp),
+        colors = OutlinedTextFieldDefaults.colors(
+            focusedBorderColor = MaterialTheme.colorScheme.primary,
+            unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant,
+            focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
+            unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
+        ),
+    )
 }

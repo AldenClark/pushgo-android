@@ -4,8 +4,10 @@ import android.content.SharedPreferences
 import io.ethan.pushgo.data.db.AppSettingsDao
 import io.ethan.pushgo.data.db.AppSettingsEntity
 import io.ethan.pushgo.data.model.KeyEncoding
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.runBlocking
 import java.time.Instant
 
 class SettingsRepository(
@@ -13,23 +15,52 @@ class SettingsRepository(
     private val secretStore: SecureSecretStore,
     private val settingsCache: SharedPreferences,
 ) {
+    init {
+        bootstrapCacheFromDatabase()
+    }
+
     private val settingsFlow = appSettingsDao.observe()
 
     val serverAddressFlow: Flow<String?> = settingsFlow.map { it?.serverAddress }
     val messagePageEnabledFlow: Flow<Boolean> =
-        settingsFlow.map { it?.isMessagePageEnabled ?: true }
+        settingsFlow.map { it?.isMessagePageEnabled ?: getCachedMessagePageEnabled() }
     val eventPageEnabledFlow: Flow<Boolean> =
-        settingsFlow.map { it?.isEventPageEnabled ?: true }
+        settingsFlow.map { it?.isEventPageEnabled ?: getCachedEventPageEnabled() }
     val thingPageEnabledFlow: Flow<Boolean> =
-        settingsFlow.map { it?.isThingPageEnabled ?: true }
+        settingsFlow.map { it?.isThingPageEnabled ?: getCachedThingPageEnabled() }
     val useFcmChannelFlow: Flow<Boolean> =
-        settingsFlow.map { it?.useFcmChannel ?: true }
+        settingsFlow.map { it?.useFcmChannel ?: getCachedUseFcmChannel() }
 
     fun getCachedUseFcmChannel(): Boolean =
         settingsCache.getBoolean(KEY_USE_FCM_CHANNEL, true)
 
+    fun getCachedMessagePageEnabled(): Boolean =
+        settingsCache.getBoolean(KEY_MESSAGE_PAGE_ENABLED, true)
+
+    fun getCachedEventPageEnabled(): Boolean =
+        settingsCache.getBoolean(KEY_EVENT_PAGE_ENABLED, true)
+
+    fun getCachedThingPageEnabled(): Boolean =
+        settingsCache.getBoolean(KEY_THING_PAGE_ENABLED, true)
+
     private fun cacheUseFcmChannel(enabled: Boolean) {
-        settingsCache.edit().putBoolean(KEY_USE_FCM_CHANNEL, enabled).apply()
+        settingsCache.edit().putBoolean(KEY_USE_FCM_CHANNEL, enabled).commit()
+    }
+
+    private fun cachePageVisibility(settings: AppSettingsEntity) {
+        settingsCache.edit()
+            .putBoolean(KEY_MESSAGE_PAGE_ENABLED, settings.isMessagePageEnabled)
+            .putBoolean(KEY_EVENT_PAGE_ENABLED, settings.isEventPageEnabled)
+            .putBoolean(KEY_THING_PAGE_ENABLED, settings.isThingPageEnabled)
+            .commit()
+    }
+
+    private fun bootstrapCacheFromDatabase() {
+        val settings = runCatching {
+            runBlocking(Dispatchers.IO) { appSettingsDao.get() }
+        }.getOrNull() ?: return
+        cacheUseFcmChannel(settings.useFcmChannel)
+        cachePageVisibility(settings)
     }
 
     private fun defaultSettings(): AppSettingsEntity {
@@ -47,13 +78,17 @@ class SettingsRepository(
     }
 
     private suspend fun loadSettings(): AppSettingsEntity {
-        return (appSettingsDao.get() ?: defaultSettings()).also { cacheUseFcmChannel(it.useFcmChannel) }
+        return (appSettingsDao.get() ?: defaultSettings()).also {
+            cacheUseFcmChannel(it.useFcmChannel)
+            cachePageVisibility(it)
+        }
     }
 
     private suspend fun updateSettings(update: (AppSettingsEntity) -> AppSettingsEntity) {
         val updated = update(loadSettings())
         appSettingsDao.upsert(updated)
         cacheUseFcmChannel(updated.useFcmChannel)
+        cachePageVisibility(updated)
     }
 
     suspend fun setServerAddress(address: String?) {
@@ -164,9 +199,13 @@ class SettingsRepository(
         )
         appSettingsDao.upsert(defaults)
         cacheUseFcmChannel(defaults.useFcmChannel)
+        cachePageVisibility(defaults)
     }
 
     companion object {
         private const val KEY_USE_FCM_CHANNEL = "use_fcm_channel"
+        private const val KEY_MESSAGE_PAGE_ENABLED = "message_page_enabled"
+        private const val KEY_EVENT_PAGE_ENABLED = "event_page_enabled"
+        private const val KEY_THING_PAGE_ENABLED = "thing_page_enabled"
     }
 }

@@ -14,6 +14,7 @@
     <string name="label_hide_key">隐藏密钥</string>
     <string name="label_back">返回</string>
     <string name="label_image_attachment">图片附件</string><string name="label_gateway_settings">网关</string>
+    <string name="label_gateway_change_channel_reset_hint">切换网关后，当前设备上的已有频道订阅会被清空。请在新网关中手动重新创建或订阅频道。</string>
     <string name="label_channel_name">频道名称</string>
     <string name="label_channel_alias">频道别名</string>
     <string name="label_channel_id">频道 ID</string><string name="label_channel_id_copied">频道 ID 已复制</string>
@@ -48,7 +49,7 @@
     <string name="channel_list_empty_hint">请先创建或订阅频道以接收推送。</string><string name="label_notification_key">通知密钥</string>
     <string name="label_key_strength">密钥强度</string>
     <string name="label_key_strength_hint">更高的位数可提高安全性，但可能会影响解密速度。</string>
-    <string name="label_configuration">配置</string><string name="label_key_encoding_base64">Base64</string>
+    <string name="label_configuration">配置</string><string name="label_key_encoding">密钥格式</string><string name="label_key_encoding_base64">Base64</string>
     <string name="label_key_encoding_hex">Hex</string>
     <string name="label_key_encoding_plaintext">纯文本</string>
     <string name="label_app_version">应用版本</string><string name="label_app_version_format">%1$s</string>
@@ -99,6 +100,7 @@
     <string name="label_decryption_subtitle">密钥与编码</string>
     <string name="label_close">关闭</string>
     <string name="label_cancel">取消</string>
+    <string name="label_got_it">知道了</string>
     <string name="label_enable_notifications">通知已关闭</string>
     <string name="label_enable_notifications_hint">我们发现你已关闭 PushGo 通知，可能会错过新的消息、事件和对象更新。去系统设置打开通知后，回来就能第一时间收到提醒。</string>
     <string name="label_turn_on">开启</string>
@@ -131,6 +133,8 @@
     <string name="no_messages_available_to_export">没有可导出的消息</string>
     <string name="export_messages">导出消息</string>
     <string name="message_gateway_saved">网关已保存</string>
+    <string name="dialog_private_channel_whitelist_title">请保持 PushGo 后台运行</string>
+    <string name="dialog_private_channel_whitelist_body">私有通道依赖后台长连接。请将 PushGo 加入系统电池/后台白名单，并关闭激进省电清理，否则可能出现消息延迟或收不到消息。</string>
     <string name="message_decryption_saved">解密设置已保存</string><string name="message_channel_created_and_subscribed">频道已创建并订阅</string>
     <string name="message_channel_subscribed">频道已订阅</string>
     <string name="message_channel_renamed">频道已重命名</string>

@@ -16,6 +16,7 @@
     <string name="label_hide_key">Hide key</string>
     <string name="label_back">Back</string>
     <string name="label_image_attachment">Image attachment</string><string name="label_gateway_settings">Gateway</string>
+    <string name="label_gateway_change_channel_reset_hint">After switching gateway, existing channel subscriptions on this device will be cleared. Please recreate or resubscribe channels on the new gateway manually.</string>
     <string name="label_channel_name">Channel name</string>
     <string name="label_channel_alias">Channel alias</string>
     <string name="label_channel_id">Channel ID</string><string name="label_channel_id_copied">Channel ID copied</string>
@@ -50,7 +51,7 @@
     <string name="channel_list_empty_hint">Create or subscribe to a channel first to receive pushes.</string><string name="label_notification_key">Notification key</string>
     <string name="label_key_strength">Key strength</string>
     <string name="label_key_strength_hint">Higher bit strength increases security but may impact decryption speed.</string>
-    <string name="label_configuration">Configuration</string><string name="label_key_encoding_base64">Base64</string>
+    <string name="label_configuration">Configuration</string><string name="label_key_encoding">Encoding</string><string name="label_key_encoding_base64">Base64</string>
     <string name="label_key_encoding_hex">Hex</string>
     <string name="label_key_encoding_plaintext">Plain text</string>
     <string name="label_app_version">App version</string><string name="label_app_version_format">%1$s</string>
@@ -142,6 +143,7 @@
     <string name="label_decryption_subtitle">Keys and encoding</string>
     <string name="label_close">Close</string>
     <string name="label_cancel">Cancel</string>
+    <string name="label_got_it">Got it</string>
     <string name="label_enable_notifications">Notifications are off</string>
     <string name="label_enable_notifications_hint">Notifications are turned off, so PushGo cannot alert you about new messages, events, or object updates. Open system settings, enable PushGo notifications, then return to continue.</string>
     <string name="label_turn_on">Turn on</string>
@@ -186,6 +188,8 @@
     <string name="no_messages_available_to_export">No messages to export</string>
     <string name="export_messages">Export messages</string>
     <string name="message_gateway_saved">Gateway saved</string>
+    <string name="dialog_private_channel_whitelist_title">Keep PushGo running in background</string>
+    <string name="dialog_private_channel_whitelist_body">Private channel needs persistent background connectivity. Please add PushGo to your system battery/background whitelist and disable aggressive cleanup, otherwise messages may be delayed or missed.</string>
     <string name="message_decryption_saved">Decryption settings saved</string><string name="message_channel_created_and_subscribed">Channel created and subscribed</string>
     <string name="message_channel_subscribed">Channel subscribed</string>
     <string name="message_channel_renamed">Channel renamed</string>

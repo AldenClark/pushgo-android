@@ -6,8 +6,8 @@ import androidx.compose.foundation.gestures.rememberDraggableState
 import androidx.compose.foundation.layout.offset
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.DeleteSweep
+import androidx.compose.material.icons.outlined.Email
 import androidx.compose.material.icons.outlined.MarkEmailRead
-import androidx.compose.material.icons.outlined.MarkEmailUnread
 import android.content.Context
 import android.content.Intent
 import android.widget.Toast
@@ -33,9 +33,9 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Email
 import androidx.compose.material.icons.filled.FilterList as FilledFilterList
 import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.MarkEmailUnread
 import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material.icons.outlined.FilterList as OutlinedFilterList
 import androidx.compose.material3.DropdownMenu
@@ -267,9 +267,9 @@ fun MessageListScreen(
                         ) {
                             Icon(
                                 imageVector = if (unreadOnlySelected) {
-                                    Icons.Filled.MarkEmailUnread
+                                    Icons.Filled.Email
                                 } else {
-                                    Icons.Outlined.MarkEmailUnread
+                                    Icons.Outlined.Email
                                 },
                                 contentDescription = stringResource(R.string.filter_unread),
                                 tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
@@ -297,7 +297,7 @@ fun MessageListScreen(
             item {
                 if (query.isBlank()) {
                     AppEmptyState(
-                        icon = Icons.Outlined.MarkEmailUnread,
+                        icon = Icons.Outlined.Email,
                         title = stringResource(R.string.message_list_empty_title),
                         description = stringResource(R.string.message_list_empty_hint),
                     )

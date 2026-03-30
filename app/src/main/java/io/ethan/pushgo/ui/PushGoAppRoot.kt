@@ -79,12 +79,21 @@ fun PushGoAppRoot(
     val eventRefreshToken by container.entityRepository.observeEventRefreshToken().collectAsState(initial = 0L)
     val thingCount by container.entityRepository.observeThingCount().collectAsState(initial = 0)
     val thingRefreshToken by container.entityRepository.observeThingRefreshToken().collectAsState(initial = 0L)
+    val initialMessagePageEnabled = remember(container) {
+        container.settingsRepository.getCachedMessagePageEnabled()
+    }
+    val initialEventPageEnabled = remember(container) {
+        container.settingsRepository.getCachedEventPageEnabled()
+    }
+    val initialThingPageEnabled = remember(container) {
+        container.settingsRepository.getCachedThingPageEnabled()
+    }
     val isMessagePageEnabled by container.settingsRepository.messagePageEnabledFlow
-        .collectAsState(initial = true)
+        .collectAsState(initial = initialMessagePageEnabled)
     val isEventPageEnabled by container.settingsRepository.eventPageEnabledFlow
-        .collectAsState(initial = true)
+        .collectAsState(initial = initialEventPageEnabled)
     val isThingPageEnabled by container.settingsRepository.thingPageEnabledFlow
-        .collectAsState(initial = true)
+        .collectAsState(initial = initialThingPageEnabled)
     val items = buildList {
         if (isMessagePageEnabled) {
             add(
@@ -108,6 +117,9 @@ fun PushGoAppRoot(
             add(BottomItem("things", stringResource(R.string.label_send_type_thing), Icons.Outlined.Memory))
         }
         add(BottomItem("channels", stringResource(R.string.section_channels), Icons.Outlined.Group))
+    }
+    val initialRoute = remember(items) {
+        items.firstOrNull()?.route ?: "channels"
     }
     val badgeText = remember(unreadCount) { if (unreadCount > 99) "99+" else unreadCount.toString() }
 
@@ -500,6 +512,7 @@ fun PushGoAppRoot(
             container = container,
             factory = factory,
             settingsViewModel = settingsViewModel,
+            initialRoute = initialRoute,
             padding = padding,
             onMessageClick = { selectedMessageId = it },
             eventCount = eventCount,
@@ -553,6 +566,7 @@ private fun PushGoNavHost(
     container: AppContainer,
     factory: PushGoViewModelFactory,
     settingsViewModel: SettingsViewModel,
+    initialRoute: String,
     padding: PaddingValues,
     onMessageClick: (String) -> Unit,
     eventCount: Int,
@@ -570,7 +584,7 @@ private fun PushGoNavHost(
 ) {
     NavHost(
         navController = navController,
-        startDestination = "messages",
+        startDestination = initialRoute,
         modifier = Modifier.padding(padding),
     ) {
         composable("messages") {

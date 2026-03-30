@@ -14,7 +14,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
-import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.Save
 import androidx.compose.material.icons.outlined.Visibility
 import androidx.compose.material.icons.outlined.VisibilityOff
@@ -145,17 +144,10 @@ fun DecryptionKeyForm(
 ) {
     var showKey by remember { mutableStateOf(false) }
 
-    Column(modifier = modifier) {
-        Text(
-            text = "ENCODING",
-            style = MaterialTheme.typography.labelMedium.copy(
-                color = MaterialTheme.colorScheme.primary,
-                fontWeight = FontWeight.Bold,
-                letterSpacing = 1.0.sp
-            ),
-            modifier = Modifier.padding(bottom = 12.dp)
-        )
-
+    Column(
+        modifier = modifier,
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
         SingleChoiceSegmentedButtonRow(
             modifier = Modifier.fillMaxWidth()
         ) {
@@ -170,21 +162,25 @@ fun DecryptionKeyForm(
             }
         }
 
-        Spacer(modifier = Modifier.height(32.dp))
-        Text(
-            text = stringResource(R.string.label_notification_key).uppercase(),
-            style = MaterialTheme.typography.labelMedium.copy(
-                color = MaterialTheme.colorScheme.primary,
-                fontWeight = FontWeight.Bold,
-                letterSpacing = 1.0.sp
-            ),
-            modifier = Modifier.padding(bottom = 12.dp)
-        )
-
         OutlinedTextField(
             value = viewModel.decryptionKeyInput,
             onValueChange = viewModel::updateDecryptionKeyInput,
-            placeholder = { Text("Enter key") },
+            label = {
+                Text(
+                    text = stringResource(R.string.label_notification_key).uppercase(),
+                    style = MaterialTheme.typography.labelMedium.copy(
+                        color = MaterialTheme.colorScheme.primary,
+                        fontWeight = FontWeight.Bold,
+                        letterSpacing = 1.0.sp,
+                    ),
+                )
+            },
+            placeholder = {
+                Text(
+                    text = stringResource(R.string.label_notification_key),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            },
             modifier = Modifier
                 .fillMaxWidth()
                 .testTag("field.settings.decryption.key"),
@@ -215,28 +211,17 @@ fun DecryptionKeyForm(
             )
         )
 
-        Row(
-            modifier = Modifier.padding(top = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(4.dp)
-        ) {
-            Icon(
-                imageVector = Icons.Outlined.Info,
-                contentDescription = null,
-                modifier = Modifier.size(16.dp),
-                tint = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-            Text(
-                text = stringResource(R.string.label_decryption_hint),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-        }
+        Text(
+            text = stringResource(R.string.label_decryption_hint),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.fillMaxWidth(),
+        )
 
         if (fillRemaining) {
             Spacer(modifier = Modifier.weight(1f))
         }
-        Spacer(modifier = Modifier.height(32.dp))
+        Spacer(modifier = Modifier.height(20.dp))
         Button(
             onClick = onSave,
             enabled = !viewModel.isSavingDecryption,
