@@ -740,7 +740,7 @@ dependencies = [
 [[package]]
 name = "pushgo-warp-profile"
 version = "0.1.0"
-source = "git+https://github.com/AldenClark/warp-link?rev=830721e14d59e645a64808af2ec1b0f74d23e4cc#830721e14d59e645a64808af2ec1b0f74d23e4cc"
+source = "git+https://github.com/AldenClark/warp-link?rev=51f0b1c5829c2fbd65e2caa881d2c4b0ce7d1328#51f0b1c5829c2fbd65e2caa881d2c4b0ce7d1328"
 dependencies = [
  "bytes",
  "postcard",
@@ -1326,7 +1326,7 @@ dependencies = [
 [[package]]
 name = "warp-link"
 version = "0.1.0"
-source = "git+https://github.com/AldenClark/warp-link?rev=830721e14d59e645a64808af2ec1b0f74d23e4cc#830721e14d59e645a64808af2ec1b0f74d23e4cc"
+source = "git+https://github.com/AldenClark/warp-link?rev=51f0b1c5829c2fbd65e2caa881d2c4b0ce7d1328#51f0b1c5829c2fbd65e2caa881d2c4b0ce7d1328"
 dependencies = [
  "async-trait",
  "bytes",
@@ -1344,7 +1344,7 @@ dependencies = [
 [[package]]
 name = "warp-link-core"
 version = "0.1.0"
-source = "git+https://github.com/AldenClark/warp-link?rev=830721e14d59e645a64808af2ec1b0f74d23e4cc#830721e14d59e645a64808af2ec1b0f74d23e4cc"
+source = "git+https://github.com/AldenClark/warp-link?rev=51f0b1c5829c2fbd65e2caa881d2c4b0ce7d1328#51f0b1c5829c2fbd65e2caa881d2c4b0ce7d1328"
 dependencies = [
  "async-trait",
  "bytes",
@@ -1354,7 +1354,7 @@ dependencies = [
 [[package]]
 name = "warp-link-transport"
 version = "0.1.0"
-source = "git+https://github.com/AldenClark/warp-link?rev=830721e14d59e645a64808af2ec1b0f74d23e4cc#830721e14d59e645a64808af2ec1b0f74d23e4cc"
+source = "git+https://github.com/AldenClark/warp-link?rev=51f0b1c5829c2fbd65e2caa881d2c4b0ce7d1328#51f0b1c5829c2fbd65e2caa881d2c4b0ce7d1328"
 dependencies = [
  "bytes",
  "futures-util",

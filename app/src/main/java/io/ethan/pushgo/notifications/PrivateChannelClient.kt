@@ -164,6 +164,8 @@ class PrivateChannelClient(
     @Volatile
     private var lastLocalPinnedTransport: String? = null
     @Volatile
+    private var lastLocalPinnedNetworkFingerprint: String? = null
+    @Volatile
     private var lastLocalPinnedNetworkClass: String? = null
     @Volatile
     private var lastAuthRouteHealAtMs: Long = 0L
@@ -433,6 +435,8 @@ class PrivateChannelClient(
         applyNetworkAvailability(available = snapshot.available, reason = reason)
         if (snapshot.available) {
             handleNetworkTopologyChanged(
+                previousFingerprint = observedNetworkFingerprint,
+                previousNetworkClass = observedNetworkClass,
                 newFingerprint = snapshot.networkFingerprint,
                 newNetworkClass = snapshot.networkClass,
                 reason = reason,
@@ -489,12 +493,12 @@ class PrivateChannelClient(
     }
 
     private fun handleNetworkTopologyChanged(
+        previousFingerprint: String,
+        previousNetworkClass: String,
         newFingerprint: String,
         newNetworkClass: String,
         reason: String,
     ) {
-        val previousFingerprint = observedNetworkFingerprint
-        val previousClass = observedNetworkClass
         observedNetworkFingerprint = newFingerprint
         observedNetworkClass = newNetworkClass
         if (newFingerprint == previousFingerprint) {
@@ -504,20 +508,22 @@ class PrivateChannelClient(
             return
         }
         invalidateLocalPinOnNetworkSwitch(
-            networkClass = newNetworkClass,
+            previousFingerprint = previousFingerprint,
+            previousNetworkClass = previousNetworkClass,
             reason = reason,
-            previousClass = previousClass,
+            newNetworkClass = newNetworkClass,
         )
     }
 
     private fun invalidateLocalPinOnNetworkSwitch(
-        networkClass: String,
+        previousFingerprint: String,
+        previousNetworkClass: String,
         reason: String,
-        previousClass: String,
+        newNetworkClass: String,
     ) {
-        val preference = loadLocalTransportPreference(networkClass) ?: return
+        val preference = loadLocalTransportPreference(previousFingerprint) ?: return
         val nowMs = System.currentTimeMillis()
-        val switchCooldownMs = networkSwitchPinCooldownMs(networkClass)
+        val switchCooldownMs = networkSwitchPinCooldownMs(previousNetworkClass)
         val reducedConfidence = (preference.confidence - 1).coerceAtLeast(0)
         saveLocalTransportPreference(
             preference.copy(
@@ -528,7 +534,7 @@ class PrivateChannelClient(
         )
         io.ethan.pushgo.util.SilentSink.w(
             TAG,
-            "network switch pin invalidate class=$networkClass previousClass=$previousClass confidence=$reducedConfidence cooldown=${switchCooldownMs}ms reason=$reason",
+            "network switch preference invalidate previous=$previousFingerprint class=$previousNetworkClass newClass=$newNetworkClass confidence=$reducedConfidence cooldown=${switchCooldownMs}ms reason=$reason",
         )
         if (!runtimeConfigured || fcmAvailable) {
             return
@@ -547,7 +553,7 @@ class PrivateChannelClient(
             route = "private",
             transport = transportStatusState.value.transport,
             stage = "reconnecting",
-            detail = "network switched($previousClass->$networkClass), local pin reset and reconnect",
+            detail = "network switched($previousNetworkClass->$newNetworkClass), local preference reset and reconnect",
         )
         if (!requestActiveSessionForceReconnect("network_switch:$reason")) {
             stopActiveSession("network_switch:$reason")
@@ -838,8 +844,10 @@ class PrivateChannelClient(
         val effectiveConnectBudgetMs = runtimePolicy.connectBudgetMs
         val effectiveBackoffCapMs = runtimePolicy.backoffCapMs
         val sessionNetworkClass = currentNetworkClass()
+        val sessionNetworkFingerprint = currentNetworkFingerprint()
         activeSessionNetworkClass = sessionNetworkClass
         val initialPinTransport = localPinnedTransportCandidate(
+            networkFingerprint = sessionNetworkFingerprint,
             networkClass = sessionNetworkClass,
             nowMs = System.currentTimeMillis(),
             isForeground = foregroundActive,
@@ -853,11 +861,13 @@ class PrivateChannelClient(
             )
         }
         lastLocalPinnedTransport = initialPinTransport
+        lastLocalPinnedNetworkFingerprint =
+            if (initialPinTransport == null) null else sessionNetworkFingerprint
         lastLocalPinnedNetworkClass = if (initialPinTransport == null) null else sessionNetworkClass
         if (initialPinTransport != null) {
             io.ethan.pushgo.util.SilentSink.i(
                 TAG,
-                "apply local transport pin transport=$initialPinTransport network=$sessionNetworkClass ttl=${initialPinTtlMs ?: 0}ms",
+                "apply local transport preference transport=$initialPinTransport network=$sessionNetworkClass fingerprint=$sessionNetworkFingerprint ttl=${initialPinTtlMs ?: 0}ms",
             )
         }
         val handle = runInterruptible(Dispatchers.IO) {
@@ -886,8 +896,8 @@ class PrivateChannelClient(
                     put("scheduler_v2_enabled", true)
                     put("drain_timeout_ms", 8_000L)
                     put("cutover_guard_ms", 1_500L)
-                    put("initial_pin_transport", initialPinTransport ?: JSONObject.NULL)
-                    put("initial_pin_ttl_ms", initialPinTtlMs ?: JSONObject.NULL)
+                    put("initial_preferred_transport", initialPinTransport ?: JSONObject.NULL)
+                    put("initial_preferred_ttl_ms", initialPinTtlMs ?: JSONObject.NULL)
                 }.toString()
             )
         }
@@ -1016,6 +1026,7 @@ class PrivateChannelClient(
             }
             activeSessionNetworkClass = "unknown"
             lastLocalPinnedTransport = null
+            lastLocalPinnedNetworkFingerprint = null
             lastLocalPinnedNetworkClass = null
             runCatching {
                 runInterruptible(Dispatchers.IO) {
@@ -1417,12 +1428,26 @@ class PrivateChannelClient(
         return classifyNetworkClass(capabilities)
     }
 
+    private fun currentNetworkFingerprint(): String {
+        if (observedNetworkFingerprint != "unknown") {
+            return observedNetworkFingerprint
+        }
+        val cm = connectivityManager ?: return "unknown"
+        val active = runCatching { cm.activeNetwork }.getOrNull()
+        val capabilities = runCatching {
+            cm.getNetworkCapabilities(active)
+        }.getOrNull()
+        return buildNetworkFingerprint(active, capabilities)
+    }
+
     private fun localPinnedTransportCandidate(
+        networkFingerprint: String,
         networkClass: String,
         nowMs: Long,
         isForeground: Boolean,
     ): String? {
-        val preference = loadLocalTransportPreference(networkClass) ?: return null
+        if (networkFingerprint == "unknown") return null
+        val preference = loadLocalTransportPreference(networkFingerprint) ?: return null
         val policy = localPinPolicy(networkClass)
         val minConfidence = policy.minConfidenceFor(isForeground)
         if (preference.confidence < minConfidence) return null
@@ -1431,11 +1456,15 @@ class PrivateChannelClient(
         return preference.transport
     }
 
-    private fun recordTransportSuccess(transport: String, networkClass: String) {
+    private fun recordTransportSuccess(
+        transport: String,
+        networkClass: String,
+        networkFingerprint: String = currentNetworkFingerprint(),
+    ) {
         val normalized = normalizeTransportName(transport) ?: return
-        if (networkClass == "unknown") return
+        if (networkClass == "unknown" || networkFingerprint == "unknown") return
         val nowMs = System.currentTimeMillis()
-        val existing = loadLocalTransportPreference(networkClass)
+        val existing = loadLocalTransportPreference(networkFingerprint)
         val confidence = if (existing?.transport == normalized) {
             (existing.confidence + 1).coerceAtMost(LOCAL_PIN_MAX_CONFIDENCE)
         } else {
@@ -1443,6 +1472,7 @@ class PrivateChannelClient(
         }
         saveLocalTransportPreference(
             LocalTransportPreference(
+                networkFingerprint = networkFingerprint,
                 networkClass = networkClass,
                 transport = normalized,
                 confidence = confidence,
@@ -1454,9 +1484,10 @@ class PrivateChannelClient(
 
     private fun recordPinnedTransportFailure(reason: String, detail: String) {
         val pinnedTransport = lastLocalPinnedTransport ?: return
+        val pinnedNetworkFingerprint = lastLocalPinnedNetworkFingerprint ?: return
         val pinnedNetworkClass = lastLocalPinnedNetworkClass ?: return
         val normalized = normalizeTransportName(pinnedTransport) ?: return
-        val existing = loadLocalTransportPreference(pinnedNetworkClass) ?: return
+        val existing = loadLocalTransportPreference(pinnedNetworkFingerprint) ?: return
         if (existing.transport != normalized) return
         val policy = localPinPolicy(pinnedNetworkClass)
         val nowMs = System.currentTimeMillis()
@@ -1476,7 +1507,7 @@ class PrivateChannelClient(
         )
         io.ethan.pushgo.util.SilentSink.w(
             TAG,
-            "local pin degraded transport=$normalized network=$pinnedNetworkClass confidence=$reducedConfidence reason=$reason detail=${detail.take(120)}",
+            "local preference degraded transport=$normalized fingerprint=$pinnedNetworkFingerprint class=$pinnedNetworkClass confidence=$reducedConfidence reason=$reason detail=${detail.take(120)}",
         )
     }
 
@@ -1524,15 +1555,18 @@ class PrivateChannelClient(
         }
     }
 
-    private fun loadLocalTransportPreference(networkClass: String): LocalTransportPreference? {
+    private fun loadLocalTransportPreference(networkFingerprint: String): LocalTransportPreference? {
         val raw = prefs.getString(KEY_LOCAL_TRANSPORT_PREF, null) ?: return null
         val root = runCatching { JSONObject(raw) }.getOrNull() ?: return null
-        val node = root.optJSONObject(networkClass) ?: return null
+        val node = root.optJSONObject(networkFingerprint) ?: return null
         val transport = normalizeTransportName(node.optString("transport")) ?: return null
+        val storedFingerprint = node.optString("network_fingerprint").trim().ifEmpty { networkFingerprint }
+        val networkClass = node.optString("network_class").trim().ifEmpty { "unknown" }
         val confidence = node.optInt("confidence", 0).coerceIn(0, LOCAL_PIN_MAX_CONFIDENCE)
         val updatedAtMs = node.optLong("updated_at_ms", 0L).coerceAtLeast(0L)
         val cooldownUntilMs = node.optLong("cooldown_until_ms", 0L).takeIf { it > 0L }
         return LocalTransportPreference(
+            networkFingerprint = storedFingerprint,
             networkClass = networkClass,
             transport = transport,
             confidence = confidence,
@@ -1546,8 +1580,10 @@ class PrivateChannelClient(
             JSONObject(prefs.getString(KEY_LOCAL_TRANSPORT_PREF, null) ?: "{}")
         }.getOrElse { JSONObject() }
         root.put(
-            preference.networkClass,
+            preference.networkFingerprint,
             JSONObject().apply {
+                put("network_fingerprint", preference.networkFingerprint)
+                put("network_class", preference.networkClass)
                 put("transport", preference.transport)
                 put("confidence", preference.confidence)
                 put("updated_at_ms", preference.updatedAtMs)
@@ -2748,6 +2784,7 @@ class PrivateChannelClient(
     )
 
     private data class LocalTransportPreference(
+        val networkFingerprint: String,
         val networkClass: String,
         val transport: String,
         val confidence: Int,

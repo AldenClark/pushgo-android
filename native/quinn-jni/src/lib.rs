@@ -15,8 +15,8 @@ use tokio::sync::{mpsc, watch};
 use warp_link::{client_run_with_shutdown, warp_link_core};
 use warp_link_core::{
     AppDecision, ClientApp, ClientAppStateHint, ClientConfig, ClientEvent, ClientPolicy,
-    ClientPowerHint, ClientPowerTier, HelloCtx, PinnedTransport, PolicyInput, ProbeRttSource,
-    TransportKind,
+    ClientPowerHint, ClientPowerTier, HelloCtx, PolicyInput, ProbeRttSource, TransportKind,
+    TransportPreference,
 };
 
 const PRIVATE_CONNECT_BUDGET_MS: u64 = 4_500;
@@ -28,15 +28,17 @@ const WIRE_VERSION_V2: u8 = 2;
 const DEFAULT_WSS_SUBPROTOCOL: &str = "pushgo-private.v1";
 
 #[derive(Debug, Clone)]
-struct NativePinnedTransport {
+struct NativeTransportPreference {
     transport: TransportKind,
     expires_at_unix_ms: Option<i64>,
 }
 
 #[derive(Debug, Clone, Default)]
 struct NativeSchedulerPolicy {
-    force_reconnect_nonce: u64,
-    pinned_transport: Option<NativePinnedTransport>,
+    reconnect_epoch: u64,
+    control_epoch: u64,
+    required_transport: Option<NativeTransportPreference>,
+    preferred_transport: Option<NativeTransportPreference>,
     disabled_transports: Vec<TransportKind>,
 }
 
@@ -92,10 +94,10 @@ struct SessionConfig {
     drain_timeout_ms: Option<u64>,
     #[serde(default)]
     cutover_guard_ms: Option<u64>,
-    #[serde(default)]
-    initial_pin_transport: Option<String>,
-    #[serde(default)]
-    initial_pin_ttl_ms: Option<u64>,
+    #[serde(default, alias = "initial_pin_transport")]
+    initial_preferred_transport: Option<String>,
+    #[serde(default, alias = "initial_pin_ttl_ms")]
+    initial_preferred_ttl_ms: Option<u64>,
 }
 
 #[derive(Clone)]
@@ -106,7 +108,7 @@ struct EventApp {
     next_ack_id: Arc<AtomicU64>,
     probe_request_epoch: Arc<AtomicU64>,
     consumed_probe_epoch: Arc<AtomicU64>,
-    scheduler_policy: Arc<Mutex<NativeSchedulerPolicy>>,
+    scheduler_policy: Arc<watch::Sender<NativeSchedulerPolicy>>,
     ack_wait_timeout_ms: u64,
     session_started_at: Instant,
     tx: mpsc::UnboundedSender<String>,
@@ -201,18 +203,41 @@ impl ClientApp for EventApp {
     }
 
     fn scheduler_policy(&self) -> PolicyInput {
-        let snapshot = self.scheduler_policy.lock().map(|value| value.clone()).ok();
-        let Some(snapshot) = snapshot else {
-            return PolicyInput::default();
-        };
+        let snapshot = self.scheduler_policy.borrow().clone();
         PolicyInput {
             disabled_transports: snapshot.disabled_transports.clone(),
-            pinned_transport: snapshot.pinned_transport.map(|value| PinnedTransport {
-                transport: value.transport,
-                expires_at_unix_ms: value.expires_at_unix_ms,
-            }),
-            force_reconnect_nonce: snapshot.force_reconnect_nonce,
+            required_transport: snapshot
+                .required_transport
+                .map(|value| TransportPreference {
+                    transport: value.transport,
+                    expires_at_unix_ms: value.expires_at_unix_ms,
+                }),
+            preferred_transport: snapshot
+                .preferred_transport
+                .map(|value| TransportPreference {
+                    transport: value.transport,
+                    expires_at_unix_ms: value.expires_at_unix_ms,
+                }),
+            reconnect_epoch: snapshot.reconnect_epoch,
+            control_epoch: snapshot.control_epoch,
         }
+    }
+
+    fn wait_for_control_change(
+        &self,
+        observed_control_epoch: u64,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send + '_>> {
+        let mut rx = self.scheduler_policy.subscribe();
+        Box::pin(async move {
+            if rx.borrow().control_epoch != observed_control_epoch {
+                return;
+            }
+            while rx.changed().await.is_ok() {
+                if rx.borrow().control_epoch != observed_control_epoch {
+                    return;
+                }
+            }
+        })
     }
 }
 
@@ -224,7 +249,7 @@ struct Session {
     power_hint: Arc<Mutex<Option<ClientPowerHint>>>,
     pending_acks: Arc<Mutex<HashMap<u64, std_mpsc::SyncSender<AppDecision>>>>,
     probe_request_epoch: Arc<AtomicU64>,
-    scheduler_policy: Arc<Mutex<NativeSchedulerPolicy>>,
+    scheduler_policy: Arc<watch::Sender<NativeSchedulerPolicy>>,
 }
 
 static NEXT_HANDLE: AtomicU64 = AtomicU64::new(1);
@@ -238,6 +263,16 @@ fn runtime() -> Result<&'static Runtime, String> {
         Ok(runtime) => Ok(runtime),
         Err(err) => Err(err.clone()),
     }
+}
+
+fn update_scheduler_policy(
+    session: &Session,
+    mutate: impl FnOnce(&mut NativeSchedulerPolicy),
+) -> bool {
+    let mut next = session.scheduler_policy.borrow().clone();
+    mutate(&mut next);
+    let _ = session.scheduler_policy.send_replace(next);
+    true
 }
 
 #[unsafe(no_mangle)]
@@ -283,7 +318,10 @@ pub extern "system" fn Java_io_ethan_pushgo_notifications_WarpLinkNativeBridge_n
         .clamp(1_500, 30_000);
     policy.tcp_delay_ms = tcp_delay_ms;
     policy.wss_delay_ms = wss_delay_ms;
-    policy.backoff_max_ms = parsed.backoff_max_ms.unwrap_or(policy.backoff_max_ms).clamp(10_000, 180_000);
+    policy.backoff_max_ms = parsed
+        .backoff_max_ms
+        .unwrap_or(policy.backoff_max_ms)
+        .clamp(10_000, 180_000);
     policy.scheduler_v2_enabled = parsed.scheduler_v2_enabled.unwrap_or(true);
     policy.drain_timeout_ms = parsed.drain_timeout_ms.unwrap_or(8_000);
     policy.cutover_guard_ms = parsed.cutover_guard_ms.unwrap_or(1_500);
@@ -319,11 +357,11 @@ pub extern "system" fn Java_io_ethan_pushgo_notifications_WarpLinkNativeBridge_n
     let next_ack_id = Arc::new(AtomicU64::new(1));
     let probe_request_epoch = Arc::new(AtomicU64::new(0));
     let consumed_probe_epoch = Arc::new(AtomicU64::new(0));
-    let initial_pin_transport = parsed
-        .initial_pin_transport
+    let initial_preferred_transport = parsed
+        .initial_preferred_transport
         .as_deref()
         .and_then(parse_transport_kind);
-    let initial_pin_ttl_ms = parsed.initial_pin_ttl_ms.filter(|value| *value > 0);
+    let initial_preferred_ttl_ms = parsed.initial_preferred_ttl_ms.filter(|value| *value > 0);
     let mut disabled_transports = Vec::new();
     if parsed.quic_enabled == Some(false) {
         disabled_transports.push(TransportKind::Quic);
@@ -334,14 +372,21 @@ pub extern "system" fn Java_io_ethan_pushgo_notifications_WarpLinkNativeBridge_n
     if parsed.wss_enabled == Some(false) {
         disabled_transports.push(TransportKind::Wss);
     }
-    let scheduler_policy = Arc::new(Mutex::new(NativeSchedulerPolicy {
-        force_reconnect_nonce: 0,
-        pinned_transport: initial_pin_transport.map(|transport| NativePinnedTransport {
-            transport,
-            expires_at_unix_ms: initial_pin_ttl_ms.map(|ttl| epoch_millis_now().saturating_add(ttl as i64)),
+    let initial_policy = NativeSchedulerPolicy {
+        reconnect_epoch: 0,
+        control_epoch: 0,
+        required_transport: None,
+        preferred_transport: initial_preferred_transport.map(|transport| {
+            NativeTransportPreference {
+                transport,
+                expires_at_unix_ms: initial_preferred_ttl_ms
+                    .map(|ttl| epoch_millis_now().saturating_add(ttl as i64)),
+            }
         }),
         disabled_transports,
-    }));
+    };
+    let (scheduler_policy_tx, _scheduler_policy_rx) = watch::channel(initial_policy);
+    let scheduler_policy = Arc::new(scheduler_policy_tx);
     let app = EventApp {
         hello: Arc::clone(&hello),
         power_hint: Arc::clone(&power_hint),
@@ -572,11 +617,10 @@ pub extern "system" fn Java_io_ethan_pushgo_notifications_WarpLinkNativeBridge_n
     let Some(session) = session else {
         return 0;
     };
-    let mut policy = match session.scheduler_policy.lock() {
-        Ok(guard) => guard,
-        Err(_) => return 0,
-    };
-    policy.force_reconnect_nonce = policy.force_reconnect_nonce.saturating_add(1);
+    update_scheduler_policy(session.as_ref(), |policy| {
+        policy.reconnect_epoch = policy.reconnect_epoch.saturating_add(1);
+        policy.control_epoch = policy.control_epoch.saturating_add(1);
+    });
     1
 }
 
@@ -610,15 +654,14 @@ pub extern "system" fn Java_io_ethan_pushgo_notifications_WarpLinkNativeBridge_n
     let Some(session) = session else {
         return 0;
     };
-    let mut policy = match session.scheduler_policy.lock() {
-        Ok(guard) => guard,
-        Err(_) => return 0,
-    };
-    policy.pinned_transport = Some(NativePinnedTransport {
-        transport,
-        expires_at_unix_ms,
+    update_scheduler_policy(session.as_ref(), |policy| {
+        policy.required_transport = Some(NativeTransportPreference {
+            transport,
+            expires_at_unix_ms,
+        });
+        policy.reconnect_epoch = policy.reconnect_epoch.saturating_add(1);
+        policy.control_epoch = policy.control_epoch.saturating_add(1);
     });
-    policy.force_reconnect_nonce = policy.force_reconnect_nonce.saturating_add(1);
     1
 }
 
@@ -638,12 +681,11 @@ pub extern "system" fn Java_io_ethan_pushgo_notifications_WarpLinkNativeBridge_n
     let Some(session) = session else {
         return 0;
     };
-    let mut policy = match session.scheduler_policy.lock() {
-        Ok(guard) => guard,
-        Err(_) => return 0,
-    };
-    policy.pinned_transport = None;
-    policy.force_reconnect_nonce = policy.force_reconnect_nonce.saturating_add(1);
+    update_scheduler_policy(session.as_ref(), |policy| {
+        policy.required_transport = None;
+        policy.reconnect_epoch = policy.reconnect_epoch.saturating_add(1);
+        policy.control_epoch = policy.control_epoch.saturating_add(1);
+    });
     1
 }
 
