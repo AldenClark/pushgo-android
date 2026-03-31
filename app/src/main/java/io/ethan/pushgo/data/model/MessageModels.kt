@@ -3,7 +3,21 @@ package io.ethan.pushgo.data.model
 import io.ethan.pushgo.util.JsonCompat
 import io.ethan.pushgo.util.UrlValidators
 import java.time.Instant
+import kotlinx.serialization.KSerializer
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.descriptors.PrimitiveKind
+import kotlinx.serialization.descriptors.PrimitiveSerialDescriptor
+import kotlinx.serialization.descriptors.SerialDescriptor
+import kotlinx.serialization.encoding.Decoder
+import kotlinx.serialization.encoding.Encoder
 
+object InstantSerializer : KSerializer<Instant> {
+    override val descriptor: SerialDescriptor = PrimitiveSerialDescriptor("Instant", PrimitiveKind.STRING)
+    override fun serialize(encoder: Encoder, value: Instant) = encoder.encodeString(value.toString())
+    override fun deserialize(decoder: Decoder): Instant = Instant.parse(decoder.decodeString())
+}
+
+@Serializable
 enum class MessageStatus {
     NORMAL,
     MISSING,
@@ -11,6 +25,7 @@ enum class MessageStatus {
     DECRYPTED,
 }
 
+@Serializable
 enum class DecryptionState {
     NOT_CONFIGURED,
     ALG_MISMATCH,
@@ -18,6 +33,7 @@ enum class DecryptionState {
     DECRYPT_FAILED,
 }
 
+@Serializable
 enum class MessageSeverity {
     LOW,
     MEDIUM,
@@ -39,6 +55,7 @@ enum class MessageSeverity {
     }
 }
 
+@Serializable
 data class PushMessage(
     val id: String,
     val messageId: String?,
@@ -47,6 +64,7 @@ data class PushMessage(
     val channel: String?,
     val url: String?,
     val isRead: Boolean,
+    @Serializable(with = InstantSerializer::class)
     val receivedAt: Instant,
     val rawPayloadJson: String,
     val status: MessageStatus,

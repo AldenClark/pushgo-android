@@ -57,6 +57,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.statusBars
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavHostController
 import coil.compose.AsyncImage
@@ -234,7 +237,8 @@ internal fun MessageDetailCoreContent(
     Column(
         modifier = Modifier
             .verticalScroll(rememberScrollState())
-            .padding(horizontal = 20.dp)
+            .padding(horizontal = 12.dp)
+            .padding(top = 12.dp)
             .padding(bottom = 32.dp),
         verticalArrangement = Arrangement.spacedBy(20.dp),
     ) {

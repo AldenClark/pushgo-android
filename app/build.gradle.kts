@@ -4,6 +4,7 @@ import org.gradle.api.tasks.Exec
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.plugin.compose")
+    id("org.jetbrains.kotlin.plugin.serialization")
     id("com.google.devtools.ksp")
     id("com.google.gms.google-services") apply false
 }
@@ -100,13 +101,13 @@ android {
 
     buildTypes {
         debug {
-            buildConfigField("String", "DEFAULT_SERVER_ADDRESS", "\"https://gateway.pushgo.dev\"")
+            buildConfigField("String", "DEFAULT_SERVER_ADDRESS", "\"https://gateway.pushgo.cn\"")
         }
         release {
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
-            buildConfigField("String", "DEFAULT_SERVER_ADDRESS", "\"https://gateway.pushgo.dev\"")
+            buildConfigField("String", "DEFAULT_SERVER_ADDRESS", "\"https://gateway.pushgo.cn\"")
             if (releaseSigningConfig != null) {
                 signingConfig = releaseSigningConfig
             }
@@ -219,6 +220,7 @@ dependencies {
     implementation("androidx.paging:paging-runtime-ktx:3.3.6")
     implementation("androidx.paging:paging-compose:3.3.6")
 
+    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.8.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")
     implementation("androidx.work:work-runtime-ktx:2.11.0")
     implementation("io.coil-kt:coil-compose:2.7.0")

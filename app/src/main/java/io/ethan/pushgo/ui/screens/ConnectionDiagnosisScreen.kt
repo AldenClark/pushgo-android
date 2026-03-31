@@ -20,7 +20,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.outlined.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.Download
 import androidx.compose.material.icons.outlined.Share
@@ -36,8 +36,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -47,6 +45,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -56,6 +56,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
 import io.ethan.pushgo.R
 import io.ethan.pushgo.ui.PushGoViewModelFactory
+import io.ethan.pushgo.ui.announceForAccessibility
 import io.ethan.pushgo.ui.viewmodel.ChannelProbeLeg
 import io.ethan.pushgo.ui.viewmodel.ConnectionDiagnosisLogLine
 import io.ethan.pushgo.ui.viewmodel.DiagnosisExportFormat
@@ -67,6 +68,7 @@ import io.ethan.pushgo.ui.viewmodel.ProtocolSelectionHistoryItem
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
+import java.util.ArrayList
 
 @Composable
 @OptIn(ExperimentalMaterial3Api::class)
@@ -127,25 +129,28 @@ fun ConnectionDiagnosisScreen(
             .fillMaxSize()
             .testTag("screen.settings.connection_diagnosis"),
         topBar = {
-            TopAppBar(
-                title = {
-                    Text(
-                        text = stringResource(R.string.label_connection_diagnosis),
-                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
-                    )
-                },
-                navigationIcon = {
-                    IconButton(onClick = { navController.popBackStack() }) {
+            Column(modifier = Modifier.background(MaterialTheme.colorScheme.background)) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 4.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    IconButton(onClick = { navController.navigateUp() }) {
                         Icon(
-                            imageVector = Icons.AutoMirrored.Outlined.ArrowBack,
+                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
                             contentDescription = stringResource(R.string.label_back),
+                            tint = MaterialTheme.colorScheme.onSurface,
                         )
                     }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
-                ),
-                actions = {
+                    Text(
+                        text = stringResource(R.string.label_connection_diagnosis),
+                        style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Normal),
+                        modifier = Modifier
+                            .weight(1f)
+                            .semantics { heading() },
+                        color = MaterialTheme.colorScheme.onSurface,
+                    )
                     IconButton(
                         onClick = viewModel::copyReportToClipboard,
                         modifier = Modifier.testTag("action.connection_diagnosis.copy_toolbar"),
@@ -175,8 +180,9 @@ fun ConnectionDiagnosisScreen(
                             contentDescription = stringResource(R.string.label_connection_diagnosis_export_json),
                         )
                     }
-                },
-            )
+                }
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.2f))
+            }
         },
     ) { padding ->
         LazyColumn(
@@ -804,15 +810,4 @@ private fun formatLegLastLatency(leg: ChannelProbeLeg): String {
     } else {
         "${leg.latencyMs}ms"
     }
-}
-
-@Suppress("DEPRECATION")
-private fun announceForAccessibility(context: Context, message: String) {
-    val manager = context.getSystemService(Context.ACCESSIBILITY_SERVICE) as? AccessibilityManager
-    if (manager == null || !manager.isEnabled) return
-    val event = AccessibilityEvent.obtain(AccessibilityEvent.TYPE_ANNOUNCEMENT)
-    event.text.add(message)
-    event.packageName = context.packageName
-    event.className = context.javaClass.name
-    manager.sendAccessibilityEvent(event)
 }

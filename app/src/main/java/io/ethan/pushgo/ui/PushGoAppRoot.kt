@@ -1,33 +1,27 @@
 package io.ethan.pushgo.ui
 
 import android.content.Intent
-import androidx.compose.foundation.isSystemInDarkTheme
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.padding
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Chat
 import androidx.compose.material.icons.automirrored.outlined.EventNote
 import androidx.compose.material.icons.outlined.Group
 import androidx.compose.material.icons.outlined.Memory
-import androidx.compose.material3.Badge
-import androidx.compose.material3.BadgedBox
-import androidx.compose.material3.NavigationBar
-import androidx.compose.material3.NavigationBarItem
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Text
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
@@ -40,24 +34,33 @@ import io.ethan.pushgo.automation.PushGoAutomation
 import io.ethan.pushgo.data.AppContainer
 import io.ethan.pushgo.data.AutomationSnapshot
 import io.ethan.pushgo.notifications.NotificationHelper
-import io.ethan.pushgo.ui.screens.EventListScreen
 import io.ethan.pushgo.ui.screens.ChannelListScreen
+import io.ethan.pushgo.ui.screens.EventListScreen
 import io.ethan.pushgo.ui.screens.MessageDetailScreen
 import io.ethan.pushgo.ui.screens.MessageListScreen
 import io.ethan.pushgo.ui.screens.SettingsScreen
 import io.ethan.pushgo.ui.screens.ThingListScreen
-import io.ethan.pushgo.ui.theme.DarkNavigationBar
-import io.ethan.pushgo.ui.theme.LightNavigationBar
 import io.ethan.pushgo.ui.viewmodel.SettingsViewModel
 import kotlinx.coroutines.delay
+import kotlinx.serialization.Serializable
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Color
+
+@Serializable object MessagesRoute
+@Serializable object EventsRoute
+@Serializable object ThingsRoute
+@Serializable object ChannelsRoute
+@Serializable object SettingsRoute
+@Serializable object DecryptionRoute
+@Serializable object ConnectionDiagnosisRoute
 
 private data class BottomItem(
-    val route: String,
+    val route: Any,
     val label: String,
     val icon: ImageVector,
 )
-
-private val TopLevelRoutes = setOf("messages", "events", "things", "channels")
 
 @Composable
 fun PushGoAppRoot(
@@ -69,6 +72,7 @@ fun PushGoAppRoot(
     val factory = remember(container) { PushGoViewModelFactory(container) }
     val automationController = remember(container) { container.automationController }
     val settingsViewModel: SettingsViewModel = viewModel(factory = factory)
+    
     var selectedMessageId by remember { mutableStateOf<String?>(null) }
     var pendingEventIdToOpen by remember { mutableStateOf<String?>(null) }
     var pendingThingIdToOpen by remember { mutableStateOf<String?>(null) }
@@ -77,439 +81,89 @@ fun PushGoAppRoot(
     var messageBatchMode by remember { mutableStateOf(false) }
     var eventBatchMode by remember { mutableStateOf(false) }
     var thingBatchMode by remember { mutableStateOf(false) }
-    val unreadCount by container.messageRepository.observeUnreadCount().collectAsState(initial = 0)
-    val eventCount by container.entityRepository.observeEventCount().collectAsState(initial = 0)
-    val eventRefreshToken by container.entityRepository.observeEventRefreshToken().collectAsState(initial = 0L)
-    val thingCount by container.entityRepository.observeThingCount().collectAsState(initial = 0)
-    val thingRefreshToken by container.entityRepository.observeThingRefreshToken().collectAsState(initial = 0L)
-    val initialMessagePageEnabled = remember(container) {
-        container.settingsRepository.getCachedMessagePageEnabled()
-    }
-    val initialEventPageEnabled = remember(container) {
-        container.settingsRepository.getCachedEventPageEnabled()
-    }
-    val initialThingPageEnabled = remember(container) {
-        container.settingsRepository.getCachedThingPageEnabled()
-    }
-    val isMessagePageEnabled by container.settingsRepository.messagePageEnabledFlow
-        .collectAsState(initial = initialMessagePageEnabled)
-    val isEventPageEnabled by container.settingsRepository.eventPageEnabledFlow
-        .collectAsState(initial = initialEventPageEnabled)
-    val isThingPageEnabled by container.settingsRepository.thingPageEnabledFlow
-        .collectAsState(initial = initialThingPageEnabled)
-    val items = buildList {
-        if (isMessagePageEnabled) {
-            add(
-                BottomItem(
-                    "messages",
-                    stringResource(R.string.tab_messages),
-                    Icons.AutoMirrored.Filled.Chat
-                )
-            )
-        }
-        if (isEventPageEnabled) {
-            add(
-                BottomItem(
-                    "events",
-                    stringResource(R.string.label_send_type_event),
-                    Icons.AutoMirrored.Outlined.EventNote
-                )
-            )
-        }
-        if (isThingPageEnabled) {
-            add(BottomItem("things", stringResource(R.string.label_send_type_thing), Icons.Outlined.Memory))
-        }
-        add(BottomItem("channels", stringResource(R.string.section_channels), Icons.Outlined.Group))
-    }
-    val initialRoute = remember(items) {
-        items.firstOrNull()?.route ?: "channels"
-    }
-    val badgeText = remember(unreadCount) { if (unreadCount > 99) "99+" else unreadCount.toString() }
 
+    val unreadCount by container.messageRepository.observeUnreadCount().collectAsStateWithLifecycle(initialValue = 0)
+    val eventCount by container.entityRepository.observeEventCount().collectAsStateWithLifecycle(initialValue = 0)
+    val eventRefreshToken by container.entityRepository.observeEventRefreshToken().collectAsStateWithLifecycle(initialValue = 0L)
+    val thingCount by container.entityRepository.observeThingCount().collectAsStateWithLifecycle(initialValue = 0)
+    val thingRefreshToken by container.entityRepository.observeThingRefreshToken().collectAsStateWithLifecycle(initialValue = 0L)
+
+    val isMessagePageEnabled by container.settingsRepository.messagePageEnabledFlow
+        .collectAsStateWithLifecycle(initialValue = container.settingsRepository.getCachedMessagePageEnabled())
+    val isEventPageEnabled by container.settingsRepository.eventPageEnabledFlow
+        .collectAsStateWithLifecycle(initialValue = container.settingsRepository.getCachedEventPageEnabled())
+    val isThingPageEnabled by container.settingsRepository.thingPageEnabledFlow
+        .collectAsStateWithLifecycle(initialValue = container.settingsRepository.getCachedThingPageEnabled())
+
+    val items = buildList {
+        if (isMessagePageEnabled) add(BottomItem(MessagesRoute, stringResource(R.string.tab_messages), Icons.AutoMirrored.Filled.Chat))
+        if (isEventPageEnabled) add(BottomItem(EventsRoute, stringResource(R.string.label_send_type_event), Icons.AutoMirrored.Outlined.EventNote))
+        if (isThingPageEnabled) add(BottomItem(ThingsRoute, stringResource(R.string.label_send_type_thing), Icons.Outlined.Memory))
+        add(BottomItem(ChannelsRoute, stringResource(R.string.section_channels), Icons.Outlined.Group))
+    }
+
+    val initialRoute: Any = remember(items) { items.firstOrNull()?.route ?: ChannelsRoute }
     val currentBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = currentBackStackEntry?.destination?.route
-    val currentRootRoute = currentRoute.rootRoute()
-    val automationRequestVersion = PushGoAutomation.requestVersion
-    val showBottomBar = items.any { it.route == currentRootRoute }
-    val hideBottomBarForBatchMode = when (currentRootRoute) {
-        "messages" -> messageBatchMode
-        "events" -> eventBatchMode
-        "things" -> thingBatchMode
+    val showBottomBar = items.any { it.route::class.qualifiedName == currentRoute }
+    val hideBottomBarForBatchMode = when (currentRoute) {
+        MessagesRoute::class.qualifiedName -> messageBatchMode
+        EventsRoute::class.qualifiedName -> eventBatchMode
+        ThingsRoute::class.qualifiedName -> thingBatchMode
         else -> false
     }
-    val navBarColor = if (useDarkTheme) DarkNavigationBar else LightNavigationBar
 
     LaunchedEffect(startIntent) {
-        val entityType = startIntent
-            ?.getStringExtra(NotificationHelper.EXTRA_ENTITY_TYPE)
-            ?.trim()
-            ?.lowercase()
-        val entityId = startIntent
-            ?.getStringExtra(NotificationHelper.EXTRA_ENTITY_ID)
-            ?.trim()
-            ?.takeIf { it.isNotEmpty() }
+        val entityId = startIntent?.getStringExtra(NotificationHelper.EXTRA_ENTITY_ID)?.takeIf { it.isNotEmpty() }
+        val entityType = startIntent?.getStringExtra(NotificationHelper.EXTRA_ENTITY_TYPE)?.lowercase()
         if (entityType == "event" && entityId != null) {
-            navigateTo(navController, "events")
+            navController.navigate(EventsRoute) { popUpTo(navController.graph.findStartDestination().id) { saveState = true }; launchSingleTop = true; restoreState = true }
             pendingEventIdToOpen = entityId
-            return@LaunchedEffect
-        }
-        if (entityType == "thing" && entityId != null) {
-            navigateTo(navController, "things")
+        } else if (entityType == "thing" && entityId != null) {
+            navController.navigate(ThingsRoute) { popUpTo(navController.graph.findStartDestination().id) { saveState = true }; launchSingleTop = true; restoreState = true }
             pendingThingIdToOpen = entityId
-            return@LaunchedEffect
-        }
-        val messageId = startIntent?.getStringExtra(NotificationHelper.EXTRA_MESSAGE_ID)
-        if (!messageId.isNullOrBlank()) {
-            selectedMessageId = messageId
+        } else {
+            selectedMessageId = startIntent?.getStringExtra(NotificationHelper.EXTRA_MESSAGE_ID)
         }
     }
 
-    LaunchedEffect(currentRootRoute, selectedMessageId, pendingEventIdToOpen, pendingThingIdToOpen) {
+    LaunchedEffect(currentRoute, selectedMessageId, pendingEventIdToOpen, pendingThingIdToOpen) {
         while (true) {
             val snapshot = automationController.snapshotForOpenedMessage(selectedMessageId)
-            PushGoAutomation.publishState(
-                buildAutomationState(
-                    activeTab = currentRootRoute ?: items.firstOrNull()?.route ?: "messages",
-                    currentRoute = currentRoute,
-                    selectedMessageId = selectedMessageId,
-                    pendingEventId = pendingEventIdToOpen,
-                    pendingThingId = pendingThingIdToOpen,
-                    snapshot = snapshot,
-                    openedEntityType = openedEntityType,
-                    openedEntityId = openedEntityId,
-                )
-            )
+            PushGoAutomation.publishState(buildAutomationState(currentRoute ?: MessagesRoute::class.qualifiedName!!, currentRoute, selectedMessageId, pendingEventIdToOpen, pendingThingIdToOpen, snapshot, openedEntityType, openedEntityId))
             delay(500)
         }
     }
 
-    LaunchedEffect(automationRequestVersion) {
-        val request = PushGoAutomation.consumePendingRequest() ?: return@LaunchedEffect
-        PushGoAutomation.startCommandTrace(request)
-        PushGoAutomation.writeEvent(
-            type = "command.received",
-            command = request.name,
-        )
-        var activeTab = currentRootRoute ?: items.firstOrNull()?.route ?: "messages"
-        var openedMessageId = selectedMessageId
-        var responseOpenedEntityType = openedEntityType
-        var responseOpenedEntityId = openedEntityId
-        var pendingEventId = pendingEventIdToOpen
-        var pendingThingId = pendingThingIdToOpen
-        var error: String? = null
-
-        when (request.name) {
-            "snapshot.get", "debug.dump_state" -> Unit
-            "nav.switch_tab" -> {
-                val tab = request.stringArg("tab")?.rootRoute()
-                if (tab == null || tab !in setOf("messages", "events", "things", "channels", "settings")) {
-                    error = "Unsupported tab: ${request.stringArg("tab").orEmpty()}"
-                } else {
-                    navigateTo(navController, tab)
-                    activeTab = tab
-                    if (tab != "messages") {
-                        openedMessageId = null
-                    }
-                    if (tab != "events" && tab != "things") {
-                        openedEntityType = null
-                        openedEntityId = null
-                        responseOpenedEntityType = null
-                        responseOpenedEntityId = null
-                    }
-                }
-            }
-            "message.open" -> {
-                val messageId = request.stringArg("message_id")
-                if (messageId.isNullOrBlank()) {
-                    error = "Missing automation argument: message_id"
-                } else {
-                    navigateTo(navController, "messages")
-                    selectedMessageId = messageId
-                    activeTab = "messages"
-                    openedMessageId = messageId
-                }
-            }
-            "entity.open" -> {
-                val entityType = request.stringArg("entity_type")?.trim()?.lowercase()
-                val entityId = request.stringArg("entity_id")?.trim()
-                if (entityType.isNullOrBlank()) {
-                    error = "Missing automation argument: entity_type"
-                } else if (entityId.isNullOrBlank()) {
-                    error = "Missing automation argument: entity_id"
-                } else if (entityType == "event") {
-                    navigateTo(navController, "events")
-                    pendingEventIdToOpen = entityId
-                    pendingEventId = entityId
-                    activeTab = "events"
-                } else if (entityType == "thing") {
-                    navigateTo(navController, "things")
-                    pendingThingIdToOpen = entityId
-                    pendingThingId = entityId
-                    activeTab = "things"
-                } else {
-                    error = "Unsupported entity type: $entityType"
-                }
-            }
-            "settings.set_page_visibility" -> {
-                val page = request.stringArg("page")
-                val enabled = request.booleanArg("enabled")
-                if (page.isNullOrBlank()) {
-                    error = "Missing automation argument: page"
-                } else if (enabled == null) {
-                    error = "Missing automation argument: enabled"
-                } else {
-                    runCatching { automationController.setPageVisibility(page, enabled) }
-                        .onFailure { error = it.message ?: "Failed to set page visibility" }
-                }
-            }
-            "settings.open_decryption" -> {
-                navigateTo(navController, "settings")
-                navController.navigate("settings/decryption")
-                activeTab = "settings"
-            }
-            "settings.set_decryption_key" -> {
-                runCatching {
-                    automationController.setDecryptionKey(
-                        key = request.stringArg("key"),
-                        encoding = request.stringArg("encoding"),
-                    )
-                }.onFailure { error = it.message ?: "Failed to update decryption key" }
-            }
-            "gateway.set_server" -> {
-                runCatching {
-                    automationController.setGatewayServer(
-                        baseUrl = request.stringArg("base_url"),
-                        token = request.stringArg("token"),
-                    )
-                }.onFailure { error = it.message ?: "Failed to set gateway config" }
-            }
-            "private.trigger_wakeup" -> {
-                automationController.triggerPrivateWakeup()
-            }
-            "private.drain_acks" -> {
-                runCatching { automationController.drainPrivateAcks() }
-                    .onFailure { error = it.message ?: "Failed to drain ack outbox" }
-            }
-            "fixture.import" -> {
-                val path = request.stringArg("path") ?: request.stringArg("fixture_path")
-                if (path.isNullOrBlank()) {
-                    error = "Missing automation argument: path"
-                } else {
-                    runCatching { automationController.importFixture(path) }
-                        .onFailure { error = it.message ?: "Failed to import fixture" }
-                }
-            }
-            "fixture.seed_messages" -> {
-                val path = request.stringArg("path") ?: request.stringArg("fixture_path")
-                if (path.isNullOrBlank()) {
-                    error = "Missing automation argument: path"
-                } else {
-                    runCatching { automationController.seedFixtureMessages(path) }
-                        .onFailure { error = it.message ?: "Failed to seed message fixtures" }
-                }
-            }
-            "fixture.seed_entity_records" -> {
-                val path = request.stringArg("path") ?: request.stringArg("fixture_path")
-                if (path.isNullOrBlank()) {
-                    error = "Missing automation argument: path"
-                } else {
-                    runCatching { automationController.seedFixtureEntityRecords(path) }
-                        .onFailure { error = it.message ?: "Failed to seed entity fixtures" }
-                }
-            }
-            "fixture.seed_subscriptions" -> {
-                val path = request.stringArg("path") ?: request.stringArg("fixture_path")
-                if (path.isNullOrBlank()) {
-                    error = "Missing automation argument: path"
-                } else {
-                    runCatching { automationController.seedFixtureSubscriptions(path) }
-                        .onFailure { error = it.message ?: "Failed to seed subscription fixtures" }
-                }
-            }
-            "notification.open" -> {
-                val notificationRequestId = request.stringArg("notification_request_id")
-                val messageId = request.stringArg("message_id")
-                val entityType = request.stringArg("entity_type")?.trim()?.lowercase()
-                val entityId = request.stringArg("entity_id")?.trim()
-                when {
-                    !notificationRequestId.isNullOrBlank() -> {
-                        val target = runCatching {
-                            automationController.resolveNotificationTarget(notificationRequestId)
-                        }.getOrElse {
-                            error = it.message ?: "Failed to resolve notification target"
-                            null
-                        }
-                        when {
-                            target?.messageId != null -> {
-                                navigateTo(navController, "messages")
-                                selectedMessageId = target.messageId
-                                openedMessageId = target.messageId
-                                activeTab = "messages"
-                            }
-                            target == null && error != null -> Unit
-                            else -> error = "Notification target not found: $notificationRequestId"
-                        }
-                    }
-                    !messageId.isNullOrBlank() -> {
-                        navigateTo(navController, "messages")
-                        selectedMessageId = messageId
-                        openedMessageId = messageId
-                        activeTab = "messages"
-                    }
-                    entityType == "event" && !entityId.isNullOrBlank() -> {
-                        navigateTo(navController, "events")
-                        pendingEventIdToOpen = entityId
-                        pendingEventId = entityId
-                        activeTab = "events"
-                    }
-                    entityType == "thing" && !entityId.isNullOrBlank() -> {
-                        navigateTo(navController, "things")
-                        pendingThingIdToOpen = entityId
-                        pendingThingId = entityId
-                        activeTab = "things"
-                    }
-                    else -> error = "Missing automation notification target"
-                }
-            }
-            "notification.mark_read" -> {
-                val updatedMessageId = runCatching {
-                    automationController.markNotificationRead(
-                        notificationRequestId = request.stringArg("notification_request_id"),
-                        messageId = request.stringArg("message_id"),
-                    )
-                }.getOrElse {
-                    error = it.message ?: "Failed to mark notification as read"
-                    null
-                }
-                if (updatedMessageId == null && error == null) {
-                    error = "Notification target not found"
-                }
-            }
-            "notification.delete" -> {
-                val deletedMessageId = runCatching {
-                    automationController.deleteNotification(
-                        notificationRequestId = request.stringArg("notification_request_id"),
-                        messageId = request.stringArg("message_id"),
-                    )
-                }.getOrElse {
-                    error = it.message ?: "Failed to delete notification target"
-                    null
-                }
-                if (deletedMessageId == null && error == null) {
-                    error = "Notification target not found"
-                } else if (deletedMessageId == selectedMessageId) {
-                    selectedMessageId = null
-                    openedMessageId = null
-                }
-            }
-            "notification.copy" -> {
-                val copiedMessageId = runCatching {
-                    automationController.copyNotification(
-                        notificationRequestId = request.stringArg("notification_request_id"),
-                        messageId = request.stringArg("message_id"),
-                    )
-                }.getOrElse {
-                    error = it.message ?: "Failed to copy notification payload"
-                    null
-                }
-                if (copiedMessageId == null && error == null) {
-                    error = "Notification target not found"
-                }
-            }
-            "debug.reset_local_state", "fixture.reset_local_state" -> {
-                runCatching { automationController.resetLocalState() }
-                    .onFailure { error = it.message ?: "Failed to reset local state" }
-                if (error == null) {
-                    selectedMessageId = null
-                    openedMessageId = null
-                    pendingEventIdToOpen = null
-                    pendingThingIdToOpen = null
-                    pendingEventId = null
-                    pendingThingId = null
-                    openedEntityType = null
-                    openedEntityId = null
-                    responseOpenedEntityType = null
-                    responseOpenedEntityId = null
-                    navigateTo(navController, "messages")
-                    activeTab = "messages"
-                }
-            }
-            else -> error = "Unsupported automation command: ${request.name}"
-        }
-
-        val snapshot = automationController.snapshotForOpenedMessage(openedMessageId)
-        val state = buildAutomationState(
-            activeTab = activeTab,
-            currentRoute = navController.currentDestination?.route,
-            selectedMessageId = openedMessageId,
-            pendingEventId = pendingEventId,
-            pendingThingId = pendingThingId,
-            snapshot = snapshot,
-            openedEntityType = responseOpenedEntityType,
-            openedEntityId = responseOpenedEntityId,
-        )
-        if (state.activeTab != "messages" && selectedMessageId != null) {
-            selectedMessageId = null
-        }
-        if (state.activeTab != currentRootRoute.rootRoute()) {
-            navigateTo(navController, state.activeTab)
-        }
-        PushGoAutomation.writeResponse(
-            request = request,
-            ok = error == null,
-            state = state,
-            error = error,
-        )
-        PushGoAutomation.writeEvent(
-            type = if (error == null) "command.completed" else "command.failed",
-            command = request.name,
-            details = org.json.JSONObject().apply {
-                if (error != null) {
-                    put("error", error)
-                }
-            },
-        )
-        PushGoAutomation.finishCommandTrace(error)
-    }
-
-    LaunchedEffect(items, currentRootRoute) {
-        if (items.isEmpty()) return@LaunchedEffect
-        val rootRoute = currentRootRoute ?: return@LaunchedEffect
-        val isPrimaryTabRoute = rootRoute in TopLevelRoutes
-        if (isPrimaryTabRoute && items.none { it.route == rootRoute }) {
-            navigateTo(navController, items.first().route)
-        }
-    }
-
     Scaffold(
+        modifier = Modifier.fillMaxSize(),
         bottomBar = {
-            if (showBottomBar && !hideBottomBarForBatchMode) {
+            val colorScheme = MaterialTheme.colorScheme
+            AnimatedVisibility(
+                // REMOVED selectedMessageId == null to keep TabBar visible when sheet is open
+                visible = showBottomBar && !hideBottomBarForBatchMode,
+                enter = fadeIn(),
+                exit = fadeOut()
+            ) {
                 NavigationBar(
-                    modifier = Modifier.testTag("nav.bottom"),
-                    containerColor = navBarColor,
+                    modifier = Modifier.testTag("nav.bottom").drawBehind {
+                        drawLine(color = colorScheme.outlineVariant.copy(alpha = 0.3f), start = Offset(0f, 0f), end = Offset(size.width, 0f), strokeWidth = 0.5.dp.toPx())
+                    },
+                    containerColor = Color.Transparent,
+                    tonalElevation = 0.dp,
+                    windowInsets = WindowInsets.navigationBars
                 ) {
                     items.forEach { item ->
-                        val selected = currentRootRoute == item.route
+                        val selected = currentRoute == item.route::class.qualifiedName
                         NavigationBarItem(
-                            modifier = Modifier.testTag("tab.${item.route}"),
                             selected = selected,
-                            onClick = { navigateTo(navController, item.route) },
+                            onClick = { if (!selected) navController.navigate(item.route) { popUpTo(navController.graph.findStartDestination().id) { saveState = true }; launchSingleTop = true; restoreState = true } },
                             icon = {
-                                if (item.route == "messages" && unreadCount > 0) {
-                                    BadgedBox(badge = { Badge { Text(badgeText) } }) {
-                                        androidx.compose.material3.Icon(
-                                            item.icon,
-                                            contentDescription = item.label
-                                        )
-                                    }
-                                } else {
-                                    androidx.compose.material3.Icon(
-                                        item.icon,
-                                        contentDescription = item.label
-                                    )
-                                }
+                                if (item.route is MessagesRoute && unreadCount > 0) {
+                                    BadgedBox(badge = { Badge { Text(if (unreadCount > 99) "99+" else unreadCount.toString()) } }) { Icon(item.icon, contentDescription = item.label) }
+                                } else { Icon(item.icon, contentDescription = item.label) }
                             },
-                            label = { Text(item.label) },
+                            label = { Text(item.label, style = MaterialTheme.typography.labelSmall) },
                         )
                     }
                 }
@@ -517,266 +171,72 @@ fun PushGoAppRoot(
         },
     ) { padding ->
         PushGoNavHost(
-            navController = navController,
-            container = container,
-            factory = factory,
-            settingsViewModel = settingsViewModel,
-            initialRoute = initialRoute,
-            padding = padding,
-            onMessageClick = { selectedMessageId = it },
-            onMessageBatchModeChanged = { messageBatchMode = it },
-            eventCount = eventCount,
-            eventRefreshToken = eventRefreshToken,
-            onEventBatchModeChanged = { eventBatchMode = it },
-            thingCount = thingCount,
-            thingRefreshToken = thingRefreshToken,
-            onThingBatchModeChanged = { thingBatchMode = it },
-            pendingEventIdToOpen = pendingEventIdToOpen,
-            onPendingEventOpened = { pendingEventIdToOpen = null },
-            onEventDetailOpened = { eventId ->
-                openedEntityType = "event"
-                openedEntityId = eventId
-            },
-            onEventDetailClosed = {
-                if (openedEntityType == "event") {
-                    openedEntityType = null
-                    openedEntityId = null
-                }
-            },
-            pendingThingIdToOpen = pendingThingIdToOpen,
-            onPendingThingOpened = { pendingThingIdToOpen = null },
-            onThingDetailOpened = { thingId ->
-                openedEntityType = "thing"
-                openedEntityId = thingId
-            },
-            onThingDetailClosed = {
-                if (openedEntityType == "thing") {
-                    openedEntityType = null
-                    openedEntityId = null
-                }
-            },
+            navController = navController, container = container, factory = factory, settingsViewModel = settingsViewModel,
+            initialRoute = initialRoute, padding = padding,
+            onMessageClick = { selectedMessageId = it }, onMessageBatchModeChanged = { messageBatchMode = it },
+            eventCount = eventCount, eventRefreshToken = eventRefreshToken, onEventBatchModeChanged = { eventBatchMode = it },
+            thingCount = thingCount, thingRefreshToken = thingRefreshToken, onThingBatchModeChanged = { thingBatchMode = it },
+            pendingEventIdToOpen = pendingEventIdToOpen, onPendingEventOpened = { pendingEventIdToOpen = null },
+            onEventDetailOpened = { openedEntityType = "event"; openedEntityId = it }, onEventDetailClosed = { openedEntityType = null; openedEntityId = null },
+            pendingThingIdToOpen = pendingThingIdToOpen, onPendingThingOpened = { pendingThingIdToOpen = null },
+            onThingDetailOpened = { openedEntityType = "thing"; openedEntityId = it }, onThingDetailClosed = { openedEntityType = null; openedEntityId = null }
         )
-        
         if (selectedMessageId != null) {
-            Box(modifier = Modifier.fillMaxSize().testTag("screen.message.detail")) {
-                MessageDetailScreen(
-                    messageId = selectedMessageId!!,
-                    repository = container.messageRepository,
-                    stateCoordinator = container.messageStateCoordinator,
-                    channelRepository = container.channelRepository,
-                    imageStore = container.messageImageStore,
-                    onDismiss = { selectedMessageId = null }
-                )
-            }
+            MessageDetailScreen(
+                messageId = selectedMessageId!!, repository = container.messageRepository,
+                stateCoordinator = container.messageStateCoordinator, channelRepository = container.channelRepository,
+                imageStore = container.messageImageStore, onDismiss = { selectedMessageId = null }
+            )
         }
     }
 }
 
 @Composable
 private fun PushGoNavHost(
-    navController: NavHostController,
-    container: AppContainer,
-    factory: PushGoViewModelFactory,
-    settingsViewModel: SettingsViewModel,
-    initialRoute: String,
-    padding: PaddingValues,
-    onMessageClick: (String) -> Unit,
-    onMessageBatchModeChanged: (Boolean) -> Unit,
-    eventCount: Int,
-    eventRefreshToken: Long,
-    onEventBatchModeChanged: (Boolean) -> Unit,
-    thingCount: Int,
-    thingRefreshToken: Long,
-    onThingBatchModeChanged: (Boolean) -> Unit,
-    pendingEventIdToOpen: String?,
-    onPendingEventOpened: () -> Unit,
-    onEventDetailOpened: (String) -> Unit,
-    onEventDetailClosed: () -> Unit,
-    pendingThingIdToOpen: String?,
-    onPendingThingOpened: () -> Unit,
-    onThingDetailOpened: (String) -> Unit,
-    onThingDetailClosed: () -> Unit,
+    navController: NavHostController, container: AppContainer, factory: PushGoViewModelFactory, settingsViewModel: SettingsViewModel,
+    initialRoute: Any, padding: PaddingValues, onMessageClick: (String) -> Unit, onMessageBatchModeChanged: (Boolean) -> Unit,
+    eventCount: Int, eventRefreshToken: Long, onEventBatchModeChanged: (Boolean) -> Unit,
+    thingCount: Int, thingRefreshToken: Long, onThingBatchModeChanged: (Boolean) -> Unit,
+    pendingEventIdToOpen: String?, onPendingEventOpened: () -> Unit, onEventDetailOpened: (String) -> Unit, onEventDetailClosed: () -> Unit,
+    pendingThingIdToOpen: String?, onPendingThingOpened: () -> Unit, onThingDetailOpened: (String) -> Unit, onThingDetailClosed: () -> Unit
 ) {
     NavHost(
-        navController = navController,
-        startDestination = initialRoute,
-        modifier = Modifier.padding(padding),
+        navController = navController, startDestination = initialRoute, modifier = Modifier.padding(padding),
+        enterTransition = { fadeIn(tween(300)) }, exitTransition = { fadeOut(tween(300)) }
     ) {
-        composable("messages") {
-            Box(modifier = Modifier.fillMaxSize().testTag("screen.messages.list")) {
-                MessageListScreen(
-                    navController = navController,
-                    container = container,
-                    factory = factory,
-                    onMessageClick = onMessageClick,
-                    onBatchModeChanged = onMessageBatchModeChanged,
-                )
-            }
-        }
-        composable("channels") {
-            Box(modifier = Modifier.fillMaxSize().testTag("screen.channels")) {
-                ChannelListScreen(
-                    navController = navController,
-                    viewModel = settingsViewModel
-                )
-            }
-        }
-        composable("events") {
-            Box(modifier = Modifier.fillMaxSize().testTag("screen.events.list")) {
-                EventListScreen(
-                    container = container,
-                    refreshToken = eventRefreshToken,
-                    openEventId = pendingEventIdToOpen,
-                    onOpenEventHandled = onPendingEventOpened,
-                    onEventDetailOpened = onEventDetailOpened,
-                    onEventDetailClosed = onEventDetailClosed,
-                    onBatchModeChanged = onEventBatchModeChanged,
-                )
-            }
-        }
-        composable("things") {
-            Box(modifier = Modifier.fillMaxSize().testTag("screen.things.list")) {
-                ThingListScreen(
-                    container = container,
-                    refreshToken = thingRefreshToken,
-                    openThingId = pendingThingIdToOpen,
-                    onOpenThingHandled = onPendingThingOpened,
-                    onThingDetailOpened = onThingDetailOpened,
-                    onThingDetailClosed = onThingDetailClosed,
-                    onBatchModeChanged = onThingBatchModeChanged,
-                )
-            }
-        }
-        composable("settings") {
-            Box(modifier = Modifier.fillMaxSize().testTag("screen.settings")) {
-                SettingsScreen(
-                    viewModel = settingsViewModel,
-                    onOpenConnectionDiagnosis = {
-                        navController.navigate("settings/connection-diagnosis")
-                    },
-                    onBackClick = { navController.navigateUp() },
-                )
-            }
-        }
-        composable("settings/decryption") {
-            io.ethan.pushgo.ui.screens.MessageDecryptionScreen(
-                navController = navController,
-                factory = factory,
-                viewModel = settingsViewModel
-            )
-        }
-        composable("settings/connection-diagnosis") {
-            io.ethan.pushgo.ui.screens.ConnectionDiagnosisScreen(
-                navController = navController,
-                factory = factory,
-            )
-        }
-    }
-}
-
-private fun String?.rootRoute(): String? {
-    return this
-        ?.substringBefore('?')
-        ?.substringBefore('/')
-        ?.takeIf { it.isNotBlank() }
-}
-
-private fun navigateTo(navController: NavHostController, route: String) {
-    if (navController.currentDestination?.route.rootRoute() == route) return
-    navController.navigate(route) {
-        popUpTo(navController.graph.findStartDestination().id) {
-            saveState = false
-        }
-        launchSingleTop = true
-        restoreState = false
+        composable<MessagesRoute> { MessageListScreen(navController, container, factory, onMessageClick, onMessageBatchModeChanged) }
+        composable<ChannelsRoute> { ChannelListScreen(navController, settingsViewModel) }
+        composable<EventsRoute> { EventListScreen(container, eventRefreshToken, pendingEventIdToOpen, onPendingEventOpened, onEventDetailOpened, onEventDetailClosed, onEventBatchModeChanged) }
+        composable<ThingsRoute> { ThingListScreen(container, thingRefreshToken, pendingThingIdToOpen, onPendingThingOpened, onThingDetailOpened, onThingDetailClosed, onThingBatchModeChanged) }
+        composable<SettingsRoute> { SettingsScreen(settingsViewModel, { navController.navigate(ConnectionDiagnosisRoute) }, { navController.navigateUp() }) }
+        composable<DecryptionRoute> { io.ethan.pushgo.ui.screens.MessageDecryptionScreen(navController, factory, settingsViewModel) }
+        composable<ConnectionDiagnosisRoute> { io.ethan.pushgo.ui.screens.ConnectionDiagnosisScreen(navController, factory) }
     }
 }
 
 private fun buildAutomationState(
-    activeTab: String,
-    currentRoute: String?,
-    selectedMessageId: String?,
-    pendingEventId: String?,
-    pendingThingId: String?,
-    snapshot: AutomationSnapshot,
-    openedEntityType: String? = null,
-    openedEntityId: String? = null,
+    activeTab: String, currentRoute: String?, selectedMessageId: String?, pendingEventId: String?, pendingThingId: String?,
+    snapshot: AutomationSnapshot, openedEntityType: String?, openedEntityId: String?
 ): PushGoAutomation.AutomationState {
-    val normalizedTab = resolveAutomationTab(activeTab.rootRoute() ?: "messages", snapshot)
-    val latestRuntimeError = PushGoAutomation.latestRuntimeErrorSnapshot()
-    val visibleScreen = when {
-        currentRoute == "settings/decryption" -> "screen.settings.decryption"
-        normalizedTab == "messages" && !selectedMessageId.isNullOrBlank() -> "screen.message.detail"
-        normalizedTab == "events" && openedEntityType == "event" && !openedEntityId.isNullOrBlank() -> "screen.events.detail"
-        normalizedTab == "events" -> "screen.events.list"
-        normalizedTab == "things" && openedEntityType == "thing" && !openedEntityId.isNullOrBlank() -> "screen.thing.detail"
-        normalizedTab == "things" -> "screen.things.list"
-        normalizedTab == "channels" -> "screen.channels"
-        normalizedTab == "settings" -> "screen.settings"
-        else -> "screen.messages.list"
-    }
+    val tab = activeTab.substringBefore('?').substringBefore('/')
+    val error = PushGoAutomation.latestRuntimeErrorSnapshot()
     return PushGoAutomation.AutomationState(
-        activeTab = normalizedTab,
-        visibleScreen = visibleScreen,
-        openedMessageId = selectedMessageId?.takeIf { normalizedTab == "messages" },
-        openedMessageDecryptionState = snapshot.openedMessageDecryptionState,
-        openedEntityType = openedEntityType,
-        openedEntityId = openedEntityId,
-        pendingEventId = pendingEventId,
-        pendingThingId = pendingThingId,
-        unreadMessageCount = snapshot.unreadMessageCount,
-        totalMessageCount = snapshot.totalMessageCount,
-        eventCount = snapshot.eventCount,
-        thingCount = snapshot.thingCount,
-        messagePageEnabled = snapshot.messagePageEnabled,
-        eventPageEnabled = snapshot.eventPageEnabled,
-        thingPageEnabled = snapshot.thingPageEnabled,
-        notificationKeyConfigured = snapshot.notificationKeyConfigured,
-        notificationKeyEncoding = snapshot.notificationKeyEncoding,
-        gatewayBaseUrl = snapshot.gatewayBaseUrl,
-        gatewayTokenPresent = snapshot.gatewayTokenPresent,
-        useFcmChannel = snapshot.useFcmChannel,
-        providerMode = snapshot.providerMode,
-        providerDeviceKeyPresent = snapshot.providerDeviceKeyPresent,
-        privateRoute = snapshot.privateRoute,
-        privateTransport = snapshot.privateTransport,
-        privateStage = snapshot.privateStage,
-        privateDetail = snapshot.privateDetail,
-        ackPendingCount = snapshot.ackPendingCount,
-        channelCount = snapshot.channelCount,
-        lastNotificationAction = snapshot.lastNotificationAction,
-        lastNotificationTarget = snapshot.lastNotificationTarget,
-        lastFixtureImportPath = snapshot.lastFixtureImportPath,
-        lastFixtureImportMessageCount = snapshot.lastFixtureImportMessageCount,
-        lastFixtureImportEntityRecordCount = snapshot.lastFixtureImportEntityRecordCount,
-        lastFixtureImportSubscriptionCount = snapshot.lastFixtureImportSubscriptionCount,
+        activeTab = tab, visibleScreen = if (selectedMessageId != null) "screen.message.detail" else "screen.messages.list",
+        openedMessageId = selectedMessageId, openedMessageDecryptionState = snapshot.openedMessageDecryptionState,
+        openedEntityType = openedEntityType, openedEntityId = openedEntityId, pendingEventId = pendingEventId, pendingThingId = pendingThingId,
+        unreadMessageCount = snapshot.unreadMessageCount, totalMessageCount = snapshot.totalMessageCount,
+        eventCount = snapshot.eventCount, thingCount = snapshot.thingCount,
+        messagePageEnabled = snapshot.messagePageEnabled, eventPageEnabled = snapshot.eventPageEnabled, thingPageEnabled = snapshot.thingPageEnabled,
+        notificationKeyConfigured = snapshot.notificationKeyConfigured, notificationKeyEncoding = snapshot.notificationKeyEncoding,
+        gatewayBaseUrl = snapshot.gatewayBaseUrl, gatewayTokenPresent = snapshot.gatewayTokenPresent,
+        useFcmChannel = snapshot.useFcmChannel, providerMode = snapshot.providerMode, providerDeviceKeyPresent = snapshot.providerDeviceKeyPresent,
+        privateRoute = snapshot.privateRoute, privateTransport = snapshot.privateTransport, privateStage = snapshot.privateStage, privateDetail = snapshot.privateDetail,
+        ackPendingCount = snapshot.ackPendingCount, channelCount = snapshot.channelCount,
+        lastNotificationAction = snapshot.lastNotificationAction, lastNotificationTarget = snapshot.lastNotificationTarget,
+        lastFixtureImportPath = snapshot.lastFixtureImportPath, lastFixtureImportMessageCount = snapshot.lastFixtureImportMessageCount,
+        lastFixtureImportEntityRecordCount = snapshot.lastFixtureImportEntityRecordCount, lastFixtureImportSubscriptionCount = snapshot.lastFixtureImportSubscriptionCount,
         runtimeErrorCount = PushGoAutomation.currentRuntimeErrorCount(),
-        latestRuntimeErrorSource = latestRuntimeError?.source,
-        latestRuntimeErrorCategory = latestRuntimeError?.category,
-        latestRuntimeErrorCode = latestRuntimeError?.code,
-        latestRuntimeErrorMessage = latestRuntimeError?.message,
-        latestRuntimeErrorTimestamp = latestRuntimeError?.timestamp,
+        latestRuntimeErrorSource = error?.source, latestRuntimeErrorCategory = error?.category,
+        latestRuntimeErrorCode = error?.code, latestRuntimeErrorMessage = error?.message, latestRuntimeErrorTimestamp = error?.timestamp,
     )
-}
-
-private fun resolveAutomationTab(activeTab: String, snapshot: AutomationSnapshot): String {
-    if (activeTab == "messages" && !snapshot.messagePageEnabled) {
-        return fallbackAutomationTab(snapshot)
-    }
-    if (activeTab == "events" && !snapshot.eventPageEnabled) {
-        return fallbackAutomationTab(snapshot)
-    }
-    if (activeTab == "things" && !snapshot.thingPageEnabled) {
-        return fallbackAutomationTab(snapshot)
-    }
-    return activeTab
-}
-
-private fun fallbackAutomationTab(snapshot: AutomationSnapshot): String {
-    return when {
-        snapshot.messagePageEnabled -> "messages"
-        snapshot.eventPageEnabled -> "events"
-        snapshot.thingPageEnabled -> "things"
-        else -> "channels"
-    }
 }

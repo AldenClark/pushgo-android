@@ -160,7 +160,7 @@ fun ChannelListScreen(
                 )
             }
             IconButton(onClick = {
-                navController.navigate("settings") {
+                navController.navigate(io.ethan.pushgo.ui.SettingsRoute) {
                     launchSingleTop = true
                 }
             }) {
