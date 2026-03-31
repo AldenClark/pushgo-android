@@ -4,10 +4,12 @@ import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.outlined.Circle
 import android.net.Uri
 import android.widget.Toast
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.background
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -28,6 +30,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.FilterList as FilledFilterList
@@ -85,9 +88,11 @@ import androidx.compose.ui.layout.positionInWindow
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.activity.compose.BackHandler
 import coil.compose.AsyncImage
 import io.ethan.pushgo.R
@@ -967,157 +972,176 @@ fun EventDetailSheet(
     val latestAt = timelineDescending.firstOrNull()?.happenedAt ?: event.updatedAt
     val isEnded = event.state == EventLifecycleState.Closed
     val attrsEntries = remember(event.attrsJson) { parseEventDisplayAttributes(event.attrsJson) }
+
     Column(
         modifier = Modifier
             .fillMaxWidth()
             .verticalScroll(rememberScrollState())
-            .padding(horizontal = 18.dp, vertical = 10.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp),
+            .padding(horizontal = 24.dp)
+            .padding(bottom = 32.dp),
+        verticalArrangement = Arrangement.spacedBy(20.dp),
     ) {
-        Row(
+        Column(
             modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
+            verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            Spacer(modifier = Modifier.weight(1f))
-            if (event.state != EventLifecycleState.Closed) {
-                IconButton(onClick = { showCloseConfirmation = true }) {
-                    Icon(
-                        imageVector = Icons.Outlined.CheckCircle,
-                        contentDescription = stringResource(R.string.action_close_event),
-                    )
-                }
-            }
-            IconButton(onClick = onDelete) {
-                Icon(
-                    imageVector = Icons.Outlined.Delete,
-                    contentDescription = stringResource(R.string.action_delete),
-                )
-            }
-        }
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            Text(
-                text = event.title,
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.SemiBold,
-                modifier = Modifier.weight(1f),
-            )
-            EventStatusBadge(
-                statusText = normalizedEventStatus(event.status)
-                    ?: stringResource(R.string.event_status_created_default),
-                state = event.state,
-                severity = event.severity,
-            )
-        }
-        if (!event.summary.isNullOrBlank()) {
-            Text(
-                text = event.summary,
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-        }
-        if (!event.message.isNullOrBlank()) {
-            EventInlineAlert(
-                text = event.message.orEmpty(),
-                severity = event.severity,
-            )
-        }
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            createdAt?.let { created ->
-                EventTimeMetaChip(
-                    icon = Icons.Outlined.Info,
-                    text = EventTimeFormatter.format(created),
-                )
-            }
-            EventTimeMetaChip(
-                icon = if (isEnded) Icons.Outlined.CheckCircle else Icons.Outlined.NotificationsActive,
-                text = EventTimeFormatter.format(latestAt),
-            )
-        }
-        if (event.tags.isNotEmpty()) {
-            Text(
-                text = stringResource(R.string.event_meta_tags_count, event.tags.size),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-        }
-        if (attrsEntries.isNotEmpty()) {
-            Surface(
-                color = MaterialTheme.colorScheme.surfaceContainerHighest,
-                shape = MaterialTheme.shapes.medium
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.Top
             ) {
-                EventAttributeRows(
-                    entries = attrsEntries,
-                    textStyle = MaterialTheme.typography.bodySmall,
-                    modifier = Modifier.padding(10.dp),
+                Text(
+                    text = event.title,
+                    style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Bold),
+                    modifier = Modifier.weight(1f),
                 )
-            }
-        }
-        if (imageAttachments.isNotEmpty() || linkAttachments.isNotEmpty()) {
-            if (imageAttachments.isNotEmpty()) {
-                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    imageAttachments.chunked(3).forEach { row ->
-                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                            row.forEach { url ->
-                                AsyncImage(
-                                    model = url,
-                                    contentDescription = null,
-                                    contentScale = ContentScale.Crop,
-                                    modifier = Modifier
-                                        .height(72.dp)
-                                        .width(72.dp)
-                                        .clip(MaterialTheme.shapes.small)
-                                        .clickable { previewImageUrl = url },
-                                )
-                            }
+                Row {
+                    if (!isEnded) {
+                        IconButton(
+                            modifier = Modifier.size(32.dp),
+                            onClick = { showCloseConfirmation = true }
+                        ) {
+                            Icon(
+                                imageVector = Icons.Outlined.CheckCircle,
+                                contentDescription = stringResource(R.string.action_close_event),
+                                tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.8f),
+                                modifier = Modifier.size(20.dp)
+                            )
                         }
+                    }
+                    IconButton(
+                        modifier = Modifier.size(32.dp),
+                        onClick = onDelete
+                    ) {
+                        Icon(
+                            imageVector = Icons.Outlined.Delete,
+                            contentDescription = stringResource(R.string.action_delete),
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
+                            modifier = Modifier.size(20.dp)
+                        )
                     }
                 }
             }
-            linkAttachments.forEach { url ->
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                EventStatusBadge(
+                    statusText = normalizedEventStatus(event.status)
+                        ?: stringResource(R.string.event_status_created_default),
+                    state = event.state,
+                    severity = event.severity,
+                )
+                
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    createdAt?.let { created ->
+                        EventTimeMetaChip(
+                            icon = Icons.Outlined.Info,
+                            text = EventTimeFormatter.format(created),
+                        )
+                    }
+                }
+            }
+        }
+
+        if (!event.summary.isNullOrBlank() || !event.message.isNullOrBlank() || event.tags.isNotEmpty()) {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                if (!event.summary.isNullOrBlank()) {
+                    Text(
+                        text = event.summary,
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                }
+                if (!event.message.isNullOrBlank()) {
+                    EventInlineAlert(
+                        text = event.message.orEmpty(),
+                        severity = event.severity,
+                    )
+                }
+                if (event.tags.isNotEmpty()) {
+                    Text(
+                        text = event.tags.joinToString(" · "),
+                        style = MaterialTheme.typography.labelMedium.copy(fontFamily = FontFamily.Monospace),
+                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.8f)
+                    )
+                }
+            }
+        }
+
+        if (attrsEntries.isNotEmpty()) {
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
                 Text(
-                    text = url,
-                    style = MaterialTheme.typography.bodySmall,
+                    text = stringResource(R.string.thing_detail_metadata_button),
+                    style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold),
                     color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                EventAttributeRows(
+                    entries = attrsEntries,
+                    textStyle = MaterialTheme.typography.bodyMedium,
+                    modifier = Modifier.fillMaxWidth(),
                 )
             }
         }
-        if (timelineDescending.isEmpty()) {
-            AppEmptyState(
-                icon = Icons.Outlined.Info,
-                title = "No history records.",
-                description = "Updates will appear here when this event receives new actions.",
-                topPadding = 12.dp,
-                horizontalPadding = 0.dp,
-                iconSize = 44.dp,
-            )
-        } else {
-            timelineDescending.forEach { row ->
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.Top,
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .padding(top = 6.dp)
-                            .background(
-                                color = MaterialTheme.colorScheme.outlineVariant,
-                                shape = MaterialTheme.shapes.small
+
+        if (imageAttachments.isNotEmpty() || linkAttachments.isNotEmpty()) {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                if (imageAttachments.isNotEmpty()) {
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        modifier = Modifier.horizontalScroll(rememberScrollState())
+                    ) {
+                        imageAttachments.forEach { url ->
+                            AsyncImage(
+                                model = url,
+                                contentDescription = null,
+                                contentScale = ContentScale.Crop,
+                                modifier = Modifier
+                                    .size(100.dp)
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .clickable { previewImageUrl = url },
                             )
-                            .height(8.dp)
-                            .fillMaxWidth(0.02f)
+                        }
+                    }
+                }
+                linkAttachments.forEach { url ->
+                    Text(
+                        text = url,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.clickable { /* Handle link click if needed */ }
                     )
+                }
+            }
+        }
+
+        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+
+        Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+            Text(
+                text = "History",
+                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
+            )
+            
+            if (timelineDescending.isEmpty()) {
+                Text(
+                    text = "No history records available.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                )
+            } else {
+                timelineDescending.forEach { row ->
                     Column(
-                        modifier = Modifier.weight(1f),
-                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
                         Row(
                             modifier = Modifier.fillMaxWidth(),
@@ -1126,7 +1150,7 @@ fun EventDetailSheet(
                         ) {
                             Text(
                                 text = EventTimeFormatter.format(row.happenedAt),
-                                style = MaterialTheme.typography.labelSmall,
+                                style = MaterialTheme.typography.labelSmall.copy(fontFamily = FontFamily.Monospace),
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                             val rowStatus = normalizedEventStatus(row.status)
@@ -1139,12 +1163,15 @@ fun EventDetailSheet(
                             }
                         }
                         if (!row.displayTitle.isNullOrBlank()) {
-                            Text(text = row.displayTitle, style = MaterialTheme.typography.bodyLarge)
+                            Text(
+                                text = row.displayTitle,
+                                style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.SemiBold)
+                            )
                         }
                         if (!row.displaySummary.isNullOrBlank()) {
                             Text(
                                 text = row.displaySummary,
-                                style = MaterialTheme.typography.bodySmall,
+                                style = MaterialTheme.typography.bodyMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
@@ -1154,29 +1181,26 @@ fun EventDetailSheet(
                                 severity = row.severity,
                             )
                         }
-                        if (row.tags.isNotEmpty()) {
-                            Text(
-                                text = stringResource(R.string.event_meta_tags_count, row.tags.size),
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
                         val pointAttrs = parseEventDisplayAttributes(row.attrsJson)
                         if (pointAttrs.isNotEmpty()) {
                             EventAttributeRows(
                                 entries = pointAttrs,
-                                textStyle = MaterialTheme.typography.labelSmall,
+                                textStyle = MaterialTheme.typography.bodySmall,
                                 modifier = Modifier.fillMaxWidth(),
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
                             )
                         }
+                        HorizontalDivider(
+                            modifier = Modifier.padding(top = 8.dp),
+                            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.2f)
+                        )
                     }
                 }
             }
         }
-        Spacer(modifier = Modifier.height(12.dp))
     }
     if (showCloseConfirmation) {
+
         AlertDialog(
             onDismissRequest = { showCloseConfirmation = false },
             title = {
@@ -1233,16 +1257,45 @@ private fun EventAttributeRows(
     modifier: Modifier = Modifier,
     color: Color = MaterialTheme.colorScheme.onSurface,
 ) {
-    Column(
+    Surface(
         modifier = modifier,
-        verticalArrangement = Arrangement.spacedBy(4.dp)
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.2f),
+        shape = RoundedCornerShape(12.dp),
+        border = BorderStroke(0.5.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
     ) {
-        entries.forEach { entry ->
-            Text(
-                text = "${entry.displayLabel} - ${entry.value}",
-                style = textStyle,
-                color = color,
-            )
+        Column {
+            entries.forEachIndexed { index, entry ->
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 10.dp),
+                    horizontalArrangement = Arrangement.spacedBy(16.dp),
+                    verticalAlignment = Alignment.Top,
+                ) {
+                    Text(
+                        text = entry.displayLabel,
+                        style = textStyle.copy(
+                            fontWeight = FontWeight.Bold,
+                            letterSpacing = 0.2.sp
+                        ),
+                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.8f),
+                        modifier = Modifier.width(100.dp)
+                    )
+                    Text(
+                        text = entry.value,
+                        style = textStyle,
+                        color = color,
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+                if (index < entries.lastIndex) {
+                    HorizontalDivider(
+                        modifier = Modifier.padding(horizontal = 12.dp),
+                        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.2f),
+                        thickness = 0.5.dp
+                    )
+                }
+            }
         }
     }
 }

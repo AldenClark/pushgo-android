@@ -69,6 +69,7 @@
     <string name="confirm_cleanup_things_channel">This will remove object records in the current channel and cannot be undone.</string>
     <string name="confirm_cleanup_things_all">This will remove all object records and cannot be undone.</string>
     <string name="confirm_delete_selected_messages">Delete %1$d selected messages?</string>
+    <string name="confirm_delete_message">This message will be permanently deleted. Continue?</string>
     <string name="confirm_delete_selected_events">Delete %1$d selected events?</string>
     <string name="confirm_delete_selected_things">Delete %1$d selected objects?</string>
     <string name="message_deleted_selected_count">Deleted %1$d items</string>

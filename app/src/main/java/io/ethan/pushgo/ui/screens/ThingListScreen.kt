@@ -13,6 +13,7 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -23,12 +24,14 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
@@ -88,6 +91,7 @@ import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.sp
@@ -1100,43 +1104,46 @@ private fun ThingDetailSheet(
         modifier = Modifier
             .fillMaxWidth()
             .verticalScroll(rememberScrollState())
-            .padding(horizontal = 18.dp, vertical = 10.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp),
+            .padding(horizontal = 24.dp)
+            .padding(bottom = 32.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
-        Row(
+        Column(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.End,
+            verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            IconButton(onClick = onDelete) {
-                Icon(
-                    imageVector = Icons.Outlined.Delete,
-                    contentDescription = stringResource(R.string.action_delete),
-                )
-            }
-        }
-
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            ThingImageThumb(
-                url = thing.imageUrl,
-                size = 92.dp,
-                onClick = { url -> previewImageUrl = url }
-            )
-            Column(
-                modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(6.dp),
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.Top
             ) {
+                ThingImageThumb(
+                    url = thing.imageUrl,
+                    size = 80.dp,
+                    onClick = { url -> previewImageUrl = url }
+                )
+                IconButton(
+                    modifier = Modifier.size(32.dp),
+                    onClick = onDelete
+                ) {
+                    Icon(
+                        imageVector = Icons.Outlined.Delete,
+                        contentDescription = stringResource(R.string.action_delete),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+            }
+
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
                         text = thing.title,
-                        style = MaterialTheme.typography.headlineSmall,
+                        style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Bold),
                         modifier = Modifier.weight(1f),
                     )
                     val lifecycleState = ThingLifecycleState.fromRaw(thing.state)
@@ -1144,30 +1151,23 @@ private fun ThingDetailSheet(
                         ThingStateBadge(state = thing.state)
                     }
                 }
+                
                 if (metadataEntries.isNotEmpty()) {
-                    Surface(
-                        shape = MaterialTheme.shapes.small,
-                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
-                        border = BorderStroke(0.8.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)),
-                        modifier = Modifier.clickable { showMetadataSheet = true },
+                    TextButton(
+                        onClick = { showMetadataSheet = true },
+                        contentPadding = PaddingValues(0.dp),
+                        modifier = Modifier.height(32.dp)
                     ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        ) {
-                            Icon(
-                                imageVector = Icons.Outlined.Info,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.width(14.dp).height(14.dp),
-                            )
-                            Text(
-                                text = stringResource(R.string.thing_detail_metadata_button),
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
+                        Icon(
+                            imageVector = Icons.Outlined.Info,
+                            contentDescription = null,
+                            modifier = Modifier.size(14.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = stringResource(R.string.thing_detail_metadata_button),
+                            style = MaterialTheme.typography.labelMedium
+                        )
                     }
                 }
             }
@@ -1177,44 +1177,47 @@ private fun ThingDetailSheet(
             EntityKeyValueRows(entries = attrsEntries)
         }
 
-        Text(
-            text = stringResource(
-                R.string.thing_detail_created_updated,
-                thing.createdAt?.let(ThingTimeFormatter::format) ?: "-",
-                ThingTimeFormatter.format(thing.updatedAt),
-            ),
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-
-        if (thing.tags.isNotEmpty()) {
+        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Text(
-                text = thing.tags.joinToString(" · "),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                text = stringResource(
+                    R.string.thing_detail_created_updated,
+                    thing.createdAt?.let(ThingTimeFormatter::format) ?: "-",
+                    ThingTimeFormatter.format(thing.updatedAt),
+                ),
+                style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
             )
-        }
 
-        if (!thing.summary.isNullOrBlank()) {
-            Text(
-                text = thing.summary,
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+            if (thing.tags.isNotEmpty()) {
+                Text(
+                    text = thing.tags.joinToString(" · "),
+                    style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
+                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.8f),
+                )
+            }
+
+            if (!thing.summary.isNullOrBlank()) {
+                Text(
+                    text = thing.summary,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    lineHeight = 20.sp
+                )
+            }
         }
 
         if (thing.imageUrls.size > 1) {
-            LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                items(thing.imageUrls.drop(1), key = { it }) { url ->
-                    ThingImageThumb(url = url, size = 44.dp)
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                modifier = Modifier.horizontalScroll(rememberScrollState())
+            ) {
+                thing.imageUrls.drop(1).forEach { url ->
+                    ThingImageThumb(url = url, size = 100.dp, onClick = { previewImageUrl = it })
                 }
             }
         }
 
-        HorizontalDivider(
-            thickness = 1.dp,
-            color = MaterialTheme.colorScheme.surfaceVariant,
-        )
+        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
 
         SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
             SegmentedButton(
@@ -1240,133 +1243,126 @@ private fun ThingDetailSheet(
             ) { Text(stringResource(R.string.thing_detail_tab_updates)) }
         }
 
-        when (selectedTab) {
-            ThingDetailTab.Events -> {
-                if (thing.relatedEvents.isEmpty()) {
-                    AppEmptyState(
-                        icon = Icons.Outlined.Info,
-                        title = stringResource(R.string.thing_detail_no_related_events),
-                        description = stringResource(R.string.label_no_events_hint),
-                        topPadding = 12.dp,
-                        horizontalPadding = 0.dp,
-                        iconSize = 44.dp,
-                    )
-                } else {
-                    thing.relatedEvents.sortedByDescending { it.updatedAt }.forEach { event ->
-                        EventListRowItem(
-                            event = event,
-                            onClick = { onOpenRelatedEvent(event) },
-                            selectionMode = false,
-                            selected = false,
-                            onToggleSelection = {},
-                            showDivider = false,
+        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            when (selectedTab) {
+                ThingDetailTab.Events -> {
+                    if (thing.relatedEvents.isEmpty()) {
+                        AppEmptyState(
+                            icon = Icons.Outlined.Info,
+                            title = stringResource(R.string.thing_detail_no_related_events),
+                            description = stringResource(R.string.label_no_events_hint),
+                            topPadding = 12.dp,
+                            horizontalPadding = 0.dp,
+                            iconSize = 44.dp,
                         )
-                        HorizontalDivider(
-                            thickness = 1.dp,
-                            color = MaterialTheme.colorScheme.surfaceVariant,
-                            modifier = Modifier.padding(vertical = 8.dp),
-                        )
-                    }
-                }
-            }
-            ThingDetailTab.Messages -> {
-                if (thing.relatedMessages.isEmpty()) {
-                    AppEmptyState(
-                        icon = Icons.Outlined.Info,
-                        title = stringResource(R.string.thing_detail_no_related_messages),
-                        description = stringResource(R.string.message_list_empty_hint),
-                        topPadding = 12.dp,
-                        horizontalPadding = 0.dp,
-                        iconSize = 44.dp,
-                    )
-                } else {
-                    thing.relatedMessages
-                        .sortedByDescending { it.happenedAt }
-                        .forEachIndexed { index, message ->
-                        val nowInstant = Instant.now()
-                        val rowMessage = message.message
-                        val bodyPreview = rowMessage.bodyPreview?.trim().orEmpty()
-                        Column(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable { onOpenRelatedMessage(message) }
-                                .padding(horizontal = ScreenHorizontalPadding, vertical = 10.dp),
-                        ) {
-                            MessageRowContent(
-                                message = rowMessage,
-                                imageModels = rowMessage.imageUrls.take(3).map { it as Any },
-                                appName = stringResource(R.string.app_name),
-                                timeText = formatMessageTime(
-                                    context = LocalContext.current,
-                                    receivedAt = rowMessage.receivedAt,
-                                    zoneId = ZoneId.systemDefault(),
-                                    nowInstant = nowInstant,
-                                ),
-                                bodyPreview = bodyPreview,
-                            )
-                        }
-                        if (index < thing.relatedMessages.lastIndex) {
-                            HorizontalDivider(
-                                thickness = 1.dp,
-                                color = MaterialTheme.colorScheme.surfaceVariant,
-                                modifier = Modifier.padding(vertical = 8.dp),
+                    } else {
+                        thing.relatedEvents.sortedByDescending { it.updatedAt }.forEach { event ->
+                            EventListRowItem(
+                                event = event,
+                                onClick = { onOpenRelatedEvent(event) },
+                                selectionMode = false,
+                                selected = false,
+                                onToggleSelection = {},
+                                showDivider = true,
                             )
                         }
                     }
                 }
-            }
-            ThingDetailTab.Updates -> {
-                if (thing.relatedUpdates.isEmpty()) {
-                    AppEmptyState(
-                        icon = Icons.Outlined.Info,
-                        title = stringResource(R.string.thing_detail_no_related_updates),
-                        description = stringResource(R.string.label_no_things_hint),
-                        topPadding = 12.dp,
-                        horizontalPadding = 0.dp,
-                        iconSize = 44.dp,
-                    )
-                } else {
-                    thing.relatedUpdates.sortedByDescending { it.happenedAt }.forEach { update ->
-                        val updateMessage = PushMessage(
-                            id = update.updateId,
-                            messageId = update.updateId,
-                            title = update.title,
-                            body = update.summary ?: "",
-                            channel = null,
-                            url = null,
-                            isRead = true,
-                            receivedAt = update.happenedAt,
-                            rawPayloadJson = "{}",
-                            status = MessageStatus.NORMAL,
-                            decryptionState = null,
-                            notificationId = null,
-                            serverId = null,
-                            bodyPreview = update.summary,
+                ThingDetailTab.Messages -> {
+                    if (thing.relatedMessages.isEmpty()) {
+                        AppEmptyState(
+                            icon = Icons.Outlined.Info,
+                            title = stringResource(R.string.thing_detail_no_related_messages),
+                            description = stringResource(R.string.message_list_empty_hint),
+                            topPadding = 12.dp,
+                            horizontalPadding = 0.dp,
+                            iconSize = 44.dp,
                         )
-                        val nowInstant = Instant.now()
-                        Column(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable { onOpenRelatedUpdate(update) }
-                                .padding(horizontal = ScreenHorizontalPadding, vertical = 8.dp),
-                        ) {
-                            MessageRowContent(
-                                message = updateMessage,
-                                imageModels = emptyList(),
-                                appName = stringResource(R.string.app_name),
-                                timeText = formatMessageTime(
-                                    context = LocalContext.current,
-                                    receivedAt = updateMessage.receivedAt,
-                                    zoneId = ZoneId.systemDefault(),
-                                    nowInstant = nowInstant,
-                                ),
-                                bodyPreview = update.summary.orEmpty(),
+                    } else {
+                        thing.relatedMessages
+                            .sortedByDescending { it.happenedAt }
+                            .forEach { message ->
+                            val nowInstant = Instant.now()
+                            val rowMessage = message.message
+                            val bodyPreview = rowMessage.bodyPreview?.trim().orEmpty()
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable { onOpenRelatedMessage(message) }
+                                    .padding(vertical = 10.dp),
+                            ) {
+                                MessageRowContent(
+                                    message = rowMessage,
+                                    imageModels = rowMessage.imageUrls.take(3).map { it as Any },
+                                    appName = stringResource(R.string.app_name),
+                                    timeText = formatMessageTime(
+                                        context = LocalContext.current,
+                                        receivedAt = rowMessage.receivedAt,
+                                        zoneId = ZoneId.systemDefault(),
+                                        nowInstant = nowInstant,
+                                    ),
+                                    bodyPreview = bodyPreview,
+                                )
+                                HorizontalDivider(
+                                    modifier = Modifier.padding(top = 10.dp),
+                                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f)
+                                )
+                            }
+                        }
+                    }
+                }
+                ThingDetailTab.Updates -> {
+                    if (thing.relatedUpdates.isEmpty()) {
+                        AppEmptyState(
+                            icon = Icons.Outlined.Info,
+                            title = stringResource(R.string.thing_detail_no_related_updates),
+                            description = stringResource(R.string.label_no_things_hint),
+                            topPadding = 12.dp,
+                            horizontalPadding = 0.dp,
+                            iconSize = 44.dp,
+                        )
+                    } else {
+                        thing.relatedUpdates.sortedByDescending { it.happenedAt }.forEach { update ->
+                            val updateMessage = PushMessage(
+                                id = update.updateId,
+                                messageId = update.updateId,
+                                title = update.title,
+                                body = update.summary ?: "",
+                                channel = null,
+                                url = null,
+                                isRead = true,
+                                receivedAt = update.happenedAt,
+                                rawPayloadJson = "{}",
+                                status = MessageStatus.NORMAL,
+                                decryptionState = null,
+                                notificationId = null,
+                                serverId = null,
+                                bodyPreview = update.summary,
                             )
-                            HorizontalDivider(
-                                thickness = 1.dp,
-                                color = MaterialTheme.colorScheme.surfaceVariant,
-                                modifier = Modifier.padding(vertical = 8.dp),
-                            )
+                            val nowInstant = Instant.now()
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable { onOpenRelatedUpdate(update) }
+                                    .padding(vertical = 8.dp),
+                            ) {
+                                MessageRowContent(
+                                    message = updateMessage,
+                                    imageModels = emptyList(),
+                                    appName = stringResource(R.string.app_name),
+                                    timeText = formatMessageTime(
+                                        context = LocalContext.current,
+                                        receivedAt = updateMessage.receivedAt,
+                                        zoneId = ZoneId.systemDefault(),
+                                        nowInstant = nowInstant,
+                                    ),
+                                    bodyPreview = update.summary.orEmpty(),
+                                )
+                                HorizontalDivider(
+                                    modifier = Modifier.padding(top = 8.dp),
+                                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f)
+                                )
+                            }
                         }
                     }
                 }
@@ -1391,18 +1387,19 @@ private fun ThingDetailSheet(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 18.dp, vertical = 10.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
+                    .padding(horizontal = 24.dp)
+                    .padding(bottom = 32.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp),
             ) {
                 Text(
                     text = stringResource(R.string.thing_detail_metadata_button),
-                    style = MaterialTheme.typography.titleMedium,
+                    style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
                 )
                 if (metadataEntries.isEmpty()) {
                     Text(
                         text = stringResource(R.string.thing_detail_no_metadata),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
                     )
                 } else {
                     EntityKeyValueRows(entries = metadataEntries)
@@ -1448,24 +1445,18 @@ private fun ThingRelatedMessageDetailSheet(message: ThingRelatedMessage) {
 private fun ThingUpdateDetailSheet(update: ThingRelatedUpdate) {
     val attrsEntries = remember(update.attrsJson) { parseThingDisplayAttributes(update.attrsJson) }
     val timeText = remember(update.happenedAt) { ThingTimeFormatter.format(update.happenedAt) }
-    Card(
+    Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 12.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        shape = MaterialTheme.shapes.large,
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = 24.dp)
+            .padding(bottom = 32.dp),
+        verticalArrangement = Arrangement.spacedBy(20.dp),
     ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .verticalScroll(rememberScrollState())
-                .padding(horizontal = 20.dp, vertical = 18.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
+        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text(
                 text = update.title,
-                style = MaterialTheme.typography.headlineSmall,
+                style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Bold),
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
             )
@@ -1476,68 +1467,71 @@ private fun ThingUpdateDetailSheet(update: ThingRelatedUpdate) {
             ) {
                 Text(
                     text = timeText,
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MaterialTheme.typography.labelMedium.copy(fontFamily = FontFamily.Monospace),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
                 )
                 if (!update.state.isNullOrBlank()) {
                     ThingStateBadge(state = update.state)
                 }
             }
-            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
-            if (!update.summary.isNullOrBlank()) {
-                Text(
-                    text = update.summary,
-                    style = MaterialTheme.typography.bodyLarge,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-            if (attrsEntries.isNotEmpty()) {
-                EntityKeyValueRows(entries = attrsEntries)
-            }
+        }
+
+        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+
+        if (!update.summary.isNullOrBlank()) {
+            Text(
+                text = update.summary,
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.onSurface,
+                lineHeight = 22.sp
+            )
+        }
+
+        if (attrsEntries.isNotEmpty()) {
+            EntityKeyValueRows(entries = attrsEntries)
         }
     }
 }
 
 @Composable
 private fun EntityKeyValueRows(entries: List<ThingDisplayAttribute>) {
-    Column(
+    Surface(
         modifier = Modifier.fillMaxWidth(),
-        verticalArrangement = Arrangement.spacedBy(6.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.2f),
+        shape = RoundedCornerShape(12.dp),
+        border = BorderStroke(0.5.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
     ) {
-        entries.chunked(2).forEach { rowEntries ->
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment = Alignment.Top,
-            ) {
-                rowEntries.forEach { entry ->
-                    Surface(
-                        modifier = Modifier.weight(1f),
-                        color = MaterialTheme.colorScheme.surfaceContainerHighest,
-                        shape = MaterialTheme.shapes.medium,
-                    ) {
-                        Column(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 12.dp, vertical = 10.dp),
-                            verticalArrangement = Arrangement.spacedBy(4.dp),
-                        ) {
-                            Text(
-                                text = entry.label,
-                                style = MaterialTheme.typography.labelSmall,
-                                fontWeight = FontWeight.SemiBold,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                            Text(
-                                text = entry.value,
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurface,
-                            )
-                        }
-                    }
+        Column {
+            entries.forEachIndexed { index, entry ->
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 10.dp),
+                    horizontalArrangement = Arrangement.spacedBy(16.dp),
+                    verticalAlignment = Alignment.Top,
+                ) {
+                    Text(
+                        text = entry.label,
+                        style = MaterialTheme.typography.labelMedium.copy(
+                            fontWeight = FontWeight.Bold,
+                            letterSpacing = 0.2.sp
+                        ),
+                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.9f),
+                        modifier = Modifier.width(100.dp)
+                    )
+                    Text(
+                        text = entry.value,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier.weight(1f)
+                    )
                 }
-                if (rowEntries.size == 1) {
-                    Spacer(modifier = Modifier.weight(1f))
+                if (index < entries.lastIndex) {
+                    HorizontalDivider(
+                        modifier = Modifier.padding(horizontal = 12.dp),
+                        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.2f),
+                        thickness = 0.5.dp
+                    )
                 }
             }
         }

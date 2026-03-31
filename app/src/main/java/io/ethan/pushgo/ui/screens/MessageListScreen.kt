@@ -988,7 +988,8 @@ fun MessageRowContent(
 
     val hasBodyText = bodyPreview.isNotBlank()
     val hasImages = imageModels.isNotEmpty()
-    if (hasBodyText || hasImages) {
+    val hasTags = message.tags.isNotEmpty()
+    if (hasBodyText || hasImages || hasTags) {
         Column(
             verticalArrangement = Arrangement.spacedBy(8.dp),
             modifier = Modifier
@@ -1004,7 +1005,7 @@ fun MessageRowContent(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
-            if (message.tags.isNotEmpty()) {
+            if (hasTags) {
                 Text(
                     text = message.tags.joinToString(separator = " · "),
                     style = MaterialTheme.typography.labelSmall.copy(fontFamily = FontFamily.Monospace),

@@ -15,12 +15,14 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.MarkEmailRead
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -30,7 +32,9 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -51,6 +55,8 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.compose.foundation.layout.width
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavHostController
 import coil.compose.AsyncImage
@@ -118,6 +124,7 @@ fun MessageDetailScreen(
         current?.let { imageStore.resolveDetailImageModels(it.rawPayloadJson) }.orEmpty()
     }
     var previewImageModel by remember(current?.id) { mutableStateOf<Any?>(null) }
+    var showDeleteConfirmation by remember { mutableStateOf(false) }
     val resolvedBodyText = remember(current?.rawPayloadJson, current?.body) {
         current?.let { MessageBodyResolver.resolve(it.rawPayloadJson, it.body).rawText }.orEmpty()
     }
@@ -128,7 +135,6 @@ fun MessageDetailScreen(
         sheetState = sheetState,
         containerColor = PushGoSheetContainerColor(),
         tonalElevation = 0.dp,
-        dragHandle = null,
     ) {
         when {
             isLoading -> {
@@ -164,8 +170,7 @@ fun MessageDetailScreen(
                     imageModels = imageModels,
                     resolvedBodyText = resolvedBodyText,
                     onDelete = {
-                        viewModel.delete()
-                        onDismiss()
+                        showDeleteConfirmation = true
                     },
                     onOpenImage = { model ->
                         when (model) {
@@ -182,6 +187,30 @@ fun MessageDetailScreen(
                 )
             }
         }
+    }
+
+    if (showDeleteConfirmation) {
+        AlertDialog(
+            onDismissRequest = { showDeleteConfirmation = false },
+            title = { Text(text = stringResource(R.string.action_delete)) },
+            text = { Text(text = stringResource(R.string.confirm_delete_message)) },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showDeleteConfirmation = false
+                        viewModel.delete()
+                        onDismiss()
+                    }
+                ) {
+                    Text(text = stringResource(R.string.label_confirm))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteConfirmation = false }) {
+                    Text(text = stringResource(R.string.label_cancel))
+                }
+            }
+        )
     }
 
     if (previewImageModel != null) {
@@ -205,180 +234,182 @@ internal fun MessageDetailCoreContent(
     Column(
         modifier = Modifier
             .verticalScroll(rememberScrollState())
-            .padding(horizontal = 16.dp)
-            .padding(bottom = 16.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
+            .padding(horizontal = 20.dp)
+            .padding(bottom = 32.dp),
+        verticalArrangement = Arrangement.spacedBy(20.dp),
     ) {
-        if (onDelete != null) {
+        Column(
+            modifier = Modifier.fillMaxWidth(),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.End,
-                verticalAlignment = Alignment.CenterVertically
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.Top
             ) {
-                IconButton(
-                    modifier = Modifier.testTag("action.message.delete"),
-                    onClick = onDelete,
-                ) {
-                    Icon(
-                        Icons.Outlined.Delete,
-                        contentDescription = stringResource(R.string.action_delete),
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-            }
-        }
-        Card(
-            modifier = Modifier
-                .fillMaxWidth()
-                .testTag("panel.message.detail"),
-            shape = RoundedCornerShape(16.dp),
-            colors = CardDefaults.cardColors(
-                containerColor = MaterialTheme.colorScheme.surface
-            ),
-            elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
-        ) {
-            Column(
-                modifier = Modifier.padding(24.dp),
-                verticalArrangement = Arrangement.spacedBy(16.dp)
-            ) {
-                Column {
-                    SelectablePlainTextRenderer(
-                        text = message.title,
+                SelectablePlainTextRenderer(
+                    text = message.title,
+                    modifier = Modifier
+                        .weight(1f)
+                        .testTag("action.message.copy_title"),
+                    typeface = remember { android.graphics.Typeface.create("sans-serif", android.graphics.Typeface.BOLD) },
+                    textSizeSp = MaterialTheme.typography.headlineSmall.fontSize.value,
+                    textColorArgb = MaterialTheme.colorScheme.onSurface.toArgb(),
+                )
+                if (onDelete != null) {
+                    IconButton(
                         modifier = Modifier
-                            .fillMaxWidth()
-                            .testTag("action.message.copy_title"),
-                        typeface = remember { android.graphics.Typeface.create("sans-serif", android.graphics.Typeface.BOLD) },
-                        textSizeSp = MaterialTheme.typography.headlineSmall.fontSize.value,
-                        textColorArgb = MaterialTheme.colorScheme.onSurface.toArgb(),
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        modifier = Modifier.fillMaxWidth()
+                            .testTag("action.message.delete")
+                            .size(32.dp),
+                        onClick = onDelete,
                     ) {
-                        Row(
-                            modifier = Modifier.weight(1f),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        ) {
-                            Text(
-                                text = timeText,
-                                style = MaterialTheme.typography.labelMedium.copy(fontFamily = FontFamily.Monospace),
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                        MessageSeverityDetailBadge(severity = message.severity)
+                        Icon(
+                            Icons.Outlined.Delete,
+                            contentDescription = stringResource(R.string.action_delete),
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
+                            modifier = Modifier.size(20.dp)
+                        )
                     }
                 }
+            }
 
-                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
-                if (message.tags.isNotEmpty()) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                     Text(
-                        text = message.tags.joinToString(separator = " · "),
-                        style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        text = timeText,
+                        style = MaterialTheme.typography.labelMedium.copy(
+                            fontFamily = FontFamily.Monospace,
+                            fontWeight = FontWeight.Medium
+                        ),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f)
                     )
+                    if (message.tags.isNotEmpty()) {
+                        Text(
+                            text = message.tags.joinToString(separator = " · "),
+                            style = MaterialTheme.typography.bodySmall.copy(
+                                fontFamily = FontFamily.Monospace,
+                                fontWeight = FontWeight.Normal
+                            ),
+                            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.7f)
+                        )
+                    }
                 }
-                if (message.metadata.isNotEmpty()) {
-                    MetadataSection(items = message.metadata)
-                }
-                if (imageModels.isNotEmpty()) {
-                    if (imageModels.size == 1) {
-                        val model = imageModels.first()
+                MessageSeverityDetailBadge(severity = message.severity)
+            }
+        }
+
+        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+
+        if (imageModels.isNotEmpty()) {
+            if (imageModels.size == 1) {
+                val model = imageModels.first()
+                AsyncImage(
+                    model = model,
+                    contentDescription = stringResource(R.string.label_image_attachment),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(240.dp)
+                        .clip(RoundedCornerShape(12.dp))
+                        .clickable { onOpenImage(model) },
+                )
+            } else {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    modifier = Modifier.horizontalScroll(rememberScrollState())
+                ) {
+                    imageModels.forEach { model ->
                         AsyncImage(
                             model = model,
                             contentDescription = stringResource(R.string.label_image_attachment),
                             modifier = Modifier
-                                .fillMaxWidth()
-                                .height(220.dp)
-                                .clip(RoundedCornerShape(12.dp))
+                                .size(100.dp)
+                                .clip(RoundedCornerShape(10.dp))
                                 .clickable { onOpenImage(model) },
                         )
-                    } else {
-                        Row(
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            modifier = Modifier.horizontalScroll(rememberScrollState())
-                        ) {
-                            imageModels.forEach { model ->
-                                AsyncImage(
-                                    model = model,
-                                    contentDescription = stringResource(R.string.label_image_attachment),
-                                    modifier = Modifier
-                                        .size(88.dp)
-                                        .clip(RoundedCornerShape(10.dp))
-                                        .clickable { onOpenImage(model) },
-                                )
-                            }
-                        }
-                    }
-                }
-                if (message.severity == MessageSeverity.CRITICAL) {
-                    CriticalSeverityHintCard()
-                }
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(14.dp))
-                        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.24f))
-                        .padding(horizontal = 14.dp, vertical = 12.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp),
-                ) {
-                    FullMarkdownRenderer(
-                        text = resolvedBodyText,
-                        modifier = Modifier.fillMaxWidth(),
-                        onOpenLink = onOpenUrl,
-                        onOpenImage = { imageUrl -> onOpenImage(imageUrl) },
-                    )
-                }
-                if (!message.url.isNullOrBlank()) {
-                    Button(
-                        onClick = { onOpenUrl(message.url.orEmpty()) },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .testTag("action.message.open_url"),
-                        shape = RoundedCornerShape(8.dp)
-                    ) {
-                        Text(stringResource(R.string.label_open_url))
                     }
                 }
             }
         }
-        Spacer(modifier = Modifier.height(24.dp))
+
+        if (message.metadata.isNotEmpty()) {
+            MetadataSection(items = message.metadata)
+        }
+
+        if (message.severity == MessageSeverity.CRITICAL) {
+            CriticalSeverityHintCard()
+        }
+
+        FullMarkdownRenderer(
+            text = resolvedBodyText,
+            modifier = Modifier.fillMaxWidth(),
+            onOpenLink = onOpenUrl,
+            onOpenImage = { imageUrl -> onOpenImage(imageUrl) },
+        )
+
+        if (!message.url.isNullOrBlank()) {
+            Button(
+                onClick = { onOpenUrl(message.url.orEmpty()) },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(48.dp)
+                    .testTag("action.message.open_url"),
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                Text(
+                    text = stringResource(R.string.label_open_url),
+                    style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold)
+                )
+            }
+        }
     }
 }
 
 @Composable
 private fun MetadataSection(items: Map<String, String>) {
-    Column(
+    val sortedItems = items.toSortedMap(String.CASE_INSENSITIVE_ORDER).toList()
+    
+    Surface(
         modifier = Modifier
             .fillMaxWidth()
             .testTag("section.message.metadata"),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.2f),
+        shape = RoundedCornerShape(12.dp),
+        border = BorderStroke(0.5.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
     ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(12.dp))
-                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f))
-                .padding(12.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp),
-        ) {
-            items.toSortedMap(String.CASE_INSENSITIVE_ORDER).forEach { (key, value) ->
+        Column {
+            sortedItems.forEachIndexed { index, (key, value) ->
                 Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 12.dp),
+                    horizontalArrangement = Arrangement.spacedBy(16.dp),
                     verticalAlignment = Alignment.Top,
                 ) {
                     Text(
                         text = key,
-                        style = MaterialTheme.typography.labelLarge,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = MaterialTheme.typography.labelMedium.copy(
+                            fontWeight = FontWeight.Bold,
+                            letterSpacing = 0.2.sp
+                        ),
+                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.8f),
+                        modifier = Modifier.width(100.dp)
                     )
                     Text(
                         text = value,
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+                if (index < sortedItems.lastIndex) {
+                    HorizontalDivider(
+                        modifier = Modifier.padding(horizontal = 12.dp),
+                        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.2f),
+                        thickness = 0.5.dp
                     )
                 }
             }
@@ -396,27 +427,30 @@ private fun MessageSeverityDetailBadge(severity: MessageSeverity?) {
         MessageSeverity.CRITICAL -> stringResource(R.string.message_severity_critical)
     }
     val bgColor = when (resolved) {
-        MessageSeverity.LOW -> Color(0xFF93C5FD).copy(alpha = 0.18f)
-        MessageSeverity.MEDIUM -> Color(0xFFFDE68A).copy(alpha = 0.20f)
-        MessageSeverity.HIGH -> Color(0xFFF59E0B).copy(alpha = 0.18f)
-        MessageSeverity.CRITICAL -> Color(0xFFDC2626).copy(alpha = 0.18f)
+        MessageSeverity.LOW -> Color(0xFF93C5FD).copy(alpha = 0.15f)
+        MessageSeverity.MEDIUM -> Color(0xFFFDE68A).copy(alpha = 0.18f)
+        MessageSeverity.HIGH -> Color(0xFFF59E0B).copy(alpha = 0.15f)
+        MessageSeverity.CRITICAL -> Color(0xFFDC2626).copy(alpha = 0.15f)
     }
     val fgColor = when (resolved) {
-        MessageSeverity.LOW -> Color(0xFF1D4ED8)
-        MessageSeverity.MEDIUM -> Color(0xFFB45309)
-        MessageSeverity.HIGH -> Color(0xFFB45309)
-        MessageSeverity.CRITICAL -> Color(0xFFB91C1C)
+        MessageSeverity.LOW -> Color(0xFF2563EB)
+        MessageSeverity.MEDIUM -> Color(0xFFD97706)
+        MessageSeverity.HIGH -> Color(0xFFD97706)
+        MessageSeverity.CRITICAL -> Color(0xFFDC2626)
     }
     Box(
         modifier = Modifier
-            .clip(RoundedCornerShape(999.dp))
+            .clip(RoundedCornerShape(6.dp))
             .background(bgColor)
-            .padding(horizontal = 10.dp, vertical = 4.dp),
+            .padding(horizontal = 8.dp, vertical = 2.dp),
         contentAlignment = Alignment.Center,
     ) {
         Text(
-            text = text,
-            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
+            text = text.uppercase(),
+            style = MaterialTheme.typography.labelSmall.copy(
+                fontWeight = FontWeight.Black,
+                letterSpacing = 0.5.sp
+            ),
             color = fgColor,
             maxLines = 1,
         )
