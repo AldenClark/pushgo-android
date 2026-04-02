@@ -48,7 +48,7 @@ class InboundDeliveryLedgerRepository(
 
     suspend fun enqueueAcks(
         deliveryIds: Collection<String>,
-        source: String = "private_wakeup_pull",
+        source: String = "provider_wakeup_pull",
     ) {
         val normalized = io.ethan.pushgo.notifications.normalizePendingAckDeliveryIds(deliveryIds)
         if (normalized.isEmpty()) return

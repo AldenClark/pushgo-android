@@ -31,6 +31,7 @@ import io.ethan.pushgo.data.model.PushMessage
 import io.ethan.pushgo.markdown.MessageBodyResolver
 import io.ethan.pushgo.markdown.MessagePreviewExtractor
 import io.ethan.pushgo.ui.PushGoViewModelFactory
+import io.ethan.pushgo.ui.rememberBottomGestureInset
 import io.ethan.pushgo.ui.viewmodel.MessageSearchViewModel
 import java.time.ZoneId
 
@@ -42,6 +43,7 @@ fun MessageSearchScreen(
     val viewModel: MessageSearchViewModel = viewModel(factory = factory)
     val query by viewModel.queryState.collectAsState()
     val results by viewModel.results.collectAsState()
+    val bottomGestureInset = rememberBottomGestureInset()
 
     LaunchedEffect(query, results.size) {
         PushGoAutomation.writeEvent(
@@ -53,7 +55,7 @@ fun MessageSearchScreen(
         )
     }
 
-    Column(modifier = Modifier.padding(16.dp)) {
+    Column(modifier = Modifier.padding(start = 16.dp, top = 16.dp, end = 16.dp, bottom = 0.dp)) {
         OutlinedTextField(
             value = query,
             onValueChange = viewModel::updateQuery,
@@ -62,7 +64,10 @@ fun MessageSearchScreen(
             singleLine = true,
         )
         Spacer(modifier = Modifier.height(12.dp))
-        LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        LazyColumn(
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+            contentPadding = androidx.compose.foundation.layout.PaddingValues(bottom = bottomGestureInset + 16.dp),
+        ) {
             items(results, key = { it.id }) { message ->
                 SearchResultRow(
                     message = message,

@@ -172,8 +172,8 @@ class AppAutomationController(
         }
     }
 
-    fun triggerPrivateWakeup() {
-        privateChannelClient.triggerWakeupPull()
+    fun triggerProviderWakeupRecovery() {
+        privateChannelClient.triggerProviderWakeupRecovery()
     }
 
     suspend fun drainPrivateAcks(): AckDrainOutcome {

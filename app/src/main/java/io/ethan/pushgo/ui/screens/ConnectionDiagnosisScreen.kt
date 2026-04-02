@@ -8,6 +8,7 @@ import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -55,6 +56,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
 import io.ethan.pushgo.R
+import io.ethan.pushgo.ui.rememberBottomGestureInset
 import io.ethan.pushgo.ui.PushGoViewModelFactory
 import io.ethan.pushgo.ui.announceForAccessibility
 import io.ethan.pushgo.ui.viewmodel.ChannelProbeLeg
@@ -80,6 +82,7 @@ fun ConnectionDiagnosisScreen(
     val shareBundleChooserLabel = stringResource(R.string.label_connection_diagnosis_share_bundle)
     val openShareFailedPrefix = stringResource(R.string.error_connection_diagnosis_open_share_failed_prefix)
     val viewModel: ConnectionDiagnosisViewModel = viewModel(factory = factory)
+    val bottomGestureInset = rememberBottomGestureInset()
     val exportJsonLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.CreateDocument("application/json"),
     ) { uri ->
@@ -190,7 +193,12 @@ fun ConnectionDiagnosisScreen(
                 .fillMaxSize()
                 .background(MaterialTheme.colorScheme.background)
                 .padding(padding),
-            contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp),
+            contentPadding = androidx.compose.foundation.layout.PaddingValues(
+                start = 16.dp,
+                top = 16.dp,
+                end = 16.dp,
+                bottom = bottomGestureInset + 16.dp,
+            ),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             item {
@@ -553,6 +561,9 @@ private fun EnhancedProbeSheet(
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
+        containerColor = io.ethan.pushgo.ui.theme.PushGoSheetContainerColor(),
+        tonalElevation = 0.dp,
+        contentWindowInsets = { WindowInsets(0) }
     ) {
         Column(
             modifier = Modifier

@@ -341,6 +341,7 @@
     <string name="label_key_encoding">密鑰格式</string>
     <string name="label_selected_count">已選擇 %1$d 項</string>
     <string name="confirm_delete_selected_messages">確認刪除已選擇的 %1$d 條訊息？</string>
+    <string name="confirm_delete_message">這則訊息將被永久刪除。是否繼續？</string>
     <string name="confirm_delete_selected_events">確認刪除已選擇的 %1$d 條事件？</string>
     <string name="confirm_delete_selected_things">確認刪除已選擇的 %1$d 個物件？</string>
     <string name="message_deleted_selected_count">已刪除 %1$d 項</string>

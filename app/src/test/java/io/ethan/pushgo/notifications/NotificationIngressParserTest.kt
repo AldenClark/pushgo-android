@@ -180,4 +180,32 @@ class NotificationIngressParserTest {
         val raw = JsonCompat.parseObject(message.rawPayloadJson) ?: emptyMap()
         assertEquals("critical", raw["severity"])
     }
+
+    @Test
+    fun providerWakeupPullDeliveryId_requiresWakeupMarkers() {
+        assertEquals(
+            "delivery-1",
+            NotificationIngressParser.providerWakeupPullDeliveryId(
+                mapOf(
+                    "delivery_id" to "delivery-1",
+                    "provider_wakeup" to "1",
+                    "provider_mode" to "wakeup",
+                )
+            ),
+        )
+        assertNull(
+            NotificationIngressParser.providerWakeupPullDeliveryId(
+                mapOf("delivery_id" to "delivery-2")
+            )
+        )
+        assertNull(
+            NotificationIngressParser.providerWakeupPullDeliveryId(
+                mapOf(
+                    "delivery_id" to "delivery-3",
+                    "provider_wakeup" to "1",
+                    "provider_mode" to "direct",
+                )
+            )
+        )
+    }
 }

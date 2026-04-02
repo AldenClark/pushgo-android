@@ -17,9 +17,6 @@ import java.time.Instant
 import java.util.UUID
 
 object NotificationIngressParser {
-    private const val GATEWAY_PLACEHOLDER_TITLE = "PushGo"
-    private const val GATEWAY_PLACEHOLDER_MESSAGE_BODY = "You received a new message."
-
     data class NotificationTextLocalizer(
         val eventTitleFallback: (String) -> String,
         val thingTitleFallback: (String) -> String,
@@ -299,11 +296,12 @@ object NotificationIngressParser {
         return EntityNotificationText(title = title, body = body)
     }
 
-    fun isPrivateWakeupPayload(data: Map<String, String>): Boolean {
-        val mode = data["private_mode"]?.trim()?.lowercase()
-        if (mode == "wakeup") return true
-        val wakeup = data["private_wakeup"]?.trim()?.lowercase()
-        return wakeup == "1" || wakeup == "true"
+    fun providerWakeupPullDeliveryId(data: Map<String, String>): String? {
+        val mode = data["provider_mode"]?.trim()?.lowercase()
+        if (mode != null && mode != "wakeup") return null
+        val wakeup = data["provider_wakeup"]?.trim()?.lowercase()
+        if (wakeup != "1" && wakeup != "true") return null
+        return data["delivery_id"]?.trim()?.takeIf { it.isNotEmpty() }
     }
 
     private fun hasMessageContent(
@@ -326,27 +324,17 @@ object NotificationIngressParser {
         title: String,
         body: String,
     ): Pair<String, String> {
-        val trimmedTitle = title.trim()
         val trimmedBody = body.trim()
-        if (entityType == "message" && isGatewayPlaceholderMessage(trimmedTitle, trimmedBody)) {
-            return "" to ""
-        }
         if (trimmedBody == gatewayPlaceholderBody(entityType)) {
             return title to ""
         }
         return title to body
     }
 
-    private fun isGatewayPlaceholderMessage(title: String, body: String): Boolean {
-        return body == GATEWAY_PLACEHOLDER_MESSAGE_BODY &&
-            (title.isEmpty() || title == GATEWAY_PLACEHOLDER_TITLE)
-    }
-
     private fun gatewayPlaceholderBody(entityType: String): String? {
         return when (entityType) {
             "event" -> "Event updated."
             "thing" -> "Object updated."
-            "message" -> GATEWAY_PLACEHOLDER_MESSAGE_BODY
             else -> null
         }
     }

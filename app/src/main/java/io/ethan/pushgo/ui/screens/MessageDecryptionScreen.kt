@@ -51,6 +51,7 @@ import androidx.compose.foundation.layout.width
 import io.ethan.pushgo.R
 import io.ethan.pushgo.data.model.KeyEncoding
 import io.ethan.pushgo.ui.PushGoViewModelFactory
+import io.ethan.pushgo.ui.rememberBottomGestureInset
 import io.ethan.pushgo.ui.viewmodel.SettingsViewModel
 import io.ethan.pushgo.ui.announceForAccessibility
 
@@ -65,6 +66,7 @@ fun MessageDecryptionScreen(
     viewModel: SettingsViewModel
 ) {
     val context = LocalContext.current
+    val bottomGestureInset = rememberBottomGestureInset()
 
     LaunchedEffect(viewModel.errorMessage) {
         val message = viewModel.errorMessage
@@ -120,7 +122,7 @@ fun MessageDecryptionScreen(
             modifier = Modifier
                 .weight(1f)
                 .verticalScroll(rememberScrollState())
-                .padding(24.dp)
+                .padding(start = 24.dp, top = 24.dp, end = 24.dp, bottom = bottomGestureInset + 24.dp)
         ) {
             DecryptionKeyForm(
                 viewModel = viewModel,

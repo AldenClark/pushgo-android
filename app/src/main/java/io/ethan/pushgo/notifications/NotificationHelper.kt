@@ -485,11 +485,14 @@ object NotificationHelper {
     ): Boolean {
         val appVisible = (context.applicationContext as? PushGoApp)?.isAppVisible() == true
         if (!appVisible) return true
+        return !ForegroundNotificationPresentationState.shouldSuppress(notificationEntityType(kind))
+    }
+
+    private fun notificationEntityType(kind: NotificationKind): String {
         return when (kind) {
-            NotificationKind.MESSAGE -> false
-            NotificationKind.EVENT,
-            NotificationKind.THING,
-            -> level == "critical" || level == "high"
+            NotificationKind.MESSAGE -> "message"
+            NotificationKind.EVENT -> "event"
+            NotificationKind.THING -> "thing"
         }
     }
 

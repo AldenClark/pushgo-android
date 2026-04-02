@@ -34,6 +34,19 @@ class ChannelSubscriptionRepository(
         return config.address to config.token
     }
 
+    suspend fun pullMessage(deliveryId: String): PullItem? {
+        val normalizedDeliveryId = deliveryId.trim()
+        if (normalizedDeliveryId.isEmpty()) {
+            throw ChannelSubscriptionException("Missing delivery_id")
+        }
+        val config = resolveServerConfig()
+        return service.pullMessage(
+            baseUrl = config.address,
+            token = config.token,
+            deliveryId = normalizedDeliveryId,
+        )
+    }
+
     suspend fun loadSubscriptionLookup(includeDeleted: Boolean = true): Map<String, String> {
         val config = resolveServerConfig()
         val items = store.loadSubscriptions(gatewayUrl = config.address, includeDeleted = includeDeleted)

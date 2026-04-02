@@ -374,6 +374,7 @@
     <string name="label_key_encoding">Kodierung</string>
     <string name="label_selected_count">%1$d ausgewählt</string>
     <string name="confirm_delete_selected_messages">Ausgewählte %1$d Nachrichten löschen?</string>
+    <string name="confirm_delete_message">Diese Nachricht wird dauerhaft gelöscht. Fortfahren?</string>
     <string name="confirm_delete_selected_events">Ausgewählte %1$d Ereignisse löschen?</string>
     <string name="confirm_delete_selected_things">Ausgewählte %1$d Objekte löschen?</string>
     <string name="message_deleted_selected_count">%1$d Einträge gelöscht</string>

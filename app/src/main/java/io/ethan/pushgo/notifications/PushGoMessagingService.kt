@@ -3,9 +3,9 @@ package io.ethan.pushgo.notifications
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.workDataOf
+import io.ethan.pushgo.data.ChannelSubscriptionRepository
 import com.google.firebase.messaging.FirebaseMessagingService
 import com.google.firebase.messaging.RemoteMessage
-import android.util.Log
 import io.ethan.pushgo.PushGoApp
 import io.ethan.pushgo.data.EntityRepository
 import io.ethan.pushgo.data.MessageRepository
@@ -30,9 +30,22 @@ class PushGoMessagingService : FirebaseMessagingService() {
             io.ethan.pushgo.util.SilentSink.e(TAG, "onMessageReceived ignored: local storage unavailable")
             return
         }
-        if (NotificationIngressParser.isPrivateWakeupPayload(message.data)) {
-            val deliveryId = message.data["delivery_id"]?.trim()?.takeIf { it.isNotEmpty() }
-            container.privateChannelClient.triggerWakeupPull(deliveryId)
+        val providerPullDeliveryId =
+            NotificationIngressParser.providerWakeupPullDeliveryId(message.data)
+        if (providerPullDeliveryId != null) {
+            val messageRepository = container.messageRepository
+            val entityRepository = container.entityRepository
+            val settingsRepository = container.settingsRepository
+            val channelRepository = container.channelRepository
+            serviceScope.launch {
+                handleProviderWakeupPull(
+                    channelRepository = channelRepository,
+                    messageRepository = messageRepository,
+                    entityRepository = entityRepository,
+                    settingsRepository = settingsRepository,
+                    deliveryId = providerPullDeliveryId,
+                )
+            }
             return
         }
         val messageRepository = container.messageRepository
@@ -77,6 +90,49 @@ class PushGoMessagingService : FirebaseMessagingService() {
         ) { message, imageUrl ->
             enqueuePostProcess(message.id, imageUrl)
         }
+    }
+
+    private suspend fun handleProviderWakeupPull(
+        channelRepository: ChannelSubscriptionRepository,
+        messageRepository: MessageRepository,
+        entityRepository: EntityRepository,
+        settingsRepository: SettingsRepository,
+        deliveryId: String,
+    ) {
+        val pulled = runCatching {
+            channelRepository.pullMessage(deliveryId)
+        }
+            .onFailure { error ->
+                io.ethan.pushgo.util.SilentSink.w(
+                    TAG,
+                    "provider wakeup pull failed deliveryId=$deliveryId",
+                    error,
+                )
+            }
+            .getOrNull()
+            ?: return
+        val keyBytes = settingsRepository.getNotificationKeyBytes()
+        val parsed = NotificationIngressParser.parse(
+            data = pulled.payload,
+            transportMessageId = pulled.deliveryId,
+            keyBytes = keyBytes,
+            textLocalizer = NotificationIngressParser.NotificationTextLocalizer.fromContext(
+                applicationContext
+            ),
+        )
+        if (parsed == null) {
+            io.ethan.pushgo.util.SilentSink.w(
+                TAG,
+                "provider wakeup pull payload rejected deliveryId=${pulled.deliveryId}",
+            )
+            return
+        }
+        handleInbound(
+            messageRepository = messageRepository,
+            entityRepository = entityRepository,
+            settingsRepository = settingsRepository,
+            parsed = parsed,
+        )
     }
 
     private suspend fun parseMessage(

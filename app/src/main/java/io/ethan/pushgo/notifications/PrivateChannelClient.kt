@@ -248,7 +248,7 @@ class PrivateChannelClient(
             )
             recomputeKeepaliveState()
             refreshLoop()
-            triggerWakeupPull()
+            triggerProviderWakeupRecovery()
         }
     }
 
@@ -293,8 +293,8 @@ class PrivateChannelClient(
         refreshLoop()
     }
 
-    fun triggerWakeupPull(deliveryId: String? = null) {
-        scope.launch { requestWakeupPull(deliveryId) }
+    fun triggerProviderWakeupRecovery(deliveryId: String? = null) {
+        scope.launch { requestProviderWakeupRecovery(deliveryId) }
     }
 
     private fun shouldPreferWakeupStreamRecovery(): Boolean {
@@ -311,7 +311,7 @@ class PrivateChannelClient(
         return AckDrainOutcome.IDLE
     }
 
-    private suspend fun requestWakeupPull(deliveryId: String? = null) {
+    private suspend fun requestProviderWakeupRecovery(deliveryId: String? = null) {
         if (!runtimeConfigured || fcmAvailable) return
         val deliveryHint = deliveryId?.trim()?.takeIf { it.isNotEmpty() }
         nextAllowedPullAtMs = 0L
@@ -2288,7 +2288,7 @@ class PrivateChannelClient(
         )
         if (!requestActiveSessionForceReconnect("foreground_recovery")) {
             stopActiveSession("foreground_recovery")
-            triggerWakeupPull()
+            triggerProviderWakeupRecovery()
         }
     }
 

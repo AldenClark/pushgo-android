@@ -371,6 +371,7 @@
     <string name="label_key_encoding">エンコード</string>
     <string name="label_selected_count">%1$d 件選択</string>
     <string name="confirm_delete_selected_messages">選択した %1$d 件のメッセージを削除しますか？</string>
+    <string name="confirm_delete_message">このメッセージは完全に削除されます。続行しますか？</string>
     <string name="confirm_delete_selected_events">選択した %1$d 件のイベントを削除しますか？</string>
     <string name="confirm_delete_selected_things">選択した %1$d 件のオブジェクトを削除しますか？</string>
     <string name="message_deleted_selected_count">%1$d 件削除しました</string>

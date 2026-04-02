@@ -287,7 +287,7 @@ class PushGoApp : Application(), ImageLoaderFactory {
                 systemToken = null
             )
             PrivateChannelServiceManager.refreshForMode(this@PushGoApp, false)
-            container.privateChannelClient.triggerWakeupPull()
+            container.privateChannelClient.triggerProviderWakeupRecovery()
             return
         }
         val cachedToken = runCatching {

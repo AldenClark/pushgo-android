@@ -38,6 +38,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onGloballyPositioned
@@ -73,10 +74,15 @@ import io.ethan.pushgo.data.AppContainer
 import io.ethan.pushgo.data.model.PushMessage
 import io.ethan.pushgo.data.model.MessageSeverity
 import io.ethan.pushgo.data.model.ReadFilter
+import io.ethan.pushgo.notifications.ForegroundNotificationPresentationState
+import io.ethan.pushgo.notifications.ForegroundNotificationTopMetrics
 import io.ethan.pushgo.ui.PushGoViewModelFactory
 import io.ethan.pushgo.ui.announceForAccessibility
+import io.ethan.pushgo.ui.rememberBottomBarNestedScrollConnection
+import io.ethan.pushgo.ui.rememberBottomGestureInset
 import io.ethan.pushgo.ui.viewmodel.MessageListViewModel
 import io.ethan.pushgo.ui.viewmodel.MessageSearchViewModel
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.time.Instant
@@ -85,6 +91,10 @@ import java.time.format.DateTimeFormatter
 import java.time.temporal.ChronoUnit
 import java.util.*
 import kotlin.math.roundToInt
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.foundation.lazy.items
 
 private val ScreenHorizontalPadding = 12.dp
@@ -98,6 +108,10 @@ fun MessageListScreen(
     factory: PushGoViewModelFactory,
     onMessageClick: (String) -> Unit,
     onBatchModeChanged: (Boolean) -> Unit,
+    onBottomBarVisibilityChanged: (Boolean) -> Unit,
+    suppressForegroundNotificationAtTop: Boolean,
+    scrollToUnreadToken: Long,
+    scrollToTopToken: Long,
 ) {
     val viewModel: MessageListViewModel = viewModel(factory = factory)
     val searchViewModel: MessageSearchViewModel = viewModel(factory = factory)
@@ -112,6 +126,8 @@ fun MessageListScreen(
     val scope = rememberCoroutineScope()
     val lifecycleOwner = LocalLifecycleOwner.current
     val listState = rememberLazyListState()
+    val bottomGestureInset = rememberBottomGestureInset()
+    val bottomBarNestedScrollConnection = rememberBottomBarNestedScrollConnection(onBottomBarVisibilityChanged)
     
     var channelNameMap by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
     var isSelectionMode by remember { mutableStateOf(false) }
@@ -184,7 +200,36 @@ fun MessageListScreen(
 
     BackHandler(enabled = isSelectionMode) { exitSelectionMode() }
     LaunchedEffect(isSelectionMode) { onBatchModeChanged(isSelectionMode) }
-    DisposableEffect(Unit) { onDispose { onBatchModeChanged(false) } }
+    DisposableEffect(Unit) {
+        onDispose {
+            onBatchModeChanged(false)
+            onBottomBarVisibilityChanged(true)
+            ForegroundNotificationPresentationState.clearMessage()
+        }
+    }
+
+    LaunchedEffect(suppressForegroundNotificationAtTop) {
+        if (!suppressForegroundNotificationAtTop) {
+            ForegroundNotificationPresentationState.reportMessage(
+                isAtTop = false,
+                suppressionEligible = false,
+            )
+        }
+    }
+
+    LaunchedEffect(listState, suppressForegroundNotificationAtTop) {
+        snapshotFlow {
+            listState.firstVisibleItemIndex == 0 &&
+                listState.firstVisibleItemScrollOffset <= ForegroundNotificationTopMetrics.topOffsetTolerancePx
+        }
+            .distinctUntilChanged()
+            .collect { isAtTop ->
+                ForegroundNotificationPresentationState.reportMessage(
+                    isAtTop = isAtTop,
+                    suppressionEligible = suppressForegroundNotificationAtTop,
+                )
+            }
+    }
 
     LaunchedEffect(Unit) {
         channelNameMap = container.channelRepository.loadSubscriptionLookup(includeDeleted = true)
@@ -202,6 +247,23 @@ fun MessageListScreen(
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
+    LaunchedEffect(scrollToUnreadToken) {
+        if (scrollToUnreadToken == 0L) return@LaunchedEffect
+        val unreadRowIndex = if (query.isBlank()) {
+            messages.itemSnapshotList.items.indexOfFirst { !it.isRead }
+        } else {
+            searchResults.indexOfFirst { !it.isRead }
+        }
+        if (unreadRowIndex >= 0) {
+            listState.animateScrollToItem(unreadRowIndex + 1)
+        }
+    }
+
+    LaunchedEffect(scrollToTopToken) {
+        if (scrollToTopToken == 0L) return@LaunchedEffect
+        listState.animateScrollToItem(0)
+    }
+
     val channelOptions = remember(channelCounts) { channelCounts.map { it.channel.trim() }.distinct() }
 
     Box(modifier = Modifier.fillMaxSize()) {
@@ -209,8 +271,10 @@ fun MessageListScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .background(MaterialTheme.colorScheme.background)
+                .nestedScroll(bottomBarNestedScrollConnection)
                 .onGloballyPositioned { listTopInWindow = it.positionInWindow().y },
             state = listState,
+            contentPadding = PaddingValues(bottom = bottomGestureInset + 24.dp),
         ) {
             item {
                 Column(modifier = Modifier.fillMaxWidth().heightIn(min = 120.dp)) {
@@ -238,18 +302,32 @@ fun MessageListScreen(
                                 ) {
                                     Spacer(modifier = Modifier.width(16.dp))
                                     Icon(Icons.Default.Search, null, tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f))
-                                    TextField(
+                                    BasicTextField(
                                         value = query,
                                         onValueChange = searchViewModel::updateQuery,
-                                        placeholder = { Text(stringResource(R.string.label_search), color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)) },
                                         modifier = Modifier.weight(1f).testTag("field.message.search"),
-                                        colors = TextFieldDefaults.colors(
-                                            focusedContainerColor = Color.Transparent,
-                                            unfocusedContainerColor = Color.Transparent,
-                                            focusedIndicatorColor = Color.Transparent,
-                                            unfocusedIndicatorColor = Color.Transparent,
-                                        ),
+                                        textStyle = MaterialTheme.typography.bodyLarge.copy(color = MaterialTheme.colorScheme.onSurface),
                                         singleLine = true,
+                                        cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                                        decorationBox = { innerTextField ->
+                                            TextFieldDefaults.DecorationBox(
+                                                value = query,
+                                                innerTextField = innerTextField,
+                                                enabled = true,
+                                                singleLine = true,
+                                                visualTransformation = VisualTransformation.None,
+                                                interactionSource = remember { MutableInteractionSource() },
+                                                placeholder = { Text(stringResource(R.string.label_search), color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)) },
+                                                colors = TextFieldDefaults.colors(
+                                                    focusedContainerColor = Color.Transparent,
+                                                    unfocusedContainerColor = Color.Transparent,
+                                                    focusedIndicatorColor = Color.Transparent,
+                                                    unfocusedIndicatorColor = Color.Transparent,
+                                                ),
+                                                contentPadding = PaddingValues(vertical = 0.dp),
+                                                container = {}
+                                            )
+                                        }
                                     )
                                     Box {
                                         IconButton(onClick = { searchMenuExpanded = true }) {
@@ -297,14 +375,7 @@ fun MessageListScreen(
                 }
             }
 
-            if (messages.loadState.refresh is LoadState.Loading && messages.itemCount == 0) {
-                item {
-                    Box(modifier = Modifier.fillMaxWidth().padding(32.dp), contentAlignment = Alignment.Center) {
-                        CircularProgressIndicator(modifier = Modifier.size(32.dp))
-                    }
-                }
-            } else {
-                if (query.isBlank()) {
+            if (query.isBlank()) {
                     if (messages.itemCount == 0 && messages.loadState.refresh is LoadState.NotLoading) {
                         item { AppEmptyState(icon = Icons.Outlined.Email, title = stringResource(R.string.message_list_empty_title), description = stringResource(R.string.message_list_empty_hint)) }
                     } else {
@@ -355,45 +426,44 @@ fun MessageListScreen(
                     }
                 }
             }
-            item { Spacer(modifier = Modifier.height(24.dp)) }
+
+            if (isSelectionMode) {
+                Box(
+                    modifier = Modifier.align(Alignment.TopStart).fillMaxHeight().width(72.dp)
+                        .onGloballyPositioned { selectionRailTopInWindow = it.positionInWindow().y }
+                        .pointerInput(query, searchResults.size, messages.itemCount, listTopInWindow, selectionRailTopInWindow) {
+                            detectDragGestures(
+                                onDragStart = { point ->
+                                    val listLocalY = point.y + (selectionRailTopInWindow - listTopInWindow)
+                                    val target = listState.layoutInfo.visibleItemsInfo.firstOrNull { item ->
+                                        listLocalY in item.offset.toFloat()..(item.offset + item.size).toFloat()
+                                    }
+                                    val messageId = target?.index?.let { index -> messageIdForVisibleItemIndex(index) }
+                                    if (messageId != null) {
+                                        initialSelectionStateForDrag = !selectedMessageIds.contains(messageId)
+                                        updateSelectionAtRailY(point.y, !selectedMessageIds.contains(messageId))
+                                    }
+                                },
+                                onDrag = { change, _ -> initialSelectionStateForDrag?.let { updateSelectionAtRailY(change.position.y, it) } },
+                                onDragEnd = { initialSelectionStateForDrag = null },
+                                onDragCancel = { initialSelectionStateForDrag = null }
+                            )
+                        },
+                )
+            }
         }
 
-        if (isSelectionMode) {
-            Box(
-                modifier = Modifier.align(Alignment.TopStart).fillMaxHeight().width(72.dp)
-                    .onGloballyPositioned { selectionRailTopInWindow = it.positionInWindow().y }
-                    .pointerInput(query, searchResults.size, messages.itemCount, listTopInWindow, selectionRailTopInWindow) {
-                        detectDragGestures(
-                            onDragStart = { point ->
-                                val listLocalY = point.y + (selectionRailTopInWindow - listTopInWindow)
-                                val target = listState.layoutInfo.visibleItemsInfo.firstOrNull { item ->
-                                    listLocalY in item.offset.toFloat()..(item.offset + item.size).toFloat()
-                                }
-                                val messageId = target?.index?.let { index -> messageIdForVisibleItemIndex(index) }
-                                if (messageId != null) {
-                                    initialSelectionStateForDrag = !selectedMessageIds.contains(messageId)
-                                    updateSelectionAtRailY(point.y, !selectedMessageIds.contains(messageId))
-                                }
-                            },
-                            onDrag = { change, _ -> initialSelectionStateForDrag?.let { updateSelectionAtRailY(change.position.y, it) } },
-                            onDragEnd = { initialSelectionStateForDrag = null },
-                            onDragCancel = { initialSelectionStateForDrag = null }
-                        )
-                    },
+        if (showBatchDeleteConfirmation) {
+            AlertDialog(
+                onDismissRequest = { showBatchDeleteConfirmation = false },
+                title = { Text(text = stringResource(R.string.action_delete)) },
+                text = { Text(text = stringResource(R.string.confirm_delete_selected_messages, selectedMessageIds.size)) },
+                confirmButton = { TextButton(onClick = { showBatchDeleteConfirmation = false; scope.launch { deleteSelectedMessages() } }) { Text(stringResource(R.string.label_confirm)) } },
+                dismissButton = { TextButton(onClick = { showBatchDeleteConfirmation = false }) { Text(stringResource(R.string.label_cancel)) } },
             )
         }
     }
 
-    if (showBatchDeleteConfirmation) {
-        AlertDialog(
-            onDismissRequest = { showBatchDeleteConfirmation = false },
-            title = { Text(text = stringResource(R.string.action_delete)) },
-            text = { Text(text = stringResource(R.string.confirm_delete_selected_messages, selectedMessageIds.size)) },
-            confirmButton = { TextButton(onClick = { showBatchDeleteConfirmation = false; scope.launch { deleteSelectedMessages() } }) { Text(stringResource(R.string.label_confirm)) } },
-            dismissButton = { TextButton(onClick = { showBatchDeleteConfirmation = false }) { Text(stringResource(R.string.label_cancel)) } },
-        )
-    }
-}
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable

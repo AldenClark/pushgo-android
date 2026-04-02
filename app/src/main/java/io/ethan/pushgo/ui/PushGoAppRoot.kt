@@ -1,11 +1,14 @@
 package io.ethan.pushgo.ui
 
 import android.content.Intent
+import android.os.SystemClock
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.LinearOutSlowInEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
@@ -22,13 +25,13 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
-import androidx.lifecycle.viewmodel.compose.viewModel
 import io.ethan.pushgo.R
 import io.ethan.pushgo.automation.PushGoAutomation
 import io.ethan.pushgo.data.AppContainer
@@ -42,6 +45,8 @@ import io.ethan.pushgo.ui.screens.SettingsScreen
 import io.ethan.pushgo.ui.screens.ThingListScreen
 import io.ethan.pushgo.ui.viewmodel.SettingsViewModel
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.launch
 import kotlinx.serialization.Serializable
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.draw.drawBehind
@@ -81,6 +86,15 @@ fun PushGoAppRoot(
     var messageBatchMode by remember { mutableStateOf(false) }
     var eventBatchMode by remember { mutableStateOf(false) }
     var thingBatchMode by remember { mutableStateOf(false) }
+    var messageScrollToUnreadToken by remember { mutableLongStateOf(0L) }
+    var messageScrollToTopToken by remember { mutableLongStateOf(0L) }
+    var eventScrollToTopToken by remember { mutableLongStateOf(0L) }
+    var thingScrollToTopToken by remember { mutableLongStateOf(0L) }
+    var bottomBarVisible by remember { mutableStateOf(true) }
+    var pendingMessageReselectJob by remember { mutableStateOf<Job?>(null) }
+    var lastReselectedRoute by remember { mutableStateOf<TopLevelRoute?>(null) }
+    var lastReselectTimestampMs by remember { mutableLongStateOf(0L) }
+    val appScope = rememberCoroutineScope()
 
     val unreadCount by container.messageRepository.observeUnreadCount().collectAsStateWithLifecycle(initialValue = 0)
     val eventCount by container.entityRepository.observeEventCount().collectAsStateWithLifecycle(initialValue = 0)
@@ -104,13 +118,56 @@ fun PushGoAppRoot(
 
     val initialRoute: Any = remember(items) { items.firstOrNull()?.route ?: ChannelsRoute }
     val currentBackStackEntry by navController.currentBackStackEntryAsState()
-    val currentRoute = currentBackStackEntry?.destination?.route
-    val showBottomBar = items.any { it.route::class.qualifiedName == currentRoute }
-    val hideBottomBarForBatchMode = when (currentRoute) {
-        MessagesRoute::class.qualifiedName -> messageBatchMode
-        EventsRoute::class.qualifiedName -> eventBatchMode
-        ThingsRoute::class.qualifiedName -> thingBatchMode
+    val currentDestination = currentBackStackEntry?.destination
+    val currentRoute = currentDestination?.route
+
+    val currentTopLevelRoute = currentRoute.topLevelRoute()
+    val showBottomBar = currentTopLevelRoute != null
+    val hideBottomBarForBatchMode = when (currentTopLevelRoute) {
+        TopLevelRoute.MESSAGES -> messageBatchMode
+        TopLevelRoute.EVENTS -> eventBatchMode
+        TopLevelRoute.THINGS -> thingBatchMode
         else -> false
+    }
+
+    fun handleTopLevelReselection(route: TopLevelRoute) {
+        val now = SystemClock.elapsedRealtime()
+        val isDoubleTap = lastReselectedRoute == route && now - lastReselectTimestampMs <= 320L
+
+        if (isDoubleTap) {
+            pendingMessageReselectJob?.cancel()
+            pendingMessageReselectJob = null
+            lastReselectedRoute = null
+            lastReselectTimestampMs = 0L
+            when (route) {
+                TopLevelRoute.MESSAGES -> messageScrollToTopToken += 1
+                TopLevelRoute.EVENTS -> eventScrollToTopToken += 1
+                TopLevelRoute.THINGS -> thingScrollToTopToken += 1
+                TopLevelRoute.CHANNELS -> Unit
+            }
+            return
+        }
+
+        pendingMessageReselectJob?.cancel()
+        pendingMessageReselectJob = null
+        lastReselectedRoute = route
+        lastReselectTimestampMs = now
+
+        if (route == TopLevelRoute.MESSAGES) {
+            val tokenAtSchedule = messageScrollToUnreadToken
+            pendingMessageReselectJob = appScope.launch {
+                delay(280L)
+                if (lastReselectedRoute == TopLevelRoute.MESSAGES && lastReselectTimestampMs == now && messageScrollToUnreadToken == tokenAtSchedule) {
+                    messageScrollToUnreadToken += 1
+                    lastReselectedRoute = null
+                    lastReselectTimestampMs = 0L
+                }
+            }
+        }
+    }
+
+    LaunchedEffect(currentTopLevelRoute) {
+        bottomBarVisible = true
     }
 
     LaunchedEffect(startIntent) {
@@ -130,7 +187,10 @@ fun PushGoAppRoot(
     LaunchedEffect(currentRoute, selectedMessageId, pendingEventIdToOpen, pendingThingIdToOpen) {
         while (true) {
             val snapshot = automationController.snapshotForOpenedMessage(selectedMessageId)
-            PushGoAutomation.publishState(buildAutomationState(currentRoute ?: MessagesRoute::class.qualifiedName!!, currentRoute, selectedMessageId, pendingEventIdToOpen, pendingThingIdToOpen, snapshot, openedEntityType, openedEntityId))
+            val activeTab = currentTopLevelRoute?.spec?.wireValue
+                ?: currentRoute
+                ?: TopLevelRoute.MESSAGES.spec.wireValue
+            PushGoAutomation.publishState(buildAutomationState(activeTab, currentRoute, selectedMessageId, pendingEventIdToOpen, pendingThingIdToOpen, snapshot, openedEntityType, openedEntityId))
             delay(500)
         }
     }
@@ -141,9 +201,31 @@ fun PushGoAppRoot(
             val colorScheme = MaterialTheme.colorScheme
             AnimatedVisibility(
                 // REMOVED selectedMessageId == null to keep TabBar visible when sheet is open
-                visible = showBottomBar && !hideBottomBarForBatchMode,
-                enter = fadeIn(),
-                exit = fadeOut()
+                visible = showBottomBar && !hideBottomBarForBatchMode && bottomBarVisible,
+                enter = slideInVertically(
+                    initialOffsetY = { it },
+                    animationSpec = tween(
+                        durationMillis = 320,
+                        easing = LinearOutSlowInEasing,
+                    )
+                ) + fadeIn(
+                    animationSpec = tween(
+                        durationMillis = 260,
+                        easing = LinearOutSlowInEasing,
+                    )
+                ),
+                exit = slideOutVertically(
+                    targetOffsetY = { it },
+                    animationSpec = tween(
+                        durationMillis = 280,
+                        easing = FastOutSlowInEasing,
+                    )
+                ) + fadeOut(
+                    animationSpec = tween(
+                        durationMillis = 220,
+                        easing = FastOutSlowInEasing,
+                    )
+                )
             ) {
                 NavigationBar(
                     modifier = Modifier.testTag("nav.bottom").drawBehind {
@@ -154,10 +236,25 @@ fun PushGoAppRoot(
                     windowInsets = WindowInsets.navigationBars
                 ) {
                     items.forEach { item ->
-                        val selected = currentRoute == item.route::class.qualifiedName
+                        val selected = currentRoute.matches(item)
                         NavigationBarItem(
                             selected = selected,
-                            onClick = { if (!selected) navController.navigate(item.route) { popUpTo(navController.graph.findStartDestination().id) { saveState = true }; launchSingleTop = true; restoreState = true } },
+                            onClick = {
+                                val topLevelRoute = item.topLevelRoute()
+                                if (selected && topLevelRoute != null) {
+                                    handleTopLevelReselection(topLevelRoute)
+                                } else if (!selected) {
+                                    pendingMessageReselectJob?.cancel()
+                                    pendingMessageReselectJob = null
+                                    lastReselectedRoute = null
+                                    lastReselectTimestampMs = 0L
+                                    navController.navigate(item.route) {
+                                        popUpTo(navController.graph.findStartDestination().id) { saveState = true }
+                                        launchSingleTop = true
+                                        restoreState = true
+                                    }
+                                }
+                            },
                             icon = {
                                 if (item.route is MessagesRoute && unreadCount > 0) {
                                     BadgedBox(badge = { Badge { Text(if (unreadCount > 99) "99+" else unreadCount.toString()) } }) { Icon(item.icon, contentDescription = item.label) }
@@ -174,8 +271,17 @@ fun PushGoAppRoot(
             navController = navController, container = container, factory = factory, settingsViewModel = settingsViewModel,
             initialRoute = initialRoute, padding = padding,
             onMessageClick = { selectedMessageId = it }, onMessageBatchModeChanged = { messageBatchMode = it },
+            onMessageBottomBarVisibilityChanged = { bottomBarVisible = it },
+            messageDetailVisible = selectedMessageId != null,
+            messageScrollToUnreadToken = messageScrollToUnreadToken,
+            messageScrollToTopToken = messageScrollToTopToken,
             eventCount = eventCount, eventRefreshToken = eventRefreshToken, onEventBatchModeChanged = { eventBatchMode = it },
+            onEventBottomBarVisibilityChanged = { bottomBarVisible = it },
+            eventScrollToTopToken = eventScrollToTopToken,
             thingCount = thingCount, thingRefreshToken = thingRefreshToken, onThingBatchModeChanged = { thingBatchMode = it },
+            onThingBottomBarVisibilityChanged = { bottomBarVisible = it },
+            thingScrollToTopToken = thingScrollToTopToken,
+            onChannelBottomBarVisibilityChanged = { bottomBarVisible = it },
             pendingEventIdToOpen = pendingEventIdToOpen, onPendingEventOpened = { pendingEventIdToOpen = null },
             onEventDetailOpened = { openedEntityType = "event"; openedEntityId = it }, onEventDetailClosed = { openedEntityType = null; openedEntityId = null },
             pendingThingIdToOpen = pendingThingIdToOpen, onPendingThingOpened = { pendingThingIdToOpen = null },
@@ -195,8 +301,10 @@ fun PushGoAppRoot(
 private fun PushGoNavHost(
     navController: NavHostController, container: AppContainer, factory: PushGoViewModelFactory, settingsViewModel: SettingsViewModel,
     initialRoute: Any, padding: PaddingValues, onMessageClick: (String) -> Unit, onMessageBatchModeChanged: (Boolean) -> Unit,
-    eventCount: Int, eventRefreshToken: Long, onEventBatchModeChanged: (Boolean) -> Unit,
-    thingCount: Int, thingRefreshToken: Long, onThingBatchModeChanged: (Boolean) -> Unit,
+    onMessageBottomBarVisibilityChanged: (Boolean) -> Unit, messageDetailVisible: Boolean, messageScrollToUnreadToken: Long, messageScrollToTopToken: Long,
+    eventCount: Int, eventRefreshToken: Long, onEventBatchModeChanged: (Boolean) -> Unit, onEventBottomBarVisibilityChanged: (Boolean) -> Unit, eventScrollToTopToken: Long,
+    thingCount: Int, thingRefreshToken: Long, onThingBatchModeChanged: (Boolean) -> Unit, onThingBottomBarVisibilityChanged: (Boolean) -> Unit, thingScrollToTopToken: Long,
+    onChannelBottomBarVisibilityChanged: (Boolean) -> Unit,
     pendingEventIdToOpen: String?, onPendingEventOpened: () -> Unit, onEventDetailOpened: (String) -> Unit, onEventDetailClosed: () -> Unit,
     pendingThingIdToOpen: String?, onPendingThingOpened: () -> Unit, onThingDetailOpened: (String) -> Unit, onThingDetailClosed: () -> Unit
 ) {
@@ -204,10 +312,46 @@ private fun PushGoNavHost(
         navController = navController, startDestination = initialRoute, modifier = Modifier.padding(padding),
         enterTransition = { fadeIn(tween(300)) }, exitTransition = { fadeOut(tween(300)) }
     ) {
-        composable<MessagesRoute> { MessageListScreen(navController, container, factory, onMessageClick, onMessageBatchModeChanged) }
-        composable<ChannelsRoute> { ChannelListScreen(navController, settingsViewModel) }
-        composable<EventsRoute> { EventListScreen(container, eventRefreshToken, pendingEventIdToOpen, onPendingEventOpened, onEventDetailOpened, onEventDetailClosed, onEventBatchModeChanged) }
-        composable<ThingsRoute> { ThingListScreen(container, thingRefreshToken, pendingThingIdToOpen, onPendingThingOpened, onThingDetailOpened, onThingDetailClosed, onThingBatchModeChanged) }
+        composable<MessagesRoute> {
+            MessageListScreen(
+                navController,
+                container,
+                factory,
+                onMessageClick,
+                onMessageBatchModeChanged,
+                onMessageBottomBarVisibilityChanged,
+                !messageDetailVisible,
+                messageScrollToUnreadToken,
+                messageScrollToTopToken
+            )
+        }
+        composable<ChannelsRoute> { ChannelListScreen(navController, settingsViewModel, onChannelBottomBarVisibilityChanged) }
+        composable<EventsRoute> {
+            EventListScreen(
+                container,
+                eventRefreshToken,
+                pendingEventIdToOpen,
+                onPendingEventOpened,
+                onEventDetailOpened,
+                onEventDetailClosed,
+                onEventBatchModeChanged,
+                onEventBottomBarVisibilityChanged,
+                eventScrollToTopToken
+            )
+        }
+        composable<ThingsRoute> {
+            ThingListScreen(
+                container,
+                thingRefreshToken,
+                pendingThingIdToOpen,
+                onPendingThingOpened,
+                onThingDetailOpened,
+                onThingDetailClosed,
+                onThingBatchModeChanged,
+                onThingBottomBarVisibilityChanged,
+                thingScrollToTopToken
+            )
+        }
         composable<SettingsRoute> { SettingsScreen(settingsViewModel, { navController.navigate(ConnectionDiagnosisRoute) }, { navController.navigateUp() }) }
         composable<DecryptionRoute> { io.ethan.pushgo.ui.screens.MessageDecryptionScreen(navController, factory, settingsViewModel) }
         composable<ConnectionDiagnosisRoute> { io.ethan.pushgo.ui.screens.ConnectionDiagnosisScreen(navController, factory) }
@@ -239,4 +383,46 @@ private fun buildAutomationState(
         latestRuntimeErrorSource = error?.source, latestRuntimeErrorCategory = error?.category,
         latestRuntimeErrorCode = error?.code, latestRuntimeErrorMessage = error?.message, latestRuntimeErrorTimestamp = error?.timestamp,
     )
+}
+
+private data class RouteMatchSpec(
+    val wireValue: String,
+    val serialRoute: String,
+    val legacyRoute: String,
+)
+
+private enum class TopLevelRoute(val spec: RouteMatchSpec) {
+    MESSAGES(RouteMatchSpec("messages", MessagesRoute.serializer().descriptor.serialName, "messages")),
+    EVENTS(RouteMatchSpec("events", EventsRoute.serializer().descriptor.serialName, "events")),
+    THINGS(RouteMatchSpec("things", ThingsRoute.serializer().descriptor.serialName, "things")),
+    CHANNELS(RouteMatchSpec("channels", ChannelsRoute.serializer().descriptor.serialName, "channels")),
+}
+
+private fun String?.matches(spec: RouteMatchSpec): Boolean {
+    val route = this ?: return false
+    return route == spec.serialRoute || route == spec.legacyRoute
+}
+
+private fun String?.topLevelRoute(): TopLevelRoute? {
+    return TopLevelRoute.entries.firstOrNull { this.matches(it.spec) }
+}
+
+private fun String?.matches(item: BottomItem): Boolean {
+    return when (item.route) {
+        is MessagesRoute -> this.matches(TopLevelRoute.MESSAGES.spec)
+        is EventsRoute -> this.matches(TopLevelRoute.EVENTS.spec)
+        is ThingsRoute -> this.matches(TopLevelRoute.THINGS.spec)
+        is ChannelsRoute -> this.matches(TopLevelRoute.CHANNELS.spec)
+        else -> false
+    }
+}
+
+private fun BottomItem.topLevelRoute(): TopLevelRoute? {
+    return when (route) {
+        is MessagesRoute -> TopLevelRoute.MESSAGES
+        is EventsRoute -> TopLevelRoute.EVENTS
+        is ThingsRoute -> TopLevelRoute.THINGS
+        is ChannelsRoute -> TopLevelRoute.CHANNELS
+        else -> null
+    }
 }

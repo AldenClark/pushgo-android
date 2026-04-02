@@ -376,6 +376,7 @@
     <string name="label_key_encoding">Codificación</string>
     <string name="label_selected_count">%1$d seleccionados</string>
     <string name="confirm_delete_selected_messages">¿Eliminar %1$d mensajes seleccionados?</string>
+    <string name="confirm_delete_message">Este mensaje se eliminará de forma permanente. ¿Continuar?</string>
     <string name="confirm_delete_selected_events">¿Eliminar %1$d eventos seleccionados?</string>
     <string name="confirm_delete_selected_things">¿Eliminar %1$d objetos seleccionados?</string>
     <string name="message_deleted_selected_count">Se eliminaron %1$d elementos</string>

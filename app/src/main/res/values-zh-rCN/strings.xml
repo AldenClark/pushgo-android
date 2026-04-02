@@ -63,6 +63,7 @@
     <string name="confirm_cleanup_things_channel">将清理当前频道对象记录，且无法撤销。</string>
     <string name="confirm_cleanup_things_all">将清理全部对象记录，且无法撤销。</string>
     <string name="confirm_delete_selected_messages">确认删除已选择的 %1$d 条消息？</string>
+    <string name="confirm_delete_message">这条消息将被永久删除。是否继续？</string>
     <string name="confirm_delete_selected_events">确认删除已选择的 %1$d 条事件？</string>
     <string name="confirm_delete_selected_things">确认删除已选择的 %1$d 个对象？</string>
     <string name="message_deleted_selected_count">已删除 %1$d 项</string>

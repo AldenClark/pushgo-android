@@ -7,6 +7,7 @@ import android.provider.Settings
 import android.widget.Toast
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -74,6 +75,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import io.ethan.pushgo.R
+import io.ethan.pushgo.ui.rememberBottomGestureInset
 import io.ethan.pushgo.ui.announceForAccessibility
 import io.ethan.pushgo.ui.theme.PushGoSheetContainerColor
 import io.ethan.pushgo.ui.viewmodel.SettingsViewModel
@@ -109,6 +111,7 @@ fun SettingsScreen(
     )
     var showDecryptionSheet by remember { mutableStateOf(false) }
     var showGatewaySheet by remember { mutableStateOf(false) }
+    val bottomGestureInset = rememberBottomGestureInset()
 
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
@@ -187,7 +190,7 @@ fun SettingsScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(scaffoldPadding),
-            contentPadding = PaddingValues(bottom = 24.dp),
+            contentPadding = PaddingValues(bottom = bottomGestureInset + 24.dp),
         ) {
 
             if (!notificationsEnabled) {
@@ -326,6 +329,7 @@ fun SettingsScreen(
             sheetState = sheetState,
             containerColor = PushGoSheetContainerColor(),
             tonalElevation = 0.dp,
+            contentWindowInsets = { WindowInsets(0) }
         ) {
             Column(
                 modifier = Modifier
@@ -359,6 +363,7 @@ fun SettingsScreen(
             sheetState = sheetState,
             containerColor = PushGoSheetContainerColor(),
             tonalElevation = 0.dp,
+            contentWindowInsets = { WindowInsets(0) }
         ) {
             Column(
                 modifier = Modifier

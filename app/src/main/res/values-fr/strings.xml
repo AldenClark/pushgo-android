@@ -376,6 +376,7 @@
     <string name="label_key_encoding">Encodage</string>
     <string name="label_selected_count">%1$d sélectionnés</string>
     <string name="confirm_delete_selected_messages">Supprimer %1$d messages sélectionnés ?</string>
+    <string name="confirm_delete_message">Ce message sera supprimé définitivement. Continuer ?</string>
     <string name="confirm_delete_selected_events">Supprimer %1$d événements sélectionnés ?</string>
     <string name="confirm_delete_selected_things">Supprimer %1$d objets sélectionnés ?</string>
     <string name="message_deleted_selected_count">%1$d éléments supprimés</string>

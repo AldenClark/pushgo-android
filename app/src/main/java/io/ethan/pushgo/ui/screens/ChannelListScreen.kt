@@ -3,6 +3,7 @@ package io.ethan.pushgo.ui.screens
 import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -13,6 +14,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
@@ -38,6 +40,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -59,6 +62,8 @@ import androidx.navigation.NavController
 import io.ethan.pushgo.R
 import io.ethan.pushgo.data.ChannelPasswordValidator
 import io.ethan.pushgo.data.model.ChannelSubscription
+import io.ethan.pushgo.ui.rememberBottomBarNestedScrollConnection
+import io.ethan.pushgo.ui.rememberBottomGestureInset
 import io.ethan.pushgo.ui.viewmodel.SettingsViewModel
 import io.ethan.pushgo.ui.announceForAccessibility
 import io.ethan.pushgo.ui.theme.PushGoSheetContainerColor
@@ -68,11 +73,14 @@ import kotlinx.coroutines.launch
 @OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 fun ChannelListScreen(
     navController: NavController,
-    viewModel: SettingsViewModel
+    viewModel: SettingsViewModel,
+    onBottomBarVisibilityChanged: (Boolean) -> Unit,
 ) {
     val context = LocalContext.current
     val clipboard = LocalClipboard.current
     val scope = rememberCoroutineScope()
+    val bottomGestureInset = rememberBottomGestureInset()
+    val bottomBarNestedScrollConnection = rememberBottomBarNestedScrollConnection(onBottomBarVisibilityChanged)
 
     LaunchedEffect(viewModel.errorMessage) {
         val message = viewModel.errorMessage
@@ -93,6 +101,11 @@ fun ChannelListScreen(
             Toast.makeText(context, text, Toast.LENGTH_SHORT).show()
             announceForAccessibility(context, text)
             viewModel.consumeSuccess()
+        }
+    }
+    DisposableEffect(Unit) {
+        onDispose {
+            onBottomBarVisibilityChanged(true)
         }
     }
     var pendingChannelRemoval by remember { mutableStateOf<ChannelSubscription?>(null) }
@@ -176,7 +189,9 @@ fun ChannelListScreen(
 
         LazyColumn(
             modifier = Modifier
-                .fillMaxSize(),
+                .fillMaxSize()
+                .nestedScroll(bottomBarNestedScrollConnection),
+            contentPadding = androidx.compose.foundation.layout.PaddingValues(bottom = bottomGestureInset + 24.dp),
         ) {
             if (viewModel.channelSubscriptions.isEmpty()) {
                 item {
@@ -314,6 +329,7 @@ fun ChannelListScreen(
             sheetState = sheetState,
             containerColor = PushGoSheetContainerColor(),
             tonalElevation = 0.dp,
+            contentWindowInsets = { WindowInsets(0) }
         ) {
             Column(
                 modifier = Modifier

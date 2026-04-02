@@ -49,10 +49,16 @@ data class DeviceChannelUpsertResult(
     val deviceKey: String,
 )
 
+data class PullItem(
+    val deliveryId: String,
+    val payload: Map<String, String>,
+)
+
 class ChannelSubscriptionService {
     companion object {
         internal const val DEVICE_REGISTER_ENDPOINT = "/device/register"
         internal const val DEVICE_CHANNEL_DELETE_ENDPOINT = "/channel/device/delete"
+        internal const val PULL_MESSAGE_ENDPOINT = "/messages/pull"
     }
 
     data class EventSendResult(
@@ -173,6 +179,33 @@ class ChannelSubscriptionService {
         }
         execute(endpoint, token, "POST", payload)
         Unit
+    }
+
+    suspend fun pullMessage(
+        baseUrl: String,
+        token: String?,
+        deliveryId: String,
+    ): PullItem? = withContext(Dispatchers.IO) {
+        val normalizedDeliveryId = deliveryId.trim()
+        if (normalizedDeliveryId.isEmpty()) {
+            throw ChannelSubscriptionException("Missing delivery_id")
+        }
+        val endpoint = buildUrl(baseUrl, PULL_MESSAGE_ENDPOINT)
+        val payload = JSONObject().apply {
+            put("delivery_id", normalizedDeliveryId)
+        }
+        val response = execute(endpoint, token, "POST", payload)
+        val data = response.data ?: throw ChannelSubscriptionException("Invalid response")
+        if (data.isNull("item")) return@withContext null
+        val item = data.optJSONObject("item") ?: return@withContext null
+        val resolvedDeliveryId = item.optString("delivery_id", normalizedDeliveryId)
+            .trim()
+            .ifEmpty { normalizedDeliveryId }
+        val itemPayload = item.optJSONObject("payload")?.toStringMap() ?: return@withContext null
+        return@withContext PullItem(
+            deliveryId = resolvedDeliveryId,
+            payload = itemPayload,
+        )
     }
 
     suspend fun renameChannel(
@@ -341,6 +374,17 @@ class ChannelSubscriptionService {
         val trimmed = baseUrl.trim().removeSuffix("/")
         val suffix = if (path.startsWith("/")) path else "/$path"
         return trimmed + suffix
+    }
+
+    private fun JSONObject.toStringMap(): Map<String, String> {
+        val output = LinkedHashMap<String, String>(length())
+        val iterator = keys()
+        while (iterator.hasNext()) {
+            val key = iterator.next()
+            val value = opt(key) ?: continue
+            output[key] = value.toString()
+        }
+        return output
     }
 
     private data class StatusResponse(

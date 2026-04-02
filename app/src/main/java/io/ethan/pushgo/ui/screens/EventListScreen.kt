@@ -27,6 +27,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInWindow
@@ -43,8 +44,13 @@ import io.ethan.pushgo.R
 import io.ethan.pushgo.data.AppContainer
 import io.ethan.pushgo.data.EntityProjectionCursor
 import io.ethan.pushgo.data.model.PushMessage
+import io.ethan.pushgo.notifications.ForegroundNotificationPresentationState
+import io.ethan.pushgo.notifications.ForegroundNotificationTopMetrics
 import io.ethan.pushgo.ui.PushGoViewModelFactory
+import io.ethan.pushgo.ui.rememberBottomBarNestedScrollConnection
+import io.ethan.pushgo.ui.rememberBottomGestureInset
 import io.ethan.pushgo.ui.theme.PushGoSheetContainerColor
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -55,6 +61,10 @@ import kotlinx.serialization.descriptors.PrimitiveSerialDescriptor
 import kotlinx.serialization.descriptors.SerialDescriptor
 import kotlinx.serialization.encoding.Decoder
 import kotlinx.serialization.encoding.Encoder
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.text.input.VisualTransformation
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -157,6 +167,8 @@ fun EventListScreen(
     onEventDetailOpened: (String) -> Unit,
     onEventDetailClosed: () -> Unit,
     onBatchModeChanged: (Boolean) -> Unit,
+    onBottomBarVisibilityChanged: (Boolean) -> Unit,
+    scrollToTopToken: Long,
 ) {
     var allEvents by remember { mutableStateOf<List<EventCardModel>>(emptyList()) }
     var hasLoadedOnce by remember { mutableStateOf(false) }
@@ -173,6 +185,8 @@ fun EventListScreen(
     val haptic = LocalHapticFeedback.current
     val scope = rememberCoroutineScope()
     val listState = rememberLazyListState()
+    val bottomGestureInset = rememberBottomGestureInset()
+    val bottomBarNestedScrollConnection = rememberBottomBarNestedScrollConnection(onBottomBarVisibilityChanged)
     var listTopInWindow by remember { mutableFloatStateOf(0f) }
 
     fun exitSelectionMode() {
@@ -228,8 +242,44 @@ fun EventListScreen(
 
     LaunchedEffect(refreshToken) { reloadEvents() }
     LaunchedEffect(isSelectionMode) { onBatchModeChanged(isSelectionMode) }
-    DisposableEffect(Unit) { onDispose { onBatchModeChanged(false) } }
+    DisposableEffect(Unit) {
+        onDispose {
+            onBatchModeChanged(false)
+            onBottomBarVisibilityChanged(true)
+            ForegroundNotificationPresentationState.clearEvent()
+        }
+    }
     BackHandler(enabled = isSelectionMode) { exitSelectionMode() }
+
+    val suppressForegroundNotificationAtTop = selectedEvent == null
+
+    LaunchedEffect(suppressForegroundNotificationAtTop) {
+        if (!suppressForegroundNotificationAtTop) {
+            ForegroundNotificationPresentationState.reportEvent(
+                isAtTop = false,
+                suppressionEligible = false,
+            )
+        }
+    }
+
+    LaunchedEffect(listState, suppressForegroundNotificationAtTop) {
+        snapshotFlow {
+            listState.firstVisibleItemIndex == 0 &&
+                listState.firstVisibleItemScrollOffset <= ForegroundNotificationTopMetrics.topOffsetTolerancePx
+        }
+            .distinctUntilChanged()
+            .collect { isAtTop ->
+                ForegroundNotificationPresentationState.reportEvent(
+                    isAtTop = isAtTop,
+                    suppressionEligible = suppressForegroundNotificationAtTop,
+                )
+            }
+    }
+
+    LaunchedEffect(scrollToTopToken) {
+        if (scrollToTopToken == 0L) return@LaunchedEffect
+        listState.animateScrollToItem(0)
+    }
 
     val filteredEvents = remember(allEvents, searchQuery, channelFilter, showOnlyOpen) {
         val query = searchQuery.trim().lowercase()
@@ -245,16 +295,24 @@ fun EventListScreen(
     }
 
     if (selectedEvent != null && !isSelectionMode) {
-        ModalBottomSheet(onDismissRequest = { selectedEvent = null; onEventDetailClosed() }, containerColor = PushGoSheetContainerColor(), tonalElevation = 0.dp) {
+        ModalBottomSheet(
+            onDismissRequest = { selectedEvent = null; onEventDetailClosed() },
+            containerColor = PushGoSheetContainerColor(),
+            tonalElevation = 0.dp,
+            contentWindowInsets = { WindowInsets(0) }
+        ) {
             Text(modifier = Modifier.padding(24.dp), text = selectedEvent!!.title, style = MaterialTheme.typography.headlineSmall)
         }
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
         LazyColumn(
-            modifier = Modifier.fillMaxSize().onGloballyPositioned { listTopInWindow = it.positionInWindow().y },
+            modifier = Modifier.fillMaxSize()
+                .nestedScroll(bottomBarNestedScrollConnection)
+                .onGloballyPositioned { listTopInWindow = it.positionInWindow().y },
             state = listState,
             verticalArrangement = Arrangement.spacedBy(10.dp),
+            contentPadding = PaddingValues(bottom = bottomGestureInset + 24.dp),
         ) {
             item {
                 Column(modifier = Modifier.fillMaxWidth().heightIn(min = 120.dp)) {
@@ -270,13 +328,32 @@ fun EventListScreen(
                                 Row(modifier = Modifier.weight(1f).height(48.dp).clip(RoundedCornerShape(24.dp)).background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                                     Spacer(modifier = Modifier.width(16.dp))
                                     Icon(Icons.Default.Search, null, tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f))
-                                    TextField(
+                                    BasicTextField(
                                         value = searchQuery,
                                         onValueChange = { searchQuery = it },
-                                        placeholder = { Text(stringResource(R.string.label_search_events), color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)) },
                                         modifier = Modifier.weight(1f),
-                                        colors = TextFieldDefaults.colors(focusedContainerColor = Color.Transparent, unfocusedContainerColor = Color.Transparent, focusedIndicatorColor = Color.Transparent, unfocusedIndicatorColor = Color.Transparent),
-                                        singleLine = true
+                                        textStyle = MaterialTheme.typography.bodyLarge.copy(color = MaterialTheme.colorScheme.onSurface),
+                                        singleLine = true,
+                                        cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                                        decorationBox = { innerTextField ->
+                                            TextFieldDefaults.DecorationBox(
+                                                value = searchQuery,
+                                                innerTextField = innerTextField,
+                                                enabled = true,
+                                                singleLine = true,
+                                                visualTransformation = VisualTransformation.None,
+                                                interactionSource = remember { MutableInteractionSource() },
+                                                placeholder = { Text(stringResource(R.string.label_search_events), color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)) },
+                                                colors = TextFieldDefaults.colors(
+                                                    focusedContainerColor = Color.Transparent,
+                                                    unfocusedContainerColor = Color.Transparent,
+                                                    focusedIndicatorColor = Color.Transparent,
+                                                    unfocusedIndicatorColor = Color.Transparent,
+                                                ),
+                                                contentPadding = PaddingValues(vertical = 0.dp),
+                                                container = {}
+                                            )
+                                        }
                                     )
                                     Box {
                                         var menuExpanded by remember { mutableStateOf(false) }
@@ -317,14 +394,16 @@ fun EventListScreen(
                             }
                         }
                     }
-                    Text(text = stringResource(R.string.label_send_type_event), style = MaterialTheme.typography.headlineMedium.copy(fontWeight = FontWeight.SemiBold, letterSpacing = (-0.5).sp), color = MaterialTheme.colorScheme.onBackground, modifier = Modifier.padding(start = 16.dp, top = 8.dp, bottom = 12.dp).semantics { heading() })
+                    Text(text = stringResource(R.string.label_send_type_event), style = MaterialTheme.typography.headlineMedium.copy(fontWeight = FontWeight.SemiBold, letterSpacing = (-0.5).sp), color = MaterialTheme.colorScheme.onBackground, modifier = Modifier.padding(start = ScreenHorizontalPadding, top = 8.dp, bottom = 12.dp).semantics { heading() })
                 }
             }
-            if (!hasLoadedOnce && isLoadingMoreEvents) {
+            if (filteredEvents.isEmpty()) {
                 item {
-                    Box(modifier = Modifier.fillMaxWidth().padding(32.dp), contentAlignment = Alignment.Center) {
-                        CircularProgressIndicator(modifier = Modifier.size(32.dp))
-                    }
+                    AppEmptyState(
+                        icon = if (searchQuery.isNotEmpty() || channelFilter != null || showOnlyOpen) Icons.Default.Search else Icons.Outlined.EventNote,
+                        title = if (searchQuery.isNotEmpty() || channelFilter != null || showOnlyOpen) stringResource(R.string.label_no_search_results) else stringResource(R.string.label_no_events_title),
+                        description = if (searchQuery.isNotEmpty() || channelFilter != null || showOnlyOpen) stringResource(R.string.message_list_empty_hint) else stringResource(R.string.label_no_events_hint),
+                    )
                 }
             } else {
                 itemsIndexed(filteredEvents, key = { _, item -> item.eventId }) { index, event ->

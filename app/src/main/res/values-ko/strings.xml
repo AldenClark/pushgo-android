@@ -371,6 +371,7 @@
     <string name="label_key_encoding">인코딩</string>
     <string name="label_selected_count">%1$d개 선택됨</string>
     <string name="confirm_delete_selected_messages">선택한 메시지 %1$d개를 삭제할까요?</string>
+    <string name="confirm_delete_message">이 메시지는 영구적으로 삭제됩니다. 계속할까요?</string>
     <string name="confirm_delete_selected_events">선택한 이벤트 %1$d개를 삭제할까요?</string>
     <string name="confirm_delete_selected_things">선택한 객체 %1$d개를 삭제할까요?</string>
     <string name="message_deleted_selected_count">%1$d개 항목을 삭제했습니다</string>
