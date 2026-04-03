@@ -24,13 +24,14 @@ internal fun AppEmptyState(
     description: String,
     modifier: Modifier = Modifier,
     topPadding: Dp = 64.dp,
+    bottomPadding: Dp = 0.dp,
     horizontalPadding: Dp = 32.dp,
     iconSize: Dp = 72.dp,
 ) {
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .padding(top = topPadding, start = horizontalPadding, end = horizontalPadding),
+            .padding(top = topPadding, start = horizontalPadding, end = horizontalPadding, bottom = bottomPadding),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Top,
     ) {

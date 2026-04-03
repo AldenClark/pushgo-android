@@ -43,6 +43,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.unit.dp
 import io.ethan.pushgo.R
@@ -57,7 +58,6 @@ import io.ethan.pushgo.ui.rememberBottomBarNestedScrollConnection
 import io.ethan.pushgo.ui.rememberBottomGestureInset
 import io.ethan.pushgo.ui.theme.PushGoSheetContainerColor
 import io.ethan.pushgo.ui.markdown.FullMarkdownRenderer
-import io.ethan.pushgo.ui.theme.PushGoSheetContainerColor
 import io.ethan.pushgo.util.normalizeExternalImageUrl
 import io.ethan.pushgo.util.openExternalUrl
 import io.ethan.pushgo.ui.viewmodel.SettingsViewModel
@@ -317,6 +317,7 @@ fun ThingListScreen(
             ThingDetailSheet(
                 thing = selectedThing!!,
                 channelNameMap = channelNameMap,
+                bottomGestureInset = bottomGestureInset,
                 onOpenRelatedEvent = { selectedRelatedEvent = it },
                 onOpenRelatedMessage = { selectedRelatedMessage = it },
                 onOpenRelatedUpdate = { selectedRelatedUpdate = it },
@@ -332,7 +333,11 @@ fun ThingListScreen(
             tonalElevation = 0.dp,
             contentWindowInsets = { WindowInsets(0) }
         ) {
-            Text(modifier = Modifier.padding(24.dp), text = selectedRelatedEvent!!.title, style = MaterialTheme.typography.headlineSmall)
+            Text(
+                modifier = Modifier.padding(start = 24.dp, top = 24.dp, end = 24.dp, bottom = bottomGestureInset + 24.dp),
+                text = selectedRelatedEvent!!.title,
+                style = MaterialTheme.typography.headlineSmall,
+            )
         }
     }
 
@@ -535,8 +540,23 @@ private fun EntityKeyValueRows(entries: List<ThingDisplayAttribute>) {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun ThingDetailSheet(thing: ThingCardModel, channelNameMap: Map<String, String>, onOpenRelatedEvent: (EventCardModel) -> Unit, onOpenRelatedMessage: (ThingRelatedMessage) -> Unit, onOpenRelatedUpdate: (ThingRelatedUpdate) -> Unit, onDelete: () -> Unit) {
-    Column(modifier = Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 24.dp).padding(bottom = 32.dp), verticalArrangement = Arrangement.spacedBy(20.dp)) {
+private fun ThingDetailSheet(
+    thing: ThingCardModel,
+    channelNameMap: Map<String, String>,
+    bottomGestureInset: Dp,
+    onOpenRelatedEvent: (EventCardModel) -> Unit,
+    onOpenRelatedMessage: (ThingRelatedMessage) -> Unit,
+    onOpenRelatedUpdate: (ThingRelatedUpdate) -> Unit,
+    onDelete: () -> Unit,
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = 24.dp)
+            .padding(bottom = bottomGestureInset + 24.dp),
+        verticalArrangement = Arrangement.spacedBy(20.dp),
+    ) {
         Text(text = thing.title, style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Bold))
         val attrs = remember(thing.attrsJson) { parseThingDisplayAttributes(thing.attrsJson) }
         if (attrs.isNotEmpty()) EntityKeyValueRows(entries = attrs)

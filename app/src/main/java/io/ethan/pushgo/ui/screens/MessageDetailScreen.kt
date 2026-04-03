@@ -55,6 +55,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.layout.width
@@ -74,6 +75,7 @@ import io.ethan.pushgo.notifications.MessageStateCoordinator
 import io.ethan.pushgo.ui.MessageDetailViewModelFactory
 import io.ethan.pushgo.ui.markdown.FullMarkdownRenderer
 import io.ethan.pushgo.ui.markdown.SelectablePlainTextRenderer
+import io.ethan.pushgo.ui.rememberBottomGestureInset
 import io.ethan.pushgo.ui.theme.PushGoSheetContainerColor
 import io.ethan.pushgo.util.normalizeExternalImageUrl
 import io.ethan.pushgo.ui.viewmodel.MessageDetailViewModel
@@ -97,6 +99,7 @@ fun MessageDetailScreen(
 ) {
     val initialRenderStartedAtMs = remember(messageId) { SystemClock.elapsedRealtime() }
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val bottomGestureInset = rememberBottomGestureInset()
     val viewModel: MessageDetailViewModel = viewModel(
         key = messageId,
         factory = MessageDetailViewModelFactory(repository, stateCoordinator, messageId),
@@ -145,7 +148,7 @@ fun MessageDetailScreen(
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(24.dp),
+                        .padding(start = 24.dp, top = 24.dp, end = 24.dp, bottom = bottomGestureInset + 24.dp),
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
@@ -163,6 +166,7 @@ fun MessageDetailScreen(
                     description = stringResource(R.string.message_list_empty_hint),
                     modifier = Modifier.fillMaxWidth(),
                     topPadding = 32.dp,
+                    bottomPadding = bottomGestureInset + 24.dp,
                     iconSize = 44.dp,
                 )
             }
@@ -173,6 +177,7 @@ fun MessageDetailScreen(
                     timeText = timeText,
                     imageModels = imageModels,
                     resolvedBodyText = resolvedBodyText,
+                    bottomGestureInset = bottomGestureInset,
                     onDelete = {
                         showDeleteConfirmation = true
                     },
@@ -231,6 +236,7 @@ internal fun MessageDetailCoreContent(
     timeText: String,
     imageModels: List<Any>,
     resolvedBodyText: String,
+    bottomGestureInset: Dp,
     onDelete: (() -> Unit)?,
     onOpenImage: (Any) -> Unit,
     onOpenUrl: (String) -> Unit,
@@ -240,7 +246,7 @@ internal fun MessageDetailCoreContent(
             .verticalScroll(rememberScrollState())
             .padding(horizontal = 12.dp)
             .padding(top = 12.dp)
-            .padding(bottom = 32.dp),
+            .padding(bottom = bottomGestureInset + 24.dp),
         verticalArrangement = Arrangement.spacedBy(20.dp),
     ) {
         Column(

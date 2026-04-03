@@ -334,7 +334,7 @@ fun ChannelListScreen(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 24.dp, vertical = 16.dp),
+                    .padding(start = 24.dp, top = 16.dp, end = 24.dp, bottom = bottomGestureInset + 16.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 Text(

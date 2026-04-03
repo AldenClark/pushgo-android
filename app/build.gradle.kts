@@ -34,7 +34,7 @@ val releaseStoreFile = project.resolveSigningProperty("PUSHGO_RELEASE_STORE_FILE
 val releaseStorePassword = project.resolveSigningProperty("PUSHGO_RELEASE_STORE_PASSWORD")
 val releaseKeyAlias = project.resolveSigningProperty("PUSHGO_RELEASE_KEY_ALIAS")
 val releaseKeyPassword = project.resolveSigningProperty("PUSHGO_RELEASE_KEY_PASSWORD")
-val appVersionName = "1.1.38"
+val appVersionName = "1.1.40"
 val appVersionCode = parseVersionCodeFromName(appVersionName)
 val enableAbiSplits = when (val value = providers.gradleProperty("pushgo.enableAbiSplits").orNull?.trim()?.lowercase()) {
     null -> true
@@ -42,8 +42,8 @@ val enableAbiSplits = when (val value = providers.gradleProperty("pushgo.enableA
     "false" -> false
     else -> error("Invalid pushgo.enableAbiSplits value: $value")
 }
-val rustBuildScript = rootProject.file("native/quinn-jni/build-android.sh")
-val generatedRustJniDir = layout.buildDirectory.dir("generated/rustJniLibs/main").get().asFile
+val rustBuildScript: File = rootProject.file("native/quinn-jni/build-android.sh")
+val generatedRustJniDir: File = layout.buildDirectory.dir("generated/rustJniLibs/main").get().asFile
 val privateCertPinSha256 = project.resolveSigningProperty("PUSHGO_PRIVATE_CERT_PIN_SHA256")
     ?.trim()
     ?.replace("\"", "")
@@ -193,23 +193,23 @@ if (hasGoogleServices) {
 }
 
 dependencies {
-    implementation(platform("androidx.compose:compose-bom:2026.01.00"))
+    implementation(platform("androidx.compose:compose-bom:2026.03.01"))
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.ui:ui-tooling-preview")
     implementation("androidx.compose.material3:material3")
     implementation("androidx.compose.material:material-icons-extended")
 
-    implementation("androidx.core:core-ktx:1.17.0")
-    implementation("androidx.activity:activity-compose:1.12.2")
+    implementation("androidx.core:core-ktx:1.18.0")
+    implementation("androidx.activity:activity-compose:1.13.0")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.10.0")
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.10.0")
     implementation("androidx.lifecycle:lifecycle-viewmodel-ktx:2.10.0")
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.10.0")
-    implementation("androidx.navigation:navigation-compose:2.9.6")
+    implementation("androidx.navigation:navigation-compose:2.9.7")
     implementation("androidx.appcompat:appcompat:1.7.1")
     implementation("com.google.android.material:material:1.13.0")
 
-    implementation("androidx.datastore:datastore-preferences:1.2.0")
+    implementation("androidx.datastore:datastore-preferences:1.2.1")
     implementation("androidx.security:security-crypto:1.1.0")
 
     implementation("androidx.room:room-runtime:2.8.4")
@@ -217,12 +217,12 @@ dependencies {
     implementation("androidx.room:room-paging:2.8.4")
     ksp("androidx.room:room-compiler:2.8.4")
 
-    implementation("androidx.paging:paging-runtime-ktx:3.3.6")
-    implementation("androidx.paging:paging-compose:3.3.6")
+    implementation("androidx.paging:paging-runtime-ktx:3.4.2")
+    implementation("androidx.paging:paging-compose:3.4.2")
 
-    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.8.0")
+    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.10.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")
-    implementation("androidx.work:work-runtime-ktx:2.11.0")
+    implementation("androidx.work:work-runtime-ktx:2.11.2")
     implementation("io.coil-kt:coil-compose:2.7.0")
     implementation("io.noties.markwon:core:4.6.2")
     implementation("io.noties.markwon:ext-strikethrough:4.6.2")
@@ -231,9 +231,9 @@ dependencies {
     implementation("io.noties.markwon:html:4.6.2")
     implementation("io.noties.markwon:linkify:4.6.2")
     implementation("io.noties.markwon:image-coil:4.6.2")
-    implementation(platform("com.google.firebase:firebase-bom:34.8.0"))
+    implementation(platform("com.google.firebase:firebase-bom:34.11.0"))
     implementation("com.google.firebase:firebase-messaging")
-    implementation("com.google.android.gms:play-services-base:18.5.0")
+    implementation("com.google.android.gms:play-services-base:18.10.0")
 
     debugImplementation("androidx.compose.ui:ui-tooling")
     testImplementation("junit:junit:4.13.2")

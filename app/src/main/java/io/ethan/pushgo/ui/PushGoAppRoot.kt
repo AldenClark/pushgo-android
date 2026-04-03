@@ -3,10 +3,10 @@ package io.ethan.pushgo.ui
 import android.content.Intent
 import android.os.SystemClock
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.slideInVertically
-import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearOutSlowInEasing
 import androidx.compose.animation.core.tween
@@ -116,7 +116,7 @@ fun PushGoAppRoot(
         add(BottomItem(ChannelsRoute, stringResource(R.string.section_channels), Icons.Outlined.Group))
     }
 
-    val initialRoute: Any = remember(items) { items.firstOrNull()?.route ?: ChannelsRoute }
+    val initialRoute: Any = remember { items.firstOrNull()?.route ?: ChannelsRoute }
     val currentBackStackEntry by navController.currentBackStackEntryAsState()
     val currentDestination = currentBackStackEntry?.destination
     val currentRoute = currentDestination?.route
@@ -202,8 +202,9 @@ fun PushGoAppRoot(
             AnimatedVisibility(
                 // REMOVED selectedMessageId == null to keep TabBar visible when sheet is open
                 visible = showBottomBar && !hideBottomBarForBatchMode && bottomBarVisible,
-                enter = slideInVertically(
-                    initialOffsetY = { it },
+                enter = expandVertically(
+                    expandFrom = Alignment.Bottom,
+                    clip = false,
                     animationSpec = tween(
                         durationMillis = 320,
                         easing = LinearOutSlowInEasing,
@@ -214,8 +215,9 @@ fun PushGoAppRoot(
                         easing = LinearOutSlowInEasing,
                     )
                 ),
-                exit = slideOutVertically(
-                    targetOffsetY = { it },
+                exit = shrinkVertically(
+                    shrinkTowards = Alignment.Bottom,
+                    clip = false,
                     animationSpec = tween(
                         durationMillis = 280,
                         easing = FastOutSlowInEasing,

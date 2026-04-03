@@ -41,6 +41,7 @@ import java.security.MessageDigest
 import java.time.Instant
 import java.util.Collections
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicLong
 import kotlin.random.Random
 
 internal const val PRIVATE_STREAM_ACK_STATUS_IGNORE = 0
@@ -111,6 +112,9 @@ class PrivateChannelClient(
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val prefs = appContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+    private val lifecycleMutex = Mutex()
+    private val nextLoopToken = AtomicLong(1L)
+    private val nextSessionGeneration = AtomicLong(1L)
     @Volatile
     private var localFailureBucketStats: LocalFailureBucketStats = loadLocalFailureBucketStats()
     @Volatile
@@ -137,7 +141,11 @@ class PrivateChannelClient(
     private var routeEnsureInFlight: CompletableDeferred<Unit>? = null
     private var routeEnsureInFlightFingerprint: String? = null
     @Volatile
+    private var activeLoopToken: Long = 0L
+    @Volatile
     private var activeSessionHandle: Long = 0L
+    @Volatile
+    private var activeSessionGeneration: Long = 0L
     @Volatile
     private var networkAvailable = true
     @Volatile
@@ -181,6 +189,10 @@ class PrivateChannelClient(
     private var consecutiveStreamFailureCount: Int = 0
     @Volatile
     private var lastForcedProfileRefreshAtMs: Long = 0L
+    @Volatile
+    private var lastIgnoredSessionEventFingerprint: String? = null
+
+    private data class SessionStopRequest(val handle: Long, val reason: String)
 
     init {
         io.ethan.pushgo.util.SilentSink.i(TAG, "private channel client revision=$CLIENT_REV")
@@ -236,9 +248,6 @@ class PrivateChannelClient(
         nextAllowedPullAtMs = 0L
         forceProfileRefreshOnce = true
 
-        loopJob?.cancel()
-        loopJob = null
-
         if (!fcmAvailable) {
             saveTransportStatus(
                 route = "private",
@@ -247,7 +256,7 @@ class PrivateChannelClient(
                 detail = "gateway config changed, restarting private stream",
             )
             recomputeKeepaliveState()
-            refreshLoop()
+            restartLoop()
             triggerProviderWakeupRecovery()
         }
     }
@@ -716,37 +725,127 @@ class PrivateChannelClient(
 
     private fun refreshLoop() {
         if (!runtimeConfigured) return
-        val shouldRun = !fcmAvailable && (foregroundActive || keepaliveServiceActive)
-        if (!shouldRun) {
-            loopJob?.cancel()
-            loopJob = null
-            return
-        }
-        if (loopJob != null) return
-        loopJob = scope.launch {
-            while (true) {
-                val streamResult = runCatching { streamOnce() }
-                    .onFailure {
-                        onFailure("stream_preflight", it)
-                        io.ethan.pushgo.util.SilentSink.w(TAG, "stream mode failed error=${it.message}")
-                    }
-                    .getOrDefault(false)
-                if (streamResult) {
-                    // Graceful GOAWAY/close: reconnect quickly to reduce delivery gap.
-                    delay(200)
-                } else {
-                    val now = System.currentTimeMillis()
-                    val waitMs = (nextAllowedPullAtMs - now).coerceAtLeast(500L).coerceAtMost(10_000L)
-                    delay(waitMs)
-                }
+        scope.launch {
+            val stopRequests = lifecycleMutex.withLock {
+                refreshLoopLocked()
             }
+            stopNativeSessions(stopRequests)
         }
     }
 
     private fun restartLoop() {
+        scope.launch {
+            val stopRequests = lifecycleMutex.withLock {
+                restartLoopLocked("restart_loop")
+            }
+            stopNativeSessions(stopRequests)
+        }
+    }
+
+    private fun shouldRunLoopLocked(): Boolean {
+        return runtimeConfigured && !fcmAvailable && (foregroundActive || keepaliveServiceActive)
+    }
+
+    private fun isCurrentLoop(loopToken: Long): Boolean {
+        return loopToken > 0L && activeLoopToken == loopToken
+    }
+
+    private fun isCurrentSession(handle: Long, sessionGeneration: Long, loopToken: Long? = null): Boolean {
+        if (handle <= 0L || sessionGeneration <= 0L) return false
+        if (activeSessionHandle != handle || activeSessionGeneration != sessionGeneration) {
+            return false
+        }
+        if (loopToken != null && !isCurrentLoop(loopToken)) {
+            return false
+        }
+        return true
+    }
+
+    private suspend fun stopNativeSessionHandle(handle: Long, reason: String) {
+        if (handle <= 0L) return
+        runCatching {
+            runInterruptible(Dispatchers.IO) {
+                WarpLinkNativeBridge.sessionStop(handle)
+            }
+        }.onFailure {
+            io.ethan.pushgo.util.SilentSink.w(
+                TAG,
+                "session stop failed handle=$handle reason=$reason error=${it.message}",
+            )
+        }
+    }
+
+    private suspend fun stopNativeSessions(requests: List<SessionStopRequest>) {
+        requests.forEach { request ->
+            stopNativeSessionHandle(request.handle, request.reason)
+        }
+    }
+
+    private suspend fun refreshLoopLocked(): List<SessionStopRequest> {
+        if (!shouldRunLoopLocked()) {
+            val previousLoopToken = activeLoopToken
+            activeLoopToken = 0L
+            val handle = activeSessionHandle
+            activeSessionHandle = 0L
+            activeSessionGeneration = 0L
+            loopJob?.cancel()
+            loopJob = null
+            return if (handle > 0L) {
+                listOf(SessionStopRequest(handle, "loop_disabled:$previousLoopToken"))
+            } else {
+                emptyList()
+            }
+        }
+        if (loopJob?.isActive == true && activeLoopToken > 0L) {
+            return emptyList()
+        }
+        val loopToken = nextLoopToken.getAndIncrement()
+        activeLoopToken = loopToken
+        loopJob = scope.launch {
+            runLoop(loopToken)
+        }
+        return emptyList()
+    }
+
+    private suspend fun restartLoopLocked(reason: String): List<SessionStopRequest> {
+        val stopRequests = mutableListOf<SessionStopRequest>()
+        val previousLoopToken = activeLoopToken
+        activeLoopToken = 0L
+        val handle = activeSessionHandle
+        activeSessionHandle = 0L
+        activeSessionGeneration = 0L
         loopJob?.cancel()
         loopJob = null
-        refreshLoop()
+        if (handle > 0L) {
+            stopRequests += SessionStopRequest(
+                handle = handle,
+                reason = "loop_restart:$reason:token=$previousLoopToken",
+            )
+        }
+        stopRequests += refreshLoopLocked()
+        return stopRequests
+    }
+
+    private suspend fun runLoop(loopToken: Long) {
+        while (isCurrentLoop(loopToken)) {
+            val streamResult = runCatching { streamOnce(loopToken) }
+                .onFailure {
+                    onFailure("stream_preflight", it, loopToken = loopToken)
+                    io.ethan.pushgo.util.SilentSink.w(TAG, "stream mode failed error=${it.message}")
+                }
+                .getOrDefault(false)
+            if (!isCurrentLoop(loopToken)) {
+                return
+            }
+            if (streamResult) {
+                // Graceful GOAWAY/close: reconnect quickly to reduce delivery gap.
+                delay(200)
+            } else {
+                val now = System.currentTimeMillis()
+                val waitMs = (nextAllowedPullAtMs - now).coerceAtLeast(500L).coerceAtMost(10_000L)
+                delay(waitMs)
+            }
+        }
     }
 
     private suspend fun handlePulledMessage(payload: JSONObject, deliveryId: String): Boolean {
@@ -787,7 +886,8 @@ class PrivateChannelClient(
         return out
     }
 
-    private suspend fun streamOnce(): Boolean {
+    private suspend fun streamOnce(loopToken: Long): Boolean {
+        if (!isCurrentLoop(loopToken)) return false
         val nowMs = System.currentTimeMillis()
         if (nowMs < nextAllowedPullAtMs) return false
         if (!networkAvailable) {
@@ -811,11 +911,14 @@ class PrivateChannelClient(
         val transportProfile = resolvePrivateTransportProfile(baseUrl, token)
         val host = runCatching { URL(baseUrl).host }.getOrNull()?.trim().orEmpty()
         if (host.isEmpty()) {
-            onFailure("stream_preflight", IllegalStateException("empty gateway host"))
+            onFailure("stream_preflight", IllegalStateException("empty gateway host"), loopToken = loopToken)
             return false
         }
         if (!WarpLinkNativeBridge.isAvailable()) {
-            onFailure("stream_native", IllegalStateException("native bridge unavailable"))
+            onFailure("stream_native", IllegalStateException("native bridge unavailable"), loopToken = loopToken)
+            return false
+        }
+        if (!isCurrentLoop(loopToken)) {
             return false
         }
         saveTransportStatus(
@@ -825,6 +928,7 @@ class PrivateChannelClient(
             detail = "connecting private transport (quic->tcp->wss)",
         )
         return streamOverWarpSession(
+            loopToken = loopToken,
             host = host,
             state = state,
             bearerToken = token,
@@ -833,16 +937,19 @@ class PrivateChannelClient(
     }
 
     private suspend fun streamOverWarpSession(
+        loopToken: Long,
         host: String,
         state: DeviceState,
         bearerToken: String?,
         transportProfile: PrivateTransportProfile,
     ): Boolean {
+        if (!isCurrentLoop(loopToken)) return false
         latestNativeSessionProfile = null
         val effectiveProfile = transportProfile
         val runtimePolicy = localRuntimePolicy(foregroundActive)
         val effectiveConnectBudgetMs = runtimePolicy.connectBudgetMs
         val effectiveBackoffCapMs = runtimePolicy.backoffCapMs
+        val sessionGeneration = nextSessionGeneration.getAndIncrement()
         val sessionNetworkClass = currentNetworkClass()
         val sessionNetworkFingerprint = currentNetworkFingerprint()
         activeSessionNetworkClass = sessionNetworkClass
@@ -873,6 +980,7 @@ class PrivateChannelClient(
         val handle = runInterruptible(Dispatchers.IO) {
             WarpLinkNativeBridge.sessionStart(
                 JSONObject().apply {
+                    put("session_generation", sessionGeneration)
                     put("host", host)
                     put("quic_enabled", effectiveProfile.quicEnabled)
                     put("quic_port", effectiveProfile.quicPort)
@@ -902,10 +1010,20 @@ class PrivateChannelClient(
             )
         }
         if (handle == 0L) {
-            onFailure("stream_start", IllegalStateException("native session start failed"))
+            onFailure(
+                "stream_start",
+                IllegalStateException("native session start failed"),
+                loopToken = loopToken,
+            )
             return false
         }
-        activeSessionHandle = handle
+        if (!registerActiveSession(handle, sessionGeneration, loopToken)) {
+            stopNativeSessionHandle(
+                handle,
+                "session_registration_rejected gen=$sessionGeneration loop=$loopToken",
+            )
+            return false
+        }
 
         var activeAuthToken = bearerToken?.trim()?.ifEmpty { null }
         var activePowerTier = effectivePerformanceMode(foregroundActive).wireValue
@@ -914,7 +1032,7 @@ class PrivateChannelClient(
         var lastEventAtMs = System.currentTimeMillis()
         var welcomeReceived = false
         return try {
-            while (true) {
+            while (isCurrentSession(handle, sessionGeneration, loopToken)) {
                 val nowMs = System.currentTimeMillis()
                 if (nowMs >= nextControlSyncAtMs) {
                     val hasNetwork = refreshNetworkAvailabilityFromSystem(reason = "session_control_tick")
@@ -960,6 +1078,9 @@ class PrivateChannelClient(
                     WarpLinkNativeBridge.sessionPollEvent(handle, pollTimeoutMs)
                 }
                 if (rawEvent == null) {
+                    if (!isCurrentSession(handle, sessionGeneration, loopToken)) {
+                        return false
+                    }
                     if (!welcomeReceived &&
                         System.currentTimeMillis() - lastEventAtMs >= PRIVATE_WELCOME_STALL_TIMEOUT_MS
                     ) {
@@ -972,6 +1093,18 @@ class PrivateChannelClient(
                 lastEventAtMs = System.currentTimeMillis()
                 val root = JSONObject(rawEvent)
                 val eventType = root.optString("type").trim().lowercase()
+                val eventGeneration = root.optLong("session_generation", sessionGeneration)
+                    .coerceAtLeast(0L)
+                if (eventGeneration != sessionGeneration || !isCurrentSession(handle, sessionGeneration, loopToken)) {
+                    ignoreStaleSessionEvent(
+                        handle = handle,
+                        sessionGeneration = sessionGeneration,
+                        eventGeneration = eventGeneration,
+                        eventType = eventType,
+                        root = root,
+                    )
+                    return false
+                }
                 if (eventType == "welcome") {
                     welcomeReceived = true
                 }
@@ -1002,10 +1135,9 @@ class PrivateChannelClient(
                         }
                     )
                 }
-                handleSessionEvent(handle, root)
+                handleSessionEvent(handle, root, sessionGeneration, loopToken)
             }
-            @Suppress("UNREACHABLE_CODE")
-            true
+            false
         } catch (_: CancellationException) {
             false
         } catch (error: Throwable) {
@@ -1018,33 +1150,122 @@ class PrivateChannelClient(
                     detail = error.message.orEmpty(),
                 )
             }
-            onFailure("stream_session", error)
+            onFailure(
+                "stream_session",
+                error,
+                sessionGeneration = sessionGeneration,
+                loopToken = loopToken,
+            )
             false
         } finally {
-            if (activeSessionHandle == handle) {
-                activeSessionHandle = 0L
-            }
+            clearActiveSession(handle, sessionGeneration, loopToken)
             activeSessionNetworkClass = "unknown"
             lastLocalPinnedTransport = null
             lastLocalPinnedNetworkFingerprint = null
             lastLocalPinnedNetworkClass = null
-            runCatching {
-                runInterruptible(Dispatchers.IO) {
-                    WarpLinkNativeBridge.sessionStop(handle)
+            stopNativeSessionHandle(handle, "stream_finally gen=$sessionGeneration")
+        }
+    }
+
+    private suspend fun registerActiveSession(
+        handle: Long,
+        sessionGeneration: Long,
+        loopToken: Long,
+    ): Boolean {
+        var shouldRegister = false
+        var previousHandle = 0L
+        lifecycleMutex.withLock {
+            shouldRegister = shouldRunLoopLocked() && isCurrentLoop(loopToken)
+            if (shouldRegister) {
+                previousHandle = activeSessionHandle.takeIf { it > 0L && it != handle } ?: 0L
+                activeSessionHandle = handle
+                activeSessionGeneration = sessionGeneration
+            }
+        }
+        if (!shouldRegister) {
+            return false
+        }
+        if (previousHandle > 0L) {
+            stopNativeSessionHandle(
+                previousHandle,
+                "session_superseded gen=$sessionGeneration loop=$loopToken",
+            )
+        }
+        return true
+    }
+
+    private suspend fun clearActiveSession(handle: Long, sessionGeneration: Long, loopToken: Long) {
+        lifecycleMutex.withLock {
+            if (activeSessionHandle == handle
+                && activeSessionGeneration == sessionGeneration
+                && isCurrentLoop(loopToken)
+            ) {
+                activeSessionHandle = 0L
+                activeSessionGeneration = 0L
+            }
+        }
+    }
+
+    private suspend fun ignoreStaleSessionEvent(
+        handle: Long,
+        sessionGeneration: Long,
+        eventGeneration: Long,
+        eventType: String,
+        root: JSONObject,
+    ) {
+        if (eventType == "message") {
+            val ackId = if (root.has("ack_id") && !root.isNull("ack_id")) {
+                root.optLong("ack_id", 0L)
+            } else {
+                0L
+            }
+            if (ackId > 0L) {
+                runCatching {
+                    runInterruptible(Dispatchers.IO) {
+                        WarpLinkNativeBridge.sessionResolveMessage(
+                            handle,
+                            ackId,
+                            PRIVATE_STREAM_ACK_STATUS_IGNORE,
+                        )
+                    }
                 }
             }
         }
+        val fingerprint = buildString {
+            append(handle)
+            append('|')
+            append(sessionGeneration)
+            append('|')
+            append(eventGeneration)
+            append('|')
+            append(eventType)
+            append('|')
+            append(activeSessionHandle)
+            append('|')
+            append(activeSessionGeneration)
+        }
+        if (fingerprint == lastIgnoredSessionEventFingerprint) {
+            return
+        }
+        lastIgnoredSessionEventFingerprint = fingerprint
+        io.ethan.pushgo.util.SilentSink.i(
+            TAG,
+            "ignore stale session event type=$eventType handle=$handle eventGen=$eventGeneration activeHandle=$activeSessionHandle activeGen=$activeSessionGeneration",
+        )
     }
 
     private fun stopActiveSession(reason: String) {
         val handle = activeSessionHandle
         if (handle <= 0L) return
-        scope.launch(Dispatchers.IO) {
-            runCatching {
-                WarpLinkNativeBridge.sessionStop(handle)
-            }.onFailure {
-                io.ethan.pushgo.util.SilentSink.w(TAG, "session stop failed reason=$reason error=${it.message}")
+        val sessionGeneration = activeSessionGeneration
+        scope.launch {
+            lifecycleMutex.withLock {
+                if (activeSessionHandle == handle && activeSessionGeneration == sessionGeneration) {
+                    activeSessionHandle = 0L
+                    activeSessionGeneration = 0L
+                }
             }
+            stopNativeSessionHandle(handle, reason)
         }
     }
 
@@ -1087,7 +1308,15 @@ class PrivateChannelClient(
         }
     }
 
-    private suspend fun handleSessionEvent(handle: Long, root: JSONObject) {
+    private suspend fun handleSessionEvent(
+        handle: Long,
+        root: JSONObject,
+        sessionGeneration: Long,
+        loopToken: Long,
+    ) {
+        if (!isCurrentSession(handle, sessionGeneration, loopToken)) {
+            return
+        }
         when (root.optString("type").trim().lowercase()) {
             "session_profile" -> {
                 val profile = NativeSessionProfile(
@@ -2292,7 +2521,18 @@ class PrivateChannelClient(
         }
     }
 
-    private fun onFailure(stage: String, error: Throwable) {
+    private fun onFailure(
+        stage: String,
+        error: Throwable,
+        sessionGeneration: Long? = null,
+        loopToken: Long? = null,
+    ) {
+        if (loopToken != null && !isCurrentLoop(loopToken)) {
+            return
+        }
+        if (sessionGeneration != null && activeSessionGeneration != sessionGeneration) {
+            return
+        }
         maybeForceProfileRefreshForConsecutiveFailures(stage)
         if (error is ChannelSubscriptionException && isGatewayPrivateDisabledError(error)) {
             failureStreak = 0
@@ -2492,8 +2732,12 @@ class PrivateChannelClient(
     }
 
     fun resetForAutomation() {
+        val handle = activeSessionHandle
         loopJob?.cancel()
         loopJob = null
+        activeLoopToken = 0L
+        activeSessionHandle = 0L
+        activeSessionGeneration = 0L
         currentDeviceState = null
         lastSubscribedSignature = null
         lastSubscribeAtMs = 0L
@@ -2513,6 +2757,11 @@ class PrivateChannelClient(
         lastFailureBucketFingerprint = null
         lastTransportStatusFingerprint = null
         prefs.edit().clear().apply()
+        if (handle > 0L) {
+            scope.launch {
+                stopNativeSessionHandle(handle, "automation_reset")
+            }
+        }
         saveTransportStatus(
             route = if (fcmAvailable) "provider" else "private",
             transport = if (fcmAvailable) "fcm" else "none",
@@ -2907,7 +3156,7 @@ class PrivateChannelClient(
 
     companion object {
         private const val TAG = "PrivateChannelClient"
-        private const val CLIENT_REV = "2026-03-27-r9"
+        private const val CLIENT_REV = "2026-04-03-r10"
         private const val PREFS_NAME = "private_push_client"
         private const val KEY_STATE = "device_state"
         private const val KEY_TRANSPORT_STATUS = "transport_status"

@@ -165,8 +165,8 @@
     <string name="label_gateway_payload">Gateway JSON</string>
     <string name="label_copy_json">Copy JSON</string>
     <string name="label_send_type_message">Message</string>
-    <string name="label_send_type_event">Event</string>
-    <string name="label_send_type_thing">Object</string>
+    <string name="label_send_type_event">Events</string>
+    <string name="label_send_type_thing">Objects</string>
     <string name="label_event_group_identity">Event Identity</string>
     <string name="label_event_group_profile">Event Profile</string>
     <string name="label_thing_group_identity">Object Identity</string>

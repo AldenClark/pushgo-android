@@ -44,6 +44,8 @@ struct NativeSchedulerPolicy {
 
 #[derive(Debug, Deserialize)]
 struct SessionConfig {
+    #[serde(default)]
+    session_generation: u64,
     host: String,
     #[serde(default)]
     quic_port: Option<u16>,
@@ -102,6 +104,7 @@ struct SessionConfig {
 
 #[derive(Clone)]
 struct EventApp {
+    session_generation: u64,
     hello: Arc<Mutex<HelloCtx>>,
     power_hint: Arc<Mutex<Option<ClientPowerHint>>>,
     pending_acks: Arc<Mutex<HashMap<u64, std_mpsc::SyncSender<AppDecision>>>>,
@@ -181,7 +184,11 @@ impl ClientApp for EventApp {
                 }
             }
             other => {
-                let _ = self.tx.send(event_to_json(&other, self.session_started_at));
+                let _ = self.tx.send(event_to_json(
+                    &other,
+                    self.session_started_at,
+                    self.session_generation,
+                ));
                 AppDecision::Ignore
             }
         }
@@ -273,6 +280,16 @@ fn update_scheduler_policy(
     mutate(&mut next);
     let _ = session.scheduler_policy.send_replace(next);
     true
+}
+
+fn shutdown_session(session: Arc<Session>) {
+    let _ = session.shutdown_tx.send(true);
+    if let Ok(mut pending) = session.pending_acks.lock() {
+        pending.clear();
+    }
+    if let Ok(task) = session.task.lock() {
+        task.abort();
+    }
 }
 
 #[unsafe(no_mangle)]
@@ -388,6 +405,7 @@ pub extern "system" fn Java_io_ethan_pushgo_notifications_WarpLinkNativeBridge_n
     let (scheduler_policy_tx, _scheduler_policy_rx) = watch::channel(initial_policy);
     let scheduler_policy = Arc::new(scheduler_policy_tx);
     let app = EventApp {
+        session_generation: parsed.session_generation,
         hello: Arc::clone(&hello),
         power_hint: Arc::clone(&power_hint),
         pending_acks: Arc::clone(&pending_acks),
@@ -407,6 +425,7 @@ pub extern "system" fn Java_io_ethan_pushgo_notifications_WarpLinkNativeBridge_n
     let task = runtime.spawn(async move {
         let profile_event = serde_json::json!({
             "type": "session_profile",
+            "session_generation": parsed.session_generation,
             "connect_budget_ms": config.policy.connect_budget_ms,
             "tcp_delay_ms": tcp_delay_ms,
             "wss_delay_ms": wss_delay_ms,
@@ -419,11 +438,13 @@ pub extern "system" fn Java_io_ethan_pushgo_notifications_WarpLinkNativeBridge_n
         let terminal_event = match result {
             Ok(()) => serde_json::json!({
                 "type": "session_ended",
+                "session_generation": parsed.session_generation,
                 "reason": "client_run_completed",
                 "error": serde_json::Value::Null,
             }),
             Err(error) => serde_json::json!({
                 "type": "session_ended",
+                "session_generation": parsed.session_generation,
                 "reason": "client_run_failed",
                 "error": error.to_string(),
             }),
@@ -432,6 +453,14 @@ pub extern "system" fn Java_io_ethan_pushgo_notifications_WarpLinkNativeBridge_n
     });
 
     let handle = NEXT_HANDLE.fetch_add(1, Ordering::Relaxed);
+    let previous_sessions = match SESSIONS.lock() {
+        Ok(mut guard) => guard
+            .drain()
+            .map(|(_, session)| session)
+            .collect::<Vec<_>>(),
+        Err(_) => return 0,
+    };
+    previous_sessions.into_iter().for_each(shutdown_session);
     let mut sessions = match SESSIONS.lock() {
         Ok(guard) => guard,
         Err(_) => return 0,
@@ -482,10 +511,10 @@ pub extern "system" fn Java_io_ethan_pushgo_notifications_WarpLinkNativeBridge_n
             Err(TryRecvError::Disconnected) => break None,
             Err(TryRecvError::Empty) => {}
         }
-        if let Some(limit) = deadline {
-            if Instant::now() >= limit {
-                break None;
-            }
+        if let Some(limit) = deadline
+            && Instant::now() >= limit
+        {
+            break None;
         }
         std::thread::sleep(Duration::from_millis(1));
     };
@@ -509,13 +538,7 @@ pub extern "system" fn Java_io_ethan_pushgo_notifications_WarpLinkNativeBridge_n
     let Some(session) = session else {
         return;
     };
-    let _ = session.shutdown_tx.send(true);
-    if let Ok(mut pending) = session.pending_acks.lock() {
-        pending.clear();
-    }
-    if let Ok(task) = session.task.lock() {
-        task.abort();
-    }
+    shutdown_session(session);
 }
 
 #[unsafe(no_mangle)]
@@ -761,17 +784,23 @@ fn rust_to_jstring_raw(env: &mut EnvUnowned<'_>, value: String) -> jstring {
     }
 }
 
-fn event_to_json(event: &ClientEvent, session_started_at: Instant) -> String {
+fn event_to_json(
+    event: &ClientEvent,
+    session_started_at: Instant,
+    session_generation: u64,
+) -> String {
     let elapsed_ms = elapsed_ms(session_started_at);
     match event {
         ClientEvent::Connected { transport } => serde_json::json!({
             "type": "connected",
+            "session_generation": session_generation,
             "transport": transport.to_string(),
             "elapsed_ms": elapsed_ms,
         })
         .to_string(),
         ClientEvent::Welcome { welcome } => serde_json::json!({
             "type": "welcome",
+            "session_generation": session_generation,
             "resume_token": welcome.resume_token,
             "heartbeat_secs": welcome.heartbeat_secs,
             "ping_interval_secs": welcome.ping_interval_secs,
@@ -786,6 +815,7 @@ fn event_to_json(event: &ClientEvent, session_started_at: Instant) -> String {
         .to_string(),
         ClientEvent::Disconnected { transport, reason } => serde_json::json!({
             "type": "disconnected",
+            "session_generation": session_generation,
             "transport": transport.to_string(),
             "reason": reason,
             "elapsed_ms": elapsed_ms,
@@ -796,6 +826,7 @@ fn event_to_json(event: &ClientEvent, session_started_at: Instant) -> String {
             backoff_ms,
         } => serde_json::json!({
             "type": "reconnecting",
+            "session_generation": session_generation,
             "attempt": attempt,
             "backoff_ms": backoff_ms,
             "elapsed_ms": elapsed_ms,
@@ -803,6 +834,7 @@ fn event_to_json(event: &ClientEvent, session_started_at: Instant) -> String {
         .to_string(),
         ClientEvent::Fatal { error } => serde_json::json!({
             "type": "fatal",
+            "session_generation": session_generation,
             "error": error,
             "elapsed_ms": elapsed_ms,
         })
@@ -813,6 +845,7 @@ fn event_to_json(event: &ClientEvent, session_started_at: Instant) -> String {
             source,
         } => serde_json::json!({
             "type": "probe_rtt",
+            "session_generation": session_generation,
             "transport": transport.to_string(),
             "rtt_ms": rtt_ms,
             "source": match source {
@@ -824,6 +857,7 @@ fn event_to_json(event: &ClientEvent, session_started_at: Instant) -> String {
         .to_string(),
         ClientEvent::SchedulerStateChanged { state, reason_code } => serde_json::json!({
             "type": "scheduler_state_changed",
+            "session_generation": session_generation,
             "state": format!("{state:?}").to_ascii_lowercase(),
             "reason_code": reason_code,
             "elapsed_ms": elapsed_ms,
@@ -835,6 +869,7 @@ fn event_to_json(event: &ClientEvent, session_started_at: Instant) -> String {
             decision_id,
         } => serde_json::json!({
             "type": "candidate_started",
+            "session_generation": session_generation,
             "from": from.to_string(),
             "to": to.to_string(),
             "decision_id": decision_id,
@@ -847,6 +882,7 @@ fn event_to_json(event: &ClientEvent, session_started_at: Instant) -> String {
             decision_id,
         } => serde_json::json!({
             "type": "candidate_ready",
+            "session_generation": session_generation,
             "from": from.to_string(),
             "to": to.to_string(),
             "decision_id": decision_id,
@@ -859,6 +895,7 @@ fn event_to_json(event: &ClientEvent, session_started_at: Instant) -> String {
             decision_id,
         } => serde_json::json!({
             "type": "cutover_committed",
+            "session_generation": session_generation,
             "from": from.to_string(),
             "to": to.to_string(),
             "decision_id": decision_id,
@@ -872,6 +909,7 @@ fn event_to_json(event: &ClientEvent, session_started_at: Instant) -> String {
             reason,
         } => serde_json::json!({
             "type": "cutover_rollback",
+            "session_generation": session_generation,
             "restored": restored.to_string(),
             "failed": failed.to_string(),
             "decision_id": decision_id,
@@ -884,6 +922,7 @@ fn event_to_json(event: &ClientEvent, session_started_at: Instant) -> String {
             reason_code,
         } => serde_json::json!({
             "type": "dead_connection_detected",
+            "session_generation": session_generation,
             "transport": transport.to_string(),
             "reason_code": reason_code,
             "elapsed_ms": elapsed_ms,
@@ -891,6 +930,7 @@ fn event_to_json(event: &ClientEvent, session_started_at: Instant) -> String {
         .to_string(),
         ClientEvent::RecoveryTierEntered { tier, reason_code } => serde_json::json!({
             "type": "recovery_tier_entered",
+            "session_generation": session_generation,
             "tier": tier,
             "reason_code": reason_code,
             "elapsed_ms": elapsed_ms,
@@ -898,6 +938,7 @@ fn event_to_json(event: &ClientEvent, session_started_at: Instant) -> String {
         .to_string(),
         ClientEvent::DecisionTrace { trace } => serde_json::json!({
             "type": "decision_trace",
+            "session_generation": session_generation,
             "decision_id": trace.decision_id,
             "winner_layer": format!("{:?}", trace.winner_layer).to_ascii_lowercase(),
             "reason_code": trace.reason_code,
@@ -913,6 +954,7 @@ fn event_to_json(event: &ClientEvent, session_started_at: Instant) -> String {
         .to_string(),
         ClientEvent::Message { .. } => serde_json::json!({
             "type": "internal_error",
+            "session_generation": session_generation,
             "error": "message event path should be handled in ClientApp",
         })
         .to_string(),

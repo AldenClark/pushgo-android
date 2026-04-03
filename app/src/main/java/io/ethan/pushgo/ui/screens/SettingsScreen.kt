@@ -11,8 +11,6 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -293,7 +291,6 @@ fun SettingsScreen(
                     rowTestTag = "row.settings.page.visibility",
                     icon = Icons.Outlined.Memory,
                     title = stringResource(R.string.section_data_pages),
-                    hint = stringResource(R.string.label_data_page_toggle_hint),
                     messageTitle = stringResource(R.string.tab_messages),
                     eventTitle = stringResource(R.string.label_send_type_event),
                     thingTitle = stringResource(R.string.label_send_type_thing),
@@ -334,7 +331,7 @@ fun SettingsScreen(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 24.dp, vertical = 16.dp),
+                    .padding(start = 24.dp, top = 16.dp, end = 24.dp, bottom = bottomGestureInset + 16.dp),
             ) {
                 Text(
                     text = stringResource(R.string.section_decryption),
@@ -368,7 +365,7 @@ fun SettingsScreen(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 24.dp, vertical = 16.dp),
+                    .padding(start = 24.dp, top = 16.dp, end = 24.dp, bottom = bottomGestureInset + 16.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 Text(
@@ -579,12 +576,10 @@ private fun TransportSelectorRow(
 }
 
 @Composable
-@OptIn(ExperimentalLayoutApi::class)
 private fun DataPageChipGroupRow(
     rowTestTag: String,
     icon: androidx.compose.ui.graphics.vector.ImageVector,
     title: String,
-    hint: String,
     messageTitle: String,
     eventTitle: String,
     thingTitle: String,
@@ -602,37 +597,25 @@ private fun DataPageChipGroupRow(
                 .testTag(rowTestTag),
             headlineContent = { Text(text = title) },
             supportingContent = {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text(
-                        text = hint,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    DataPageFilterChip(
+                        title = messageTitle,
+                        selected = messageEnabled,
+                        testTag = "switch.settings.page.messages",
+                        onToggle = onMessageToggle,
                     )
-                    FlowRow(
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp),
-                        maxItemsInEachRow = 3,
-                        maxLines = 2,
-                    ) {
-                        DataPageFilterChip(
-                            title = messageTitle,
-                            selected = messageEnabled,
-                            testTag = "switch.settings.page.messages",
-                            onToggle = onMessageToggle,
-                        )
-                        DataPageFilterChip(
-                            title = eventTitle,
-                            selected = eventEnabled,
-                            testTag = "switch.settings.page.events",
-                            onToggle = onEventToggle,
-                        )
-                        DataPageFilterChip(
-                            title = thingTitle,
-                            selected = thingEnabled,
-                            testTag = "switch.settings.page.things",
-                            onToggle = onThingToggle,
-                        )
-                    }
+                    DataPageFilterChip(
+                        title = eventTitle,
+                        selected = eventEnabled,
+                        testTag = "switch.settings.page.events",
+                        onToggle = onEventToggle,
+                    )
+                    DataPageFilterChip(
+                        title = thingTitle,
+                        selected = thingEnabled,
+                        testTag = "switch.settings.page.things",
+                        onToggle = onThingToggle,
+                    )
                 }
             },
             leadingContent = {

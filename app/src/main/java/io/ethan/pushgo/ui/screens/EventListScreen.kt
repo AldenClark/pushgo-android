@@ -301,7 +301,11 @@ fun EventListScreen(
             tonalElevation = 0.dp,
             contentWindowInsets = { WindowInsets(0) }
         ) {
-            Text(modifier = Modifier.padding(24.dp), text = selectedEvent!!.title, style = MaterialTheme.typography.headlineSmall)
+            Text(
+                modifier = Modifier.padding(start = 24.dp, top = 24.dp, end = 24.dp, bottom = bottomGestureInset + 24.dp),
+                text = selectedEvent!!.title,
+                style = MaterialTheme.typography.headlineSmall,
+            )
         }
     }
 

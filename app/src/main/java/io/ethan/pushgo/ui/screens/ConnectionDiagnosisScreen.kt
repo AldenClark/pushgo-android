@@ -558,6 +558,7 @@ private fun EnhancedProbeSheet(
     onDismiss: () -> Unit,
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val bottomGestureInset = rememberBottomGestureInset()
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
@@ -568,7 +569,7 @@ private fun EnhancedProbeSheet(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 8.dp),
+                .padding(start = 16.dp, top = 8.dp, end = 16.dp, bottom = bottomGestureInset + 8.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             when (state) {
