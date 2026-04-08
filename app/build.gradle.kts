@@ -18,23 +18,36 @@ fun Project.resolveSigningProperty(name: String): String? {
 
 fun parseVersionCodeFromName(versionName: String): Int {
     val trimmed = versionName.trim()
-    val parts = trimmed.split(".")
-    require(parts.size == 3) {
-        "appVersionName must follow x.x.N format, got: $trimmed"
+    val match = Regex("""^v(\d+)\.(\d+)\.(\d+)(?:-beta\.(\d+))?$""").matchEntire(trimmed)
+        ?: error("appVersionName must follow vX.Y.Z or vX.Y.Z-beta.N, got: $trimmed")
+
+    val major = match.groupValues[1].toInt()
+    val minor = match.groupValues[2].toInt()
+    val patch = match.groupValues[3].toInt()
+    val betaPart = match.groupValues[4]
+
+    require(minor in 0..99) { "Minor version must be in 0..99, got: $minor ($trimmed)" }
+    require(patch in 0..99) { "Patch version must be in 0..99, got: $patch ($trimmed)" }
+
+    val suffix = if (betaPart.isEmpty()) {
+        99
+    } else {
+        val beta = betaPart.toInt()
+        require(beta in 1..98) {
+            "Beta build number must be in 1..98, got: $beta ($trimmed)"
+        }
+        beta
     }
-    val patch = parts[2].toIntOrNull()
-        ?: error("appVersionName patch part must be numeric, got: $trimmed")
-    require(patch > 0) {
-        "appVersionName patch part must be > 0, got: $trimmed"
-    }
-    return patch
+
+    return major * 1_000_000 + minor * 10_000 + patch * 100 + suffix
 }
 
 val releaseStoreFile = project.resolveSigningProperty("PUSHGO_RELEASE_STORE_FILE")
 val releaseStorePassword = project.resolveSigningProperty("PUSHGO_RELEASE_STORE_PASSWORD")
 val releaseKeyAlias = project.resolveSigningProperty("PUSHGO_RELEASE_KEY_ALIAS")
 val releaseKeyPassword = project.resolveSigningProperty("PUSHGO_RELEASE_KEY_PASSWORD")
-val appVersionName = "1.1.40"
+val appVersionName = providers.gradleProperty("pushgo.versionName").orNull?.trim()?.takeIf { it.isNotEmpty() }
+    ?: "v1.2.0-beta.1"
 val appVersionCode = parseVersionCodeFromName(appVersionName)
 val enableAbiSplits = when (val value = providers.gradleProperty("pushgo.enableAbiSplits").orNull?.trim()?.lowercase()) {
     null -> true
@@ -161,6 +174,7 @@ tasks.register("printReleaseVersionInfo") {
     description = "Prints the Android release version metadata for CI."
     doLast {
         println("versionName=$appVersionName")
+        println("versionCode=$appVersionCode")
         println("applicationId=io.ethan.pushgo")
         println("abiSplitsEnabled=$enableAbiSplits")
     }

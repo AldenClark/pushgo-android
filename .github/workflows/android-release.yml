@@ -3,7 +3,7 @@ name: Android Release
 on:
   push:
     tags:
-      - "Release-*"
+      - "v*"
 
 permissions:
   contents: write
@@ -24,6 +24,75 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+
+      - name: Parse SemVer tag context
+        id: tag
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="${GITHUB_REF_NAME}"
+
+          if [[ "$tag" =~ ^v([0-9]+\.[0-9]+\.[0-9]+)-beta\.([1-9][0-9]*)$ ]]; then
+            kind="beta"
+            semver="${BASH_REMATCH[1]}"
+            changelog_section="Unreleased"
+            prerelease="true"
+          elif [[ "$tag" =~ ^v([0-9]+\.[0-9]+\.[0-9]+)$ ]]; then
+            kind="release"
+            semver="${BASH_REMATCH[1]}"
+            changelog_section="v${semver}"
+            prerelease="false"
+          else
+            echo "Unsupported tag format: $tag"
+            echo "Allowed formats: vX.Y.Z or vX.Y.Z-beta.N"
+            exit 1
+          fi
+
+          {
+            echo "kind=$kind"
+            echo "tag_name=$tag"
+            echo "semver=$semver"
+            echo "changelog_section=$changelog_section"
+            echo "prerelease=$prerelease"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Extract release notes from RELEASE_NOTES
+        shell: bash
+        run: |
+          set -euo pipefail
+          release_notes_file="RELEASE_NOTES.md"
+          section="${{ steps.tag.outputs.changelog_section }}"
+
+          if [[ ! -f "$release_notes_file" ]]; then
+            echo "Missing $release_notes_file"
+            exit 1
+          fi
+
+          section_body="$(awk -v sec="$section" '
+            BEGIN { in_section = 0 }
+            /^## \[/ {
+              if (in_section == 1) exit
+              if ($0 ~ "^## \\[" sec "\\]([[:space:]]|$|[[:space:]]-)") {
+                in_section = 1
+                next
+              }
+            }
+            in_section == 1 { print }
+          ' "$release_notes_file")"
+
+          section_body="$(printf "%s\n" "$section_body" | sed -e :a -e '/^\n*$/{$d;N;ba' -e '}' )"
+          if [[ -z "$section_body" ]]; then
+            echo "RELEASE_NOTES section not found or empty: [$section]"
+            exit 1
+          fi
+
+          release_body="# ${GITHUB_REF_NAME}"$'\n\n'"Source: RELEASE_NOTES [$section]"$'\n\n'"$section_body"
+
+          {
+            echo "RELEASE_CHANGELOG_BODY<<__PUSHGO_ANDROID_RELEASE_BODY_EOF__"
+            printf "%s\n" "$release_body"
+            echo "__PUSHGO_ANDROID_RELEASE_BODY_EOF__"
+          } >> "$GITHUB_ENV"
 
       - name: Set up Java
         uses: actions/setup-java@v4
@@ -114,11 +183,11 @@ jobs:
           set -euo pipefail
           while IFS='=' read -r key value; do
             echo "$key=$value" >> "$GITHUB_OUTPUT"
-          done < <(./gradlew -q :app:printReleaseVersionInfo)
+          done < <(./gradlew -q :app:printReleaseVersionInfo -Ppushgo.versionName=${{ steps.tag.outputs.tag_name }})
 
       - name: Build release APKs
         shell: bash
-        run: ./gradlew --no-daemon clean :app:assembleRelease
+        run: ./gradlew --no-daemon clean :app:assembleRelease -Ppushgo.versionName=${{ steps.tag.outputs.tag_name }}
 
       - name: Verify signed release artifacts
         shell: bash
@@ -140,7 +209,7 @@ jobs:
         run: |
           set -euo pipefail
           version_name="${{ steps.version.outputs.versionName }}"
-          prefix="pushgo-android-v${version_name}"
+          prefix="pushgo-android-${version_name}"
           mkdir -p dist
 
           shopt -s nullglob
@@ -156,6 +225,7 @@ jobs:
             echo "tag=${GITHUB_REF_NAME}"
             echo "commit=${GITHUB_SHA}"
             echo "versionName=${version_name}"
+            echo "versionCode=${{ steps.version.outputs.versionCode }}"
             echo "signingEnabled=true"
           } > dist/BUILD_INFO.txt
 
@@ -164,13 +234,12 @@ jobs:
             sha256sum * > SHA256SUMS.txt
           )
 
-          echo "artifact_prefix=$prefix" >> "$GITHUB_OUTPUT"
-
       - name: Upload release assets
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.ref_name }}
-          generate_release_notes: true
+          body: ${{ env.RELEASE_CHANGELOG_BODY }}
+          prerelease: ${{ steps.tag.outputs.prerelease == 'true' }}
           overwrite_files: true
           files: |
             dist/*
