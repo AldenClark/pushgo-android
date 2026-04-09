@@ -4,6 +4,7 @@ import android.content.Context
 import io.ethan.pushgo.data.db.PushGoDatabase
 import io.ethan.pushgo.notifications.MessageStateCoordinator
 import io.ethan.pushgo.notifications.PrivateChannelClient
+import io.ethan.pushgo.update.UpdateManager
 
 class AppContainer(context: Context) {
     val appContext = context.applicationContext
@@ -62,6 +63,10 @@ class AppContainer(context: Context) {
         inboundDeliveryLedgerRepository = inboundDeliveryLedgerRepository,
         messageRepository = messageRepository,
         entityRepository = entityRepository,
+        settingsRepository = settingsRepository,
+    )
+    val updateManager = UpdateManager(
+        context = appContext,
         settingsRepository = settingsRepository,
     )
     val automationController = AppAutomationController(

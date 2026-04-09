@@ -28,6 +28,7 @@ class PushGoViewModelFactory(private val container: AppContainer) : ViewModelPro
                     messageRepository = container.messageRepository,
                     messageStateCoordinator = container.messageStateCoordinator,
                     privateChannelClient = container.privateChannelClient,
+                    updateManager = container.updateManager,
                 ) as T
             }
             modelClass.isAssignableFrom(ConnectionDiagnosisViewModel::class.java) -> {

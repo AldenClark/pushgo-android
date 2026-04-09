@@ -37,3 +37,10 @@
 # Not expected to be committed
 /META-INF/
 /androidx/
+
+# Local updater operation artifacts
+/docs/
+/tmp/
+/dist/
+/.ci/
+**/*.idsig

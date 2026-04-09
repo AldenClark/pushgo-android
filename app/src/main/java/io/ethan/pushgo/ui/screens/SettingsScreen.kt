@@ -54,6 +54,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.Switch
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -86,6 +87,7 @@ import io.ethan.pushgo.BuildConfig
 import io.ethan.pushgo.data.AppConstants
 import com.google.android.gms.common.ConnectionResult
 import com.google.android.gms.common.GoogleApiAvailability
+import io.ethan.pushgo.update.UpdateCandidate
 
 private val ScreenHorizontalPadding = 12.dp
 
@@ -148,6 +150,9 @@ fun SettingsScreen(
         if (viewModel.isChannelModeLoaded) {
             viewModel.ensurePrivateTransportWhenFcmUnsupported(context)
         }
+    }
+    LaunchedEffect(Unit) {
+        viewModel.refreshUpdateState(manual = false)
     }
 
     Scaffold(
@@ -304,6 +309,58 @@ fun SettingsScreen(
             }
 
             item {
+                SettingsSectionHeader(text = stringResource(R.string.section_updates))
+            }
+            item {
+                SettingsToggleRow(
+                    testTag = "switch.settings.update.auto_check",
+                    icon = Icons.Outlined.NotificationsActive,
+                    title = stringResource(R.string.label_update_auto_check),
+                    subtitle = stringResource(R.string.label_update_auto_check_hint),
+                    checked = viewModel.updateAutoCheckEnabled,
+                    onCheckedChange = { viewModel.updateAutoCheckEnabled(context, it) },
+                )
+            }
+            item {
+                UpdateChannelSelectorRow(
+                    rowTestTag = "row.settings.update.channel",
+                    title = stringResource(R.string.label_update_channel),
+                    subtitle = stringResource(R.string.label_update_channel_hint),
+                    betaEnabled = viewModel.updateBetaChannelEnabled,
+                    onToggleBeta = { viewModel.updateBetaChannelEnabled(context, it) },
+                )
+            }
+            item {
+                val subtitle = when {
+                    viewModel.isCheckingUpdates -> stringResource(R.string.label_update_status_checking)
+                    viewModel.availableUpdate != null -> stringResource(
+                        R.string.label_update_status_available,
+                        viewModel.availableUpdate?.versionName ?: "",
+                    )
+                    viewModel.updateSuppressedBySkip -> stringResource(R.string.label_update_status_skipped)
+                    viewModel.updateSuppressedByCooldown -> stringResource(R.string.label_update_status_cooldown)
+                    else -> stringResource(R.string.label_update_status_idle)
+                }
+                SettingsRow(
+                    testTag = "row.settings.update.check_now",
+                    icon = Icons.Outlined.Info,
+                    title = stringResource(R.string.label_update_check_now),
+                    subtitle = subtitle,
+                    onClick = { viewModel.refreshUpdateState(manual = true) },
+                )
+            }
+            if (viewModel.availableUpdate != null) {
+                item {
+                    UpdateCandidateCard(
+                        candidate = viewModel.availableUpdate!!,
+                        installing = viewModel.isInstallingUpdate,
+                        onInstall = { viewModel.installAvailableUpdate() },
+                        onSkip = { viewModel.skipAvailableUpdate() },
+                        onRemindLater = { viewModel.remindLaterForAvailableUpdate() },
+                    )
+                }
+            }
+            item {
                 SettingsSectionHeader(text = stringResource(R.string.section_about))
             }
             item {
@@ -389,6 +446,29 @@ fun SettingsScreen(
             },
         )
     }
+
+    if (viewModel.shouldShowInstallPermissionDialog) {
+        AlertDialog(
+            onDismissRequest = viewModel::consumeInstallPermissionDialog,
+            title = { Text(text = stringResource(R.string.label_update_install_permission_title)) },
+            text = { Text(text = stringResource(R.string.label_update_install_permission_body)) },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        viewModel.consumeInstallPermissionDialog()
+                        openUnknownAppSourcesSettings(context)
+                    },
+                ) {
+                    Text(text = stringResource(R.string.label_turn_on))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = viewModel::consumeInstallPermissionDialog) {
+                    Text(text = stringResource(R.string.label_cancel))
+                }
+            },
+        )
+    }
 }
 
 @Composable
@@ -464,6 +544,152 @@ private fun SettingsRow(
                 }
             },
         )
+    }
+}
+
+@Composable
+private fun SettingsToggleRow(
+    testTag: String,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    title: String,
+    subtitle: String?,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+) {
+    SettingsItemContainer {
+        ListItem(
+            modifier = Modifier
+                .fillMaxWidth()
+                .testTag(testTag)
+                .clickable { onCheckedChange(!checked) },
+            headlineContent = { Text(title) },
+            supportingContent = { if (!subtitle.isNullOrBlank()) Text(subtitle) },
+            leadingContent = {
+                Icon(
+                    imageVector = icon,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            },
+            trailingContent = {
+                Switch(
+                    checked = checked,
+                    onCheckedChange = onCheckedChange,
+                )
+            },
+        )
+    }
+}
+
+@Composable
+private fun UpdateChannelSelectorRow(
+    rowTestTag: String,
+    title: String,
+    subtitle: String,
+    betaEnabled: Boolean,
+    onToggleBeta: (Boolean) -> Unit,
+) {
+    SettingsItemContainer {
+        ListItem(
+            modifier = Modifier
+                .fillMaxWidth()
+                .testTag(rowTestTag),
+            headlineContent = { Text(title) },
+            supportingContent = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text(subtitle)
+                    SingleChoiceSegmentedButtonRow(
+                        modifier = Modifier.testTag("segmented.settings.update.channel"),
+                    ) {
+                        SegmentedButton(
+                            selected = !betaEnabled,
+                            onClick = { if (betaEnabled) onToggleBeta(false) },
+                            shape = SegmentedButtonDefaults.itemShape(index = 0, count = 2),
+                            modifier = Modifier.testTag("option.settings.update.channel.stable"),
+                            icon = {},
+                        ) {
+                            Text(text = stringResource(R.string.label_update_channel_stable))
+                        }
+                        SegmentedButton(
+                            selected = betaEnabled,
+                            onClick = { if (!betaEnabled) onToggleBeta(true) },
+                            shape = SegmentedButtonDefaults.itemShape(index = 1, count = 2),
+                            modifier = Modifier.testTag("option.settings.update.channel.beta"),
+                            icon = {},
+                        ) {
+                            Text(text = stringResource(R.string.label_update_channel_beta_plus_stable))
+                        }
+                    }
+                }
+            },
+            leadingContent = {
+                Icon(
+                    imageVector = Icons.Outlined.Info,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            },
+        )
+    }
+}
+
+@Composable
+private fun UpdateCandidateCard(
+    candidate: UpdateCandidate,
+    installing: Boolean,
+    onInstall: () -> Unit,
+    onSkip: () -> Unit,
+    onRemindLater: () -> Unit,
+) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = ScreenHorizontalPadding, vertical = 8.dp)
+            .testTag("card.settings.update.available"),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f),
+        ),
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Text(
+                text = stringResource(R.string.label_update_available_title, candidate.versionName),
+                style = MaterialTheme.typography.titleMedium,
+            )
+            Text(
+                text = candidate.notes?.takeIf { it.isNotBlank() }
+                    ?: stringResource(R.string.label_update_available_body),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Button(
+                    enabled = !installing,
+                    onClick = onInstall,
+                    modifier = Modifier.testTag("action.settings.update.install"),
+                ) {
+                    Text(text = stringResource(R.string.label_update_install_now))
+                }
+                TextButton(
+                    enabled = !installing,
+                    onClick = onRemindLater,
+                    modifier = Modifier.testTag("action.settings.update.remind_later"),
+                ) {
+                    Text(text = stringResource(R.string.label_update_remind_later))
+                }
+                TextButton(
+                    enabled = !installing,
+                    onClick = onSkip,
+                    modifier = Modifier.testTag("action.settings.update.skip"),
+                ) {
+                    Text(text = stringResource(R.string.label_update_skip_version))
+                }
+            }
+        }
     }
 }
 
@@ -730,6 +956,16 @@ private fun openAppDetailsSettings(context: Context) {
         Uri.fromParts("package", context.packageName, null),
     )
     startActivityOrFallback(context, intent)
+}
+
+private fun openUnknownAppSourcesSettings(context: Context) {
+    val intent = Intent(
+        Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+        Uri.fromParts("package", context.packageName, null),
+    )
+    startActivityOrFallback(context, intent) {
+        openAppDetailsSettings(context)
+    }
 }
 
 private fun startActivityOrFallback(

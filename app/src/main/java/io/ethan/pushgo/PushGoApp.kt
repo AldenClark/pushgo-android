@@ -15,6 +15,7 @@ import io.ethan.pushgo.notifications.KeepaliveState
 import io.ethan.pushgo.notifications.AlertPlaybackController
 import io.ethan.pushgo.notifications.NotificationHelper
 import io.ethan.pushgo.notifications.PrivateChannelServiceManager
+import io.ethan.pushgo.update.UpdateCheckScheduler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -116,7 +117,13 @@ class PushGoApp : Application(), ImageLoaderFactory {
                 )
             }
         }
+        appScope.launch {
+            container.settingsRepository.updateAutoCheckEnabledFlow.collect {
+                UpdateCheckScheduler.refreshSchedule(this@PushGoApp)
+            }
+        }
         initializePushRuntime()
+        UpdateCheckScheduler.refreshSchedule(this)
         scheduleStartupSyncIfNeeded()
         registerActivityLifecycleCallbacks(object : ActivityLifecycleCallbacks {
             override fun onActivityStarted(activity: android.app.Activity) {

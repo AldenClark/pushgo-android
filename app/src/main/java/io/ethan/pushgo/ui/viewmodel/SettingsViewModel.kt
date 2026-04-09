@@ -28,6 +28,10 @@ import io.ethan.pushgo.data.model.KeyEncoding
 import io.ethan.pushgo.notifications.MessageStateCoordinator
 import io.ethan.pushgo.notifications.PrivateChannelClient
 import io.ethan.pushgo.notifications.PrivateChannelServiceManager
+import io.ethan.pushgo.update.UpdateCandidate
+import io.ethan.pushgo.update.UpdateCheckScheduler
+import io.ethan.pushgo.update.UpdateInstallStartResult
+import io.ethan.pushgo.update.UpdateManager
 import io.ethan.pushgo.util.UrlValidators
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.delay
@@ -55,6 +59,7 @@ class SettingsViewModel(
     private val messageRepository: MessageRepository,
     private val messageStateCoordinator: MessageStateCoordinator,
     private val privateChannelClient: PrivateChannelClient,
+    private val updateManager: UpdateManager,
 ) : ViewModel() {
     companion object {
         private const val TAG = "SettingsViewModel"
@@ -94,6 +99,16 @@ class SettingsViewModel(
         private set
     var isThingPageEnabled by mutableStateOf(true)
         private set
+    var updateAutoCheckEnabled by mutableStateOf(true)
+        private set
+    var updateBetaChannelEnabled by mutableStateOf(false)
+        private set
+    var availableUpdate by mutableStateOf<UpdateCandidate?>(null)
+        private set
+    var updateSuppressedBySkip by mutableStateOf(false)
+        private set
+    var updateSuppressedByCooldown by mutableStateOf(false)
+        private set
 
     var channelSubscriptions by mutableStateOf<List<ChannelSubscription>>(emptyList())
         private set
@@ -115,6 +130,12 @@ class SettingsViewModel(
     var isSavingDecryption by mutableStateOf(false)
         private set
     var isClearing by mutableStateOf(false)
+        private set
+    var isCheckingUpdates by mutableStateOf(false)
+        private set
+    var isInstallingUpdate by mutableStateOf(false)
+        private set
+    var shouldShowInstallPermissionDialog by mutableStateOf(false)
         private set
     var errorMessage by mutableStateOf<UiMessage?>(null)
         private set
@@ -143,6 +164,8 @@ class SettingsViewModel(
             isDecryptionConfigured = currentKey?.isNotEmpty() == true
             decryptionUpdatedAt = settingsRepository.getNotificationKeyUpdatedAt()
             keyEncoding = settingsRepository.getKeyEncoding()
+            updateAutoCheckEnabled = settingsRepository.getUpdateAutoCheckEnabled()
+            updateBetaChannelEnabled = settingsRepository.getUpdateBetaChannelEnabled()
             isChannelModeLoaded = true
         }
         viewModelScope.launch {
@@ -167,9 +190,128 @@ class SettingsViewModel(
         viewModelScope.launch {
             settingsRepository.thingPageEnabledFlow.collect { isThingPageEnabled = it }
         }
+        viewModelScope.launch {
+            settingsRepository.updateAutoCheckEnabledFlow.collect { updateAutoCheckEnabled = it }
+        }
+        viewModelScope.launch {
+            settingsRepository.updateBetaChannelEnabledFlow.collect { updateBetaChannelEnabled = it }
+        }
 
         viewModelScope.launch {
             refreshChannelSubscriptions()
+        }
+    }
+
+    fun refreshUpdateState(manual: Boolean = false) {
+        if (isCheckingUpdates) return
+        viewModelScope.launch {
+            isCheckingUpdates = true
+            try {
+                val evaluation = updateManager.evaluate(manual = manual)
+                availableUpdate = evaluation.visibleCandidate
+                updateSuppressedBySkip = evaluation.suppressedBySkip
+                updateSuppressedByCooldown = evaluation.suppressedByCooldown
+                val failure = evaluation.failureMessage
+                if (!failure.isNullOrBlank()) {
+                    errorMessage = TextMessage(failure)
+                    return@launch
+                }
+                if (manual) {
+                    if (evaluation.visibleCandidate != null) {
+                        successMessage = ResMessage(
+                            R.string.message_update_available,
+                            listOf(evaluation.visibleCandidate.versionName),
+                        )
+                    } else {
+                        successMessage = ResMessage(R.string.message_update_no_new_version)
+                    }
+                }
+            } finally {
+                isCheckingUpdates = false
+            }
+        }
+    }
+
+    fun updateAutoCheckEnabled(context: Context, enabled: Boolean) {
+        viewModelScope.launch {
+            settingsRepository.setUpdateAutoCheckEnabled(enabled)
+            updateAutoCheckEnabled = enabled
+            UpdateCheckScheduler.refreshSchedule(context)
+            if (enabled) {
+                UpdateCheckScheduler.enqueueImmediateProbe(context)
+            }
+        }
+    }
+
+    fun updateBetaChannelEnabled(context: Context, enabled: Boolean) {
+        viewModelScope.launch {
+            settingsRepository.setUpdateBetaChannelEnabled(enabled)
+            updateManager.resetPromptCooldown()
+            updateBetaChannelEnabled = enabled
+            UpdateCheckScheduler.refreshSchedule(context)
+            refreshUpdateState(manual = false)
+            if (enabled) {
+                successMessage = ResMessage(R.string.message_update_beta_enabled)
+            } else {
+                successMessage = ResMessage(R.string.message_update_beta_disabled)
+            }
+        }
+    }
+
+    fun installAvailableUpdate() {
+        val candidate = availableUpdate ?: run {
+            errorMessage = ResMessage(R.string.error_update_no_candidate)
+            return
+        }
+        if (isInstallingUpdate) return
+        viewModelScope.launch {
+            isInstallingUpdate = true
+            try {
+                when (val result = updateManager.install(candidate)) {
+                    UpdateInstallStartResult.Started -> {
+                        successMessage = ResMessage(R.string.message_update_install_started)
+                    }
+                    UpdateInstallStartResult.PermissionRequired -> {
+                        shouldShowInstallPermissionDialog = true
+                    }
+                    is UpdateInstallStartResult.Failed -> {
+                        io.ethan.pushgo.util.SilentSink.w(TAG, "install start failed: ${result.message}")
+                        Log.w(TAG, "install start failed: ${result.message}")
+                        errorMessage = TextMessage(result.message)
+                    }
+                }
+            } finally {
+                isInstallingUpdate = false
+            }
+        }
+    }
+
+    fun skipAvailableUpdate() {
+        val candidate = availableUpdate ?: run {
+            errorMessage = ResMessage(R.string.error_update_no_candidate)
+            return
+        }
+        viewModelScope.launch {
+            updateManager.skipVersion(candidate.versionCode)
+            availableUpdate = null
+            updateSuppressedBySkip = true
+            successMessage = ResMessage(
+                R.string.message_update_skipped,
+                listOf(candidate.versionName),
+            )
+        }
+    }
+
+    fun remindLaterForAvailableUpdate() {
+        val candidate = availableUpdate ?: run {
+            errorMessage = ResMessage(R.string.error_update_no_candidate)
+            return
+        }
+        viewModelScope.launch {
+            updateManager.recordPromptDismissed(candidate.versionCode)
+            availableUpdate = null
+            updateSuppressedByCooldown = true
+            successMessage = ResMessage(R.string.message_update_remind_later_saved)
         }
     }
 
@@ -825,6 +967,10 @@ class SettingsViewModel(
 
     fun consumePrivateChannelWhitelistDialog() {
         shouldShowPrivateChannelWhitelistDialog = false
+    }
+
+    fun consumeInstallPermissionDialog() {
+        shouldShowInstallPermissionDialog = false
     }
 
     private fun Throwable.toUiErrorMessage(@StringRes fallbackResId: Int): UiMessage {

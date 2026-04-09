@@ -30,6 +30,10 @@ class SettingsRepository(
         settingsFlow.map { it?.isThingPageEnabled ?: getCachedThingPageEnabled() }
     val useFcmChannelFlow: Flow<Boolean> =
         settingsFlow.map { it?.useFcmChannel ?: getCachedUseFcmChannel() }
+    val updateAutoCheckEnabledFlow: Flow<Boolean> =
+        settingsFlow.map { it?.updateAutoCheckEnabled ?: getCachedUpdateAutoCheckEnabled() }
+    val updateBetaChannelEnabledFlow: Flow<Boolean> =
+        settingsFlow.map { it?.updateBetaChannelEnabled ?: getCachedUpdateBetaChannelEnabled() }
 
     fun getCachedUseFcmChannel(): Boolean =
         settingsCache.getBoolean(KEY_USE_FCM_CHANNEL, true)
@@ -43,6 +47,18 @@ class SettingsRepository(
     fun getCachedThingPageEnabled(): Boolean =
         settingsCache.getBoolean(KEY_THING_PAGE_ENABLED, true)
 
+    fun getCachedUpdateAutoCheckEnabled(): Boolean =
+        settingsCache.getBoolean(KEY_UPDATE_AUTO_CHECK_ENABLED, true)
+
+    fun getCachedUpdateBetaChannelEnabled(): Boolean =
+        settingsCache.getBoolean(KEY_UPDATE_BETA_CHANNEL_ENABLED, false)
+
+    fun getCachedUpdateScheduledCheckIntervalSeconds(): Long =
+        settingsCache.getLong(KEY_UPDATE_SCHEDULED_CHECK_INTERVAL_SECONDS, AppConstants.updateCheckIntervalSeconds)
+
+    fun getCachedUpdateImpatientReminderIntervalSeconds(): Long =
+        settingsCache.getLong(KEY_UPDATE_IMPATIENT_REMINDER_INTERVAL_SECONDS, AppConstants.updateImpatientIntervalSeconds)
+
     private fun cacheUseFcmChannel(enabled: Boolean) {
         settingsCache.edit().putBoolean(KEY_USE_FCM_CHANNEL, enabled).commit()
     }
@@ -55,12 +71,32 @@ class SettingsRepository(
             .commit()
     }
 
+    private fun cacheUpdatePreferences(settings: AppSettingsEntity) {
+        settingsCache.edit()
+            .putBoolean(KEY_UPDATE_AUTO_CHECK_ENABLED, settings.updateAutoCheckEnabled)
+            .putBoolean(KEY_UPDATE_BETA_CHANNEL_ENABLED, settings.updateBetaChannelEnabled)
+            .commit()
+    }
+
+    fun setCachedUpdatePolicyIntervals(
+        scheduledCheckIntervalSeconds: Long,
+        impatientReminderIntervalSeconds: Long,
+    ) {
+        val normalizedScheduled = scheduledCheckIntervalSeconds.coerceAtLeast(15 * 60L)
+        val normalizedImpatient = impatientReminderIntervalSeconds.coerceAtLeast(15 * 60L)
+        settingsCache.edit()
+            .putLong(KEY_UPDATE_SCHEDULED_CHECK_INTERVAL_SECONDS, normalizedScheduled)
+            .putLong(KEY_UPDATE_IMPATIENT_REMINDER_INTERVAL_SECONDS, normalizedImpatient)
+            .commit()
+    }
+
     private fun bootstrapCacheFromDatabase() {
         val settings = runCatching {
             runBlocking(Dispatchers.IO) { appSettingsDao.get() }
         }.getOrNull() ?: return
         cacheUseFcmChannel(settings.useFcmChannel)
         cachePageVisibility(settings)
+        cacheUpdatePreferences(settings)
     }
 
     private fun defaultSettings(): AppSettingsEntity {
@@ -81,6 +117,7 @@ class SettingsRepository(
         return (appSettingsDao.get() ?: defaultSettings()).also {
             cacheUseFcmChannel(it.useFcmChannel)
             cachePageVisibility(it)
+            cacheUpdatePreferences(it)
         }
     }
 
@@ -89,6 +126,7 @@ class SettingsRepository(
         appSettingsDao.upsert(updated)
         cacheUseFcmChannel(updated.useFcmChannel)
         cachePageVisibility(updated)
+        cacheUpdatePreferences(updated)
     }
 
     suspend fun setServerAddress(address: String?) {
@@ -181,6 +219,99 @@ class SettingsRepository(
         updateSettings { it.copy(isThingPageEnabled = enabled) }
     }
 
+    suspend fun getUpdateAutoCheckEnabled(): Boolean = loadSettings().updateAutoCheckEnabled
+
+    suspend fun setUpdateAutoCheckEnabled(enabled: Boolean) {
+        updateSettings { it.copy(updateAutoCheckEnabled = enabled) }
+    }
+
+    suspend fun getUpdateBetaChannelEnabled(): Boolean = loadSettings().updateBetaChannelEnabled
+
+    suspend fun setUpdateBetaChannelEnabled(enabled: Boolean) {
+        updateSettings { current ->
+            if (current.updateBetaChannelEnabled == enabled) {
+                current
+            } else {
+                current.copy(
+                    updateBetaChannelEnabled = enabled,
+                    updatePromptCooldownUntil = null,
+                    updatePromptDismissCount = 0,
+                )
+            }
+        }
+    }
+
+    suspend fun getUpdateSkippedVersionCode(): Int? = loadSettings().updateSkippedVersionCode
+
+    suspend fun setUpdateSkippedVersionCode(versionCode: Int?) {
+        updateSettings { current ->
+            current.copy(updateSkippedVersionCode = versionCode)
+        }
+    }
+
+    suspend fun getUpdateLastPromptedVersionCode(): Int? = loadSettings().updateLastPromptedVersionCode
+
+    suspend fun getUpdatePromptCooldownUntil(): Instant? {
+        val millis = loadSettings().updatePromptCooldownUntil ?: return null
+        return Instant.ofEpochMilli(millis)
+    }
+
+    suspend fun getUpdatePromptDismissCount(): Int = loadSettings().updatePromptDismissCount
+
+    suspend fun recordUpdatePromptDisplayed(versionCode: Int, nextAllowedPromptAtMillis: Long, dismissCount: Int) {
+        updateSettings { current ->
+            current.copy(
+                updateLastPromptedVersionCode = versionCode,
+                updatePromptCooldownUntil = nextAllowedPromptAtMillis,
+                updatePromptDismissCount = dismissCount,
+            )
+        }
+    }
+
+    suspend fun recordUpdateReminderShown(versionCode: Int, nextAllowedPromptAtMillis: Long) {
+        updateSettings { current ->
+            current.copy(
+                updateLastPromptedVersionCode = versionCode,
+                updatePromptCooldownUntil = nextAllowedPromptAtMillis,
+                updatePromptDismissCount = if (current.updateLastPromptedVersionCode == versionCode) {
+                    current.updatePromptDismissCount
+                } else {
+                    0
+                },
+            )
+        }
+    }
+
+    suspend fun clearUpdatePromptCooldown() {
+        updateSettings { current ->
+            current.copy(
+                updatePromptCooldownUntil = null,
+                updatePromptDismissCount = 0,
+            )
+        }
+    }
+
+    suspend fun clearUpdateSkipAndCooldown() {
+        updateSettings { current ->
+            current.copy(
+                updateSkippedVersionCode = null,
+                updatePromptCooldownUntil = null,
+                updatePromptDismissCount = 0,
+            )
+        }
+    }
+
+    suspend fun getUpdateLastCheckAt(): Instant? {
+        val millis = loadSettings().updateLastCheckAt ?: return null
+        return Instant.ofEpochMilli(millis)
+    }
+
+    suspend fun setUpdateLastCheckAt(millis: Long) {
+        updateSettings { current ->
+            current.copy(updateLastCheckAt = millis)
+        }
+    }
+
     suspend fun reenablePageForEntity(entityType: String) {
         when (entityType.trim().lowercase()) {
             "message" -> setMessagePageEnabled(true)
@@ -200,6 +331,7 @@ class SettingsRepository(
         appSettingsDao.upsert(defaults)
         cacheUseFcmChannel(defaults.useFcmChannel)
         cachePageVisibility(defaults)
+        cacheUpdatePreferences(defaults)
     }
 
     companion object {
@@ -207,5 +339,9 @@ class SettingsRepository(
         private const val KEY_MESSAGE_PAGE_ENABLED = "message_page_enabled"
         private const val KEY_EVENT_PAGE_ENABLED = "event_page_enabled"
         private const val KEY_THING_PAGE_ENABLED = "thing_page_enabled"
+        private const val KEY_UPDATE_AUTO_CHECK_ENABLED = "update_auto_check_enabled"
+        private const val KEY_UPDATE_BETA_CHANNEL_ENABLED = "update_beta_channel_enabled"
+        private const val KEY_UPDATE_SCHEDULED_CHECK_INTERVAL_SECONDS = "update_scheduled_check_interval_seconds"
+        private const val KEY_UPDATE_IMPATIENT_REMINDER_INTERVAL_SECONDS = "update_impatient_reminder_interval_seconds"
     }
 }

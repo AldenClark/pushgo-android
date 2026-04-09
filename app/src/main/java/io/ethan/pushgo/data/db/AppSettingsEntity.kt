@@ -25,4 +25,18 @@ data class AppSettingsEntity(
     val isEventPageEnabled: Boolean = true,
     @ColumnInfo(name = "is_thing_page_enabled")
     val isThingPageEnabled: Boolean = true,
+    @ColumnInfo(name = "update_auto_check_enabled")
+    val updateAutoCheckEnabled: Boolean = true,
+    @ColumnInfo(name = "update_beta_channel_enabled")
+    val updateBetaChannelEnabled: Boolean = false,
+    @ColumnInfo(name = "update_skipped_version_code")
+    val updateSkippedVersionCode: Int? = null,
+    @ColumnInfo(name = "update_last_prompted_version_code")
+    val updateLastPromptedVersionCode: Int? = null,
+    @ColumnInfo(name = "update_prompt_cooldown_until")
+    val updatePromptCooldownUntil: Long? = null,
+    @ColumnInfo(name = "update_prompt_dismiss_count")
+    val updatePromptDismissCount: Int = 0,
+    @ColumnInfo(name = "update_last_check_at")
+    val updateLastCheckAt: Long? = null,
 )

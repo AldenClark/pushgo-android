@@ -37,6 +37,7 @@ import io.ethan.pushgo.automation.PushGoAutomation
 import io.ethan.pushgo.data.AppContainer
 import io.ethan.pushgo.data.AutomationSnapshot
 import io.ethan.pushgo.notifications.NotificationHelper
+import io.ethan.pushgo.update.UpdateNotifier
 import io.ethan.pushgo.ui.screens.ChannelListScreen
 import io.ethan.pushgo.ui.screens.EventListScreen
 import io.ethan.pushgo.ui.screens.MessageDetailScreen
@@ -171,9 +172,12 @@ fun PushGoAppRoot(
     }
 
     LaunchedEffect(startIntent) {
+        val openSettings = startIntent?.getBooleanExtra(UpdateNotifier.EXTRA_OPEN_SETTINGS, false) == true
         val entityId = startIntent?.getStringExtra(NotificationHelper.EXTRA_ENTITY_ID)?.takeIf { it.isNotEmpty() }
         val entityType = startIntent?.getStringExtra(NotificationHelper.EXTRA_ENTITY_TYPE)?.lowercase()
-        if (entityType == "event" && entityId != null) {
+        if (openSettings) {
+            navController.navigate(SettingsRoute) { popUpTo(navController.graph.findStartDestination().id) { saveState = true }; launchSingleTop = true; restoreState = true }
+        } else if (entityType == "event" && entityId != null) {
             navController.navigate(EventsRoute) { popUpTo(navController.graph.findStartDestination().id) { saveState = true }; launchSingleTop = true; restoreState = true }
             pendingEventIdToOpen = entityId
         } else if (entityType == "thing" && entityId != null) {

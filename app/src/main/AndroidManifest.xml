@@ -5,6 +5,7 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
     <application
         android:name=".PushGoApp"
@@ -58,6 +59,11 @@
 
         <receiver
             android:name=".notifications.PrivateChannelNotificationDismissReceiver"
+            android:exported="false" />
+
+        <receiver
+            android:name=".update.UpdateInstallStatusReceiver"
+            android:enabled="true"
             android:exported="false" />
 
         <service

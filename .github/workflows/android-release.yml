@@ -56,11 +56,11 @@ jobs:
             echo "prerelease=$prerelease"
           } >> "$GITHUB_OUTPUT"
 
-      - name: Extract release notes from RELEASE_NOTES
+      - name: Extract release notes from release/RELEASE_NOTES
         shell: bash
         run: |
           set -euo pipefail
-          release_notes_file="RELEASE_NOTES.md"
+          release_notes_file="release/RELEASE_NOTES.md"
           section="${{ steps.tag.outputs.changelog_section }}"
 
           if [[ ! -f "$release_notes_file" ]]; then
@@ -86,7 +86,7 @@ jobs:
             exit 1
           fi
 
-          release_body="# ${GITHUB_REF_NAME}"$'\n\n'"Source: RELEASE_NOTES [$section]"$'\n\n'"$section_body"
+          release_body="# ${GITHUB_REF_NAME}"$'\n\n'"Source: release/RELEASE_NOTES.md [$section]"$'\n\n'"$section_body"
 
           {
             echo "RELEASE_CHANGELOG_BODY<<__PUSHGO_ANDROID_RELEASE_BODY_EOF__"
@@ -188,6 +188,9 @@ jobs:
       - name: Build release APKs
         shell: bash
         run: ./gradlew --no-daemon clean :app:assembleRelease -Ppushgo.versionName=${{ steps.tag.outputs.tag_name }}
+        env:
+          PUSHGO_UPDATE_FEED_URL: ${{ vars.PUSHGO_UPDATE_FEED_URL }}
+          PUSHGO_UPDATE_FEED_PUBLIC_KEY_B64: ${{ secrets.PUSHGO_UPDATE_FEED_PUBLIC_KEY_B64 }}
 
       - name: Verify signed release artifacts
         shell: bash
@@ -234,6 +237,95 @@ jobs:
             sha256sum * > SHA256SUMS.txt
           )
 
+      - name: Prepare update feed signing key
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "${PUSHGO_UPDATE_FEED_SIGNING_KEY_B64:-}" ]; then
+            exit 0
+          fi
+          mkdir -p "$GITHUB_WORKSPACE/.ci"
+          echo "$PUSHGO_UPDATE_FEED_SIGNING_KEY_B64" | base64 --decode > "$GITHUB_WORKSPACE/.ci/update-feed-signing-key.pem"
+          echo "PUSHGO_UPDATE_FEED_SIGNING_KEY_FILE=$GITHUB_WORKSPACE/.ci/update-feed-signing-key.pem" >> "$GITHUB_ENV"
+        env:
+          PUSHGO_UPDATE_FEED_SIGNING_KEY_B64: ${{ secrets.PUSHGO_UPDATE_FEED_SIGNING_KEY_B64 }}
+
+      - name: Generate update feed artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+          track="stable"
+          if [[ "${{ steps.tag.outputs.kind }}" == "beta" ]]; then
+            track="beta"
+          fi
+          cmd=(
+            scripts/generate_update_feed.sh
+            "$track"
+            dist
+            --tag "${GITHUB_REF_NAME}"
+            --repo "${GITHUB_REPOSITORY}"
+          )
+          if [[ -n "${PUSHGO_UPDATE_FEED_URL:-}" ]]; then
+            cmd+=(--existing-feed "${PUSHGO_UPDATE_FEED_URL}")
+          fi
+          if [[ -n "${PUSHGO_UPDATE_FEED_SIGNING_KEY_FILE:-}" ]]; then
+            cmd+=(--private-key-file "${PUSHGO_UPDATE_FEED_SIGNING_KEY_FILE}")
+          fi
+          "${cmd[@]}"
+        env:
+          PUSHGO_UPDATE_FEED_URL: ${{ vars.PUSHGO_UPDATE_FEED_URL }}
+
+      - name: Generate update deploy bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmd=(
+            scripts/generate_update_deploy_config.sh
+            dist
+            --repo "${GITHUB_REPOSITORY}"
+            --tag "${GITHUB_REF_NAME}"
+          )
+          if [[ -n "${PUSHGO_UPDATE_DEPLOY_PATH:-}" ]]; then
+            cmd+=(--deploy-path "${PUSHGO_UPDATE_DEPLOY_PATH}")
+          fi
+          "${cmd[@]}"
+        env:
+          PUSHGO_UPDATE_DEPLOY_PATH: ${{ secrets.PUSHGO_UPDATE_DEPLOY_PATH }}
+
+      - name: Verify update feed artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+          scripts/verify_update_feed.sh dist/update-feed-v1.json
+
+      - name: Prepare update deploy SSH key
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "${PUSHGO_UPDATE_DEPLOY_SSH_KEY_B64:-}" ]; then
+            exit 0
+          fi
+          mkdir -p "$GITHUB_WORKSPACE/.ci"
+          echo "$PUSHGO_UPDATE_DEPLOY_SSH_KEY_B64" | base64 --decode > "$GITHUB_WORKSPACE/.ci/update-deploy-key"
+          chmod 600 "$GITHUB_WORKSPACE/.ci/update-deploy-key"
+          echo "PUSHGO_UPDATE_DEPLOY_SSH_KEY_FILE=$GITHUB_WORKSPACE/.ci/update-deploy-key" >> "$GITHUB_ENV"
+        env:
+          PUSHGO_UPDATE_DEPLOY_SSH_KEY_B64: ${{ secrets.PUSHGO_UPDATE_DEPLOY_SSH_KEY_B64 }}
+
+      - name: Publish update artifacts to update host
+        if: ${{ secrets.PUSHGO_UPDATE_DEPLOY_HOST != '' && secrets.PUSHGO_UPDATE_DEPLOY_USER != '' && secrets.PUSHGO_UPDATE_DEPLOY_PATH != '' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          scripts/publish_update_artifacts.sh \
+            dist \
+            "${PUSHGO_UPDATE_DEPLOY_USER}@${PUSHGO_UPDATE_DEPLOY_HOST}" \
+            "${PUSHGO_UPDATE_DEPLOY_PATH}"
+        env:
+          PUSHGO_UPDATE_DEPLOY_HOST: ${{ secrets.PUSHGO_UPDATE_DEPLOY_HOST }}
+          PUSHGO_UPDATE_DEPLOY_USER: ${{ secrets.PUSHGO_UPDATE_DEPLOY_USER }}
+          PUSHGO_UPDATE_DEPLOY_PATH: ${{ secrets.PUSHGO_UPDATE_DEPLOY_PATH }}
+
       - name: Upload release assets
         uses: softprops/action-gh-release@v2
         with:
@@ -242,4 +334,8 @@ jobs:
           prerelease: ${{ steps.tag.outputs.prerelease == 'true' }}
           overwrite_files: true
           files: |
-            dist/*
+            dist/*.apk
+            dist/BUILD_INFO.txt
+            dist/SHA256SUMS.txt
+            dist/update-feed-v1.json
+            dist/deploy/*

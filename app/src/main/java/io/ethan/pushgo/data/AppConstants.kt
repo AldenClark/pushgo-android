@@ -13,4 +13,10 @@ object AppConstants {
     const val notificationChannelName = "PushGo Messages"
     const val notificationChannelDescription = "Push messages from PushGo"
     const val fcmTokenTimeoutMs = 10_000L
+    const val updateCheckIntervalSeconds = 21_600L
+    const val updateImpatientIntervalSeconds = 604_800L
+    val defaultUpdateFeedUrl: String
+        get() = BuildConfig.DEFAULT_UPDATE_FEED_URL
+    val updateFeedPublicKeyBase64: String
+        get() = BuildConfig.UPDATE_FEED_PUBLIC_KEY_B64
 }

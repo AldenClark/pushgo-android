@@ -27,7 +27,7 @@ import io.ethan.pushgo.automation.PushGoAutomation
         ChannelSubscriptionEntity::class,
         AppSettingsEntity::class,
     ],
-    version = 21,
+    version = 22,
     exportSchema = false,
 )
 abstract class PushGoDatabase : RoomDatabase() {
@@ -50,7 +50,7 @@ abstract class PushGoDatabase : RoomDatabase() {
 
     companion object {
         // No backward-compatibility for old local data: always use current store file.
-        private const val DATABASE_NAME = "pushgo-v21.db"
+        private const val DATABASE_NAME = "pushgo-v22.db"
 
         fun build(context: Context): PushGoDatabase {
             return runCatching { newBuilder(context).build() }.getOrElse { error ->
