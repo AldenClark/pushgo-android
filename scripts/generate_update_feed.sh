@@ -10,6 +10,7 @@ Options:
   --tag <vX.Y.Z or vX.Y.Z-beta.N>      Release tag (required)
   --repo <owner/repo>                   Repository slug for release asset URL (required)
   --existing-feed <url-or-path>         Existing feed to merge entries from
+  --repo-feed-path <path>               Persistent repo feed path (default: release/update-feed-v1.json)
   --output <path>                       Output signed feed JSON (default: <dist_dir>/update-feed-v1.json)
   --private-key-file <path>             Ed25519 private key (PKCS8 PEM) for payload signature
   -h, --help                            Show this help
@@ -43,6 +44,7 @@ fi
 tag=""
 repo=""
 existing_feed=""
+repo_feed_path="release/update-feed-v1.json"
 output_path="${dist_dir%/}/update-feed-v1.json"
 private_key_file=""
 
@@ -58,6 +60,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --existing-feed)
       existing_feed="${2:-}"
+      shift 2
+      ;;
+    --repo-feed-path)
+      repo_feed_path="${2:-}"
       shift 2
       ;;
     --output)
@@ -144,12 +150,16 @@ new_entry_json="$(jq -n \
   }')"
 
 existing_entries_json="[]"
-if [[ -n "$existing_feed" ]]; then
+existing_feed_ref="$existing_feed"
+if [[ -z "$existing_feed_ref" && -n "$repo_feed_path" && -f "$repo_feed_path" ]]; then
+  existing_feed_ref="$repo_feed_path"
+fi
+if [[ -n "$existing_feed_ref" ]]; then
   existing_raw=""
-  if [[ "$existing_feed" =~ ^https?:// ]]; then
-    existing_raw="$(curl -fsSL "$existing_feed" || true)"
-  elif [[ -f "$existing_feed" ]]; then
-    existing_raw="$(cat "$existing_feed")"
+  if [[ "$existing_feed_ref" =~ ^https?:// ]]; then
+    existing_raw="$(curl -fsSL "$existing_feed_ref" || true)"
+  elif [[ -f "$existing_feed_ref" ]]; then
+    existing_raw="$(cat "$existing_feed_ref")"
   fi
   if [[ -n "$existing_raw" ]]; then
     existing_entries_json="$(printf '%s' "$existing_raw" | jq -c '.payload.entries // []' 2>/dev/null || echo "[]")"
@@ -159,7 +169,12 @@ fi
 merged_entries_json="$(jq -c -n \
   --argjson existing "$existing_entries_json" \
   --argjson entry "$new_entry_json" \
-  '([$entry] + $existing) | unique_by(.versionCode) | sort_by(.versionCode)')"
+  '($existing + [$entry])
+   | map(select(.channel | type == "string" and length > 0))
+   | sort_by(.channel, .versionCode)
+   | group_by(.channel)
+   | map(last)
+   | sort_by(.versionCode)')"
 
 payload_json="$(jq -n \
   --argjson generatedAt "$generated_at_ms" \
@@ -204,3 +219,10 @@ else
 fi
 
 echo "Generated update feed: $output_path"
+if [[ -n "$repo_feed_path" ]]; then
+  mkdir -p "$(dirname "$repo_feed_path")"
+  if [[ "$output_path" != "$repo_feed_path" ]]; then
+    cp "$output_path" "$repo_feed_path"
+  fi
+  echo "Updated repo feed: $repo_feed_path"
+fi

@@ -86,7 +86,8 @@ jobs:
             exit 1
           fi
 
-          release_body="# ${GITHUB_REF_NAME}"$'\n\n'"Source: release/RELEASE_NOTES.md [$section]"$'\n\n'"$section_body"
+          release_notes_link="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/blob/${GITHUB_REF_NAME}/${release_notes_file}"
+          release_body="# ${GITHUB_REF_NAME}"$'\n\n'"Source: [${release_notes_file}](${release_notes_link}) [$section]"$'\n\n'"$section_body"
 
           {
             echo "RELEASE_CHANGELOG_BODY<<__PUSHGO_ANDROID_RELEASE_BODY_EOF__"
@@ -264,16 +265,12 @@ jobs:
             dist
             --tag "${GITHUB_REF_NAME}"
             --repo "${GITHUB_REPOSITORY}"
+            --repo-feed-path "release/update-feed-v1.json"
           )
-          if [[ -n "${PUSHGO_UPDATE_FEED_URL:-}" ]]; then
-            cmd+=(--existing-feed "${PUSHGO_UPDATE_FEED_URL}")
-          fi
           if [[ -n "${PUSHGO_UPDATE_FEED_SIGNING_KEY_FILE:-}" ]]; then
             cmd+=(--private-key-file "${PUSHGO_UPDATE_FEED_SIGNING_KEY_FILE}")
           fi
           "${cmd[@]}"
-        env:
-          PUSHGO_UPDATE_FEED_URL: ${{ vars.PUSHGO_UPDATE_FEED_URL }}
 
       - name: Generate update deploy bundle
         shell: bash
