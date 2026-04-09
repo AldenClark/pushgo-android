@@ -42,6 +42,8 @@ data class UpdateFeedEntry(
     val rolloutIntervalSeconds: Long? = null,
     @SerialName("notes")
     val notes: String? = null,
+    @SerialName("notesI18n")
+    val notesI18n: Map<String, String> = emptyMap(),
 )
 
 enum class UpdateChannel(val wireValue: String) {

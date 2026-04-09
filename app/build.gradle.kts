@@ -113,6 +113,7 @@ android {
         minSdk = 31
         versionCode = appVersionCode
         versionName = appVersionName
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         buildConfigField("String", "PRIVATE_CERT_PIN_SHA256", "\"$privateCertPinSha256\"")
         buildConfigField("String", "DEFAULT_UPDATE_FEED_URL", "\"$updateFeedUrl\"")
         buildConfigField("String", "UPDATE_FEED_PUBLIC_KEY_B64", "\"$updateFeedPublicKeyB64\"")
@@ -261,5 +262,8 @@ dependencies {
 
     debugImplementation("androidx.compose.ui:ui-tooling")
     testImplementation("junit:junit:4.13.2")
+    androidTestImplementation("androidx.test.ext:junit:1.3.0")
+    androidTestImplementation("androidx.test:runner:1.7.0")
+    kspAndroidTest("androidx.room:room-compiler:2.8.4")
 
 }

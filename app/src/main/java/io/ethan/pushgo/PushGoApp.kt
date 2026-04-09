@@ -32,17 +32,12 @@ class PushGoApp : Application(), ImageLoaderFactory {
         private const val TAG = "PushGoApp"
         private const val FCM_TOKEN_MAX_ATTEMPTS = 3
         private const val FCM_TOKEN_RETRY_BASE_DELAY_MS = 1_500L
-        private const val STORAGE_FAILURE_PREFS = "pushgo_storage_recovery"
-        private const val STORAGE_FAILURE_STREAK_KEY = "local_store_failure_streak"
-        private const val STORAGE_FAILURE_STREAK_THRESHOLD = 3
     }
 
     @Volatile
     private var initializedContainer: AppContainer? = null
     @Volatile
     private var startupStorageError: String? = null
-    @Volatile
-    private var startupStorageCanRebuild: Boolean = false
     @Volatile
     private var startupSyncScheduled: Boolean = false
     @Volatile
@@ -55,7 +50,6 @@ class PushGoApp : Application(), ImageLoaderFactory {
     fun containerOrNull(): AppContainer? = initializedContainer
 
     fun startupStorageErrorMessage(): String? = startupStorageError
-    fun startupStorageCanRebuild(): Boolean = startupStorageCanRebuild
     fun cachedUseFcmChannel(): Boolean = cachedUseFcmChannel
     fun isAppVisible(): Boolean = startedActivities > 0
 
@@ -68,14 +62,6 @@ class PushGoApp : Application(), ImageLoaderFactory {
         return startedActivities > 0 || snapshot.keepaliveState != KeepaliveState.FGS_LOST
     }
 
-    fun rebuildPersistentStorageForRecovery() {
-        // No compatibility path: drop local store and let Room recreate current schema.
-        deleteDatabase("pushgo-v18.db")
-        // Best-effort cleanup for prior filename before this no-compat cutover.
-        deleteDatabase("pushgo-v17.db")
-        clearStorageFailureStreak()
-    }
-
     private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var startedActivities: Int = 0
 
@@ -83,14 +69,8 @@ class PushGoApp : Application(), ImageLoaderFactory {
         super.onCreate()
         val container = runCatching { AppContainer(this) }
             .onFailure { error ->
-                val streak = incrementStorageFailureStreak()
-                startupStorageCanRebuild = streak >= STORAGE_FAILURE_STREAK_THRESHOLD
                 val reason = error.message.orEmpty().trim()
-                startupStorageError = if (startupStorageCanRebuild) {
-                    "Local persistent storage init failed: $reason\n该错误已连续出现多次，请上报错误，并可尝试重建数据库。".trim()
-                } else {
-                    "Local persistent storage init failed: $reason".trim()
-                }
+                startupStorageError = "Local persistent storage init failed: $reason".trim()
                 io.ethan.pushgo.util.SilentSink.e(TAG, "AppContainer init failed", error)
                 PushGoAutomation.recordRuntimeError(
                     source = "app.container.init",
@@ -105,8 +85,6 @@ class PushGoApp : Application(), ImageLoaderFactory {
             NotificationHelper.ensureManagedChannels(this)
             return
         }
-        startupStorageCanRebuild = false
-        clearStorageFailureStreak()
         cachedUseFcmChannel = container.settingsRepository.getCachedUseFcmChannel()
         appScope.launch {
             container.settingsRepository.useFcmChannelFlow.collect { useFcmChannel ->
@@ -393,18 +371,5 @@ class PushGoApp : Application(), ImageLoaderFactory {
 
     private fun isEffectiveFcmModeEnabled(): Boolean {
         return effectiveFcmModeForSelection(cachedUseFcmChannel)
-    }
-
-    private fun storageRecoveryPrefs() = getSharedPreferences(STORAGE_FAILURE_PREFS, MODE_PRIVATE)
-
-    private fun incrementStorageFailureStreak(): Int {
-        val prefs = storageRecoveryPrefs()
-        val next = prefs.getInt(STORAGE_FAILURE_STREAK_KEY, 0) + 1
-        prefs.edit().putInt(STORAGE_FAILURE_STREAK_KEY, next).apply()
-        return next
-    }
-
-    private fun clearStorageFailureStreak() {
-        storageRecoveryPrefs().edit().remove(STORAGE_FAILURE_STREAK_KEY).apply()
     }
 }

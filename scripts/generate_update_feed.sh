@@ -11,6 +11,8 @@ Options:
   --repo <owner/repo>                   Repository slug for release asset URL (required)
   --existing-feed <url-or-path>         Existing feed to merge entries from
   --repo-feed-path <path>               Persistent repo feed path (default: release/update-feed-v1.json)
+  --update-notes-dir <path>             Directory containing <tag>.json note maps (default: release/update-notes)
+  --update-notes-file <path>            Override note file path for this tag
   --output <path>                       Output signed feed JSON (default: <dist_dir>/update-feed-v1.json)
   --private-key-file <path>             Ed25519 private key (PKCS8 PEM) for payload signature
   -h, --help                            Show this help
@@ -45,6 +47,8 @@ tag=""
 repo=""
 existing_feed=""
 repo_feed_path="release/update-feed-v1.json"
+update_notes_dir="release/update-notes"
+update_notes_file=""
 output_path="${dist_dir%/}/update-feed-v1.json"
 private_key_file=""
 
@@ -64,6 +68,14 @@ while [[ $# -gt 0 ]]; do
       ;;
     --repo-feed-path)
       repo_feed_path="${2:-}"
+      shift 2
+      ;;
+    --update-notes-dir)
+      update_notes_dir="${2:-}"
+      shift 2
+      ;;
+    --update-notes-file)
+      update_notes_file="${2:-}"
       shift 2
       ;;
     --output)
@@ -130,12 +142,52 @@ release_notes_url="https://github.com/${repo}/releases/tag/${tag}"
 apk_url="https://github.com/${repo}/releases/download/${tag}/${apk_name}"
 generated_at_ms="$(($(date +%s) * 1000))"
 
+notes_file="$update_notes_file"
+if [[ -z "$notes_file" && -n "$update_notes_dir" ]]; then
+  candidate_notes_file="${update_notes_dir%/}/${tag}.json"
+  if [[ -f "$candidate_notes_file" ]]; then
+    notes_file="$candidate_notes_file"
+  fi
+fi
+
+notes_i18n_json="{}"
+notes_fallback=""
+if [[ -n "$notes_file" ]]; then
+  if [[ ! -f "$notes_file" ]]; then
+    echo "Error: update notes file not found: $notes_file" >&2
+    exit 1
+  fi
+  if ! notes_i18n_json="$(jq -ce '
+    if type != "object" then
+      error("update notes must be a JSON object")
+    else
+      with_entries(
+        select(
+          (.key | type == "string")
+          and (.value | type == "string" and (gsub("\\s+"; "") | length > 0))
+        )
+      )
+    end
+  ' "$notes_file")"; then
+    echo "Error: invalid update notes file: $notes_file" >&2
+    exit 1
+  fi
+  notes_fallback="$(printf '%s' "$notes_i18n_json" | jq -r '
+    .["en"]
+    // .["zh-CN"]
+    // .["zh-TW"]
+    // ((to_entries | sort_by(.key) | .[0].value) // "")
+  ')"
+fi
+
 new_entry_json="$(jq -n \
   --arg channel "$track" \
   --arg versionName "$version_name" \
   --arg apkUrl "$apk_url" \
   --arg apkSha256 "$sha256" \
   --arg releaseNotesUrl "$release_notes_url" \
+  --arg notes "$notes_fallback" \
+  --argjson notesI18n "$notes_i18n_json" \
   --argjson versionCode "$version_code" \
   --argjson generatedAt "$generated_at_ms" \
   '{
@@ -147,7 +199,10 @@ new_entry_json="$(jq -n \
     releaseNotesUrl: $releaseNotesUrl,
     publishedAtEpochMs: $generatedAt,
     critical: false
-  }')"
+  }
+  + (if ($notes | length) > 0 then {notes: $notes} else {} end)
+  + (if ($notesI18n | length) > 0 then {notesI18n: $notesI18n} else {} end)
+  ')"
 
 existing_entries_json="[]"
 existing_feed_ref="$existing_feed"

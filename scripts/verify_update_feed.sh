@@ -59,6 +59,17 @@ echo "$raw" | jq -e '
     and (.apkUrl | type == "string" and length > 0)
     and (.apkSha256 | type == "string" and length == 64)
 ' >/dev/null
+echo "$raw" | jq -e '
+  .payload.entries[]
+  | ((.notes? == null) or (.notes | type == "string"))
+    and (
+      (.notesI18n? == null)
+      or (
+        (.notesI18n | type == "object")
+        and ([.notesI18n[] | type == "string"] | all)
+      )
+    )
+' >/dev/null
 
 dup_count="$(echo "$raw" | jq -r '[.payload.entries[].versionCode] | length - (unique | length)')"
 if [[ "$dup_count" != "0" ]]; then
@@ -77,4 +88,3 @@ if [[ "$check_urls" == "true" ]]; then
 fi
 
 echo "Feed verification passed"
-

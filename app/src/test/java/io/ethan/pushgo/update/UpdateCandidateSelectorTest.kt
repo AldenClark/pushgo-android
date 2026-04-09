@@ -256,6 +256,57 @@ class UpdateCandidateSelectorTest {
         assertEquals(UpdateChannel.STABLE, selected?.channel)
     }
 
+    @Test
+    fun localizedNotes_prefersDeviceRegionMatch() {
+        val payload = payloadOf(
+            entry(
+                versionCode = 1020200,
+                versionName = "v1.2.2",
+                channel = "stable",
+                notes = "English fallback",
+                notesI18n = mapOf(
+                    "en" to "English fallback",
+                    "zh-CN" to "简体中文说明",
+                ),
+            ),
+        )
+
+        val selected = UpdateCandidateSelector.selectBestCandidate(
+            payload = payload,
+            currentVersionCode = 1020100,
+            betaEnabled = false,
+            nowEpochMs = 2_000L,
+            runtime = runtime(preferredLocales = listOf("zh-Hans-CN")),
+        )
+
+        assertNotNull(selected)
+        assertEquals("简体中文说明", selected?.notes)
+    }
+
+    @Test
+    fun localizedNotes_fallsBackToPlainNotes() {
+        val payload = payloadOf(
+            entry(
+                versionCode = 1020200,
+                versionName = "v1.2.2",
+                channel = "stable",
+                notes = "Plain fallback note",
+                notesI18n = mapOf("fr" to "Note francaise"),
+            ),
+        )
+
+        val selected = UpdateCandidateSelector.selectBestCandidate(
+            payload = payload,
+            currentVersionCode = 1020100,
+            betaEnabled = false,
+            nowEpochMs = 2_000L,
+            runtime = runtime(preferredLocales = listOf("de-DE")),
+        )
+
+        assertNotNull(selected)
+        assertEquals("Plain fallback note", selected?.notes)
+    }
+
     private fun payloadOf(vararg entries: UpdateFeedEntry): UpdateFeedPayload {
         return UpdateFeedPayload(entries = entries.toList())
     }
@@ -264,11 +315,13 @@ class UpdateCandidateSelectorTest {
         sdkInt: Int = 31,
         supportedAbis: Set<String> = setOf("arm64-v8a"),
         deviceBucketFraction: Double = 0.25,
+        preferredLocales: List<String> = emptyList(),
     ): UpdateRuntimeContext {
         return UpdateRuntimeContext(
             sdkInt = sdkInt,
             supportedAbis = supportedAbis,
             deviceBucketFraction = deviceBucketFraction,
+            preferredLocales = preferredLocales,
         )
     }
 
@@ -284,6 +337,8 @@ class UpdateCandidateSelectorTest {
         rolloutFraction: Double? = null,
         rolloutIntervalSeconds: Long? = null,
         publishedAtEpochMs: Long? = null,
+        notes: String? = null,
+        notesI18n: Map<String, String> = emptyMap(),
     ): UpdateFeedEntry {
         return UpdateFeedEntry(
             channel = channel,
@@ -297,6 +352,8 @@ class UpdateCandidateSelectorTest {
             rolloutFraction = rolloutFraction,
             rolloutIntervalSeconds = rolloutIntervalSeconds,
             publishedAtEpochMs = publishedAtEpochMs,
+            notes = notes,
+            notesI18n = notesI18n,
         )
     }
 }

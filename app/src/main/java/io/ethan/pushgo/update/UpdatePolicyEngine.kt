@@ -4,6 +4,7 @@ import android.content.Context
 import android.os.Build
 import android.provider.Settings
 import java.security.MessageDigest
+import java.util.Locale
 import kotlin.math.roundToInt
 
 class UpdatePolicyEngine(private val context: Context) {
@@ -22,8 +23,18 @@ class UpdatePolicyEngine(private val context: Context) {
                 sdkInt = Build.VERSION.SDK_INT,
                 supportedAbis = Build.SUPPORTED_ABIS?.map { it.trim().lowercase() }?.toSet().orEmpty(),
                 deviceBucketFraction = deviceBucketFraction(),
+                preferredLocales = preferredLocales(),
             ),
         )
+    }
+
+    private fun preferredLocales(): List<String> {
+        val localeList = context.resources.configuration.locales
+        return buildList(localeList.size()) {
+            for (index in 0 until localeList.size()) {
+                add(localeList[index].toLanguageTag())
+            }
+        }
     }
 
     private fun deviceBucketFraction(): Double {
@@ -48,6 +59,7 @@ internal data class UpdateRuntimeContext(
     val sdkInt: Int,
     val supportedAbis: Set<String>,
     val deviceBucketFraction: Double,
+    val preferredLocales: List<String> = emptyList(),
 )
 
 internal object UpdateCandidateSelector {
@@ -90,10 +102,68 @@ internal object UpdateCandidateSelector {
             apkSha256 = entry.apkSha256,
             releaseNotesUrl = entry.releaseNotesUrl,
             critical = entry.critical,
-            notes = entry.notes,
+            notes = resolveNotes(entry, runtime.preferredLocales),
             minimumAutoUpdateVersionCode = entry.minimumAutoUpdateVersionCode,
             ignoreSkippedUpgradesBelowVersionCode = entry.ignoreSkippedUpgradesBelowVersionCode,
         )
+    }
+
+    private fun resolveNotes(entry: UpdateFeedEntry, preferredLocales: List<String>): String? {
+        val explicit = entry.notes?.trim().takeUnless { it.isNullOrEmpty() }
+        val localized = normalizeLocalizedNotes(entry.notesI18n)
+        if (localized.isEmpty()) return explicit
+
+        for (rawLocale in preferredLocales) {
+            val normalizedTag = normalizeLanguageTag(rawLocale) ?: continue
+            for (candidateTag in languageTagCandidates(normalizedTag)) {
+                localized[candidateTag]?.let { return it }
+            }
+        }
+        return explicit ?: localized["en"] ?: localized.values.firstOrNull()
+    }
+
+    private fun normalizeLocalizedNotes(input: Map<String, String>): Map<String, String> {
+        if (input.isEmpty()) return emptyMap()
+        val normalized = linkedMapOf<String, String>()
+        input.forEach { (rawKey, rawValue) ->
+            val value = rawValue.trim()
+            if (value.isEmpty()) return@forEach
+            val key = normalizeLanguageTag(rawKey) ?: return@forEach
+            normalized.putIfAbsent(key, value)
+        }
+        return normalized
+    }
+
+    private fun normalizeLanguageTag(raw: String): String? {
+        val trimmed = raw.trim().replace('_', '-')
+        if (trimmed.isEmpty()) return null
+        val locale = runCatching { Locale.forLanguageTag(trimmed) }.getOrNull() ?: return null
+        val language = locale.language.trim().lowercase()
+        if (language.isEmpty() || language == "und") return null
+        val script = locale.script.trim()
+        val region = locale.country.trim()
+        val parts = mutableListOf(language)
+        if (script.isNotEmpty()) {
+            parts += script.lowercase().replaceFirstChar { it.titlecase() }
+        }
+        if (region.isNotEmpty()) {
+            parts += region.uppercase()
+        }
+        return parts.joinToString("-")
+    }
+
+    private fun languageTagCandidates(tag: String): List<String> {
+        val parts = tag.split('-').filter { it.isNotBlank() }
+        if (parts.isEmpty()) return emptyList()
+        val language = parts.first()
+        val region = parts.lastOrNull()?.takeIf { it.length == 2 || it.length == 3 }
+        return buildList {
+            add(tag)
+            if (region != null) {
+                add("$language-$region")
+            }
+            add(language)
+        }.distinct()
     }
 
     private fun isSdkCompatible(entry: UpdateFeedEntry, runtime: UpdateRuntimeContext): Boolean {

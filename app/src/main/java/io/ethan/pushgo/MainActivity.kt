@@ -74,28 +74,13 @@ class MainActivity : AppCompatActivity() {
         val app = application as PushGoApp
         val container = app.containerOrNull()
         val storageError = app.startupStorageErrorMessage()
-        val canRebuild = app.startupStorageCanRebuild()
         setContent {
             val useDarkTheme = isSystemInDarkTheme()
-            var rebuildError by remember { mutableStateOf<String?>(null) }
 
             PushGoTheme(useDarkTheme = useDarkTheme) {
                 if (container == null) {
                     StorageUnavailableScreen(
                         reason = storageError ?: "Local persistent storage is unavailable.",
-                        canRebuild = canRebuild,
-                        rebuildError = rebuildError,
-                        onRebuild = {
-                            val result = runCatching {
-                                app.rebuildPersistentStorageForRecovery()
-                            }
-                            result.onSuccess {
-                                finishAffinity()
-                                exitProcess(0)
-                            }.onFailure { error ->
-                                rebuildError = "重建失败：${error.message.orEmpty()}".trim()
-                            }
-                        },
                         onExit = {
                             finishAffinity()
                             exitProcess(0)
@@ -185,9 +170,6 @@ class MainActivity : AppCompatActivity() {
     @androidx.compose.runtime.Composable
     private fun StorageUnavailableScreen(
         reason: String,
-        canRebuild: Boolean,
-        rebuildError: String?,
-        onRebuild: () -> Unit,
         onExit: () -> Unit,
     ) {
         Column(
@@ -202,17 +184,7 @@ class MainActivity : AppCompatActivity() {
             Text("为防止数据被破坏，应用已停止读写。")
             Spacer(modifier = Modifier.height(8.dp))
             Text(reason)
-            if (!rebuildError.isNullOrBlank()) {
-                Spacer(modifier = Modifier.height(10.dp))
-                Text(rebuildError)
-            }
             Spacer(modifier = Modifier.height(20.dp))
-            if (canRebuild) {
-                Button(onClick = onRebuild) {
-                    Text("重建数据库并退出")
-                }
-                Spacer(modifier = Modifier.height(10.dp))
-            }
             Button(onClick = onExit) {
                 Text("退出应用")
             }
