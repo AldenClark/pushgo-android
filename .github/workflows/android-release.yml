@@ -313,10 +313,13 @@ jobs:
           PUSHGO_UPDATE_DEPLOY_SSH_KEY_B64: ${{ secrets.PUSHGO_UPDATE_DEPLOY_SSH_KEY_B64 }}
 
       - name: Publish update artifacts to update host
-        if: ${{ secrets.PUSHGO_UPDATE_DEPLOY_HOST != '' && secrets.PUSHGO_UPDATE_DEPLOY_USER != '' && secrets.PUSHGO_UPDATE_DEPLOY_PATH != '' }}
         shell: bash
         run: |
           set -euo pipefail
+          if [[ -z "${PUSHGO_UPDATE_DEPLOY_HOST:-}" || -z "${PUSHGO_UPDATE_DEPLOY_USER:-}" || -z "${PUSHGO_UPDATE_DEPLOY_PATH:-}" ]]; then
+            echo "Skip update publish: deploy host/user/path is not fully configured."
+            exit 0
+          fi
           scripts/publish_update_artifacts.sh \
             dist \
             "${PUSHGO_UPDATE_DEPLOY_USER}@${PUSHGO_UPDATE_DEPLOY_HOST}" \
