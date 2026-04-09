@@ -1,0 +1,23 @@
+{
+  "payload": {
+    "entries": [
+      {
+        "apkSha256": "44884b4ef261fe1faec37dcd2c6707685f8bfa3fa169dc1d60cf377a9c8726a1",
+        "apkUrl": "https://github.com/AldenClark/pushgo-android/releases/download/v1.2.0-beta.1/pushgo-android-v1.2.0-beta.1-universal-release.apk",
+        "channel": "beta",
+        "critical": false,
+        "publishedAtEpochMs": 1775740045000,
+        "releaseNotesUrl": "https://github.com/AldenClark/pushgo-android/releases/tag/v1.2.0-beta.1",
+        "versionCode": 1020001,
+        "versionName": "v1.2.0-beta.1"
+      }
+    ],
+    "generatedAtEpochMs": 1775740045000,
+    "policy": {
+      "impatientReminderIntervalSeconds": 604800,
+      "scheduledCheckIntervalSeconds": 21600
+    },
+    "schemaVersion": 1
+  },
+  "signature": null
+}
