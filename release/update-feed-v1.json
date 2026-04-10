@@ -2,33 +2,33 @@
   "payload": {
     "entries": [
       {
-        "apkSha256": "44884b4ef261fe1faec37dcd2c6707685f8bfa3fa169dc1d60cf377a9c8726a1",
-        "apkUrl": "https://github.com/AldenClark/pushgo-android/releases/download/v1.2.0-beta.1/pushgo-android-v1.2.0-beta.1-universal-release.apk",
+        "apkSha256": "643e94e6d36179976c9071d05225c8fd126a0153dea67146ace787be3c34149e",
+        "apkUrl": "https://github.com/AldenClark/pushgo-android/releases/download/v1.2.0-beta.2/pushgo-android-v1.2.0-beta.2-universal-release.apk",
         "channel": "beta",
         "critical": false,
-        "publishedAtEpochMs": 1775740045000,
-        "releaseNotesUrl": "https://github.com/AldenClark/pushgo-android/releases/tag/v1.2.0-beta.1",
-        "versionCode": 1020001,
-        "versionName": "v1.2.0-beta.1",
         "notes": "Self-hosted app updates are now available.\n- Silent background checks + manual check in Settings\n- Channels: stable / beta (beta also receives stable)\n- Skip this version + reminder cooldown\n- Improved guidance when installer is blocked",
         "notesI18n": {
-          "en": "Self-hosted app updates are now available.\n- Silent background checks + manual check in Settings\n- Channels: stable / beta (beta also receives stable)\n- Skip this version + reminder cooldown\n- Improved guidance when installer is blocked",
           "de": "Selbst gehostete App-Updates sind jetzt verfügbar.\n- Stille Hintergrundprüfung + manuelle Prüfung in den Einstellungen\n- Kanäle: Stabil / Beta (Beta empfängt auch Stabil)\n- Diese Version überspringen + Erinnerungs-Abkühlzeit\n- Verbesserte Hinweise, wenn der Installer blockiert wird",
+          "en": "Self-hosted app updates are now available.\n- Silent background checks + manual check in Settings\n- Channels: stable / beta (beta also receives stable)\n- Skip this version + reminder cooldown\n- Improved guidance when installer is blocked",
           "es": "Las actualizaciones autoalojadas ya están disponibles.\n- Comprobación silenciosa en segundo plano + comprobación manual en Ajustes\n- Canales: estable / beta (beta también recibe estable)\n- Omitir esta versión + ventana de enfriamiento de recordatorios\n- Mejor orientación cuando el instalador es bloqueado",
           "fr": "Les mises à jour auto-hébergées sont désormais disponibles.\n- Vérification silencieuse en arrière-plan + vérification manuelle dans les réglages\n- Canaux : stable / beta (beta reçoit aussi stable)\n- Ignorer cette version + fenêtre de refroidissement des rappels\n- Meilleure guidance lorsque l'installateur est bloqué",
           "ja": "自己配布アップデートに対応しました。\n- バックグラウンド自動チェック + 設定からの手動チェック\n- チャネル: 安定版 / ベータ（ベータは安定版も受信）\n- このバージョンをスキップ + リマインド冷却期間\n- インストーラーがブロックされた場合の案内を改善",
           "ko": "자체 배포 업데이트를 지원합니다.\n- 백그라운드 자동 점검 + 설정에서 수동 점검\n- 채널: 안정판 / 베타 (베타는 안정판도 수신)\n- 이번 버전 건너뛰기 + 알림 냉각 시간\n- 설치 프로그램이 차단될 때 안내 개선",
           "zh-CN": "已支持自托管应用更新。\n- 后台静默检测 + 设置页手动检查\n- 更新通道：稳定版 / 测试版（测试版同时接收稳定版）\n- 支持跳过当前版本 + 提醒冷却窗口\n- 安装器被拦截时提供更清晰的恢复引导",
           "zh-TW": "已支援自託管應用更新。\n- 背景靜默檢查 + 設定頁手動檢查\n- 更新通道：穩定版 / 測試版（測試版同時接收穩定版）\n- 支援跳過目前版本 + 提醒冷卻視窗\n- 安裝器被攔截時提供更清晰的恢復引導"
-        }
+        },
+        "publishedAtEpochMs": 1775834573000,
+        "releaseNotesUrl": "https://github.com/AldenClark/pushgo-android/releases/tag/v1.2.0-beta.2",
+        "versionCode": 1020002,
+        "versionName": "v1.2.0-beta.2"
       }
     ],
-    "generatedAtEpochMs": 1775740045000,
+    "generatedAtEpochMs": 1775834573000,
     "policy": {
       "impatientReminderIntervalSeconds": 604800,
       "scheduledCheckIntervalSeconds": 21600
     },
     "schemaVersion": 1
   },
-  "signature": null
+  "signature": "egX27P1ngxDhLeGz485lWd6cb8lguQAUNqzTxpZg7+hMMfaXY2yj7Z8Rk/WBfKtc48+QESYzX6vIq0RFkUz8BQ=="
 }
