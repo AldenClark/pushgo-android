@@ -8,8 +8,11 @@
     <string name="action_close_event">Close event</string>
     <string name="confirm_close_event">This event will be closed. Continue?</string>
     <string name="action_copy">Copy</string>
-    <string name="label_more_actions">More actions</string><string name="filter_all">All</string><string name="filter_unread">Only show unread messages</string><string name="filter_open_events">Ongoing events</string><string name="filter_active_things">Active things</string><string name="label_server_address">Server address</string>
+    <string name="label_more_actions">More actions</string><string name="filter_all">All</string><string name="filter_open_events">Ongoing events</string><string name="filter_active_things">Active things</string><string name="label_server_address">Server address</string>
     <string name="label_filter">Filter</string>
+    <string name="label_sort">Sort</string>
+    <string name="message_sort_time_desc">Newest first</string>
+    <string name="message_sort_unread_first">Unread first</string>
     <string name="section_status">Status</string>
     <string name="label_server_token">Token (optional)</string>
     <string name="label_save">Save</string>
@@ -415,5 +418,10 @@
     <string name="label_update_install_blocked_action">Open install settings</string>
     <string name="label_update_install_action_required_title">Finish update installation</string>
     <string name="label_update_install_action_required_body">User confirmation is required to continue installing the new package.</string>
+    <string name="label_share">Share</string>
+    <string name="message_text_copied">Content copied.</string>
+    <string name="message_image_saved">Image saved to Photos.</string>
+    <string name="error_message_image_save_failed">Failed to save image.</string>
+    <string name="error_message_image_share_failed">Unable to open share panel.</string>
     <string name="label_unknown_error">Unknown error</string>
 </resources>

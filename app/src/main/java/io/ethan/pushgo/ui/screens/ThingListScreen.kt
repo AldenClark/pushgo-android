@@ -57,6 +57,7 @@ import io.ethan.pushgo.ui.PushGoViewModelFactory
 import io.ethan.pushgo.ui.rememberBottomBarNestedScrollConnection
 import io.ethan.pushgo.ui.rememberBottomGestureInset
 import io.ethan.pushgo.ui.theme.PushGoSheetContainerColor
+import io.ethan.pushgo.ui.theme.PushGoThemeExtras
 import io.ethan.pushgo.ui.markdown.FullMarkdownRenderer
 import io.ethan.pushgo.util.normalizeExternalImageUrl
 import io.ethan.pushgo.util.openExternalUrl
@@ -67,10 +68,6 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
-import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.text.BasicTextField
-import androidx.compose.ui.graphics.SolidColor
-import androidx.compose.ui.text.input.VisualTransformation
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -172,6 +169,7 @@ fun ThingListScreen(
     onBottomBarVisibilityChanged: (Boolean) -> Unit,
     scrollToTopToken: Long,
 ) {
+    val uiColors = PushGoThemeExtras.colors
     var allThings by remember { mutableStateOf<List<ThingCardModel>>(emptyList()) }
     var hasLoadedOnce by remember { mutableStateOf(false) }
     var thingCursor by remember { mutableStateOf<EntityProjectionCursor?>(null) }
@@ -308,11 +306,8 @@ fun ThingListScreen(
     }
 
     if (selectedThing != null && !isSelectionMode) {
-        ModalBottomSheet(
+        PushGoModalBottomSheet(
             onDismissRequest = { selectedThing = null; onThingDetailClosed() },
-            containerColor = PushGoSheetContainerColor(),
-            tonalElevation = 0.dp,
-            contentWindowInsets = { WindowInsets(0) }
         ) {
             ThingDetailSheet(
                 thing = selectedThing!!,
@@ -327,11 +322,8 @@ fun ThingListScreen(
     }
 
     if (selectedRelatedEvent != null) {
-        ModalBottomSheet(
+        PushGoModalBottomSheet(
             onDismissRequest = { selectedRelatedEvent = null },
-            containerColor = PushGoSheetContainerColor(),
-            tonalElevation = 0.dp,
-            contentWindowInsets = { WindowInsets(0) }
         ) {
             Text(
                 modifier = Modifier.padding(start = 24.dp, top = 24.dp, end = 24.dp, bottom = bottomGestureInset + 24.dp),
@@ -342,22 +334,16 @@ fun ThingListScreen(
     }
 
     if (selectedRelatedMessage != null) {
-        ModalBottomSheet(
+        PushGoModalBottomSheet(
             onDismissRequest = { selectedRelatedMessage = null },
-            containerColor = PushGoSheetContainerColor(),
-            tonalElevation = 0.dp,
-            contentWindowInsets = { WindowInsets(0) }
         ) {
             ThingRelatedMessageDetailSheet(message = selectedRelatedMessage!!)
         }
     }
 
     if (selectedRelatedUpdate != null) {
-        ModalBottomSheet(
+        PushGoModalBottomSheet(
             onDismissRequest = { selectedRelatedUpdate = null },
-            containerColor = PushGoSheetContainerColor(),
-            tonalElevation = 0.dp,
-            contentWindowInsets = { WindowInsets(0) }
         ) {
             ThingUpdateDetailSheet(update = selectedRelatedUpdate!!)
         }
@@ -383,36 +369,12 @@ fun ThingListScreen(
                             }
                         } else {
                             Row(modifier = Modifier.fillMaxWidth().padding(horizontal = ScreenHorizontalPadding), verticalAlignment = Alignment.CenterVertically) {
-                                Row(modifier = Modifier.weight(1f).height(48.dp).clip(RoundedCornerShape(24.dp)).background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                                    Spacer(modifier = Modifier.width(16.dp))
-                                    Icon(Icons.Default.Search, null, tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f))
-                                    BasicTextField(
-                                        value = searchQuery,
-                                        onValueChange = { searchQuery = it },
-                                        modifier = Modifier.weight(1f),
-                                        textStyle = MaterialTheme.typography.bodyLarge.copy(color = MaterialTheme.colorScheme.onSurface),
-                                        singleLine = true,
-                                        cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
-                                        decorationBox = { innerTextField ->
-                                            TextFieldDefaults.DecorationBox(
-                                                value = searchQuery,
-                                                innerTextField = innerTextField,
-                                                enabled = true,
-                                                singleLine = true,
-                                                visualTransformation = VisualTransformation.None,
-                                                interactionSource = remember { MutableInteractionSource() },
-                                                placeholder = { Text(stringResource(R.string.label_search_things), color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)) },
-                                                colors = TextFieldDefaults.colors(
-                                                    focusedContainerColor = Color.Transparent,
-                                                    unfocusedContainerColor = Color.Transparent,
-                                                    focusedIndicatorColor = Color.Transparent,
-                                                    unfocusedIndicatorColor = Color.Transparent,
-                                                ),
-                                                contentPadding = PaddingValues(vertical = 0.dp),
-                                                container = {}
-                                            )
-                                        }
-                                    )
+                                PushGoSearchBar(
+                                    value = searchQuery,
+                                    onValueChange = { searchQuery = it },
+                                    placeholderText = stringResource(R.string.label_search_things),
+                                    modifier = Modifier.weight(1f)
+                                ) {
                                     Box {
                                         var menuExpanded by remember { mutableStateOf(false) }
                                         IconButton(onClick = { menuExpanded = true }) {
@@ -420,7 +382,7 @@ fun ThingListScreen(
                                             Icon(
                                                 imageVector = if (active) Icons.Filled.FilledFilterList else Icons.Outlined.OutlinedFilterList,
                                                 contentDescription = null,
-                                                tint = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                                                tint = if (active) uiColors.accentPrimary else uiColors.iconMuted
                                             )
                                         }
                                         DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
@@ -448,12 +410,12 @@ fun ThingListScreen(
                                             }
                                         }
                                     }
-                                    IconButton(onClick = { isSelectionMode = true; selectedThingIds = emptySet() }) { Icon(Icons.Outlined.Checklist, stringResource(R.string.action_batch_select), tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)) }
+                                    IconButton(onClick = { isSelectionMode = true; selectedThingIds = emptySet() }) { Icon(Icons.Outlined.Checklist, stringResource(R.string.action_batch_select), tint = uiColors.iconMuted) }
                                 }
                             }
                         }
                     }
-                    Text(text = stringResource(R.string.label_send_type_thing), style = MaterialTheme.typography.headlineMedium.copy(fontWeight = FontWeight.SemiBold, letterSpacing = (-0.5).sp), color = MaterialTheme.colorScheme.onBackground, modifier = Modifier.padding(start = ScreenHorizontalPadding, top = 8.dp, bottom = 12.dp).semantics { heading() })
+                    Text(text = stringResource(R.string.label_send_type_thing), style = MaterialTheme.typography.headlineMedium.copy(fontWeight = FontWeight.SemiBold, letterSpacing = (-0.5).sp), color = uiColors.textPrimary, modifier = Modifier.padding(start = ScreenHorizontalPadding, top = 8.dp, bottom = 12.dp).semantics { heading() })
                 }
             }
             if (filteredThings.isEmpty()) {
@@ -477,24 +439,26 @@ fun ThingListScreen(
 private fun ThingRow(thing: ThingCardModel, onClick: () -> Unit, selectionMode: Boolean, selected: Boolean, onToggleSelection: () -> Unit) {
     val haptic = LocalHapticFeedback.current
     val context = LocalContext.current
-    Row(modifier = Modifier.fillMaxWidth().combinedClickable(onClick = onClick, onLongClick = { if (!selectionMode) { haptic.performHapticFeedback(HapticFeedbackType.LongPress); onToggleSelection() } }).background(if (selected) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f) else MaterialTheme.colorScheme.surface).padding(horizontal = 16.dp, vertical = 12.dp), verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-        if (selectionMode) { Icon(if (selected) Icons.Filled.CheckCircle else Icons.Outlined.Circle, null, tint = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline, modifier = Modifier.size(24.dp).padding(top = 2.dp).clickable { onToggleSelection() }) }
+    val uiColors = PushGoThemeExtras.colors
+    Row(modifier = Modifier.fillMaxWidth().combinedClickable(onClick = onClick, onLongClick = { if (!selectionMode) { haptic.performHapticFeedback(HapticFeedbackType.LongPress); onToggleSelection() } }).background(if (selected) uiColors.selectedRowFill else uiColors.surfaceBase).padding(horizontal = 16.dp, vertical = 12.dp), verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        if (selectionMode) { PushGoSelectionIndicator(selected = selected, onClick = onToggleSelection) }
         ThingImageThumb(url = thing.imageUrl, size = 52.dp)
         Column(modifier = Modifier.weight(1f)) {
             Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
                 Text(text = thing.title, style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold), maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
-                Text(text = formatLocalRelativeTimeV2(context, thing.updatedAt), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(text = formatLocalRelativeTimeV2(context, thing.updatedAt), style = MaterialTheme.typography.labelSmall, color = uiColors.textSecondary)
             }
-            if (!thing.summary.isNullOrBlank()) Text(text = thing.summary, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            if (!thing.summary.isNullOrBlank()) Text(text = thing.summary, style = MaterialTheme.typography.bodySmall, color = uiColors.textSecondary, maxLines = 2, overflow = TextOverflow.Ellipsis)
         }
     }
 }
 
 @Composable
 private fun ThingImageThumb(url: String?, size: androidx.compose.ui.unit.Dp, onClick: ((String) -> Unit)? = null) {
-    val m = Modifier.size(size).clip(RoundedCornerShape(8.dp)).background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)).then(if (url != null && onClick != null) Modifier.clickable { onClick(url) } else Modifier)
+    val uiColors = PushGoThemeExtras.colors
+    val m = Modifier.size(size).clip(RoundedCornerShape(8.dp)).background(uiColors.fieldContainer).then(if (url != null && onClick != null) Modifier.clickable { onClick(url) } else Modifier)
     if (url != null) AsyncImage(model = url, contentDescription = null, contentScale = ContentScale.Crop, modifier = m)
-    else Box(modifier = m, contentAlignment = Alignment.Center) { Icon(Icons.Outlined.Memory, null, tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f), modifier = Modifier.size(size * 0.5f)) }
+    else Box(modifier = m, contentAlignment = Alignment.Center) { Icon(Icons.Outlined.Memory, null, tint = uiColors.iconMuted, modifier = Modifier.size(size * 0.5f)) }
 }
 
 private fun formatLocalRelativeTimeV2(context: Context, instant: Instant): String {
@@ -525,14 +489,15 @@ private fun buildThingCardsInternal(messages: List<PushMessage>): List<ThingCard
 
 @Composable
 private fun EntityKeyValueRows(entries: List<ThingDisplayAttribute>) {
-    Surface(modifier = Modifier.fillMaxWidth(), color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.2f), shape = RoundedCornerShape(12.dp), border = BorderStroke(0.5.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))) {
+    val uiColors = PushGoThemeExtras.colors
+    Surface(modifier = Modifier.fillMaxWidth(), color = uiColors.surfaceSunken, shape = RoundedCornerShape(12.dp), border = BorderStroke(0.5.dp, uiColors.dividerStrong)) {
         Column {
             entries.forEachIndexed { index, entry ->
                 Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp), horizontalArrangement = Arrangement.spacedBy(16.dp), verticalAlignment = Alignment.Top) {
-                    Text(text = entry.label, style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold, letterSpacing = 0.2.sp), color = MaterialTheme.colorScheme.primary.copy(alpha = 0.9f), modifier = Modifier.width(100.dp))
-                    Text(text = entry.value, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface, modifier = Modifier.weight(1f))
+                    Text(text = entry.label, style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold, letterSpacing = 0.2.sp), color = uiColors.stateInfo.foreground, modifier = Modifier.width(100.dp))
+                    Text(text = entry.value, style = MaterialTheme.typography.bodyMedium, color = uiColors.textPrimary, modifier = Modifier.weight(1f))
                 }
-                if (index < entries.lastIndex) HorizontalDivider(modifier = Modifier.padding(horizontal = 12.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.2f), thickness = 0.5.dp)
+                if (index < entries.lastIndex) PushGoDividerSubtle(modifier = Modifier.padding(horizontal = 12.dp), thickness = 0.5.dp)
             }
         }
     }
@@ -557,10 +522,11 @@ private fun ThingDetailSheet(
             .padding(bottom = bottomGestureInset + 24.dp),
         verticalArrangement = Arrangement.spacedBy(20.dp),
     ) {
+        val uiColors = PushGoThemeExtras.colors
         Text(text = thing.title, style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Bold))
         val attrs = remember(thing.attrsJson) { parseThingDisplayAttributes(thing.attrsJson) }
         if (attrs.isNotEmpty()) EntityKeyValueRows(entries = attrs)
-        Text(text = "Updated: ${ThingTimeFormatter.format(thing.updatedAt)}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(text = "Updated: ${ThingTimeFormatter.format(thing.updatedAt)}", style = MaterialTheme.typography.bodySmall, color = uiColors.textSecondary)
     }
 }
 

@@ -6,7 +6,7 @@
     <string name="action_delete">删除</string>
     <string name="action_batch_select">批量</string>
     <string name="action_copy">复制</string>
-    <string name="label_more_actions">更多操作</string><string name="filter_all">全部</string><string name="filter_unread">仅显示未读消息</string><string name="filter_open_events">进行中</string><string name="filter_active_things">活跃</string><string name="label_server_address">服务器地址</string>
+    <string name="label_more_actions">更多操作</string><string name="filter_all">全部</string><string name="filter_open_events">进行中</string><string name="filter_active_things">活跃</string><string name="label_server_address">服务器地址</string><string name="label_sort">排序</string><string name="message_sort_time_desc">按时间倒序</string><string name="message_sort_unread_first">未读优先</string>
     <string name="label_server_token">认证令牌（可选）</string>
     <string name="label_save">保存</string>
     <string name="label_save_gateway">保存网关设置</string>
@@ -403,5 +403,10 @@
     <string name="label_update_install_blocked_action">打开安装设置</string>
     <string name="label_update_install_action_required_title">继续完成更新安装</string>
     <string name="label_update_install_action_required_body">继续安装需要你确认系统安装提示。</string>
+    <string name="label_share">分享</string>
+    <string name="message_text_copied">内容已复制。</string>
+    <string name="message_image_saved">图片已保存到相册。</string>
+    <string name="error_message_image_save_failed">保存图片失败。</string>
+    <string name="error_message_image_share_failed">无法打开分享面板。</string>
     <string name="label_unknown_error">未知错误</string>
 </resources>

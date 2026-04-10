@@ -59,6 +59,7 @@ import io.ethan.pushgo.R
 import io.ethan.pushgo.ui.rememberBottomGestureInset
 import io.ethan.pushgo.ui.PushGoViewModelFactory
 import io.ethan.pushgo.ui.announceForAccessibility
+import io.ethan.pushgo.ui.theme.PushGoThemeExtras
 import io.ethan.pushgo.ui.viewmodel.ChannelProbeLeg
 import io.ethan.pushgo.ui.viewmodel.ConnectionDiagnosisLogLine
 import io.ethan.pushgo.ui.viewmodel.DiagnosisExportFormat
@@ -79,6 +80,7 @@ fun ConnectionDiagnosisScreen(
     factory: PushGoViewModelFactory,
 ) {
     val context = LocalContext.current
+    val uiColors = PushGoThemeExtras.colors
     val shareBundleChooserLabel = stringResource(R.string.label_connection_diagnosis_share_bundle)
     val openShareFailedPrefix = stringResource(R.string.error_connection_diagnosis_open_share_failed_prefix)
     val viewModel: ConnectionDiagnosisViewModel = viewModel(factory = factory)
@@ -132,7 +134,7 @@ fun ConnectionDiagnosisScreen(
             .fillMaxSize()
             .testTag("screen.settings.connection_diagnosis"),
         topBar = {
-            Column(modifier = Modifier.background(MaterialTheme.colorScheme.background)) {
+            Column(modifier = Modifier.background(uiColors.surfaceBase)) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -143,7 +145,7 @@ fun ConnectionDiagnosisScreen(
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.ArrowBack,
                             contentDescription = stringResource(R.string.label_back),
-                            tint = MaterialTheme.colorScheme.onSurface,
+                            tint = uiColors.textPrimary,
                         )
                     }
                     Text(
@@ -152,7 +154,7 @@ fun ConnectionDiagnosisScreen(
                         modifier = Modifier
                             .weight(1f)
                             .semantics { heading() },
-                        color = MaterialTheme.colorScheme.onSurface,
+                        color = uiColors.textPrimary,
                     )
                     IconButton(
                         onClick = viewModel::copyReportToClipboard,
@@ -184,14 +186,14 @@ fun ConnectionDiagnosisScreen(
                         )
                     }
                 }
-                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.2f))
+                PushGoDividerSubtle()
             }
         },
     ) { padding ->
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
-                .background(MaterialTheme.colorScheme.background)
+                .background(uiColors.surfaceBase)
                 .padding(padding),
             contentPadding = androidx.compose.foundation.layout.PaddingValues(
                 start = 16.dp,
@@ -244,7 +246,7 @@ fun ConnectionDiagnosisScreen(
                 Text(
                     text = stringResource(R.string.label_connection_diagnosis_logs),
                     style = MaterialTheme.typography.labelMedium.copy(
-                        color = MaterialTheme.colorScheme.primary,
+                        color = uiColors.accentPrimary,
                         fontWeight = FontWeight.Bold,
                         letterSpacing = 0.8.sp,
                     ),
@@ -285,19 +287,20 @@ private fun DiagnosisStatusCard(
     onRedactToggle: (Boolean) -> Unit,
     onStopOrRestart: () -> Unit,
 ) {
+    val uiColors = PushGoThemeExtras.colors
     val statusColor = if (isRunning) {
-        MaterialTheme.colorScheme.primary
+        uiColors.stateInfo.foreground
     } else if (isCompleted) {
-        MaterialTheme.colorScheme.tertiary
+        uiColors.stateSuccess.foreground
     } else {
-        MaterialTheme.colorScheme.outline
+        uiColors.stateNeutral.foreground
     }
     val containerColor = if (isRunning) {
-        MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f)
+        uiColors.stateInfo.background
     } else if (isCompleted) {
-        MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.45f)
+        uiColors.stateSuccess.background
     } else {
-        MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)
+        uiColors.surfaceSunken
     }
     Card(
         colors = CardDefaults.cardColors(
@@ -332,7 +335,7 @@ private fun DiagnosisStatusCard(
                             stringResource(R.string.label_connection_diagnosis_background_probe)
                         },
                         style = MaterialTheme.typography.bodySmall.copy(fontStyle = FontStyle.Italic),
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        color = uiColors.textSecondary,
                     )
                 }
             }
@@ -396,6 +399,7 @@ private fun LinkMatrixCard(
     selectionHistory: List<ProtocolSelectionHistoryItem>,
     onEnhancedProbeClick: (ChannelProbeLeg) -> Unit,
 ) {
+    val uiColors = PushGoThemeExtras.colors
     val sortedLegs = remember(legs) {
         legs.sortedWith(
             compareBy<ChannelProbeLeg> {
@@ -417,7 +421,7 @@ private fun LinkMatrixCard(
             Text(
                 text = stringResource(R.string.label_connection_diagnosis_link_matrix),
                 style = MaterialTheme.typography.labelMedium.copy(
-                    color = MaterialTheme.colorScheme.primary,
+                    color = uiColors.accentPrimary,
                     fontWeight = FontWeight.Bold,
                 ),
             )
@@ -427,18 +431,18 @@ private fun LinkMatrixCard(
                     profileRttMs?.let { append(" · profile_rtt=${it}ms") }
                 },
                 style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                color = uiColors.textSecondary,
                 fontFamily = FontFamily.Monospace,
             )
             if (sortedLegs.isEmpty()) {
                 Text(
                     text = stringResource(R.string.label_connection_diagnosis_link_matrix_empty),
                     style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    color = uiColors.textSecondary,
                 )
             } else {
                 sortedLegs.forEach { leg ->
-                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f))
+                    HorizontalDivider(color = PushGoThemeExtras.colors.dividerStrong)
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -450,9 +454,9 @@ private fun LinkMatrixCard(
                             style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold),
                             fontFamily = FontFamily.Monospace,
                             color = when (leg.result.uppercase()) {
-                                "OK" -> MaterialTheme.colorScheme.primary
-                                "SKIPPED" -> MaterialTheme.colorScheme.onSurfaceVariant
-                                else -> MaterialTheme.colorScheme.error
+                                "OK" -> uiColors.accentPrimary
+                                "SKIPPED" -> uiColors.textSecondary
+                                else -> uiColors.stateDanger.foreground
                             },
                         )
                         Text(
@@ -469,7 +473,7 @@ private fun LinkMatrixCard(
                             Text(
                                 text = "path=${leg.path}",
                                 style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                color = uiColors.textSecondary,
                                 fontFamily = FontFamily.Monospace,
                             )
                         }
@@ -477,7 +481,7 @@ private fun LinkMatrixCard(
                             Text(
                                 text = "subprotocol=${leg.subprotocol}",
                                 style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                color = uiColors.textSecondary,
                                 fontFamily = FontFamily.Monospace,
                             )
                         }
@@ -485,7 +489,7 @@ private fun LinkMatrixCard(
                             Text(
                                 text = "note.${row.key}=${row.value}",
                                 style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                color = uiColors.textSecondary,
                                 fontFamily = FontFamily.Monospace,
                             )
                         }
@@ -496,7 +500,7 @@ private fun LinkMatrixCard(
                                     if (!leg.errorDetail.isNullOrBlank()) append("error=${leg.errorDetail}")
                                 }.trim(),
                                 style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.error,
+                                color = uiColors.stateDanger.foreground,
                                 fontFamily = FontFamily.Monospace,
                             )
                         }
@@ -504,7 +508,7 @@ private fun LinkMatrixCard(
                             Text(
                                 text = stringResource(R.string.label_connection_diagnosis_failure_reason, buildFailureReason(leg)),
                                 style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold),
-                                color = MaterialTheme.colorScheme.error,
+                                color = uiColors.stateDanger.foreground,
                             )
                         }
                         AssistChip(
@@ -515,18 +519,18 @@ private fun LinkMatrixCard(
                             Text(
                                 text = "last_probe=${formatDiagnosisTime(last)}",
                                 style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                color = uiColors.textSecondary,
                                 fontFamily = FontFamily.Monospace,
                             )
                         }
                     }
                 }
                 if (selectionHistory.isNotEmpty()) {
-                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f))
+                    HorizontalDivider(color = PushGoThemeExtras.colors.dividerStrong)
                     Text(
                         text = stringResource(R.string.label_connection_diagnosis_selection_history),
                         style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold),
-                        color = MaterialTheme.colorScheme.primary,
+                        color = uiColors.accentPrimary,
                     )
                     selectionHistory.takeLast(8).asReversed().forEach { item ->
                         Text(
@@ -541,7 +545,7 @@ private fun LinkMatrixCard(
                                 }
                             },
                             style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            color = uiColors.textSecondary,
                             fontFamily = FontFamily.Monospace,
                         )
                     }
@@ -557,14 +561,12 @@ private fun EnhancedProbeSheet(
     state: EnhancedProbeState,
     onDismiss: () -> Unit,
 ) {
+    val uiColors = PushGoThemeExtras.colors
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val bottomGestureInset = rememberBottomGestureInset()
-    ModalBottomSheet(
+    PushGoModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
-        containerColor = io.ethan.pushgo.ui.theme.PushGoSheetContainerColor(),
-        tonalElevation = 0.dp,
-        contentWindowInsets = { WindowInsets(0) }
     ) {
         Column(
             modifier = Modifier
@@ -590,7 +592,7 @@ private fun EnhancedProbeSheet(
                     Text(
                         text = stringResource(R.string.label_connection_diagnosis_enhanced_running_hint),
                         style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        color = uiColors.textSecondary,
                     )
                 }
                 is EnhancedProbeState.Result -> {
@@ -610,21 +612,21 @@ private fun EnhancedProbeSheet(
                     Text(
                         text = report.traceNote,
                         style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        color = uiColors.textSecondary,
                     )
                     report.failedAt?.let {
                         Text(
                             text = stringResource(R.string.label_connection_diagnosis_failed_stage, it),
                             style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold),
-                            color = MaterialTheme.colorScheme.error,
+                            color = uiColors.stateDanger.foreground,
                         )
                     }
                     report.stages.forEach { stage ->
-                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f))
+                        HorizontalDivider(color = PushGoThemeExtras.colors.dividerStrong)
                         Text(
                             text = "${stage.name} · ${stage.result} · ${stage.latencyMs}ms",
                             style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold),
-                            color = if (stage.result == "FAIL") MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
+                            color = if (stage.result == "FAIL") uiColors.stateDanger.foreground else uiColors.accentPrimary,
                             fontFamily = FontFamily.Monospace,
                         )
                         Text(
@@ -657,6 +659,7 @@ private fun DiagnosisSummaryCard(
     transportSummary: String,
     recommendation: String,
 ) {
+    val uiColors = PushGoThemeExtras.colors
     Card {
         Column(
             modifier = Modifier
@@ -665,19 +668,19 @@ private fun DiagnosisSummaryCard(
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             SummaryLine(label = stringResource(R.string.label_connection_diagnosis_network), value = networkSummary)
-            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f))
+            HorizontalDivider(color = PushGoThemeExtras.colors.dividerStrong)
             SummaryLine(label = stringResource(R.string.label_connection_diagnosis_nat), value = natSummary)
-            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f))
+            HorizontalDivider(color = PushGoThemeExtras.colors.dividerStrong)
             SummaryLine(label = stringResource(R.string.label_connection_diagnosis_proxy), value = proxySummary)
-            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f))
+            HorizontalDivider(color = PushGoThemeExtras.colors.dividerStrong)
             GatewaySummaryTable(
                 label = stringResource(R.string.label_connection_diagnosis_gateway),
                 aggregate = gatewayAggregate,
                 fallback = gatewaySummary,
             )
-            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f))
+            HorizontalDivider(color = PushGoThemeExtras.colors.dividerStrong)
             SummaryLine(label = stringResource(R.string.label_connection_diagnosis_transport), value = transportSummary)
-            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f))
+            HorizontalDivider(color = PushGoThemeExtras.colors.dividerStrong)
             SummaryLine(label = stringResource(R.string.label_connection_diagnosis_recommendation), value = recommendation)
         }
     }
@@ -689,11 +692,12 @@ private fun GatewaySummaryTable(
     aggregate: GatewayAggregate,
     fallback: String,
 ) {
+    val uiColors = PushGoThemeExtras.colors
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Text(
             text = label,
             style = MaterialTheme.typography.labelMedium.copy(
-                color = MaterialTheme.colorScheme.primary,
+                color = uiColors.accentPrimary,
                 fontWeight = FontWeight.Bold,
             ),
         )
@@ -701,7 +705,7 @@ private fun GatewaySummaryTable(
             Text(
                 text = fallback,
                 style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurface,
+                color = uiColors.textPrimary,
             )
             return
         }
@@ -723,7 +727,7 @@ private fun GatewaySummaryTable(
             Text(
                 text = "latest_error=$it",
                 style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.error,
+                color = uiColors.stateDanger.foreground,
                 fontFamily = FontFamily.Monospace,
             )
         }
@@ -732,27 +736,29 @@ private fun GatewaySummaryTable(
 
 @Composable
 private fun SummaryLine(label: String, value: String) {
+    val uiColors = PushGoThemeExtras.colors
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Text(
             text = label,
             style = MaterialTheme.typography.labelMedium.copy(
-                color = MaterialTheme.colorScheme.primary,
+                color = uiColors.accentPrimary,
                 fontWeight = FontWeight.Bold,
             ),
         )
         Text(
             text = value,
             style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurface,
+            color = uiColors.textPrimary,
         )
     }
 }
 
 @Composable
 private fun DiagnosisLogCard(line: ConnectionDiagnosisLogLine) {
+    val uiColors = PushGoThemeExtras.colors
     Card(
         colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.28f),
+            containerColor = PushGoThemeExtras.colors.fieldContainer,
         ),
     ) {
         Column(
@@ -764,13 +770,13 @@ private fun DiagnosisLogCard(line: ConnectionDiagnosisLogLine) {
             Text(
                 text = "${formatDiagnosisTime(line.timestampMs)} · ${line.category}",
                 style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                color = uiColors.textSecondary,
                 fontFamily = FontFamily.Monospace,
             )
             Text(
                 text = line.message,
                 style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurface,
+                color = uiColors.textPrimary,
                 fontFamily = FontFamily.Monospace,
             )
         }

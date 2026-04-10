@@ -6,4 +6,7 @@
     <cache-path
         name="updates"
         path="updates/" />
+    <cache-path
+        name="shared_images"
+        path="shared-images/" />
 </paths>

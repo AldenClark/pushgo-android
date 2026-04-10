@@ -3,7 +3,6 @@ package io.ethan.pushgo.ui.screens
 import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -24,14 +23,13 @@ import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.Group
 import androidx.compose.material.icons.outlined.MoreVert
 import androidx.compose.material.icons.outlined.Settings
-import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
@@ -66,7 +64,10 @@ import io.ethan.pushgo.ui.rememberBottomBarNestedScrollConnection
 import io.ethan.pushgo.ui.rememberBottomGestureInset
 import io.ethan.pushgo.ui.viewmodel.SettingsViewModel
 import io.ethan.pushgo.ui.announceForAccessibility
-import io.ethan.pushgo.ui.theme.PushGoSheetContainerColor
+import io.ethan.pushgo.ui.theme.pushGoOutlinedTextFieldColors
+import io.ethan.pushgo.ui.theme.PushGoThemeExtras
+import io.ethan.pushgo.ui.theme.pushGoPrimaryButtonColors
+import io.ethan.pushgo.ui.theme.pushGoSegmentedButtonColors
 import kotlinx.coroutines.launch
 
 @Composable
@@ -77,6 +78,7 @@ fun ChannelListScreen(
     onBottomBarVisibilityChanged: (Boolean) -> Unit,
 ) {
     val context = LocalContext.current
+    val uiColors = PushGoThemeExtras.colors
     val clipboard = LocalClipboard.current
     val scope = rememberCoroutineScope()
     val bottomGestureInset = rememberBottomGestureInset()
@@ -140,7 +142,7 @@ fun ChannelListScreen(
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background)
+            .background(uiColors.surfaceBase)
     ) {
         Row(
             modifier = Modifier
@@ -155,7 +157,7 @@ fun ChannelListScreen(
                     .padding(start = 12.dp)
                     .weight(1f)
                     .semantics { heading() },
-                color = MaterialTheme.colorScheme.onSurface
+                color = uiColors.textPrimary
             )
 
             IconButton(onClick = {
@@ -169,7 +171,7 @@ fun ChannelListScreen(
                 Icon(
                     imageVector = Icons.Outlined.Add,
                     contentDescription = stringResource(R.string.label_add_channel),
-                    tint = MaterialTheme.colorScheme.primary
+                    tint = uiColors.accentPrimary
                 )
             }
             IconButton(onClick = {
@@ -180,12 +182,12 @@ fun ChannelListScreen(
                 Icon(
                     imageVector = Icons.Outlined.Settings,
                     contentDescription = stringResource(R.string.tab_settings),
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                    tint = uiColors.textSecondary
                 )
             }
         }
         
-        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.2f))
+        PushGoDividerSubtle()
 
         LazyColumn(
             modifier = Modifier
@@ -218,16 +220,14 @@ fun ChannelListScreen(
                             announceForAccessibility(context, channelIdCopiedText)
                         },
                     )
-                    HorizontalDivider(
-                        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.1f)
-                    )
+                    PushGoDividerSubtle()
                 }
             }
         }
     }
     if (pendingChannelRemoval != null) {
         val target = pendingChannelRemoval
-        AlertDialog(
+        PushGoAlertDialog(
             onDismissRequest = { pendingChannelRemoval = null },
             title = {
                 Text(
@@ -242,18 +242,18 @@ fun ChannelListScreen(
             },
             confirmButton = {
                 Column {
-                    TextButton(
+                    PushGoDestructiveTextButton(
+                        text = stringResource(R.string.label_unsubscribe_delete_history),
                         onClick = {
-                            val channelId = target?.channelId ?: return@TextButton
-                            scope.launch {
-                                viewModel.unsubscribeChannel(context, channelId, deleteLocalMessages = true)
-                                pendingChannelRemoval = null
+                            target?.channelId?.let { channelId ->
+                                scope.launch {
+                                    viewModel.unsubscribeChannel(context, channelId, deleteLocalMessages = true)
+                                    pendingChannelRemoval = null
+                                }
                             }
                         },
                         enabled = !viewModel.isRemovingChannel,
-                    ) {
-                        Text(stringResource(R.string.label_unsubscribe_delete_history))
-                    }
+                    )
                     TextButton(
                         onClick = {
                             val channelId = target?.channelId ?: return@TextButton
@@ -273,7 +273,7 @@ fun ChannelListScreen(
 
     if (pendingChannelRename != null) {
         val target = pendingChannelRename
-        AlertDialog(
+        PushGoAlertDialog(
             onDismissRequest = { pendingChannelRename = null },
             title = {
                 Text(
@@ -291,6 +291,7 @@ fun ChannelListScreen(
                         label = { Text(stringResource(R.string.label_channel_alias)) },
                         modifier = Modifier.fillMaxWidth(),
                         singleLine = true,
+                        colors = pushGoOutlinedTextFieldColors(),
                     )
                     Text(
                         text = stringResource(R.string.label_rename_channel_hint),
@@ -323,13 +324,10 @@ fun ChannelListScreen(
 
     if (showChannelEntrySheet) {
         val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-        ModalBottomSheet(
+        PushGoModalBottomSheet(
             modifier = Modifier.testTag("sheet.channels.entry"),
             onDismissRequest = { showChannelEntrySheet = false },
             sheetState = sheetState,
-            containerColor = PushGoSheetContainerColor(),
-            tonalElevation = 0.dp,
-            contentWindowInsets = { WindowInsets(0) }
         ) {
             Column(
                 modifier = Modifier
@@ -353,6 +351,7 @@ fun ChannelListScreen(
                                 index = index,
                                 count = ChannelEntryMode.entries.size
                             ),
+                            colors = pushGoSegmentedButtonColors(),
                         ) {
                             Text(stringResource(mode.labelRes))
                         }
@@ -367,6 +366,7 @@ fun ChannelListScreen(
                             label = { Text(stringResource(R.string.label_channel_name)) },
                             modifier = Modifier.fillMaxWidth(),
                             singleLine = true,
+                            colors = pushGoOutlinedTextFieldColors(),
                         )
                         OutlinedTextField(
                             value = createChannelPassword,
@@ -375,6 +375,7 @@ fun ChannelListScreen(
                             modifier = Modifier.fillMaxWidth(),
                             singleLine = true,
                             isError = isCreatePasswordInvalid,
+                            colors = pushGoOutlinedTextFieldColors(),
                             supportingText = {
                                 if (isCreatePasswordInvalid) {
                                     Text(stringResource(R.string.error_channel_password_length))
@@ -390,6 +391,7 @@ fun ChannelListScreen(
                             label = { Text(stringResource(R.string.label_channel_id)) },
                             modifier = Modifier.fillMaxWidth(),
                             singleLine = true,
+                            colors = pushGoOutlinedTextFieldColors(),
                         )
                         OutlinedTextField(
                             value = subscribeChannelPassword,
@@ -398,6 +400,7 @@ fun ChannelListScreen(
                             modifier = Modifier.fillMaxWidth(),
                             singleLine = true,
                             isError = isSubscribePasswordInvalid,
+                            colors = pushGoOutlinedTextFieldColors(),
                             supportingText = {
                                 if (isSubscribePasswordInvalid) {
                                     Text(stringResource(R.string.error_channel_password_length))
@@ -414,7 +417,7 @@ fun ChannelListScreen(
                     TextButton(onClick = { showChannelEntrySheet = false }) {
                         Text(stringResource(R.string.label_cancel))
                     }
-                    TextButton(
+                    Button(
                         onClick = {
                             scope.launch {
                                 when (channelEntryMode) {
@@ -447,6 +450,7 @@ fun ChannelListScreen(
                             }
                         },
                         enabled = canSubmitChannelEntry,
+                        colors = pushGoPrimaryButtonColors(),
                     ) {
                         Text(stringResource(channelEntryMode.labelRes))
                     }
@@ -469,13 +473,14 @@ private fun ChannelRow(
     onDelete: () -> Unit,
     onCopy: () -> Unit,
 ) {
+    val uiColors = PushGoThemeExtras.colors
     var menuExpanded by remember { mutableStateOf(false) }
 
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .heightIn(min = 64.dp)
-            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.25f))
+            .background(PushGoThemeExtras.colors.fieldContainer)
             .clickable { onCopy() }
             .padding(horizontal = 20.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -484,13 +489,13 @@ private fun ChannelRow(
             Text(
                 text = subscription.displayName,
                 style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
-                color = MaterialTheme.colorScheme.onSurface
+                color = uiColors.textPrimary
             )
             Spacer(modifier = Modifier.height(2.dp))
             Text(
                 text = subscription.channelId,
                 style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                color = uiColors.textSecondary,
                 maxLines = 1
             )
         }
@@ -500,7 +505,7 @@ private fun ChannelRow(
                 Icon(
                     imageVector = Icons.Outlined.MoreVert,
                     contentDescription = stringResource(R.string.label_channel_actions),
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                    tint = uiColors.textSecondary
                 )
             }
             DropdownMenu(

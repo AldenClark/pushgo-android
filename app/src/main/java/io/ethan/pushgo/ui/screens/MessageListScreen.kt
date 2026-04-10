@@ -71,15 +71,16 @@ import coil.compose.AsyncImage
 import io.ethan.pushgo.R
 import io.ethan.pushgo.automation.PushGoAutomation
 import io.ethan.pushgo.data.AppContainer
+import io.ethan.pushgo.data.model.MessageListSortMode
 import io.ethan.pushgo.data.model.PushMessage
 import io.ethan.pushgo.data.model.MessageSeverity
-import io.ethan.pushgo.data.model.ReadFilter
 import io.ethan.pushgo.notifications.ForegroundNotificationPresentationState
 import io.ethan.pushgo.notifications.ForegroundNotificationTopMetrics
 import io.ethan.pushgo.ui.PushGoViewModelFactory
 import io.ethan.pushgo.ui.announceForAccessibility
 import io.ethan.pushgo.ui.rememberBottomBarNestedScrollConnection
 import io.ethan.pushgo.ui.rememberBottomGestureInset
+import io.ethan.pushgo.ui.theme.PushGoThemeExtras
 import io.ethan.pushgo.ui.viewmodel.MessageListViewModel
 import io.ethan.pushgo.ui.viewmodel.MessageSearchViewModel
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -91,10 +92,7 @@ import java.time.format.DateTimeFormatter
 import java.time.temporal.ChronoUnit
 import java.util.*
 import kotlin.math.roundToInt
-import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.ui.graphics.SolidColor
-import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.foundation.lazy.items
 
 private val ScreenHorizontalPadding = 12.dp
@@ -115,6 +113,7 @@ fun MessageListScreen(
 ) {
     val viewModel: MessageListViewModel = viewModel(factory = factory)
     val searchViewModel: MessageSearchViewModel = viewModel(factory = factory)
+    val uiColors = PushGoThemeExtras.colors
     val messages = viewModel.messages.collectAsLazyPagingItems()
     val filterState by viewModel.filterState.collectAsStateWithLifecycle()
     val channelCounts by viewModel.channelCounts.collectAsStateWithLifecycle()
@@ -270,7 +269,7 @@ fun MessageListScreen(
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
-                .background(MaterialTheme.colorScheme.background)
+                .background(uiColors.surfaceBase)
                 .nestedScroll(bottomBarNestedScrollConnection)
                 .onGloballyPositioned { listTopInWindow = it.positionInWindow().y },
             state = listState,
@@ -294,61 +293,42 @@ fun MessageListScreen(
                         } else {
                             Row(modifier = Modifier.fillMaxWidth().padding(horizontal = ScreenHorizontalPadding), verticalAlignment = Alignment.CenterVertically) {
                                 var searchMenuExpanded by remember { mutableStateOf(false) }
-                                Row(
-                                    modifier = Modifier.weight(1f).height(48.dp).clip(RoundedCornerShape(24.dp))
-                                        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                PushGoSearchBar(
+                                    value = query,
+                                    onValueChange = searchViewModel::updateQuery,
+                                    placeholderText = stringResource(R.string.label_search),
+                                    modifier = Modifier.weight(1f).testTag("field.message.search")
                                 ) {
-                                    Spacer(modifier = Modifier.width(16.dp))
-                                    Icon(Icons.Default.Search, null, tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f))
-                                    BasicTextField(
-                                        value = query,
-                                        onValueChange = searchViewModel::updateQuery,
-                                        modifier = Modifier.weight(1f).testTag("field.message.search"),
-                                        textStyle = MaterialTheme.typography.bodyLarge.copy(color = MaterialTheme.colorScheme.onSurface),
-                                        singleLine = true,
-                                        cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
-                                        decorationBox = { innerTextField ->
-                                            TextFieldDefaults.DecorationBox(
-                                                value = query,
-                                                innerTextField = innerTextField,
-                                                enabled = true,
-                                                singleLine = true,
-                                                visualTransformation = VisualTransformation.None,
-                                                interactionSource = remember { MutableInteractionSource() },
-                                                placeholder = { Text(stringResource(R.string.label_search), color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)) },
-                                                colors = TextFieldDefaults.colors(
-                                                    focusedContainerColor = Color.Transparent,
-                                                    unfocusedContainerColor = Color.Transparent,
-                                                    focusedIndicatorColor = Color.Transparent,
-                                                    unfocusedIndicatorColor = Color.Transparent,
-                                                ),
-                                                contentPadding = PaddingValues(vertical = 0.dp),
-                                                container = {}
+                                    Box {
+                                        IconButton(onClick = {
+                                            val nextSortMode =
+                                                if (filterState.sortMode == MessageListSortMode.UNREAD_FIRST) {
+                                                    MessageListSortMode.TIME_DESC
+                                                } else {
+                                                    MessageListSortMode.UNREAD_FIRST
+                                                }
+                                            viewModel.setSortMode(nextSortMode)
+                                            searchViewModel.setSortMode(nextSortMode)
+                                        }) {
+                                            val unreadFirstEnabled = filterState.sortMode == MessageListSortMode.UNREAD_FIRST
+                                            Icon(
+                                                imageVector = Icons.Outlined.SwapVert,
+                                                contentDescription = stringResource(R.string.label_sort),
+                                                tint = if (unreadFirstEnabled) uiColors.accentPrimary else uiColors.iconMuted,
                                             )
                                         }
-                                    )
+                                    }
                                     Box {
                                         IconButton(onClick = { searchMenuExpanded = true }) {
-                                            val hasActiveFilter = filterState.channel != null || filterState.readFilter == ReadFilter.UNREAD
+                                            val hasActiveFilter = filterState.channel != null
                                             Icon(
                                                 imageVector = if (!hasActiveFilter) Icons.Outlined.OutlinedFilterList else Icons.Filled.FilledFilterList,
                                                 contentDescription = stringResource(R.string.label_channel_id),
-                                                tint = if (hasActiveFilter) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                                                tint = if (hasActiveFilter) uiColors.accentPrimary else uiColors.iconMuted,
                                             )
                                         }
                                         DropdownMenu(expanded = searchMenuExpanded, onDismissRequest = { searchMenuExpanded = false }) {
-                                            DropdownMenuItem(
-                                                text = { Text(stringResource(R.string.filter_unread)) },
-                                                onClick = {
-                                                    viewModel.setReadFilter(if (filterState.readFilter == ReadFilter.UNREAD) ReadFilter.ALL else ReadFilter.UNREAD)
-                                                    searchMenuExpanded = false
-                                                },
-                                                trailingIcon = { if (filterState.readFilter == ReadFilter.UNREAD) Icon(Icons.Outlined.Check, null, modifier = Modifier.size(18.dp)) }
-                                            )
                                             if (channelOptions.isNotEmpty()) {
-                                                HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
                                                 channelOptions.forEach { channel ->
                                                     DropdownMenuItem(
                                                         text = { Text(if (channel.isBlank()) stringResource(R.string.label_group_ungrouped) else channelNameMap[channel] ?: channel, maxLines = 1, overflow = TextOverflow.Ellipsis) },
@@ -360,7 +340,7 @@ fun MessageListScreen(
                                         }
                                     }
                                     IconButton(onClick = { isSelectionMode = true; selectedMessageIds = emptySet() }) {
-                                        Icon(Icons.Outlined.Checklist, stringResource(R.string.action_batch_select), tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f))
+                                        Icon(Icons.Outlined.Checklist, stringResource(R.string.action_batch_select), tint = uiColors.iconMuted)
                                     }
                                 }
                             }
@@ -369,7 +349,7 @@ fun MessageListScreen(
                     Text(
                         text = stringResource(R.string.tab_messages),
                         style = MaterialTheme.typography.headlineMedium.copy(fontWeight = FontWeight.SemiBold, letterSpacing = (-0.5).sp),
-                        color = MaterialTheme.colorScheme.onBackground,
+                        color = uiColors.textPrimary,
                         modifier = Modifier.padding(start = ScreenHorizontalPadding, top = 8.dp, bottom = 12.dp).semantics { heading() },
                     )
                 }
@@ -454,11 +434,19 @@ fun MessageListScreen(
         }
 
         if (showBatchDeleteConfirmation) {
-            AlertDialog(
+            PushGoAlertDialog(
                 onDismissRequest = { showBatchDeleteConfirmation = false },
                 title = { Text(text = stringResource(R.string.action_delete)) },
                 text = { Text(text = stringResource(R.string.confirm_delete_selected_messages, selectedMessageIds.size)) },
-                confirmButton = { TextButton(onClick = { showBatchDeleteConfirmation = false; scope.launch { deleteSelectedMessages() } }) { Text(stringResource(R.string.label_confirm)) } },
+                confirmButton = {
+                    PushGoDestructiveTextButton(
+                        text = stringResource(R.string.label_confirm),
+                        onClick = {
+                            showBatchDeleteConfirmation = false
+                            scope.launch { deleteSelectedMessages() }
+                        },
+                    )
+                },
                 dismissButton = { TextButton(onClick = { showBatchDeleteConfirmation = false }) { Text(stringResource(R.string.label_cancel)) } },
             )
         }
@@ -488,23 +476,32 @@ private fun MessageRow(
     val timeText = remember(message.receivedAt) { formatMessageTime(context, message.receivedAt, ZoneId.systemDefault()) }
     val bodyPreview = remember(message.bodyPreview) { message.bodyPreview?.trim().orEmpty() }
 
-    Box(modifier = modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f))) {
+    val uiColors = PushGoThemeExtras.colors
+    Box(modifier = modifier.fillMaxWidth().background(uiColors.fieldContainer)) {
         if (!selectionMode) {
             Row(modifier = Modifier.matchParentSize().padding(end = 16.dp), horizontalArrangement = Arrangement.End, verticalAlignment = Alignment.CenterVertically) {
                 if (hasMarkReadAction) {
-                    IconButton(onClick = { offsetX = 0f; onMarkRead() }, modifier = Modifier.size(40.dp).clip(CircleShape).background(MaterialTheme.colorScheme.secondaryContainer)) {
-                        Icon(Icons.Outlined.MarkEmailRead, null, tint = MaterialTheme.colorScheme.onSecondaryContainer, modifier = Modifier.size(20.dp))
-                    }
+                    PushGoCircularActionIconButton(
+                        imageVector = Icons.Outlined.MarkEmailRead,
+                        contentDescription = null,
+                        onClick = { offsetX = 0f; onMarkRead() },
+                        containerColor = uiColors.stateInfo.background,
+                        contentColor = uiColors.stateInfo.foreground,
+                    )
                     Spacer(modifier = Modifier.width(12.dp))
                 }
-                IconButton(onClick = { offsetX = 0f; onDelete() }, modifier = Modifier.size(40.dp).clip(CircleShape).background(MaterialTheme.colorScheme.errorContainer)) {
-                    Icon(Icons.Outlined.Delete, null, tint = MaterialTheme.colorScheme.onErrorContainer, modifier = Modifier.size(20.dp))
-                }
+                PushGoCircularActionIconButton(
+                    imageVector = Icons.Outlined.Delete,
+                    contentDescription = null,
+                    onClick = { offsetX = 0f; onDelete() },
+                    containerColor = uiColors.stateDanger.background,
+                    contentColor = uiColors.stateDanger.foreground,
+                )
             }
         }
         Column(
             modifier = Modifier.offset { IntOffset(offsetX.roundToInt(), 0) }.fillMaxWidth()
-                .background(if (selected) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f) else MaterialTheme.colorScheme.surface)
+                .background(if (selected) uiColors.selectedRowFill else uiColors.surfaceBase)
                 .combinedClickable(
                     onClick = { if (selectionMode) onToggleSelection() else onClick() },
                     onLongClick = { if (!selectionMode) { haptic.performHapticFeedback(HapticFeedbackType.LongPress); onToggleSelection() } }
@@ -521,7 +518,7 @@ private fun MessageRow(
         ) {
             Row(verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 if (selectionMode) {
-                    Icon(imageVector = if (selected) Icons.Filled.CheckCircle else Icons.Outlined.Circle, contentDescription = null, tint = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline, modifier = Modifier.size(24.dp).padding(top = 2.dp).clickable { onToggleSelection() })
+                    PushGoSelectionIndicator(selected = selected, onClick = onToggleSelection)
                 }
                 Column(modifier = Modifier.weight(1f)) {
                     MessageRowContent(message, imageModels, stringResource(R.string.app_name), timeText, bodyPreview)
@@ -529,11 +526,12 @@ private fun MessageRow(
             }
         }
     }
-    HorizontalDivider(thickness = 1.dp, color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.2f))
+    PushGoDividerSubtle(thickness = 1.dp)
 }
 
 @Composable
 fun MessageRowContent(message: PushMessage, imageModels: List<Any>, appName: String, timeText: String, bodyPreview: String) {
+    val uiColors = PushGoThemeExtras.colors
     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
         Column(modifier = Modifier.weight(1f)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -541,13 +539,13 @@ fun MessageRowContent(message: PushMessage, imageModels: List<Any>, appName: Str
                 MessageSeverityListBadge(message.severity)
             }
         }
-        if (!message.isRead) { Box(modifier = Modifier.size(8.dp).clip(CircleShape).background(MaterialTheme.colorScheme.primary)); Spacer(modifier = Modifier.width(6.dp)) }
-        Text(text = timeText, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        if (!message.isRead) { PushGoStatusDot(color = uiColors.accentPrimary); Spacer(modifier = Modifier.width(6.dp)) }
+        Text(text = timeText, style = MaterialTheme.typography.labelSmall, color = uiColors.textSecondary)
     }
     if (bodyPreview.isNotBlank() || imageModels.isNotEmpty() || message.tags.isNotEmpty()) {
         Column(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 6.dp)) {
-            if (bodyPreview.isNotBlank()) Text(text = bodyPreview, style = MaterialTheme.typography.bodyMedium, maxLines = 3, overflow = TextOverflow.Ellipsis, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            if (message.tags.isNotEmpty()) Text(text = message.tags.joinToString(" · "), style = MaterialTheme.typography.labelSmall.copy(fontFamily = FontFamily.Monospace), color = MaterialTheme.colorScheme.primary.copy(alpha = 0.7f))
+            if (bodyPreview.isNotBlank()) Text(text = bodyPreview, style = MaterialTheme.typography.bodyMedium, maxLines = 3, overflow = TextOverflow.Ellipsis, color = uiColors.textSecondary)
+            if (message.tags.isNotEmpty()) Text(text = message.tags.joinToString(" · "), style = MaterialTheme.typography.labelSmall.copy(fontFamily = FontFamily.Monospace), color = PushGoThemeExtras.colors.stateInfo.foreground)
             if (imageModels.isNotEmpty()) Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { imageModels.forEach { AsyncImage(model = it, contentDescription = null, modifier = Modifier.size(56.dp).clip(RoundedCornerShape(8.dp)), contentScale = ContentScale.Crop) } }
         }
     }
@@ -555,13 +553,14 @@ fun MessageRowContent(message: PushMessage, imageModels: List<Any>, appName: Str
 
 @Composable
 private fun MessageSeverityListBadge(severity: MessageSeverity?) {
-    val (label, color) = when (severity) {
-        MessageSeverity.HIGH -> stringResource(R.string.message_severity_high_compact) to Color(0xFFB45309)
-        MessageSeverity.CRITICAL -> stringResource(R.string.message_severity_critical_compact) to Color(0xFFB91C1C)
+    val colors = PushGoThemeExtras.colors
+    val (label, palette) = when (severity) {
+        MessageSeverity.HIGH -> stringResource(R.string.message_severity_high_compact) to colors.stateWarning
+        MessageSeverity.CRITICAL -> stringResource(R.string.message_severity_critical_compact) to colors.stateDanger
         else -> return
     }
-    Box(modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(color.copy(alpha = 0.12f)).padding(horizontal = 8.dp, vertical = 2.dp)) {
-        Text(text = label, style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold), color = color)
+    Box(modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(palette.background).padding(horizontal = 8.dp, vertical = 2.dp)) {
+        Text(text = label, style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold), color = palette.foreground)
     }
 }
 

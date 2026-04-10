@@ -21,7 +21,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
@@ -96,16 +96,16 @@ jobs:
           } >> "$GITHUB_ENV"
 
       - name: Set up Java
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: "21"
 
       - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@v4
+        uses: gradle/actions/setup-gradle@v6
 
       - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
+        uses: android-actions/setup-android@v4
 
       - name: Install Android SDK components
         shell: bash
@@ -265,7 +265,8 @@ jobs:
             dist
             --tag "${GITHUB_REF_NAME}"
             --repo "${GITHUB_REPOSITORY}"
-            --repo-feed-path "release/update-feed-v1.json"
+            --existing-feed "release/update-feed-v1.json"
+            --repo-feed-path ""
           )
           if [[ -n "${PUSHGO_UPDATE_FEED_SIGNING_KEY_FILE:-}" ]]; then
             cmd+=(--private-key-file "${PUSHGO_UPDATE_FEED_SIGNING_KEY_FILE}")
@@ -326,14 +327,173 @@ jobs:
           PUSHGO_UPDATE_DEPLOY_USER: ${{ secrets.PUSHGO_UPDATE_DEPLOY_USER }}
           PUSHGO_UPDATE_DEPLOY_PATH: ${{ secrets.PUSHGO_UPDATE_DEPLOY_PATH }}
 
-      - name: Upload release assets
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ github.ref_name }}
-          body: ${{ env.RELEASE_CHANGELOG_BODY }}
-          prerelease: ${{ steps.tag.outputs.prerelease == 'true' }}
-          overwrite_files: true
-          files: |
-            dist/*.apk
-            dist/BUILD_INFO.txt
-            dist/SHA256SUMS.txt
+      - name: Create or update GitHub release
+        id: github_release
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          api_root="${GITHUB_API_URL}/repos/${GITHUB_REPOSITORY}"
+          prerelease="${{ steps.tag.outputs.prerelease }}"
+          release_payload="$(jq -cn \
+            --arg tag_name "${GITHUB_REF_NAME}" \
+            --arg target_commitish "${GITHUB_SHA}" \
+            --arg name "${GITHUB_REF_NAME}" \
+            --arg body "${RELEASE_CHANGELOG_BODY}" \
+            --argjson prerelease "${prerelease}" \
+            '{
+              tag_name: $tag_name,
+              target_commitish: $target_commitish,
+              name: $name,
+              body: $body,
+              draft: false,
+              prerelease: $prerelease,
+              generate_release_notes: false
+            }')"
+
+          release_lookup_file="$(mktemp)"
+          release_status="$(
+            curl -sSL -o "${release_lookup_file}" -w "%{http_code}" \
+              -H "Accept: application/vnd.github+json" \
+              -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+              -H "X-GitHub-Api-Version: 2022-11-28" \
+              "${api_root}/releases/tags/${GITHUB_REF_NAME}" || true
+          )"
+
+          if [[ "${release_status}" == "200" ]]; then
+            release_id="$(jq -r '.id' "${release_lookup_file}")"
+            release_response_file="$(mktemp)"
+            curl -fsSL -X PATCH \
+              -H "Accept: application/vnd.github+json" \
+              -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+              -H "Content-Type: application/json" \
+              -H "X-GitHub-Api-Version: 2022-11-28" \
+              "${api_root}/releases/${release_id}" \
+              -d "${release_payload}" >"${release_response_file}"
+          elif [[ "${release_status}" == "404" ]]; then
+            release_response_file="$(mktemp)"
+            curl -fsSL -X POST \
+              -H "Accept: application/vnd.github+json" \
+              -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+              -H "Content-Type: application/json" \
+              -H "X-GitHub-Api-Version: 2022-11-28" \
+              "${api_root}/releases" \
+              -d "${release_payload}" >"${release_response_file}"
+          else
+            echo "Failed to look up release for tag ${GITHUB_REF_NAME}, status=${release_status}" >&2
+            cat "${release_lookup_file}" >&2
+            exit 1
+          fi
+
+          release_id="$(jq -r '.id' "${release_response_file}")"
+          upload_url="$(jq -r '.upload_url' "${release_response_file}" | sed 's/{?name,label}//')"
+          html_url="$(jq -r '.html_url' "${release_response_file}")"
+
+          {
+            echo "release_id=${release_id}"
+            echo "upload_url=${upload_url}"
+            echo "html_url=${html_url}"
+          } >> "${GITHUB_OUTPUT}"
+
+      - name: Upload GitHub release assets
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          api_root="${GITHUB_API_URL}/repos/${GITHUB_REPOSITORY}"
+          release_id="${{ steps.github_release.outputs.release_id }}"
+          upload_url="${{ steps.github_release.outputs.upload_url }}"
+
+          shopt -s nullglob
+          asset_files=(dist/*.apk dist/BUILD_INFO.txt dist/SHA256SUMS.txt)
+          shopt -u nullglob
+          if [[ ${#asset_files[@]} -eq 0 ]]; then
+            echo "No release assets found under dist/" >&2
+            exit 1
+          fi
+
+          assets_json="$(curl -fsSL \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "${api_root}/releases/${release_id}/assets?per_page=100")"
+
+          for file in "${asset_files[@]}"; do
+            asset_name="$(basename "${file}")"
+            while IFS= read -r asset_id; do
+              [[ -z "${asset_id}" ]] && continue
+              curl -fsSL -X DELETE \
+                -H "Accept: application/vnd.github+json" \
+                -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+                -H "X-GitHub-Api-Version: 2022-11-28" \
+                "${api_root}/releases/assets/${asset_id}" >/dev/null
+            done < <(printf '%s' "${assets_json}" | jq -r --arg name "${asset_name}" '.[] | select(.name == $name) | .id')
+
+            case "${file}" in
+              *.apk) content_type="application/vnd.android.package-archive" ;;
+              *) content_type="text/plain; charset=utf-8" ;;
+            esac
+
+            encoded_asset_name="$(jq -rn --arg value "${asset_name}" '$value|@uri')"
+            curl -fsSL -X POST \
+              -H "Accept: application/vnd.github+json" \
+              -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+              -H "Content-Type: ${content_type}" \
+              --data-binary @"${file}" \
+              "${upload_url}?name=${encoded_asset_name}" >/dev/null
+          done
+
+      - name: Persist update feed to repository
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          default_branch="${{ github.event.repository.default_branch }}"
+          track="stable"
+          if [[ "${{ steps.tag.outputs.kind }}" == "beta" ]]; then
+            track="beta"
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          for attempt in 1 2 3; do
+            branch_name="persist-update-feed-${GITHUB_RUN_ID}-${attempt}"
+            git fetch origin "${default_branch}"
+            git switch --force-create "${branch_name}" "origin/${default_branch}"
+
+            cmd=(
+              scripts/generate_update_feed.sh
+              "${track}"
+              dist
+              --tag "${GITHUB_REF_NAME}"
+              --repo "${GITHUB_REPOSITORY}"
+              --repo-feed-path "release/update-feed-v1.json"
+            )
+            if [[ -n "${PUSHGO_UPDATE_FEED_SIGNING_KEY_FILE:-}" ]]; then
+              cmd+=(--private-key-file "${PUSHGO_UPDATE_FEED_SIGNING_KEY_FILE}")
+            fi
+            "${cmd[@]}"
+
+            if git diff --quiet -- release/update-feed-v1.json; then
+              echo "Repository update feed is already current."
+              exit 0
+            fi
+
+            git add release/update-feed-v1.json
+            git commit -m "chore(release): persist update feed state for ${GITHUB_REF_NAME}"
+
+            if git push origin "HEAD:${default_branch}"; then
+              echo "Persisted update feed to ${default_branch}."
+              exit 0
+            fi
+
+            echo "Push rejected while persisting update feed, retrying with the latest ${default_branch}..." >&2
+          done
+
+          echo "Failed to persist update feed after multiple attempts." >&2
+          exit 1

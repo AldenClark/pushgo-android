@@ -2,28 +2,31 @@ package io.ethan.pushgo.ui.theme
 
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.dynamicDarkColorScheme
-import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.platform.LocalContext
+import androidx.compose.runtime.CompositionLocalProvider
 
 @Composable
 fun PushGoTheme(
     useDarkTheme: Boolean = isSystemInDarkTheme(),
-    dynamicColor: Boolean = true,
+    dynamicColor: Boolean = false,
     content: @Composable () -> Unit,
 ) {
-    val colorScheme = when {
-        dynamicColor -> {
-            val context = LocalContext.current
-            if (useDarkTheme) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
-        }
-        useDarkTheme -> DarkColorScheme
-        else -> LightColorScheme
+    val extendedColors = when {
+        dynamicColor && useDarkTheme -> DarkExtendedColors
+        dynamicColor -> LightExtendedColors
+        useDarkTheme -> DarkExtendedColors
+        else -> LightExtendedColors
+    }
+    val colorScheme = if (useDarkTheme) {
+        extendedColors.toDarkMaterialColorScheme()
+    } else {
+        extendedColors.toMaterialColorScheme()
     }
 
-    MaterialTheme(
-        colorScheme = colorScheme,
-        content = content,
-    )
+    CompositionLocalProvider(LocalPushGoExtendedColors provides extendedColors) {
+        MaterialTheme(
+            colorScheme = colorScheme,
+            content = content,
+        )
+    }
 }

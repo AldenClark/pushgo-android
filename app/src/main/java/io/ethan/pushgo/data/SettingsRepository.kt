@@ -4,6 +4,7 @@ import android.content.SharedPreferences
 import io.ethan.pushgo.data.db.AppSettingsDao
 import io.ethan.pushgo.data.db.AppSettingsEntity
 import io.ethan.pushgo.data.model.KeyEncoding
+import io.ethan.pushgo.data.model.MessageListSortMode
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
@@ -53,6 +54,11 @@ class SettingsRepository(
     fun getCachedUpdateBetaChannelEnabled(): Boolean =
         settingsCache.getBoolean(KEY_UPDATE_BETA_CHANNEL_ENABLED, false)
 
+    fun getCachedMessageListSortMode(): MessageListSortMode =
+        MessageListSortMode.fromPersistedValue(
+            settingsCache.getString(KEY_MESSAGE_LIST_SORT_MODE, MessageListSortMode.TIME_DESC.persistedValue)
+        )
+
     fun getCachedUpdateScheduledCheckIntervalSeconds(): Long =
         settingsCache.getLong(KEY_UPDATE_SCHEDULED_CHECK_INTERVAL_SECONDS, AppConstants.updateCheckIntervalSeconds)
 
@@ -75,6 +81,12 @@ class SettingsRepository(
         settingsCache.edit()
             .putBoolean(KEY_UPDATE_AUTO_CHECK_ENABLED, settings.updateAutoCheckEnabled)
             .putBoolean(KEY_UPDATE_BETA_CHANNEL_ENABLED, settings.updateBetaChannelEnabled)
+            .commit()
+    }
+
+    fun setCachedMessageListSortMode(sortMode: MessageListSortMode) {
+        settingsCache.edit()
+            .putString(KEY_MESSAGE_LIST_SORT_MODE, sortMode.persistedValue)
             .commit()
     }
 
@@ -343,5 +355,6 @@ class SettingsRepository(
         private const val KEY_UPDATE_BETA_CHANNEL_ENABLED = "update_beta_channel_enabled"
         private const val KEY_UPDATE_SCHEDULED_CHECK_INTERVAL_SECONDS = "update_scheduled_check_interval_seconds"
         private const val KEY_UPDATE_IMPATIENT_REMINDER_INTERVAL_SECONDS = "update_impatient_reminder_interval_seconds"
+        private const val KEY_MESSAGE_LIST_SORT_MODE = "message_list_sort_mode"
     }
 }

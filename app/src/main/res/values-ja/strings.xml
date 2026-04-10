@@ -5,7 +5,7 @@
     <string name="action_mark_all_read">すべて既読にする</string>
     <string name="action_delete">削除</string>
     <string name="action_copy">コピー</string>
-    <string name="label_more_actions">その他の操作</string><string name="filter_unread">未読メッセージのみを表示</string><string name="label_server_address">サーバーアドレス</string>
+    <string name="label_more_actions">その他の操作</string><string name="label_server_address">サーバーアドレス</string>
     <string name="label_server_token">認証トークン（任意）</string>
     <string name="label_save">保存</string>
     <string name="label_save_gateway">ゲートウェイ設定を保存</string>

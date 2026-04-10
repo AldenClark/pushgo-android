@@ -30,7 +30,14 @@ interface MessageDao {
             OR (:channel != '' AND channel = :channel)
           )
           AND (:serverId IS NULL OR server_id = :serverId)
-        ORDER BY received_at DESC
+        ORDER BY
+          CASE
+            WHEN :prioritizeUnread = 1 AND is_read = 0 THEN 0
+            WHEN :prioritizeUnread = 1 THEN 1
+            ELSE 0
+          END ASC,
+          received_at DESC,
+          id DESC
         """
     )
     fun observeMessages(
@@ -38,6 +45,7 @@ interface MessageDao {
         withUrl: Int,
         channel: String?,
         serverId: String?,
+        prioritizeUnread: Int,
     ): PagingSource<Int, MessageEntity>
 
     @Query(
@@ -45,11 +53,18 @@ interface MessageDao {
         SELECT m.* FROM messages m
         JOIN message_fts f ON m.rowid = f.rowid
         WHERE message_fts MATCH :query
-        ORDER BY m.received_at DESC
+        ORDER BY
+          CASE
+            WHEN :prioritizeUnread = 1 AND m.is_read = 0 THEN 0
+            WHEN :prioritizeUnread = 1 THEN 1
+            ELSE 0
+          END ASC,
+          m.received_at DESC,
+          m.id DESC
         LIMIT :limit
         """
     )
-    fun searchMessages(query: String, limit: Int): Flow<List<MessageEntity>>
+    fun searchMessages(query: String, prioritizeUnread: Int, limit: Int): Flow<List<MessageEntity>>
 
     @Query("SELECT * FROM messages WHERE id = :id LIMIT 1")
     suspend fun getById(id: String): MessageEntity?

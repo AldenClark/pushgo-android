@@ -3,10 +3,11 @@ package io.ethan.pushgo.ui.viewmodel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import io.ethan.pushgo.data.MessageRepository
+import io.ethan.pushgo.data.SettingsRepository
 import io.ethan.pushgo.notifications.MessageStateCoordinator
 import io.ethan.pushgo.data.model.MessageFilter
+import io.ethan.pushgo.data.model.MessageListSortMode
 import io.ethan.pushgo.data.model.PushMessage
-import io.ethan.pushgo.data.model.ReadFilter
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -24,9 +25,12 @@ import kotlinx.coroutines.Job
 @OptIn(ExperimentalCoroutinesApi::class)
 class MessageListViewModel(
     private val repository: MessageRepository,
+    private val settingsRepository: SettingsRepository,
     private val stateCoordinator: MessageStateCoordinator,
 ) : ViewModel() {
-    private val filter = MutableStateFlow(MessageFilter())
+    private val filter = MutableStateFlow(
+        MessageFilter(sortMode = settingsRepository.getCachedMessageListSortMode())
+    )
     private val channelCountsEnabled = MutableStateFlow(false)
 
     val messages: Flow<PagingData<PushMessage>> = filter
@@ -52,16 +56,18 @@ class MessageListViewModel(
         }
     }
 
-    fun setReadFilter(readFilter: ReadFilter) {
-        filter.value = filter.value.copy(readFilter = readFilter)
-    }
-
     fun setWithUrlOnly(withUrlOnly: Boolean) {
         filter.value = filter.value.copy(withUrlOnly = withUrlOnly)
     }
 
     fun setChannel(channel: String?) {
         filter.value = filter.value.copy(channel = channel)
+    }
+
+    fun setSortMode(sortMode: MessageListSortMode) {
+        if (filter.value.sortMode == sortMode) return
+        filter.value = filter.value.copy(sortMode = sortMode)
+        settingsRepository.setCachedMessageListSortMode(sortMode)
     }
 
     fun markRead(messageId: String): Job {

@@ -7,7 +7,6 @@ import android.provider.Settings
 import android.widget.Toast
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -18,6 +17,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.shape.CircleShape
@@ -36,7 +36,6 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
@@ -53,7 +52,6 @@ import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Switch
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
@@ -76,7 +74,12 @@ import androidx.compose.ui.unit.sp
 import io.ethan.pushgo.R
 import io.ethan.pushgo.ui.rememberBottomGestureInset
 import io.ethan.pushgo.ui.announceForAccessibility
-import io.ethan.pushgo.ui.theme.PushGoSheetContainerColor
+import io.ethan.pushgo.ui.theme.PushGoThemeExtras
+import io.ethan.pushgo.ui.theme.pushGoDangerButtonColors
+import io.ethan.pushgo.ui.theme.pushGoOutlinedTextFieldColors
+import io.ethan.pushgo.ui.theme.pushGoPrimaryButtonColors
+import io.ethan.pushgo.ui.theme.pushGoPrimaryButtonElevation
+import io.ethan.pushgo.ui.theme.pushGoSegmentedButtonColors
 import io.ethan.pushgo.ui.viewmodel.SettingsViewModel
 
 import androidx.core.app.NotificationManagerCompat
@@ -99,6 +102,7 @@ fun SettingsScreen(
     onBackClick: (() -> Unit)? = null,
 ) {
     val context = LocalContext.current
+    val uiColors = PushGoThemeExtras.colors
     val fcmSupported = remember(context) { isFcmSupported(context) }
     var notificationsEnabled by remember { mutableStateOf(false) }
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -159,7 +163,7 @@ fun SettingsScreen(
         modifier = Modifier.testTag("screen.settings.content"),
         topBar = {
             Column(
-                modifier = Modifier.background(MaterialTheme.colorScheme.background),
+                modifier = Modifier.background(uiColors.surfaceBase),
             ) {
                 Row(
                     modifier = Modifier
@@ -172,7 +176,7 @@ fun SettingsScreen(
                             Icon(
                                 imageVector = Icons.AutoMirrored.Filled.ArrowBack,
                                 contentDescription = stringResource(R.string.label_back),
-                                tint = MaterialTheme.colorScheme.onSurface,
+                                tint = uiColors.textPrimary,
                             )
                         }
                     }
@@ -182,10 +186,10 @@ fun SettingsScreen(
                         modifier = Modifier
                             .weight(1f)
                             .semantics { heading() },
-                        color = MaterialTheme.colorScheme.onSurface,
+                        color = uiColors.textPrimary,
                     )
                 }
-                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.2f))
+                PushGoDividerSubtle()
             }
         },
     ) { scaffoldPadding ->
@@ -276,9 +280,9 @@ fun SettingsScreen(
                     }
                 )
                 val statusColor = if (viewModel.isDecryptionConfigured) {
-                    MaterialTheme.colorScheme.primary.copy(alpha = 0.75f)
+                    uiColors.stateInfo.foreground
                 } else {
-                    MaterialTheme.colorScheme.error.copy(alpha = 0.6f)
+                    uiColors.stateDanger.foreground
                 }
                 DecryptionSettingsRow(
                     testTag = "row.settings.decryption",
@@ -377,13 +381,10 @@ fun SettingsScreen(
 
     if (showDecryptionSheet) {
         val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-        ModalBottomSheet(
+        PushGoModalBottomSheet(
             modifier = Modifier.testTag("sheet.settings.decryption"),
             onDismissRequest = { showDecryptionSheet = false },
             sheetState = sheetState,
-            containerColor = PushGoSheetContainerColor(),
-            tonalElevation = 0.dp,
-            contentWindowInsets = { WindowInsets(0) }
         ) {
             Column(
                 modifier = Modifier
@@ -411,13 +412,10 @@ fun SettingsScreen(
 
     if (showGatewaySheet) {
         val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-        ModalBottomSheet(
+        PushGoModalBottomSheet(
             modifier = Modifier.testTag("sheet.settings.gateway"),
             onDismissRequest = { showGatewaySheet = false },
             sheetState = sheetState,
-            containerColor = PushGoSheetContainerColor(),
-            tonalElevation = 0.dp,
-            contentWindowInsets = { WindowInsets(0) }
         ) {
             Column(
                 modifier = Modifier
@@ -435,7 +433,7 @@ fun SettingsScreen(
     }
 
     if (viewModel.shouldShowPrivateChannelWhitelistDialog) {
-        AlertDialog(
+        PushGoAlertDialog(
             onDismissRequest = viewModel::consumePrivateChannelWhitelistDialog,
             title = { Text(text = stringResource(R.string.dialog_private_channel_whitelist_title)) },
             text = { Text(text = stringResource(R.string.dialog_private_channel_whitelist_body)) },
@@ -448,7 +446,7 @@ fun SettingsScreen(
     }
 
     if (viewModel.shouldShowInstallPermissionDialog) {
-        AlertDialog(
+        PushGoAlertDialog(
             onDismissRequest = viewModel::consumeInstallPermissionDialog,
             title = { Text(text = stringResource(R.string.label_update_install_permission_title)) },
             text = { Text(text = stringResource(R.string.label_update_install_permission_body)) },
@@ -473,10 +471,11 @@ fun SettingsScreen(
 
 @Composable
 private fun SettingsSectionHeader(text: String) {
+    val uiColors = PushGoThemeExtras.colors
     Text(
         text = text,
         style = MaterialTheme.typography.labelMedium,
-        color = MaterialTheme.colorScheme.primary,
+        color = uiColors.accentPrimary,
         modifier = Modifier
             .padding(
                 start = ScreenHorizontalPadding,
@@ -490,6 +489,7 @@ private fun SettingsSectionHeader(text: String) {
 
 @Composable
 private fun SettingsItemContainer(content: @Composable () -> Unit) {
+    val uiColors = PushGoThemeExtras.colors
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -497,7 +497,7 @@ private fun SettingsItemContainer(content: @Composable () -> Unit) {
     ) {
         content()
         HorizontalDivider(
-            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f),
+            color = uiColors.dividerStrong,
             thickness = 1.dp,
             modifier = Modifier.padding(start = 72.dp),
         )
@@ -512,6 +512,7 @@ private fun SettingsRow(
     subtitle: String?,
     onClick: (() -> Unit)?,
 ) {
+    val uiColors = PushGoThemeExtras.colors
     val modifier = if (onClick != null) {
         Modifier
             .fillMaxWidth()
@@ -531,7 +532,7 @@ private fun SettingsRow(
                 Icon(
                     imageVector = icon,
                     contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    tint = uiColors.textSecondary,
                 )
             },
             trailingContent = {
@@ -539,7 +540,7 @@ private fun SettingsRow(
                     Icon(
                         imageVector = Icons.Outlined.ChevronRight,
                         contentDescription = null,
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        tint = uiColors.textSecondary,
                     )
                 }
             },
@@ -556,6 +557,7 @@ private fun SettingsToggleRow(
     checked: Boolean,
     onCheckedChange: (Boolean) -> Unit,
 ) {
+    val uiColors = PushGoThemeExtras.colors
     SettingsItemContainer {
         ListItem(
             modifier = Modifier
@@ -568,7 +570,7 @@ private fun SettingsToggleRow(
                 Icon(
                     imageVector = icon,
                     contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    tint = uiColors.textSecondary,
                 )
             },
             trailingContent = {
@@ -589,6 +591,7 @@ private fun UpdateChannelSelectorRow(
     betaEnabled: Boolean,
     onToggleBeta: (Boolean) -> Unit,
 ) {
+    val uiColors = PushGoThemeExtras.colors
     SettingsItemContainer {
         ListItem(
             modifier = Modifier
@@ -599,14 +602,19 @@ private fun UpdateChannelSelectorRow(
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Text(subtitle)
                     SingleChoiceSegmentedButtonRow(
-                        modifier = Modifier.testTag("segmented.settings.update.channel"),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("segmented.settings.update.channel"),
                     ) {
                         SegmentedButton(
                             selected = !betaEnabled,
                             onClick = { if (betaEnabled) onToggleBeta(false) },
                             shape = SegmentedButtonDefaults.itemShape(index = 0, count = 2),
-                            modifier = Modifier.testTag("option.settings.update.channel.stable"),
+                            modifier = Modifier
+                                .widthIn(min = 132.dp)
+                                .testTag("option.settings.update.channel.stable"),
                             icon = {},
+                            colors = pushGoSegmentedButtonColors(),
                         ) {
                             Text(text = stringResource(R.string.label_update_channel_stable))
                         }
@@ -614,8 +622,11 @@ private fun UpdateChannelSelectorRow(
                             selected = betaEnabled,
                             onClick = { if (!betaEnabled) onToggleBeta(true) },
                             shape = SegmentedButtonDefaults.itemShape(index = 1, count = 2),
-                            modifier = Modifier.testTag("option.settings.update.channel.beta"),
+                            modifier = Modifier
+                                .widthIn(min = 132.dp)
+                                .testTag("option.settings.update.channel.beta"),
                             icon = {},
+                            colors = pushGoSegmentedButtonColors(),
                         ) {
                             Text(text = stringResource(R.string.label_update_channel_beta_plus_stable))
                         }
@@ -626,7 +637,7 @@ private fun UpdateChannelSelectorRow(
                 Icon(
                     imageVector = Icons.Outlined.Info,
                     contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    tint = uiColors.textSecondary,
                 )
             },
         )
@@ -641,13 +652,14 @@ private fun UpdateCandidateCard(
     onSkip: () -> Unit,
     onRemindLater: () -> Unit,
 ) {
+    val uiColors = PushGoThemeExtras.colors
     Card(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = ScreenHorizontalPadding, vertical = 8.dp)
             .testTag("card.settings.update.available"),
         colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f),
+            containerColor = PushGoThemeExtras.colors.stateInfo.background,
         ),
     ) {
         Column(
@@ -662,7 +674,7 @@ private fun UpdateCandidateCard(
                 text = candidate.notes?.takeIf { it.isNotBlank() }
                     ?: stringResource(R.string.label_update_available_body),
                 style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                color = uiColors.textSecondary,
             )
             Row(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -671,6 +683,7 @@ private fun UpdateCandidateCard(
                     enabled = !installing,
                     onClick = onInstall,
                     modifier = Modifier.testTag("action.settings.update.install"),
+                    colors = pushGoPrimaryButtonColors(),
                 ) {
                     Text(text = stringResource(R.string.label_update_install_now))
                 }
@@ -700,6 +713,7 @@ private fun DecryptionSettingsRow(
     statusColor: androidx.compose.ui.graphics.Color,
     onAction: () -> Unit,
 ) {
+    val uiColors = PushGoThemeExtras.colors
     SettingsItemContainer {
         ListItem(
             modifier = Modifier
@@ -712,14 +726,14 @@ private fun DecryptionSettingsRow(
                 Icon(
                     imageVector = Icons.Outlined.Lock,
                     contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    tint = uiColors.textSecondary,
                 )
             },
             trailingContent = {
                 Icon(
                     imageVector = Icons.Outlined.ChevronRight,
                     contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    tint = uiColors.textSecondary,
                 )
             },
         )
@@ -737,6 +751,7 @@ private fun TransportSelectorRow(
     isPrivateSupported: Boolean,
     onSelectUseFcm: (Boolean) -> Unit,
 ) {
+    val uiColors = PushGoThemeExtras.colors
     SettingsItemContainer {
         ListItem(
             modifier = Modifier
@@ -762,6 +777,7 @@ private fun TransportSelectorRow(
                             shape = SegmentedButtonDefaults.itemShape(index = 0, count = 2),
                             modifier = Modifier.testTag("option.settings.notification_transport.fcm"),
                             icon = {},
+                            colors = pushGoSegmentedButtonColors(),
                         ) {
                             Text(
                                 text = stringResource(R.string.label_transport_fcm),
@@ -780,6 +796,7 @@ private fun TransportSelectorRow(
                             shape = SegmentedButtonDefaults.itemShape(index = 1, count = 2),
                             modifier = Modifier.testTag("option.settings.notification_transport.private"),
                             icon = {},
+                            colors = pushGoSegmentedButtonColors(),
                         ) {
                             Text(
                                 text = stringResource(R.string.label_transport_private),
@@ -794,7 +811,7 @@ private fun TransportSelectorRow(
                 Icon(
                     imageVector = icon,
                     contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    tint = uiColors.textSecondary,
                 )
             },
         )
@@ -816,6 +833,7 @@ private fun DataPageChipGroupRow(
     onEventToggle: (Boolean) -> Unit,
     onThingToggle: (Boolean) -> Unit,
 ) {
+    val uiColors = PushGoThemeExtras.colors
     SettingsItemContainer {
         ListItem(
             modifier = Modifier
@@ -848,7 +866,7 @@ private fun DataPageChipGroupRow(
                 Icon(
                     imageVector = icon,
                     contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    tint = uiColors.textSecondary,
                 )
             },
         )
@@ -879,14 +897,15 @@ private fun DataPageFilterChip(
             null
         },
         colors = FilterChipDefaults.filterChipColors(
-            selectedContainerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.14f),
-            selectedLabelColor = MaterialTheme.colorScheme.primary,
+            selectedContainerColor = PushGoThemeExtras.colors.selectionFill,
+            selectedLabelColor = PushGoThemeExtras.colors.stateInfo.foreground,
         ),
     )
 }
 
 @Composable
 private fun NotificationCard(onClick: () -> Unit) {
+    val uiColors = PushGoThemeExtras.colors
     Card(
         modifier = Modifier
             .fillMaxWidth()
@@ -894,8 +913,8 @@ private fun NotificationCard(onClick: () -> Unit) {
             .padding(horizontal = 24.dp, vertical = 8.dp),
         shape = RoundedCornerShape(20.dp),
         colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.errorContainer,
-            contentColor = MaterialTheme.colorScheme.onErrorContainer,
+            containerColor = uiColors.stateDanger.background,
+            contentColor = uiColors.stateDanger.foreground,
         ),
     ) {
         Row(
@@ -906,13 +925,13 @@ private fun NotificationCard(onClick: () -> Unit) {
             Box(
                 modifier = Modifier
                     .size(36.dp)
-                    .background(MaterialTheme.colorScheme.error.copy(alpha = 0.15f), CircleShape),
+                    .background(uiColors.stateDanger.background, CircleShape),
                 contentAlignment = Alignment.Center,
             ) {
                 Icon(
                     imageVector = Icons.Outlined.NotificationsActive,
                     contentDescription = null,
-                    tint = MaterialTheme.colorScheme.error,
+                    tint = uiColors.stateDanger.foreground,
                 )
             }
             Column(modifier = Modifier.weight(1f)) {
@@ -923,16 +942,13 @@ private fun NotificationCard(onClick: () -> Unit) {
                 Text(
                     text = stringResource(R.string.label_enable_notifications_hint),
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onErrorContainer.copy(alpha = 0.8f),
+                    color = uiColors.stateDanger.foreground,
                 )
             }
             Button(
                 modifier = Modifier.testTag("action.settings.open_notification_settings"),
                 onClick = onClick,
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = MaterialTheme.colorScheme.error,
-                    contentColor = MaterialTheme.colorScheme.onError,
-                ),
+                colors = pushGoDangerButtonColors(),
             ) {
                 Text(stringResource(R.string.label_turn_on))
             }
@@ -985,6 +1001,7 @@ private fun isFcmSupported(context: Context): Boolean {
 
 @Composable
 private fun GatewaySection(viewModel: SettingsViewModel) {
+    val uiColors = PushGoThemeExtras.colors
     val context = LocalContext.current
     Column(
         modifier = Modifier.fillMaxWidth(),
@@ -1009,7 +1026,7 @@ private fun GatewaySection(viewModel: SettingsViewModel) {
         Text(
             text = stringResource(R.string.label_gateway_change_channel_reset_hint),
             style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            color = uiColors.textSecondary,
             modifier = Modifier.fillMaxWidth(),
         )
         Button(
@@ -1020,14 +1037,8 @@ private fun GatewaySection(viewModel: SettingsViewModel) {
                 .testTag("action.settings.gateway.save")
                 .height(56.dp),
             shape = RoundedCornerShape(28.dp),
-            colors = ButtonDefaults.buttonColors(
-                containerColor = MaterialTheme.colorScheme.primary,
-                contentColor = MaterialTheme.colorScheme.onPrimary,
-            ),
-            elevation = ButtonDefaults.buttonElevation(
-                defaultElevation = 4.dp,
-                pressedElevation = 2.dp,
-            ),
+            colors = pushGoPrimaryButtonColors(),
+            elevation = pushGoPrimaryButtonElevation(),
         ) {
             Text(stringResource(R.string.label_save_gateway))
         }
@@ -1041,6 +1052,7 @@ private fun GatewaySheetInputField(
     labelText: String,
     modifier: Modifier = Modifier,
 ) {
+    val uiColors = PushGoThemeExtras.colors
     OutlinedTextField(
         value = value,
         onValueChange = onValueChange,
@@ -1048,7 +1060,7 @@ private fun GatewaySheetInputField(
             Text(
                 text = labelText.uppercase(),
                 style = MaterialTheme.typography.labelMedium.copy(
-                    color = MaterialTheme.colorScheme.primary,
+                    color = uiColors.stateInfo.foreground,
                     fontWeight = FontWeight.Bold,
                     letterSpacing = 1.0.sp,
                 ),
@@ -1057,17 +1069,12 @@ private fun GatewaySheetInputField(
         placeholder = {
             Text(
                 text = labelText,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                color = uiColors.placeholderText,
             )
         },
         modifier = modifier,
         singleLine = true,
         shape = RoundedCornerShape(12.dp),
-        colors = OutlinedTextFieldDefaults.colors(
-            focusedBorderColor = MaterialTheme.colorScheme.primary,
-            unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant,
-            focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
-            unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
-        ),
+        colors = pushGoOutlinedTextFieldColors(),
     )
 }

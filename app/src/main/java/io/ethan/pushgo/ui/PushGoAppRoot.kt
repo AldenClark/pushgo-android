@@ -44,6 +44,7 @@ import io.ethan.pushgo.ui.screens.MessageDetailScreen
 import io.ethan.pushgo.ui.screens.MessageListScreen
 import io.ethan.pushgo.ui.screens.SettingsScreen
 import io.ethan.pushgo.ui.screens.ThingListScreen
+import io.ethan.pushgo.ui.theme.PushGoThemeExtras
 import io.ethan.pushgo.ui.viewmodel.SettingsViewModel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.Job
@@ -202,7 +203,7 @@ fun PushGoAppRoot(
     Scaffold(
         modifier = Modifier.fillMaxSize(),
         bottomBar = {
-            val colorScheme = MaterialTheme.colorScheme
+            val uiColors = PushGoThemeExtras.colors
             AnimatedVisibility(
                 // REMOVED selectedMessageId == null to keep TabBar visible when sheet is open
                 visible = showBottomBar && !hideBottomBarForBatchMode && bottomBarVisible,
@@ -235,9 +236,9 @@ fun PushGoAppRoot(
             ) {
                 NavigationBar(
                     modifier = Modifier.testTag("nav.bottom").drawBehind {
-                        drawLine(color = colorScheme.outlineVariant.copy(alpha = 0.3f), start = Offset(0f, 0f), end = Offset(size.width, 0f), strokeWidth = 0.5.dp.toPx())
+                        drawLine(color = uiColors.dividerStrong, start = Offset(0f, 0f), end = Offset(size.width, 0f), strokeWidth = 0.5.dp.toPx())
                     },
-                    containerColor = Color.Transparent,
+                    containerColor = uiColors.navigationBarBackground,
                     tonalElevation = 0.dp,
                     windowInsets = WindowInsets.navigationBars
                 ) {
@@ -263,10 +264,29 @@ fun PushGoAppRoot(
                             },
                             icon = {
                                 if (item.route is MessagesRoute && unreadCount > 0) {
-                                    BadgedBox(badge = { Badge { Text(if (unreadCount > 99) "99+" else unreadCount.toString()) } }) { Icon(item.icon, contentDescription = item.label) }
-                                } else { Icon(item.icon, contentDescription = item.label) }
+                                    BadgedBox(
+                                        badge = {
+                                            PushGoUnreadBadge(
+                                                text = if (unreadCount > 99) "99+" else unreadCount.toString()
+                                            )
+                                        }
+                                    ) {
+                                        Icon(item.icon, contentDescription = item.label)
+                                    }
+                                } else {
+                                    Icon(item.icon, contentDescription = item.label)
+                                }
                             },
                             label = { Text(item.label, style = MaterialTheme.typography.labelSmall) },
+                            colors = NavigationBarItemDefaults.colors(
+                                selectedIconColor = uiColors.accentPrimary,
+                                selectedTextColor = uiColors.accentPrimary,
+                                indicatorColor = uiColors.selectionFill,
+                                unselectedIconColor = uiColors.iconMuted,
+                                unselectedTextColor = uiColors.textSecondary,
+                                disabledIconColor = uiColors.iconMuted,
+                                disabledTextColor = uiColors.textSecondary
+                            )
                         )
                     }
                 }
@@ -300,6 +320,17 @@ fun PushGoAppRoot(
                 imageStore = container.messageImageStore, onDismiss = { selectedMessageId = null }
             )
         }
+    }
+}
+
+@Composable
+private fun PushGoUnreadBadge(text: String) {
+    val uiColors = PushGoThemeExtras.colors
+    Badge(
+        containerColor = uiColors.overlayForeground,
+        contentColor = uiColors.accentPrimary
+    ) {
+        Text(text)
     }
 }
 

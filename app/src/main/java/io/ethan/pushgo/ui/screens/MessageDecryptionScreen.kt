@@ -24,7 +24,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
@@ -52,6 +51,11 @@ import io.ethan.pushgo.R
 import io.ethan.pushgo.data.model.KeyEncoding
 import io.ethan.pushgo.ui.PushGoViewModelFactory
 import io.ethan.pushgo.ui.rememberBottomGestureInset
+import io.ethan.pushgo.ui.theme.pushGoPrimaryButtonElevation
+import io.ethan.pushgo.ui.theme.pushGoPrimaryButtonColors
+import io.ethan.pushgo.ui.theme.PushGoThemeExtras
+import io.ethan.pushgo.ui.theme.pushGoOutlinedTextFieldColors
+import io.ethan.pushgo.ui.theme.pushGoSegmentedButtonColors
 import io.ethan.pushgo.ui.viewmodel.SettingsViewModel
 import io.ethan.pushgo.ui.announceForAccessibility
 
@@ -66,6 +70,7 @@ fun MessageDecryptionScreen(
     viewModel: SettingsViewModel
 ) {
     val context = LocalContext.current
+    val uiColors = PushGoThemeExtras.colors
     val bottomGestureInset = rememberBottomGestureInset()
 
     LaunchedEffect(viewModel.errorMessage) {
@@ -91,7 +96,7 @@ fun MessageDecryptionScreen(
         modifier = Modifier
             .fillMaxSize()
             .testTag("screen.settings.decryption")
-            .background(MaterialTheme.colorScheme.background)
+            .background(uiColors.surfaceBase)
     ) {
         Row(
             modifier = Modifier
@@ -103,7 +108,7 @@ fun MessageDecryptionScreen(
                 Icon(
                     imageVector = Icons.AutoMirrored.Outlined.ArrowBack,
                     contentDescription = stringResource(R.string.label_back),
-                    tint = MaterialTheme.colorScheme.onSurface
+                    tint = uiColors.textPrimary
                 )
             }
             Text(
@@ -112,11 +117,11 @@ fun MessageDecryptionScreen(
                 modifier = Modifier
                     .weight(1f)
                     .semantics { heading() },
-                color = MaterialTheme.colorScheme.onSurface
+                color = uiColors.textPrimary
             )
         }
         
-        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.2f))
+        PushGoDividerSubtle()
 
         Column(
             modifier = Modifier
@@ -144,6 +149,7 @@ fun DecryptionKeyForm(
     modifier: Modifier = Modifier,
     fillRemaining: Boolean,
 ) {
+    val uiColors = PushGoThemeExtras.colors
     var showKey by remember { mutableStateOf(false) }
 
     Column(
@@ -158,6 +164,7 @@ fun DecryptionKeyForm(
                     selected = option == viewModel.keyEncoding,
                     onClick = { viewModel.updateKeyEncoding(option) },
                     shape = SegmentedButtonDefaults.itemShape(index = index, count = KeyEncoding.entries.size),
+                    colors = pushGoSegmentedButtonColors(),
                 ) {
                     Text(stringResource(keyEncodingLabel(option)))
                 }
@@ -171,7 +178,7 @@ fun DecryptionKeyForm(
                 Text(
                     text = stringResource(R.string.label_notification_key).uppercase(),
                     style = MaterialTheme.typography.labelMedium.copy(
-                        color = MaterialTheme.colorScheme.primary,
+                        color = uiColors.stateInfo.foreground,
                         fontWeight = FontWeight.Bold,
                         letterSpacing = 1.0.sp,
                     ),
@@ -180,7 +187,7 @@ fun DecryptionKeyForm(
             placeholder = {
                 Text(
                     text = stringResource(R.string.label_notification_key),
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    color = uiColors.placeholderText,
                 )
             },
             modifier = Modifier
@@ -200,23 +207,18 @@ fun DecryptionKeyForm(
                         } else {
                             stringResource(R.string.label_show_key)
                         },
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                        tint = uiColors.textSecondary
                     )
                 }
             },
             shape = RoundedCornerShape(12.dp),
-            colors = OutlinedTextFieldDefaults.colors(
-                focusedBorderColor = MaterialTheme.colorScheme.primary,
-                unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant,
-                focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
-                unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
-            )
+            colors = pushGoOutlinedTextFieldColors()
         )
 
         Text(
             text = stringResource(R.string.label_decryption_hint),
             style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            color = uiColors.textSecondary,
             modifier = Modifier.fillMaxWidth(),
         )
 
@@ -232,14 +234,8 @@ fun DecryptionKeyForm(
                 .testTag("action.settings.decryption.save")
                 .height(56.dp),
             shape = RoundedCornerShape(28.dp),
-            colors = ButtonDefaults.buttonColors(
-                containerColor = MaterialTheme.colorScheme.primary,
-                contentColor = MaterialTheme.colorScheme.onPrimary
-            ),
-            elevation = ButtonDefaults.buttonElevation(
-                defaultElevation = 4.dp,
-                pressedElevation = 2.dp
-            )
+            colors = pushGoPrimaryButtonColors(),
+            elevation = pushGoPrimaryButtonElevation()
         ) {
             Icon(
                 imageVector = Icons.Outlined.Save,

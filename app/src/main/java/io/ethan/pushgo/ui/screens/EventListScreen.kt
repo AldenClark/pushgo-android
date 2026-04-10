@@ -15,6 +15,7 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.EventNote
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.outlined.*
@@ -50,6 +51,8 @@ import io.ethan.pushgo.ui.PushGoViewModelFactory
 import io.ethan.pushgo.ui.rememberBottomBarNestedScrollConnection
 import io.ethan.pushgo.ui.rememberBottomGestureInset
 import io.ethan.pushgo.ui.theme.PushGoSheetContainerColor
+import io.ethan.pushgo.ui.theme.PushGoStateColors
+import io.ethan.pushgo.ui.theme.PushGoThemeExtras
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -61,10 +64,6 @@ import kotlinx.serialization.descriptors.PrimitiveSerialDescriptor
 import kotlinx.serialization.descriptors.SerialDescriptor
 import kotlinx.serialization.encoding.Decoder
 import kotlinx.serialization.encoding.Encoder
-import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.text.BasicTextField
-import androidx.compose.ui.graphics.SolidColor
-import androidx.compose.ui.text.input.VisualTransformation
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -170,6 +169,7 @@ fun EventListScreen(
     onBottomBarVisibilityChanged: (Boolean) -> Unit,
     scrollToTopToken: Long,
 ) {
+    val uiColors = PushGoThemeExtras.colors
     var allEvents by remember { mutableStateOf<List<EventCardModel>>(emptyList()) }
     var hasLoadedOnce by remember { mutableStateOf(false) }
     var eventCursor by remember { mutableStateOf<EntityProjectionCursor?>(null) }
@@ -295,11 +295,8 @@ fun EventListScreen(
     }
 
     if (selectedEvent != null && !isSelectionMode) {
-        ModalBottomSheet(
+        PushGoModalBottomSheet(
             onDismissRequest = { selectedEvent = null; onEventDetailClosed() },
-            containerColor = PushGoSheetContainerColor(),
-            tonalElevation = 0.dp,
-            contentWindowInsets = { WindowInsets(0) }
         ) {
             Text(
                 modifier = Modifier.padding(start = 24.dp, top = 24.dp, end = 24.dp, bottom = bottomGestureInset + 24.dp),
@@ -329,36 +326,12 @@ fun EventListScreen(
                             }
                         } else {
                             Row(modifier = Modifier.fillMaxWidth().padding(horizontal = ScreenHorizontalPadding), verticalAlignment = Alignment.CenterVertically) {
-                                Row(modifier = Modifier.weight(1f).height(48.dp).clip(RoundedCornerShape(24.dp)).background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                                    Spacer(modifier = Modifier.width(16.dp))
-                                    Icon(Icons.Default.Search, null, tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f))
-                                    BasicTextField(
-                                        value = searchQuery,
-                                        onValueChange = { searchQuery = it },
-                                        modifier = Modifier.weight(1f),
-                                        textStyle = MaterialTheme.typography.bodyLarge.copy(color = MaterialTheme.colorScheme.onSurface),
-                                        singleLine = true,
-                                        cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
-                                        decorationBox = { innerTextField ->
-                                            TextFieldDefaults.DecorationBox(
-                                                value = searchQuery,
-                                                innerTextField = innerTextField,
-                                                enabled = true,
-                                                singleLine = true,
-                                                visualTransformation = VisualTransformation.None,
-                                                interactionSource = remember { MutableInteractionSource() },
-                                                placeholder = { Text(stringResource(R.string.label_search_events), color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)) },
-                                                colors = TextFieldDefaults.colors(
-                                                    focusedContainerColor = Color.Transparent,
-                                                    unfocusedContainerColor = Color.Transparent,
-                                                    focusedIndicatorColor = Color.Transparent,
-                                                    unfocusedIndicatorColor = Color.Transparent,
-                                                ),
-                                                contentPadding = PaddingValues(vertical = 0.dp),
-                                                container = {}
-                                            )
-                                        }
-                                    )
+                                PushGoSearchBar(
+                                    value = searchQuery,
+                                    onValueChange = { searchQuery = it },
+                                    placeholderText = stringResource(R.string.label_search_events),
+                                    modifier = Modifier.weight(1f)
+                                ) {
                                     Box {
                                         var menuExpanded by remember { mutableStateOf(false) }
                                         IconButton(onClick = { menuExpanded = true }) {
@@ -366,7 +339,7 @@ fun EventListScreen(
                                             Icon(
                                                 imageVector = if (active) Icons.Filled.FilledFilterList else Icons.Outlined.OutlinedFilterList,
                                                 contentDescription = null,
-                                                tint = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                                                tint = if (active) uiColors.accentPrimary else uiColors.iconMuted
                                             )
                                         }
                                         DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
@@ -393,18 +366,18 @@ fun EventListScreen(
                                             }
                                         }
                                     }
-                                    IconButton(onClick = { isSelectionMode = true; selectedEventIds = emptySet() }) { Icon(Icons.Outlined.Checklist, stringResource(R.string.action_batch_select), tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)) }
+                                    IconButton(onClick = { isSelectionMode = true; selectedEventIds = emptySet() }) { Icon(Icons.Outlined.Checklist, stringResource(R.string.action_batch_select), tint = uiColors.iconMuted) }
                                 }
                             }
                         }
                     }
-                    Text(text = stringResource(R.string.label_send_type_event), style = MaterialTheme.typography.headlineMedium.copy(fontWeight = FontWeight.SemiBold, letterSpacing = (-0.5).sp), color = MaterialTheme.colorScheme.onBackground, modifier = Modifier.padding(start = ScreenHorizontalPadding, top = 8.dp, bottom = 12.dp).semantics { heading() })
+                    Text(text = stringResource(R.string.label_send_type_event), style = MaterialTheme.typography.headlineMedium.copy(fontWeight = FontWeight.SemiBold, letterSpacing = (-0.5).sp), color = uiColors.textPrimary, modifier = Modifier.padding(start = ScreenHorizontalPadding, top = 8.dp, bottom = 12.dp).semantics { heading() })
                 }
             }
             if (filteredEvents.isEmpty()) {
                 item {
                     AppEmptyState(
-                        icon = if (searchQuery.isNotEmpty() || channelFilter != null || showOnlyOpen) Icons.Default.Search else Icons.Outlined.EventNote,
+                        icon = if (searchQuery.isNotEmpty() || channelFilter != null || showOnlyOpen) Icons.Default.Search else Icons.AutoMirrored.Outlined.EventNote,
                         title = if (searchQuery.isNotEmpty() || channelFilter != null || showOnlyOpen) stringResource(R.string.label_no_search_results) else stringResource(R.string.label_no_events_title),
                         description = if (searchQuery.isNotEmpty() || channelFilter != null || showOnlyOpen) stringResource(R.string.message_list_empty_hint) else stringResource(R.string.label_no_events_hint),
                     )
@@ -423,29 +396,30 @@ fun EventListScreen(
 fun EventListRowItem(event: EventCardModel, onClick: () -> Unit, selectionMode: Boolean, selected: Boolean, onToggleSelection: () -> Unit, modifier: Modifier = Modifier, showDivider: Boolean = true) {
     val haptic = LocalHapticFeedback.current
     val context = LocalContext.current
+    val uiColors = PushGoThemeExtras.colors
     val isClosed = event.state == EventLifecycleState.Closed
-    Column(modifier = modifier.fillMaxWidth().background(if (selected) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f) else Color.Transparent).combinedClickable(onClick = onClick, onLongClick = { if (!selectionMode) { haptic.performHapticFeedback(HapticFeedbackType.LongPress); onToggleSelection() } }).padding(horizontal = 12.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    Column(modifier = modifier.fillMaxWidth().background(if (selected) uiColors.selectedRowFill else uiColors.surfaceBase).combinedClickable(onClick = onClick, onLongClick = { if (!selectionMode) { haptic.performHapticFeedback(HapticFeedbackType.LongPress); onToggleSelection() } }).padding(horizontal = 12.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Row(verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            if (selectionMode) { Icon(if (selected) Icons.Filled.CheckCircle else Icons.Outlined.Circle, null, tint = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline, modifier = Modifier.size(24.dp).padding(top = 2.dp).clickable { onToggleSelection() }) }
+            if (selectionMode) { PushGoSelectionIndicator(selected = selected, onClick = onToggleSelection) }
             Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(text = event.title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f), color = if (isClosed) MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f) else MaterialTheme.colorScheme.onSurface)
-                    Text(text = formatLocalRelativeTime(context, event.updatedAt), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(text = event.title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f), color = if (isClosed) uiColors.iconMuted else uiColors.textPrimary)
+                    Text(text = formatLocalRelativeTime(context, event.updatedAt), style = MaterialTheme.typography.labelSmall, color = uiColors.textSecondary)
                 }
                 EventStatusBadge(normalizedEventStatus(event.status) ?: stringResource(R.string.event_status_created_default), event.state, event.severity)
             }
         }
     }
-    if (showDivider) HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+    if (showDivider) PushGoDividerStrong()
 }
 
 @Composable
 private fun EventStatusBadge(statusText: String, state: EventLifecycleState, severity: EventSeverity?) {
-    val tint = eventSeverityTintInternal(severity) ?: eventStateTintInternal(state)
-    Surface(color = tint.copy(alpha = 0.14f), shape = MaterialTheme.shapes.small) {
+    val palette = eventSeverityPaletteInternal(severity) ?: eventStatePaletteInternal(state)
+    Surface(color = palette.background, shape = MaterialTheme.shapes.small) {
         Row(modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            Box(modifier = Modifier.height(6.dp).width(6.dp).clip(CircleShape).background(tint))
-            Text(text = statusText, style = MaterialTheme.typography.labelSmall, color = tint)
+            PushGoStatusDot(color = palette.foreground, modifier = Modifier.size(6.dp))
+            Text(text = statusText, style = MaterialTheme.typography.labelSmall, color = palette.foreground)
         }
     }
 }
@@ -482,10 +456,20 @@ private fun mergeEventCardsInternal(existing: List<EventCardModel>, incoming: Li
     return map.values.sortedByDescending { it.updatedAt }
 }
 
-private fun eventStateTintInternal(state: EventLifecycleState): Color = if (state == EventLifecycleState.Ongoing) Color(0xFF2563EB) else Color(0xFF6B7280)
-private fun eventSeverityTintInternal(severity: EventSeverity?): Color? = when (severity) {
-    EventSeverity.Critical -> Color(0xFFB91C1C)
-    EventSeverity.High -> Color(0xFFD97706)
-    else -> null
+@Composable
+private fun eventStatePaletteInternal(state: EventLifecycleState): PushGoStateColors {
+    val colors = PushGoThemeExtras.colors
+    return if (state == EventLifecycleState.Ongoing) colors.stateInfo else colors.stateNeutral
+}
+
+@Composable
+private fun eventSeverityPaletteInternal(severity: EventSeverity?): PushGoStateColors? {
+    val colors = PushGoThemeExtras.colors
+    return when (severity) {
+        EventSeverity.Critical -> colors.stateDanger
+        EventSeverity.High -> colors.stateWarning
+        EventSeverity.Normal, EventSeverity.Low -> colors.stateInfo
+        null -> null
+    }
 }
 private fun normalizedEventStatus(raw: String?): String? = raw?.trim()?.ifEmpty { null }

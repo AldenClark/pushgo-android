@@ -28,6 +28,7 @@ import androidx.navigation.NavHostController
 import io.ethan.pushgo.R
 import io.ethan.pushgo.automation.PushGoAutomation
 import io.ethan.pushgo.data.model.PushMessage
+import io.ethan.pushgo.ui.theme.PushGoThemeExtras
 import io.ethan.pushgo.markdown.MessageBodyResolver
 import io.ethan.pushgo.markdown.MessagePreviewExtractor
 import io.ethan.pushgo.ui.PushGoViewModelFactory
@@ -88,6 +89,7 @@ private fun SearchResultRow(message: PushMessage, onClick: () -> Unit) {
     val resolvedBody = remember(message.rawPayloadJson, message.body) {
         MessageBodyResolver.resolve(message.rawPayloadJson, message.body)
     }
+    val uiColors = PushGoThemeExtras.colors
     val bodyPreview = remember(resolvedBody.rawText) {
         MessagePreviewExtractor.listPreview(resolvedBody.rawText)
     }
@@ -110,13 +112,13 @@ private fun SearchResultRow(message: PushMessage, onClick: () -> Unit) {
                 style = MaterialTheme.typography.bodySmall,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                color = uiColors.textSecondary,
             )
         }
         Text(
             text = timeText,
             style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            color = uiColors.textSecondary,
         )
     }
 }

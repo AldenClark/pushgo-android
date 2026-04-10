@@ -5,7 +5,7 @@
     <string name="action_mark_all_read">Alle als gelesen markieren</string>
     <string name="action_delete">Löschen</string>
     <string name="action_copy">Kopieren</string>
-    <string name="label_more_actions">Mehr Aktionen</string><string name="filter_unread">Nur ungelesene Nachrichten anzeigen</string><string name="label_server_address">Serveradresse</string>
+    <string name="label_more_actions">Mehr Aktionen</string><string name="label_server_address">Serveradresse</string>
     <string name="label_server_token">Token (optional)</string>
     <string name="label_save">Speichern</string>
     <string name="label_save_gateway">Gateway speichern</string>

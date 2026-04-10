@@ -16,12 +16,14 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.unit.IntSize
+import io.ethan.pushgo.ui.theme.PushGoThemeExtras
 
 /**
  * A highly performant shimmer effect modifier for Material 3.
  */
 fun Modifier.shimmer(): Modifier = composed {
     var size by remember { mutableStateOf(IntSize.Zero) }
+    val extendedColors = PushGoThemeExtras.colors
     val transition = rememberInfiniteTransition(label = "shimmer")
     val startOffsetX by transition.animateFloat(
         initialValue = -2 * size.width.toFloat(),
@@ -35,9 +37,9 @@ fun Modifier.shimmer(): Modifier = composed {
     background(
         brush = Brush.linearGradient(
             colors = listOf(
-                Color(0xFFB8B8B8).copy(alpha = 0.2f),
-                Color(0xFFB8B8B8).copy(alpha = 0.5f),
-                Color(0xFFB8B8B8).copy(alpha = 0.2f),
+                extendedColors.shimmerBase,
+                extendedColors.shimmerHighlight,
+                extendedColors.shimmerBase,
             ),
             start = Offset(startOffsetX, 0f),
             end = Offset(startOffsetX + size.width.toFloat(), size.height.toFloat())

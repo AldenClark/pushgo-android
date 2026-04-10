@@ -77,7 +77,7 @@ class MainActivity : AppCompatActivity() {
         setContent {
             val useDarkTheme = isSystemInDarkTheme()
 
-            PushGoTheme(useDarkTheme = useDarkTheme) {
+            PushGoTheme(useDarkTheme = useDarkTheme, dynamicColor = false) {
                 if (container == null) {
                     StorageUnavailableScreen(
                         reason = storageError ?: "Local persistent storage is unavailable.",

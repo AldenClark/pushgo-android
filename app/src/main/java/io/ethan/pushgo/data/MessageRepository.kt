@@ -21,8 +21,8 @@ import io.ethan.pushgo.data.db.ThingSubMessageDao
 import io.ethan.pushgo.data.db.ThingSubMessageEntity
 import io.ethan.pushgo.data.model.MessageChannelCount
 import io.ethan.pushgo.data.model.MessageFilter
+import io.ethan.pushgo.data.model.MessageListSortMode
 import io.ethan.pushgo.data.model.PushMessage
-import io.ethan.pushgo.data.model.ReadFilter
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
@@ -50,11 +50,6 @@ class MessageRepository(
     }
 
     fun observeMessages(filter: MessageFilter): Flow<PagingData<PushMessage>> {
-        val readState = when (filter.readFilter) {
-            ReadFilter.ALL -> null
-            ReadFilter.UNREAD -> false
-            ReadFilter.READ -> true
-        }
         return Pager(
             config = PagingConfig(
                 pageSize = 50,
@@ -62,11 +57,13 @@ class MessageRepository(
                 initialLoadSize = 50
             ),
             pagingSourceFactory = {
+                val prioritizeUnread = if (filter.sortMode == MessageListSortMode.UNREAD_FIRST) 1 else 0
                 dao.observeMessages(
-                    readState = readState,
+                    readState = null,
                     withUrl = if (filter.withUrlOnly) 1 else 0,
                     channel = filter.channel,
                     serverId = filter.serverId,
+                    prioritizeUnread = prioritizeUnread,
                 )
             }
         ).flow.map { pagingData ->
@@ -74,12 +71,17 @@ class MessageRepository(
         }
     }
 
-    fun searchMessages(rawQuery: String, limit: Int = 200): Flow<List<PushMessage>> {
+    fun searchMessages(
+        rawQuery: String,
+        sortMode: MessageListSortMode,
+        limit: Int = 200
+    ): Flow<List<PushMessage>> {
         val query = buildFtsQuery(rawQuery)
         if (query.isEmpty()) {
             return kotlinx.coroutines.flow.flowOf(emptyList())
         }
-        return dao.searchMessages(query = query, limit = limit)
+        val prioritizeUnread = if (sortMode == MessageListSortMode.UNREAD_FIRST) 1 else 0
+        return dao.searchMessages(query = query, prioritizeUnread = prioritizeUnread, limit = limit)
             .map { list -> list.map(MessageEntity::asModel) }
     }
 

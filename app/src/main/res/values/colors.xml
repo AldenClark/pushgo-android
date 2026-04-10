@@ -1,2 +1,20 @@
 <resources>
+    <color name="pg_color_accent_primary">#0B57D0</color>
+    <color name="pg_color_surface_base">#FFFFFF</color>
+    <color name="pg_color_surface_raised">#F0F4F9</color>
+    <color name="pg_color_surface_sunken">#E7ECF3</color>
+    <color name="pg_color_text_primary">#1E1E1E</color>
+    <color name="pg_color_text_secondary">#444746</color>
+    <color name="pg_color_border_subtle">#D7DDE5</color>
+    <color name="pg_color_border_strong">#B8C0CC</color>
+    <color name="pg_color_state_info_fg">#0B57D0</color>
+    <color name="pg_color_state_info_bg">#D3E3FD</color>
+    <color name="pg_color_state_neutral_fg">#6B7280</color>
+    <color name="pg_color_state_neutral_bg">#EEF1F5</color>
+    <color name="pg_color_state_success_fg">#15803D</color>
+    <color name="pg_color_state_success_bg">#E2F5E8</color>
+    <color name="pg_color_state_warning_fg">#D97706</color>
+    <color name="pg_color_state_warning_bg">#FFF4D8</color>
+    <color name="pg_color_state_danger_fg">#B91C1C</color>
+    <color name="pg_color_state_danger_bg">#FEE2E2</color>
 </resources>

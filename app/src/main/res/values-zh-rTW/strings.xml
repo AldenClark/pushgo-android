@@ -5,7 +5,7 @@
     <string name="action_mark_all_read">全部標示為已讀</string>
     <string name="action_delete">刪除</string>
     <string name="action_copy">複製</string>
-    <string name="label_more_actions">更多操作</string><string name="filter_unread">僅顯示未讀訊息</string><string name="label_server_address">伺服器位址</string>
+    <string name="label_more_actions">更多操作</string><string name="label_server_address">伺服器位址</string>
     <string name="label_server_token">認證令牌（可選）</string>
     <string name="label_save">儲存</string>
     <string name="label_save_gateway">儲存網關設定</string>

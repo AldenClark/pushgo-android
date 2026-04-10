@@ -5,7 +5,7 @@
     <string name="action_mark_all_read">모두 읽음으로 표시</string>
     <string name="action_delete">삭제</string>
     <string name="action_copy">복사</string>
-    <string name="label_more_actions">추가 작업</string><string name="filter_unread">읽지 않은 메시지만 표시</string><string name="label_server_address">서버 주소</string>
+    <string name="label_more_actions">추가 작업</string><string name="label_server_address">서버 주소</string>
     <string name="label_server_token">인증 토큰 (선택)</string>
     <string name="label_save">저장</string>
     <string name="label_save_gateway">게이트웨이 설정 저장</string>

@@ -34,6 +34,7 @@ import io.noties.markwon.html.HtmlPlugin
 import io.noties.markwon.image.AsyncDrawableSpan
 import io.noties.markwon.image.coil.CoilImagesPlugin
 import io.noties.markwon.linkify.LinkifyPlugin
+import io.ethan.pushgo.ui.theme.PushGoThemeExtras
 
 @Composable
 fun SelectablePlainTextRenderer(
@@ -41,7 +42,7 @@ fun SelectablePlainTextRenderer(
     modifier: Modifier = Modifier,
     typeface: Typeface = Typeface.create("sans-serif", Typeface.NORMAL),
     textSizeSp: Float = androidx.compose.material3.MaterialTheme.typography.bodyMedium.fontSize.value,
-    textColorArgb: Int = androidx.compose.material3.MaterialTheme.colorScheme.onSurface.toArgb(),
+    textColorArgb: Int = PushGoThemeExtras.colors.textPrimary.toArgb(),
     lineSpacingExtraPx: Float = 0f,
 ) {
     AndroidView(
@@ -92,17 +93,17 @@ fun FullMarkdownRenderer(
     onOpenImage: ((String) -> Unit)? = null,
 ) {
     val context = LocalContext.current
-    val colorScheme = androidx.compose.material3.MaterialTheme.colorScheme
-    val color = colorScheme.onSurface.toArgb()
+    val uiColors = PushGoThemeExtras.colors
+    val color = uiColors.textPrimary.toArgb()
     val textSizeSp = androidx.compose.material3.MaterialTheme.typography.bodyMedium.fontSize.value
     val bodyTypeface = remember { Typeface.create("sans-serif", Typeface.NORMAL) }
-    val linkColor = colorScheme.primary.toArgb()
-    val codeBackgroundColor = colorScheme.surfaceVariant.copy(alpha = 0.72f).toArgb()
-    val quoteColor = colorScheme.outlineVariant.copy(alpha = 0.9f).toArgb()
-    val tableBorderColor = colorScheme.outlineVariant.copy(alpha = 0.85f).toArgb()
-    val tableHeaderBackgroundColor = colorScheme.surfaceContainerHighest.copy(alpha = 0.9f).toArgb()
-    val tableOddRowBackgroundColor = colorScheme.surfaceContainer.copy(alpha = 0.55f).toArgb()
-    val tableEvenRowBackgroundColor = colorScheme.surface.copy(alpha = 0.15f).toArgb()
+    val linkColor = uiColors.accentPrimary.toArgb()
+    val codeBackgroundColor = uiColors.codeBackground.toArgb()
+    val quoteColor = uiColors.quoteStroke.toArgb()
+    val tableBorderColor = uiColors.tableBorder.toArgb()
+    val tableHeaderBackgroundColor = uiColors.tableHeaderBackground.toArgb()
+    val tableOddRowBackgroundColor = uiColors.tableOddRowBackground.toArgb()
+    val tableEvenRowBackgroundColor = uiColors.tableEvenRowBackground.toArgb()
     val dp = context.resources.displayMetrics.density
     val blockMarginPx = (20f * dp).toInt()
     val codeBlockMarginPx = (12f * dp).toInt()

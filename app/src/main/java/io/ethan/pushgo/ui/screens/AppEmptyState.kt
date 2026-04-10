@@ -16,6 +16,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import io.ethan.pushgo.ui.theme.PushGoThemeExtras
 
 @Composable
 internal fun AppEmptyState(
@@ -28,6 +29,7 @@ internal fun AppEmptyState(
     horizontalPadding: Dp = 32.dp,
     iconSize: Dp = 72.dp,
 ) {
+    val uiColors = PushGoThemeExtras.colors
     Column(
         modifier = modifier
             .fillMaxWidth()
@@ -41,19 +43,19 @@ internal fun AppEmptyState(
             modifier = Modifier
                 .size(iconSize)
                 .padding(bottom = 16.dp),
-            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
+            tint = uiColors.iconMuted,
         )
         Text(
             text = title,
             style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            color = uiColors.textSecondary,
             modifier = Modifier.padding(bottom = 8.dp),
             textAlign = TextAlign.Center,
         )
         Text(
             text = description,
             style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
+            color = uiColors.placeholderText,
             textAlign = TextAlign.Center,
         )
     }
