@@ -48,6 +48,9 @@ PushGo Android policy:
 - GitHub Release publishing now uses release-notes-driven notes instead of generated release notes.
 - Updater feed protocol simplified to a single file (`update-feed-v1.json`), removing separate payload artifact.
 - Active online feed path switched to `/android/update-feed-v1.json` and workflow uses repository variable `PUSHGO_UPDATE_FEED_URL` instead of secret.
+- Prepared next beta release metadata:
+  - bumped default `appVersionName` to `v1.2.0-beta.2`
+  - added `release/update-notes/v1.2.0-beta.2.json` for localized updater notes source
 
 ### Fixed
 - Updated Android version metadata parsing to support both release and beta SemVer formats.

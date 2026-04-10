@@ -1,29 +1,32 @@
 package io.ethan.pushgo.ui.screens
 
+import android.content.Intent
 import android.content.Context
+import android.net.Uri
 import android.os.SystemClock
+import android.provider.MediaStore
+import android.widget.Toast
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
-import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.Delete
+import androidx.compose.material.icons.outlined.Download
 import androidx.compose.material.icons.outlined.MarkEmailRead
-import androidx.compose.material3.AlertDialog
+import androidx.compose.material.icons.outlined.Share
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -43,26 +46,27 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.platform.LocalClipboard
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.asPaddingValues
-import androidx.compose.foundation.layout.statusBars
 import androidx.lifecycle.viewmodel.compose.viewModel
-import androidx.navigation.NavHostController
+import androidx.core.content.FileProvider
 import coil.compose.AsyncImage
 import io.ethan.pushgo.R
 import io.ethan.pushgo.data.ChannelSubscriptionRepository
@@ -73,14 +77,22 @@ import io.ethan.pushgo.data.model.MessageSeverity
 import io.ethan.pushgo.markdown.MessageBodyResolver
 import io.ethan.pushgo.notifications.MessageStateCoordinator
 import io.ethan.pushgo.ui.MessageDetailViewModelFactory
+import io.ethan.pushgo.ui.announceForAccessibility
 import io.ethan.pushgo.ui.markdown.FullMarkdownRenderer
 import io.ethan.pushgo.ui.markdown.SelectablePlainTextRenderer
 import io.ethan.pushgo.ui.rememberBottomGestureInset
 import io.ethan.pushgo.ui.theme.PushGoSheetContainerColor
-import io.ethan.pushgo.util.normalizeExternalImageUrl
+import io.ethan.pushgo.ui.theme.PushGoStateColors
+import io.ethan.pushgo.ui.theme.PushGoThemeExtras
 import io.ethan.pushgo.ui.viewmodel.MessageDetailViewModel
+import io.ethan.pushgo.util.normalizeExternalImageUrl
 import io.ethan.pushgo.util.openExternalUrl
+import java.io.File
+import java.io.FileInputStream
+import java.io.FileOutputStream
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.Locale
@@ -97,9 +109,11 @@ fun MessageDetailScreen(
     imageStore: MessageImageStore,
     onDismiss: () -> Unit,
 ) {
+    val uiColors = PushGoThemeExtras.colors
     val initialRenderStartedAtMs = remember(messageId) { SystemClock.elapsedRealtime() }
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val bottomGestureInset = rememberBottomGestureInset()
+    val scope = rememberCoroutineScope()
     val viewModel: MessageDetailViewModel = viewModel(
         key = messageId,
         factory = MessageDetailViewModelFactory(repository, stateCoordinator, messageId),
@@ -107,6 +121,11 @@ fun MessageDetailScreen(
     val message by viewModel.message.collectAsState()
     val isLoading by viewModel.isLoading.collectAsState()
     val context = LocalContext.current
+    val clipboard = LocalClipboard.current
+    val copiedMessage = stringResource(R.string.message_text_copied)
+    val imageSavedMessage = stringResource(R.string.message_image_saved)
+    val imageSaveFailedMessage = stringResource(R.string.error_message_image_save_failed)
+    val imageShareFailedMessage = stringResource(R.string.error_message_image_share_failed)
     LaunchedEffect(messageId) {
         viewModel.load()
     }
@@ -135,13 +154,10 @@ fun MessageDetailScreen(
         current?.let { MessageBodyResolver.resolve(it.rawPayloadJson, it.body).rawText }.orEmpty()
     }
 
-    ModalBottomSheet(
+    PushGoModalBottomSheet(
         modifier = Modifier.testTag("sheet.message.detail"),
         onDismissRequest = { onDismiss() },
         sheetState = sheetState,
-        containerColor = PushGoSheetContainerColor(),
-        tonalElevation = 0.dp,
-        contentWindowInsets = { WindowInsets(0) }
     ) {
         when {
             isLoading -> {
@@ -154,7 +170,7 @@ fun MessageDetailScreen(
                     Text(
                         text = stringResource(R.string.label_loading),
                         style = MaterialTheme.typography.bodyLarge,
-                        color = MaterialTheme.colorScheme.primary
+                        color = uiColors.accentPrimary
                     )
                 }
             }
@@ -181,6 +197,15 @@ fun MessageDetailScreen(
                     onDelete = {
                         showDeleteConfirmation = true
                     },
+                    onCopyText = { text ->
+                        val trimmed = text.trim()
+                        if (trimmed.isEmpty()) return@MessageDetailCoreContent
+                        scope.launch {
+                            clipboard.setText(AnnotatedString(trimmed))
+                        }
+                        Toast.makeText(context, copiedMessage, Toast.LENGTH_SHORT).show()
+                        announceForAccessibility(context, copiedMessage)
+                    },
                     onOpenImage = { model ->
                         when (model) {
                             is String -> {
@@ -192,27 +217,26 @@ fun MessageDetailScreen(
                             else -> previewImageModel = model
                         }
                     },
-                    onOpenUrl = { url -> context.openExternalUrl(url) },
+                    onOpenUrl = { url -> context.openExternalUrl(url) }
                 )
             }
         }
     }
 
     if (showDeleteConfirmation) {
-        AlertDialog(
+        PushGoAlertDialog(
             onDismissRequest = { showDeleteConfirmation = false },
             title = { Text(text = stringResource(R.string.action_delete)) },
             text = { Text(text = stringResource(R.string.confirm_delete_message)) },
             confirmButton = {
-                TextButton(
+                PushGoDestructiveTextButton(
+                    text = stringResource(R.string.label_confirm),
                     onClick = {
                         showDeleteConfirmation = false
                         viewModel.delete()
                         onDismiss()
-                    }
-                ) {
-                    Text(text = stringResource(R.string.label_confirm))
-                }
+                    },
+                )
             },
             dismissButton = {
                 TextButton(onClick = { showDeleteConfirmation = false }) {
@@ -223,9 +247,37 @@ fun MessageDetailScreen(
     }
 
     if (previewImageModel != null) {
+        val targetModel = previewImageModel
         ZoomableImagePreviewDialog(
-            model = previewImageModel,
+            model = targetModel,
             onDismiss = { previewImageModel = null },
+            onSaveImage = {
+                val model = targetModel ?: return@ZoomableImagePreviewDialog
+                scope.launch {
+                    val saved = saveMessageImageToGallery(
+                        context = context,
+                        model = model,
+                        imageStore = imageStore,
+                    )
+                    val messageText = if (saved) imageSavedMessage else imageSaveFailedMessage
+                    Toast.makeText(context, messageText, Toast.LENGTH_SHORT).show()
+                    announceForAccessibility(context, messageText)
+                }
+            },
+            onShareImage = {
+                val model = targetModel ?: return@ZoomableImagePreviewDialog
+                scope.launch {
+                    val shared = shareMessageImage(
+                        context = context,
+                        model = model,
+                        imageStore = imageStore,
+                    )
+                    if (!shared) {
+                        Toast.makeText(context, imageShareFailedMessage, Toast.LENGTH_SHORT).show()
+                        announceForAccessibility(context, imageShareFailedMessage)
+                    }
+                }
+            },
         )
     }
 }
@@ -238,9 +290,11 @@ internal fun MessageDetailCoreContent(
     resolvedBodyText: String,
     bottomGestureInset: Dp,
     onDelete: (() -> Unit)?,
+    onCopyText: (String) -> Unit,
     onOpenImage: (Any) -> Unit,
     onOpenUrl: (String) -> Unit,
 ) {
+    val uiColors = PushGoThemeExtras.colors
     Column(
         modifier = Modifier
             .verticalScroll(rememberScrollState())
@@ -255,17 +309,15 @@ internal fun MessageDetailCoreContent(
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.Top
             ) {
                 SelectablePlainTextRenderer(
                     text = message.title,
                     modifier = Modifier
-                        .weight(1f)
-                        .testTag("action.message.copy_title"),
+                        .weight(1f),
                     typeface = remember { android.graphics.Typeface.create("sans-serif", android.graphics.Typeface.BOLD) },
                     textSizeSp = MaterialTheme.typography.headlineSmall.fontSize.value,
-                    textColorArgb = MaterialTheme.colorScheme.onSurface.toArgb(),
+                    textColorArgb = uiColors.textPrimary.toArgb(),
                 )
                 if (onDelete != null) {
                     IconButton(
@@ -277,7 +329,7 @@ internal fun MessageDetailCoreContent(
                         Icon(
                             Icons.Outlined.Delete,
                             contentDescription = stringResource(R.string.action_delete),
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
+                            tint = uiColors.iconMuted,
                             modifier = Modifier.size(20.dp)
                         )
                     }
@@ -296,7 +348,7 @@ internal fun MessageDetailCoreContent(
                             fontFamily = FontFamily.Monospace,
                             fontWeight = FontWeight.Medium
                         ),
-                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f)
+                        color = uiColors.placeholderText
                     )
                     if (message.tags.isNotEmpty()) {
                         Text(
@@ -305,7 +357,7 @@ internal fun MessageDetailCoreContent(
                                 fontFamily = FontFamily.Monospace,
                                 fontWeight = FontWeight.Normal
                             ),
-                            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.7f)
+                            color = uiColors.stateInfo.foreground
                         )
                     }
                 }
@@ -313,7 +365,7 @@ internal fun MessageDetailCoreContent(
             }
         }
 
-        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+        HorizontalDivider(color = uiColors.dividerStrong)
 
         if (imageModels.isNotEmpty()) {
             if (imageModels.size == 1) {
@@ -347,7 +399,10 @@ internal fun MessageDetailCoreContent(
         }
 
         if (message.metadata.isNotEmpty()) {
-            MetadataSection(items = message.metadata)
+            MetadataSection(
+                items = message.metadata,
+                onCopyValue = onCopyText,
+            )
         }
 
         if (message.severity == MessageSeverity.CRITICAL) {
@@ -362,34 +417,56 @@ internal fun MessageDetailCoreContent(
         )
 
         if (!message.url.isNullOrBlank()) {
-            Button(
-                onClick = { onOpenUrl(message.url.orEmpty()) },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(48.dp)
-                    .testTag("action.message.open_url"),
-                shape = RoundedCornerShape(12.dp)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
             ) {
-                Text(
-                    text = stringResource(R.string.label_open_url),
-                    style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold)
-                )
+                Button(
+                    onClick = { onOpenUrl(message.url.orEmpty()) },
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(48.dp)
+                        .testTag("action.message.open_url"),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Text(
+                        text = stringResource(R.string.label_open_url),
+                        style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold)
+                    )
+                }
+                IconButton(
+                    onClick = { onCopyText(message.url.orEmpty()) },
+                    modifier = Modifier
+                        .size(40.dp)
+                        .testTag("action.message.copy_url"),
+                ) {
+                    Icon(
+                        imageVector = Icons.Outlined.ContentCopy,
+                        contentDescription = stringResource(R.string.action_copy),
+                        tint = uiColors.iconMuted,
+                    )
+                }
             }
         }
     }
 }
 
 @Composable
-private fun MetadataSection(items: Map<String, String>) {
+private fun MetadataSection(
+    items: Map<String, String>,
+    onCopyValue: (String) -> Unit,
+) {
+    val uiColors = PushGoThemeExtras.colors
     val sortedItems = items.toSortedMap(String.CASE_INSENSITIVE_ORDER).toList()
     
     Surface(
         modifier = Modifier
             .fillMaxWidth()
             .testTag("section.message.metadata"),
-        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.2f),
+        color = uiColors.surfaceSunken,
         shape = RoundedCornerShape(12.dp),
-        border = BorderStroke(0.5.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
+        border = BorderStroke(0.5.dp, uiColors.dividerStrong)
     ) {
         Column {
             sortedItems.forEachIndexed { index, (key, value) ->
@@ -406,20 +483,31 @@ private fun MetadataSection(items: Map<String, String>) {
                             fontWeight = FontWeight.Bold,
                             letterSpacing = 0.2.sp
                         ),
-                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.8f),
+                        color = uiColors.stateInfo.foreground,
                         modifier = Modifier.width(100.dp)
                     )
                     Text(
                         text = value,
                         style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurface,
+                        color = uiColors.textPrimary,
                         modifier = Modifier.weight(1f)
                     )
+                    IconButton(
+                        onClick = { onCopyValue(value) },
+                        modifier = Modifier.size(24.dp),
+                    ) {
+                        Icon(
+                            imageVector = Icons.Outlined.ContentCopy,
+                            contentDescription = stringResource(R.string.action_copy),
+                            tint = uiColors.iconMuted,
+                            modifier = Modifier.size(16.dp)
+                        )
+                    }
                 }
                 if (index < sortedItems.lastIndex) {
                     HorizontalDivider(
                         modifier = Modifier.padding(horizontal = 12.dp),
-                        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.2f),
+                        color = uiColors.dividerSubtle,
                         thickness = 0.5.dp
                     )
                 }
@@ -431,28 +519,17 @@ private fun MetadataSection(items: Map<String, String>) {
 @Composable
 private fun MessageSeverityDetailBadge(severity: MessageSeverity?) {
     val resolved = severity ?: return
+    val palette = severityPalette(resolved)
     val text = when (resolved) {
         MessageSeverity.LOW -> stringResource(R.string.message_severity_low)
         MessageSeverity.MEDIUM -> stringResource(R.string.message_severity_medium)
         MessageSeverity.HIGH -> stringResource(R.string.message_severity_high)
         MessageSeverity.CRITICAL -> stringResource(R.string.message_severity_critical)
     }
-    val bgColor = when (resolved) {
-        MessageSeverity.LOW -> Color(0xFF93C5FD).copy(alpha = 0.15f)
-        MessageSeverity.MEDIUM -> Color(0xFFFDE68A).copy(alpha = 0.18f)
-        MessageSeverity.HIGH -> Color(0xFFF59E0B).copy(alpha = 0.15f)
-        MessageSeverity.CRITICAL -> Color(0xFFDC2626).copy(alpha = 0.15f)
-    }
-    val fgColor = when (resolved) {
-        MessageSeverity.LOW -> Color(0xFF2563EB)
-        MessageSeverity.MEDIUM -> Color(0xFFD97706)
-        MessageSeverity.HIGH -> Color(0xFFD97706)
-        MessageSeverity.CRITICAL -> Color(0xFFDC2626)
-    }
     Box(
         modifier = Modifier
             .clip(RoundedCornerShape(6.dp))
-            .background(bgColor)
+            .background(palette.background)
             .padding(horizontal = 8.dp, vertical = 2.dp),
         contentAlignment = Alignment.Center,
     ) {
@@ -462,7 +539,7 @@ private fun MessageSeverityDetailBadge(severity: MessageSeverity?) {
                 fontWeight = FontWeight.Black,
                 letterSpacing = 0.5.sp
             ),
-            color = fgColor,
+            color = palette.foreground,
             maxLines = 1,
         )
     }
@@ -470,22 +547,33 @@ private fun MessageSeverityDetailBadge(severity: MessageSeverity?) {
 
 @Composable
 private fun CriticalSeverityHintCard() {
+    val palette = PushGoThemeExtras.colors.stateDanger
     Card(
         modifier = Modifier
             .fillMaxWidth()
             .testTag("banner.message.severity.critical"),
         shape = RoundedCornerShape(10.dp),
         colors = CardDefaults.cardColors(
-            containerColor = Color(0xFFFEE2E2).copy(alpha = 0.6f),
+            containerColor = palette.background,
         ),
-        border = BorderStroke(1.dp, Color(0xFFFCA5A5).copy(alpha = 0.6f)),
+        border = BorderStroke(1.dp, palette.background),
     ) {
         Text(
             text = stringResource(R.string.message_severity_critical_hint),
             style = MaterialTheme.typography.bodySmall,
-            color = Color(0xFF991B1B),
+            color = palette.foreground,
             modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
         )
+    }
+}
+
+@Composable
+private fun severityPalette(severity: MessageSeverity): PushGoStateColors {
+    val colors = PushGoThemeExtras.colors
+    return when (severity) {
+        MessageSeverity.LOW, MessageSeverity.MEDIUM -> colors.stateInfo
+        MessageSeverity.HIGH -> colors.stateWarning
+        MessageSeverity.CRITICAL -> colors.stateDanger
     }
 }
 
@@ -508,5 +596,94 @@ private fun localeFrom(context: Context): Locale {
     } else {
         @Suppress("DEPRECATION")
         context.resources.configuration.locale
+    }
+}
+
+private suspend fun saveMessageImageToGallery(
+    context: Context,
+    model: Any,
+    imageStore: MessageImageStore,
+): Boolean = withContext(Dispatchers.IO) {
+    val source = resolveImageFileForAction(model, imageStore) ?: return@withContext false
+    val mimeType = inferMimeType(source.name)
+    val fileName = "pushgo-${System.currentTimeMillis()}.${source.extension.ifBlank { "jpg" }}"
+
+    val resolver = context.contentResolver
+    val contentValues = android.content.ContentValues().apply {
+        put(MediaStore.Images.Media.DISPLAY_NAME, fileName)
+        put(MediaStore.Images.Media.MIME_TYPE, mimeType)
+        put(MediaStore.Images.Media.RELATIVE_PATH, "Pictures/PushGo")
+        put(MediaStore.Images.Media.IS_PENDING, 1)
+    }
+    val targetUri = resolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, contentValues)
+        ?: return@withContext false
+    return@withContext try {
+        resolver.openOutputStream(targetUri)?.use { output ->
+            FileInputStream(source).use { input ->
+                input.copyTo(output)
+            }
+        } ?: return@withContext false
+        contentValues.clear()
+        contentValues.put(MediaStore.Images.Media.IS_PENDING, 0)
+        resolver.update(targetUri, contentValues, null, null)
+        true
+    } catch (_: Exception) {
+        resolver.delete(targetUri, null, null)
+        false
+    }
+}
+
+private suspend fun shareMessageImage(
+    context: Context,
+    model: Any,
+    imageStore: MessageImageStore,
+): Boolean = withContext(Dispatchers.IO) {
+    val source = resolveImageFileForAction(model, imageStore) ?: return@withContext false
+    val shareDir = File(context.cacheDir, "shared-images").apply { mkdirs() }
+    val extension = source.extension.ifBlank { "jpg" }
+    val copied = File(shareDir, "pushgo-share-${System.currentTimeMillis()}.$extension")
+    return@withContext try {
+        FileInputStream(source).use { input ->
+            FileOutputStream(copied).use { output ->
+                input.copyTo(output)
+            }
+        }
+        val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", copied)
+        val intent = Intent(Intent.ACTION_SEND).apply {
+            type = inferMimeType(copied.name)
+            putExtra(Intent.EXTRA_STREAM, uri)
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        context.startActivity(Intent.createChooser(intent, null).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+        true
+    } catch (_: Exception) {
+        copied.delete()
+        false
+    }
+}
+
+private suspend fun resolveImageFileForAction(
+    model: Any,
+    imageStore: MessageImageStore,
+): File? = withContext(Dispatchers.IO) {
+    when (model) {
+        is File -> if (model.exists() && model.isFile) model else null
+        is String -> {
+            val normalized = normalizeExternalImageUrl(model) ?: return@withContext null
+            val cached = imageStore.ensureCached(normalized) ?: return@withContext null
+            val file = File(cached.originalPath)
+            if (file.exists() && file.isFile) file else null
+        }
+        else -> null
+    }
+}
+
+private fun inferMimeType(fileName: String): String {
+    return when (fileName.substringAfterLast('.', "").lowercase(Locale.ROOT)) {
+        "png" -> "image/png"
+        "webp" -> "image/webp"
+        "gif" -> "image/gif"
+        else -> "image/jpeg"
     }
 }

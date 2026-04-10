@@ -15,6 +15,7 @@ Policy:
 - Added update channel selection in Settings: `stable` and `beta`.
 
 ### Improved
+- Message detail header is now cleaner by removing the title copy action.
 - Beta mode now compares both stable and beta candidates and picks the latest version.
 - Added `Skip this version` and reminder cooldown to reduce repeated interruption.
 - Added clearer installer recovery guidance when system installer blocks update flow.
