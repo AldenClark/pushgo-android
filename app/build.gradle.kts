@@ -69,6 +69,10 @@ val updateFeedPublicKeyB64 = project.resolveSigningProperty("PUSHGO_UPDATE_FEED_
     ?.trim()
     ?.replace("\"", "")
     ?: ""
+val updateFeedEcdsaP256PublicKeyB64 = project.resolveSigningProperty("PUSHGO_UPDATE_FEED_ECDSA_P256_PUBLIC_KEY_B64")
+    ?.trim()
+    ?.replace("\"", "")
+    ?: ""
 
 val buildRustJniLibs by tasks.registering(Exec::class) {
     group = "build"
@@ -117,6 +121,7 @@ android {
         buildConfigField("String", "PRIVATE_CERT_PIN_SHA256", "\"$privateCertPinSha256\"")
         buildConfigField("String", "DEFAULT_UPDATE_FEED_URL", "\"$updateFeedUrl\"")
         buildConfigField("String", "UPDATE_FEED_PUBLIC_KEY_B64", "\"$updateFeedPublicKeyB64\"")
+        buildConfigField("String", "UPDATE_FEED_ECDSA_P256_PUBLIC_KEY_B64", "\"$updateFeedEcdsaP256PublicKeyB64\"")
 
         vectorDrawables {
             useSupportLibrary = true

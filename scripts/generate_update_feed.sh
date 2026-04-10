@@ -14,7 +14,9 @@ Options:
   --update-notes-dir <path>             Directory containing <tag>.json note maps (default: release/update-notes)
   --update-notes-file <path>            Override note file path for this tag
   --output <path>                       Output signed feed JSON (default: <dist_dir>/update-feed-v1.json)
-  --private-key-file <path>             Ed25519 private key (PKCS8 PEM) for payload signature
+  --private-key-file <path>             Legacy alias of --ed25519-private-key-file
+  --ed25519-private-key-file <path>     Ed25519 private key (PKCS8 PEM) for payload signature
+  --ecdsa-private-key-file <path>       ECDSA P-256 private key (PKCS8 PEM) for payload signature
   -h, --help                            Show this help
 EOF
 }
@@ -51,6 +53,8 @@ update_notes_dir="release/update-notes"
 update_notes_file=""
 output_path="${dist_dir%/}/update-feed-v1.json"
 private_key_file=""
+ed25519_private_key_file=""
+ecdsa_private_key_file=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -86,6 +90,14 @@ while [[ $# -gt 0 ]]; do
       private_key_file="${2:-}"
       shift 2
       ;;
+    --ed25519-private-key-file)
+      ed25519_private_key_file="${2:-}"
+      shift 2
+      ;;
+    --ecdsa-private-key-file)
+      ecdsa_private_key_file="${2:-}"
+      shift 2
+      ;;
     -h|--help)
       usage
       exit 0
@@ -101,6 +113,10 @@ done
 if [[ -z "$tag" || -z "$repo" ]]; then
   echo "Error: --tag and --repo are required" >&2
   exit 1
+fi
+
+if [[ -n "$private_key_file" && -z "$ed25519_private_key_file" ]]; then
+  ed25519_private_key_file="$private_key_file"
 fi
 
 if [[ ! -f "${dist_dir%/}/BUILD_INFO.txt" ]]; then
@@ -246,32 +262,50 @@ payload_json="$(jq -n \
 
 payload_canonical="$(printf '%s' "$payload_json" | jq -cS '.')"
 
-signature=""
-if [[ -n "$private_key_file" ]]; then
-  if [[ ! -f "$private_key_file" ]]; then
-    echo "Error: private key file not found: $private_key_file" >&2
-    exit 1
-  fi
+ed25519_signature=""
+ecdsa_signature=""
+if [[ -n "$ed25519_private_key_file" || -n "$ecdsa_private_key_file" ]]; then
   sign_input_file="$(mktemp)"
   trap 'rm -f "$sign_input_file"' EXIT
   printf '%s' "$payload_canonical" >"$sign_input_file"
-  signature="$(openssl pkeyutl -sign -inkey "$private_key_file" -rawin -in "$sign_input_file" \
-    | base64 | tr -d '\n')"
+
+  if [[ -n "$ed25519_private_key_file" ]]; then
+    if [[ ! -f "$ed25519_private_key_file" ]]; then
+      echo "Error: private key file not found: $ed25519_private_key_file" >&2
+      exit 1
+    fi
+    ed25519_signature="$(openssl pkeyutl -sign -inkey "$ed25519_private_key_file" -rawin -in "$sign_input_file" \
+      | base64 | tr -d '\n')"
+  fi
+
+  if [[ -n "$ecdsa_private_key_file" ]]; then
+    if [[ ! -f "$ecdsa_private_key_file" ]]; then
+      echo "Error: private key file not found: $ecdsa_private_key_file" >&2
+      exit 1
+    fi
+    ecdsa_signature="$(openssl dgst -sha256 -sign "$ecdsa_private_key_file" "$sign_input_file" \
+      | base64 | tr -d '\n')"
+  fi
+
   rm -f "$sign_input_file"
   trap - EXIT
 fi
 
+signatures_json="$(jq -n \
+  --arg ed25519 "$ed25519_signature" \
+  --arg ecdsa "$ecdsa_signature" \
+  '{
+    "ed25519": $ed25519,
+    "ecdsa-p256-sha256": $ecdsa
+  }
+  | with_entries(select(.value | length > 0))')"
+
 mkdir -p "$(dirname "$output_path")"
-if [[ -n "$signature" ]]; then
-  jq -n \
-    --argjson payload "$payload_canonical" \
-    --arg signature "$signature" \
-    '{payload: $payload, signature: $signature}' >"$output_path"
-else
-  jq -n \
-    --argjson payload "$payload_canonical" \
-    '{payload: $payload, signature: null}' >"$output_path"
-fi
+jq -n \
+  --argjson payload "$payload_canonical" \
+  --arg signature "$ed25519_signature" \
+  --argjson signatures "$signatures_json" \
+  '{payload: $payload, signature: (if ($signature | length) > 0 then $signature else null end), signatures: $signatures}' >"$output_path"
 
 echo "Generated update feed: $output_path"
 if [[ -n "$repo_feed_path" ]]; then

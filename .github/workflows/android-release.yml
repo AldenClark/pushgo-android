@@ -192,6 +192,7 @@ jobs:
         env:
           PUSHGO_UPDATE_FEED_URL: ${{ vars.PUSHGO_UPDATE_FEED_URL }}
           PUSHGO_UPDATE_FEED_PUBLIC_KEY_B64: ${{ secrets.PUSHGO_UPDATE_FEED_PUBLIC_KEY_B64 }}
+          PUSHGO_UPDATE_FEED_ECDSA_P256_PUBLIC_KEY_B64: ${{ secrets.PUSHGO_UPDATE_FEED_ECDSA_P256_PUBLIC_KEY_B64 }}
 
       - name: Verify signed release artifacts
         shell: bash
@@ -242,14 +243,18 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if [ -z "${PUSHGO_UPDATE_FEED_SIGNING_KEY_B64:-}" ]; then
-            exit 0
-          fi
           mkdir -p "$GITHUB_WORKSPACE/.ci"
-          echo "$PUSHGO_UPDATE_FEED_SIGNING_KEY_B64" | base64 --decode > "$GITHUB_WORKSPACE/.ci/update-feed-signing-key.pem"
-          echo "PUSHGO_UPDATE_FEED_SIGNING_KEY_FILE=$GITHUB_WORKSPACE/.ci/update-feed-signing-key.pem" >> "$GITHUB_ENV"
+          if [ -n "${PUSHGO_UPDATE_FEED_SIGNING_KEY_B64:-}" ]; then
+            echo "$PUSHGO_UPDATE_FEED_SIGNING_KEY_B64" | base64 --decode > "$GITHUB_WORKSPACE/.ci/update-feed-signing-key.pem"
+            echo "PUSHGO_UPDATE_FEED_SIGNING_KEY_FILE=$GITHUB_WORKSPACE/.ci/update-feed-signing-key.pem" >> "$GITHUB_ENV"
+          fi
+          if [ -n "${PUSHGO_UPDATE_FEED_ECDSA_SIGNING_KEY_B64:-}" ]; then
+            echo "$PUSHGO_UPDATE_FEED_ECDSA_SIGNING_KEY_B64" | base64 --decode > "$GITHUB_WORKSPACE/.ci/update-feed-ecdsa-signing-key.pem"
+            echo "PUSHGO_UPDATE_FEED_ECDSA_SIGNING_KEY_FILE=$GITHUB_WORKSPACE/.ci/update-feed-ecdsa-signing-key.pem" >> "$GITHUB_ENV"
+          fi
         env:
           PUSHGO_UPDATE_FEED_SIGNING_KEY_B64: ${{ secrets.PUSHGO_UPDATE_FEED_SIGNING_KEY_B64 }}
+          PUSHGO_UPDATE_FEED_ECDSA_SIGNING_KEY_B64: ${{ secrets.PUSHGO_UPDATE_FEED_ECDSA_SIGNING_KEY_B64 }}
 
       - name: Generate update feed artifacts
         shell: bash
@@ -270,6 +275,9 @@ jobs:
           )
           if [[ -n "${PUSHGO_UPDATE_FEED_SIGNING_KEY_FILE:-}" ]]; then
             cmd+=(--private-key-file "${PUSHGO_UPDATE_FEED_SIGNING_KEY_FILE}")
+          fi
+          if [[ -n "${PUSHGO_UPDATE_FEED_ECDSA_SIGNING_KEY_FILE:-}" ]]; then
+            cmd+=(--ecdsa-private-key-file "${PUSHGO_UPDATE_FEED_ECDSA_SIGNING_KEY_FILE}")
           fi
           "${cmd[@]}"
 
@@ -476,6 +484,9 @@ jobs:
             )
             if [[ -n "${PUSHGO_UPDATE_FEED_SIGNING_KEY_FILE:-}" ]]; then
               cmd+=(--private-key-file "${PUSHGO_UPDATE_FEED_SIGNING_KEY_FILE}")
+            fi
+            if [[ -n "${PUSHGO_UPDATE_FEED_ECDSA_SIGNING_KEY_FILE:-}" ]]; then
+              cmd+=(--ecdsa-private-key-file "${PUSHGO_UPDATE_FEED_ECDSA_SIGNING_KEY_FILE}")
             fi
             "${cmd[@]}"
 

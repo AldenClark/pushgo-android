@@ -10,6 +10,8 @@ import java.net.HttpURLConnection
 import java.net.URL
 import java.nio.charset.StandardCharsets
 import java.security.KeyFactory
+import java.security.NoSuchAlgorithmException
+import java.security.PublicKey
 import java.security.Signature
 import java.security.spec.X509EncodedKeySpec
 import kotlinx.coroutines.Dispatchers
@@ -21,6 +23,13 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.Json
 
 class UpdateFeedClient(private val context: Context) {
+    private data class SignatureVerifierConfig(
+        val signatureKey: String,
+        val signatureAlgorithm: String,
+        val keyFactoryAlgorithm: String,
+        val publicKeyBase64: String,
+    )
+
     private val json = Json {
         ignoreUnknownKeys = true
         explicitNulls = false
@@ -41,25 +50,101 @@ class UpdateFeedClient(private val context: Context) {
     }
 
     private fun verifySignatureIfConfigured(document: SignedUpdateFeed) {
-        val publicKeyB64 = AppConstants.updateFeedPublicKeyBase64.trim()
-        if (publicKeyB64.isEmpty()) {
+        val verifiers = configuredSignatureVerifiers()
+        if (verifiers.isEmpty()) {
             return
         }
-        val signatureB64 = document.signature?.trim().orEmpty()
-        require(signatureB64.isNotEmpty()) { "Update feed signature is missing" }
 
         val payloadCanonical = canonicalJson(
             json.encodeToJsonElement(UpdateFeedPayload.serializer(), document.payload)
         )
         val payloadBytes = payloadCanonical.toByteArray(StandardCharsets.UTF_8)
-        val publicKeyBytes = Base64.decode(publicKeyB64, Base64.DEFAULT)
+        val signaturesByAlgorithm = collectSignatures(document)
+        if (signaturesByAlgorithm.isEmpty()) {
+            error("Update feed signature is missing")
+        }
+
+        val attempted = mutableListOf<String>()
+        val errors = mutableListOf<String>()
+        for (verifier in verifiers) {
+            val signatureB64 = signaturesByAlgorithm[verifier.signatureKey] ?: continue
+            attempted += verifier.signatureKey
+            try {
+                if (verifySignature(verifier, payloadBytes, signatureB64)) {
+                    return
+                }
+                errors += "${verifier.signatureKey}: signature mismatch"
+            } catch (error: NoSuchAlgorithmException) {
+                errors += "${verifier.signatureKey}: algorithm unavailable (${error.message ?: error::class.simpleName})"
+            } catch (error: Throwable) {
+                errors += "${verifier.signatureKey}: ${error.message ?: error::class.simpleName.orEmpty()}"
+            }
+        }
+
+        if (attempted.isEmpty()) {
+            error("Update feed does not contain a signature compatible with this app")
+        }
+        error(
+            "Update feed signature verification failed: ${errors.joinToString(separator = "; ")}"
+        )
+    }
+
+    private fun configuredSignatureVerifiers(): List<SignatureVerifierConfig> {
+        val configured = mutableListOf<SignatureVerifierConfig>()
+        val ed25519Key = AppConstants.updateFeedEd25519PublicKeyBase64.trim()
+        if (ed25519Key.isNotEmpty()) {
+            configured += SignatureVerifierConfig(
+                signatureKey = "ed25519",
+                signatureAlgorithm = "Ed25519",
+                keyFactoryAlgorithm = "Ed25519",
+                publicKeyBase64 = ed25519Key,
+            )
+        }
+        val ecdsaP256Key = AppConstants.updateFeedEcdsaP256PublicKeyBase64.trim()
+        if (ecdsaP256Key.isNotEmpty()) {
+            configured += SignatureVerifierConfig(
+                signatureKey = "ecdsa-p256-sha256",
+                signatureAlgorithm = "SHA256withECDSA",
+                keyFactoryAlgorithm = "EC",
+                publicKeyBase64 = ecdsaP256Key,
+            )
+        }
+        return configured
+    }
+
+    private fun collectSignatures(document: SignedUpdateFeed): Map<String, String> {
+        val normalized = mutableMapOf<String, String>()
+        document.signatures.forEach { (algorithm, signature) ->
+            val key = algorithm.trim().lowercase()
+            val value = signature.trim()
+            if (key.isNotEmpty() && value.isNotEmpty()) {
+                normalized[key] = value
+            }
+        }
+        val legacySignature = document.signature?.trim().orEmpty()
+        if (legacySignature.isNotEmpty() && normalized["ed25519"].isNullOrEmpty()) {
+            normalized["ed25519"] = legacySignature
+        }
+        return normalized
+    }
+
+    private fun verifySignature(
+        verifierConfig: SignatureVerifierConfig,
+        payloadBytes: ByteArray,
+        signatureB64: String,
+    ): Boolean {
+        val publicKeyBytes = Base64.decode(verifierConfig.publicKeyBase64, Base64.DEFAULT)
         val signatureBytes = Base64.decode(signatureB64, Base64.DEFAULT)
-        val keyFactory = KeyFactory.getInstance("Ed25519")
-        val publicKey = keyFactory.generatePublic(X509EncodedKeySpec(publicKeyBytes))
-        val verifier = Signature.getInstance("Ed25519")
-        verifier.initVerify(publicKey)
+        val key = loadPublicKey(verifierConfig, publicKeyBytes)
+        val verifier = Signature.getInstance(verifierConfig.signatureAlgorithm)
+        verifier.initVerify(key)
         verifier.update(payloadBytes)
-        require(verifier.verify(signatureBytes)) { "Update feed signature verification failed" }
+        return verifier.verify(signatureBytes)
+    }
+
+    private fun loadPublicKey(verifierConfig: SignatureVerifierConfig, keyBytes: ByteArray): PublicKey {
+        val keyFactory = KeyFactory.getInstance(verifierConfig.keyFactoryAlgorithm)
+        return keyFactory.generatePublic(X509EncodedKeySpec(keyBytes))
     }
 
     private fun canonicalJson(element: JsonElement): String {

@@ -60,6 +60,19 @@ echo "$raw" | jq -e '
     and (.apkSha256 | type == "string" and length == 64)
 ' >/dev/null
 echo "$raw" | jq -e '
+  ((.signature? == null) or (.signature | type == "string"))
+    and (
+      (.signatures? == null)
+      or (
+        (.signatures | type == "object")
+        and (
+          [.signatures | to_entries[] | ((.key | type == "string" and length > 0) and (.value | type == "string" and length > 0))]
+          | all
+        )
+      )
+    )
+' >/dev/null
+echo "$raw" | jq -e '
   .payload.entries[]
   | ((.notes? == null) or (.notes | type == "string"))
     and (
