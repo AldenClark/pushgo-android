@@ -2,7 +2,7 @@
   "payload": {
     "entries": [
       {
-        "apkSha256": "643e94e6d36179976c9071d05225c8fd126a0153dea67146ace787be3c34149e",
+        "apkSha256": "8df4772d502ff9fbe4b0480ff53af123b2b705bd40b40833a12bd216b4761e15",
         "apkUrl": "https://github.com/AldenClark/pushgo-android/releases/download/v1.2.0-beta.2/pushgo-android-v1.2.0-beta.2-universal-release.apk",
         "channel": "beta",
         "critical": false,
@@ -17,18 +17,22 @@
           "zh-CN": "已支持自托管应用更新。\n- 后台静默检测 + 设置页手动检查\n- 更新通道：稳定版 / 测试版（测试版同时接收稳定版）\n- 支持跳过当前版本 + 提醒冷却窗口\n- 安装器被拦截时提供更清晰的恢复引导",
           "zh-TW": "已支援自託管應用更新。\n- 背景靜默檢查 + 設定頁手動檢查\n- 更新通道：穩定版 / 測試版（測試版同時接收穩定版）\n- 支援跳過目前版本 + 提醒冷卻視窗\n- 安裝器被攔截時提供更清晰的恢復引導"
         },
-        "publishedAtEpochMs": 1775834573000,
+        "publishedAtEpochMs": 1775839251000,
         "releaseNotesUrl": "https://github.com/AldenClark/pushgo-android/releases/tag/v1.2.0-beta.2",
         "versionCode": 1020002,
         "versionName": "v1.2.0-beta.2"
       }
     ],
-    "generatedAtEpochMs": 1775834573000,
+    "generatedAtEpochMs": 1775839251000,
     "policy": {
       "impatientReminderIntervalSeconds": 604800,
       "scheduledCheckIntervalSeconds": 21600
     },
     "schemaVersion": 1
   },
-  "signature": "egX27P1ngxDhLeGz485lWd6cb8lguQAUNqzTxpZg7+hMMfaXY2yj7Z8Rk/WBfKtc48+QESYzX6vIq0RFkUz8BQ=="
+  "signature": "sDDC5VMz9vo09ZXVvZ29180wuH4Juzz/Iur1TCbzo0EIKWKx2b+q7rRi2NXOln0l6JCjbwoATRx/FjoocL+eDw==",
+  "signatures": {
+    "ed25519": "sDDC5VMz9vo09ZXVvZ29180wuH4Juzz/Iur1TCbzo0EIKWKx2b+q7rRi2NXOln0l6JCjbwoATRx/FjoocL+eDw==",
+    "ecdsa-p256-sha256": "MEQCIGzttvKU0hACAcnuqk1G+nHHYeZlW1fdvPRBIcPc/7IMAiB5b3Ehi1cpbmd5in0UvxDIG7PuuuKnumkaKXCJHMpI2g=="
+  }
 }
