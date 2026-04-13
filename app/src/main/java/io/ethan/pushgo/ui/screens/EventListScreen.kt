@@ -22,6 +22,7 @@ import androidx.compose.material.icons.outlined.*
 import androidx.compose.material.icons.filled.FilterList as FilledFilterList
 import androidx.compose.material.icons.outlined.FilterList as OutlinedFilterList
 import androidx.compose.material3.*
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -47,6 +48,7 @@ import io.ethan.pushgo.data.EntityProjectionCursor
 import io.ethan.pushgo.data.model.PushMessage
 import io.ethan.pushgo.notifications.ForegroundNotificationPresentationState
 import io.ethan.pushgo.notifications.ForegroundNotificationTopMetrics
+import io.ethan.pushgo.notifications.ProviderIngressCoordinator
 import io.ethan.pushgo.ui.PushGoViewModelFactory
 import io.ethan.pushgo.ui.rememberBottomBarNestedScrollConnection
 import io.ethan.pushgo.ui.rememberBottomGestureInset
@@ -179,9 +181,11 @@ fun EventListScreen(
     var isSelectionMode by remember { mutableStateOf(false) }
     var selectedEventIds by remember { mutableStateOf<Set<String>>(emptySet()) }
     var showBatchDeleteConfirmation by remember { mutableStateOf(false) }
+    var isPullRefreshing by remember { mutableStateOf(false) }
     var searchQuery by remember { mutableStateOf("") }
     var channelFilter by remember { mutableStateOf<String?>(null) }
     var showOnlyOpen by remember { mutableStateOf(false) }
+    val context = LocalContext.current
     val haptic = LocalHapticFeedback.current
     val scope = rememberCoroutineScope()
     val listState = rememberLazyListState()
@@ -203,23 +207,52 @@ fun EventListScreen(
         haptic.performHapticFeedback(HapticFeedbackType.LongPress)
     }
 
+    suspend fun reloadEventsInternal() {
+        if (isLoadingMoreEvents) return
+        isLoadingMoreEvents = true
+        try {
+            eventCursor = null
+            hasMoreEvents = true
+            val firstPage = container.entityRepository.getEventProjectionMessagesPage(
+                before = null,
+                limit = EventProjectionPageSize,
+            )
+            allEvents = withContext(Dispatchers.Default) { buildEventCardsInternal(firstPage) }
+            val last = firstPage.lastOrNull()
+            eventCursor = last?.let { EntityProjectionCursor(receivedAt = it.receivedAt.toEpochMilli(), id = it.id) }
+            hasMoreEvents = firstPage.size >= EventProjectionPageSize
+            hasLoadedOnce = true
+        } finally { isLoadingMoreEvents = false }
+    }
+
     fun reloadEvents() {
         scope.launch {
-            if (isLoadingMoreEvents) return@launch
-            isLoadingMoreEvents = true
-            try {
-                eventCursor = null
-                hasMoreEvents = true
-                val firstPage = container.entityRepository.getEventProjectionMessagesPage(
-                    before = null,
-                    limit = EventProjectionPageSize,
+            reloadEventsInternal()
+        }
+    }
+
+    fun refreshProviderIngressFromPullDown() {
+        if (isPullRefreshing) return
+        scope.launch {
+            isPullRefreshing = true
+            runCatching {
+                ProviderIngressCoordinator.pullPersistAndDrainAcks(
+                    context = context,
+                    channelRepository = container.channelRepository,
+                    messageRepository = container.messageRepository,
+                    entityRepository = container.entityRepository,
+                    inboundDeliveryLedgerRepository = container.inboundDeliveryLedgerRepository,
+                    settingsRepository = container.settingsRepository,
                 )
-                allEvents = withContext(Dispatchers.Default) { buildEventCardsInternal(firstPage) }
-                val last = firstPage.lastOrNull()
-                eventCursor = last?.let { EntityProjectionCursor(receivedAt = it.receivedAt.toEpochMilli(), id = it.id) }
-                hasMoreEvents = firstPage.size >= EventProjectionPageSize
-                hasLoadedOnce = true
-            } finally { isLoadingMoreEvents = false }
+                reloadEventsInternal()
+            }.onFailure { error ->
+                io.ethan.pushgo.util.SilentSink.w(
+                    "EventListScreen",
+                    "provider ingress refresh failed",
+                    error,
+                )
+            }
+            isPullRefreshing = false
         }
     }
 
@@ -307,14 +340,19 @@ fun EventListScreen(
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
-        LazyColumn(
-            modifier = Modifier.fillMaxSize()
-                .nestedScroll(bottomBarNestedScrollConnection)
-                .onGloballyPositioned { listTopInWindow = it.positionInWindow().y },
-            state = listState,
-            verticalArrangement = Arrangement.spacedBy(10.dp),
-            contentPadding = PaddingValues(bottom = bottomGestureInset + 24.dp),
+        PullToRefreshBox(
+            isRefreshing = isPullRefreshing,
+            onRefresh = { refreshProviderIngressFromPullDown() },
+            modifier = Modifier.fillMaxSize(),
         ) {
+            LazyColumn(
+                modifier = Modifier.fillMaxSize()
+                    .nestedScroll(bottomBarNestedScrollConnection)
+                    .onGloballyPositioned { listTopInWindow = it.positionInWindow().y },
+                state = listState,
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+                contentPadding = PaddingValues(bottom = bottomGestureInset + 24.dp),
+            ) {
             item {
                 Column(modifier = Modifier.fillMaxWidth().heightIn(min = 120.dp)) {
                     Box(modifier = Modifier.fillMaxWidth().heightIn(min = 64.dp), contentAlignment = Alignment.Center) {
@@ -388,6 +426,7 @@ fun EventListScreen(
                     EventListRowItem(modifier = Modifier.animateItem(), event = event, onClick = { if (isSelectionMode) toggleSelection(event.eventId) else { selectedEvent = event; onEventDetailOpened(event.eventId) } }, selectionMode = isSelectionMode, selected = selectedEventIds.contains(event.eventId), onToggleSelection = { toggleSelection(event.eventId) })
                 }
             }
+        }
         }
     }
 }

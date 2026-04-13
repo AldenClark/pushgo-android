@@ -29,8 +29,9 @@ data class UpdateFeedEntry(
     val channel: String = "stable",
     val versionCode: Int,
     val versionName: String,
-    val apkUrl: String,
-    val apkSha256: String,
+    val apkUrl: String = "",
+    val apkSha256: String = "",
+    val packages: Map<String, UpdatePackageArtifact> = emptyMap(),
     val releaseNotesUrl: String? = null,
     val minSdk: Int? = null,
     val allowedAbis: List<String> = emptyList(),
@@ -45,6 +46,12 @@ data class UpdateFeedEntry(
     val notes: String? = null,
     @SerialName("notesI18n")
     val notesI18n: Map<String, String> = emptyMap(),
+)
+
+@Serializable
+data class UpdatePackageArtifact(
+    val apkUrl: String,
+    val apkSha256: String,
 )
 
 enum class UpdateChannel(val wireValue: String) {
@@ -67,6 +74,7 @@ data class UpdateCandidate(
     val versionName: String,
     val apkUrl: String,
     val apkSha256: String,
+    val packageKey: String,
     val releaseNotesUrl: String?,
     val critical: Boolean,
     val notes: String?,
@@ -82,8 +90,15 @@ data class UpdateEvaluation(
     val failureMessage: String?,
 )
 
+enum class UpdateInstallProgressStage {
+    DOWNLOADING_PACKAGE,
+    VERIFYING_PACKAGE,
+    PREPARING_INSTALL,
+    HANDOFF_TO_SYSTEM,
+}
+
 sealed interface UpdateInstallStartResult {
     data object Started : UpdateInstallStartResult
-    data object PermissionRequired : UpdateInstallStartResult
+    data class PermissionRequired(val apkFilePath: String?) : UpdateInstallStartResult
     data class Failed(val message: String) : UpdateInstallStartResult
 }

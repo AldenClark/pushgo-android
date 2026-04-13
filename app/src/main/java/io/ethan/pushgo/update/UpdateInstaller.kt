@@ -23,19 +23,18 @@ class UpdateInstaller(private val context: Context) {
         private const val TAG = "UpdateInstaller"
     }
 
-    suspend fun install(candidate: UpdateCandidate): UpdateInstallStartResult = withContext(Dispatchers.IO) {
-        val packageManager = context.packageManager
-        if (!packageManager.canRequestPackageInstalls()) {
-            SilentSink.i(TAG, "install blocked: unknown-sources permission required")
-            return@withContext UpdateInstallStartResult.PermissionRequired
-        }
-
+    suspend fun install(
+        candidate: UpdateCandidate,
+        onProgress: ((UpdateInstallProgressStage) -> Unit)? = null,
+    ): UpdateInstallStartResult = withContext(Dispatchers.IO) {
+        onProgress?.invoke(UpdateInstallProgressStage.DOWNLOADING_PACKAGE)
         val apkFile = runCatching { downloadAndVerify(candidate) }.getOrElse { error ->
             return@withContext UpdateInstallStartResult.Failed(
                 "Download failed: ${error.message.orEmpty()}".trim()
             )
         }
 
+        onProgress?.invoke(UpdateInstallProgressStage.VERIFYING_PACKAGE)
         val archiveValidation = runCatching { verifyArchiveCompatibility(apkFile) }.getOrElse { error ->
             return@withContext UpdateInstallStartResult.Failed(
                 "Archive validation failed: ${error.message.orEmpty()}".trim()
@@ -45,22 +44,32 @@ class UpdateInstaller(private val context: Context) {
             return@withContext UpdateInstallStartResult.Failed("Update package is incompatible with this app")
         }
 
+        onProgress?.invoke(UpdateInstallProgressStage.PREPARING_INSTALL)
         runCatching {
+            onProgress?.invoke(UpdateInstallProgressStage.HANDOFF_TO_SYSTEM)
             startPackageInstallSession(candidate, apkFile)
         }.onFailure { error ->
+            if (isInstallPermissionFailure(error)) {
+                SilentSink.i(TAG, "install requires unknown-sources permission; fallback to manual installer path")
+                return@withContext UpdateInstallStartResult.PermissionRequired(apkFile.absolutePath)
+            }
             SilentSink.w(TAG, "install preparation failed: ${error.message}", error)
             return@withContext UpdateInstallStartResult.Failed(
                 "Install preparation failed: ${error.message.orEmpty()}".trim()
             )
         }
 
-        SilentSink.i(TAG, "session committed version=${candidate.versionName}(${candidate.versionCode})")
+        SilentSink.i(
+            TAG,
+            "session committed version=${candidate.versionName}(${candidate.versionCode}) package=${candidate.packageKey}",
+        )
         UpdateInstallStartResult.Started
     }
 
     private fun downloadAndVerify(candidate: UpdateCandidate): File {
         val updateDir = File(context.cacheDir, "updates").apply { mkdirs() }
-        val target = File(updateDir, "update-${candidate.versionCode}.apk")
+        val packageSuffix = candidate.packageKey.ifBlank { "default" }
+        val target = File(updateDir, "update-${candidate.versionCode}-${packageSuffix}.apk")
         if (target.exists() && sha256Hex(target).equals(candidate.apkSha256, ignoreCase = true)) {
             SilentSink.i(TAG, "reuse cached apk ${target.name}")
             return target
@@ -98,7 +107,7 @@ class UpdateInstaller(private val context: Context) {
             target.delete()
         }
         check(tempFile.renameTo(target)) { "Unable to finalize update package" }
-        SilentSink.i(TAG, "download complete ${target.name}")
+        SilentSink.i(TAG, "download complete ${target.name} package=${candidate.packageKey}")
         return target
     }
 
@@ -138,6 +147,13 @@ class UpdateInstaller(private val context: Context) {
                 PackageManager.CERT_INPUT_SHA256,
             )
         }
+    }
+
+    private fun isInstallPermissionFailure(error: Throwable): Boolean {
+        return UpdateInstallFailureClassifier.isPermissionDenied(
+            error = error,
+            canRequestPackageInstalls = context.packageManager.canRequestPackageInstalls(),
+        )
     }
 
     private fun startPackageInstallSession(candidate: UpdateCandidate, apkFile: File) {
@@ -187,5 +203,28 @@ class UpdateInstaller(private val context: Context) {
             }
         }
         return digest.digest().joinToString("") { "%02x".format(it) }
+    }
+}
+
+internal object UpdateInstallFailureClassifier {
+    fun isPermissionDenied(error: Throwable, canRequestPackageInstalls: Boolean): Boolean {
+        if (!isPermissionLikeInstallFailure(error)) {
+            return false
+        }
+        return !canRequestPackageInstalls
+    }
+
+    private fun isPermissionLikeInstallFailure(error: Throwable): Boolean {
+        if (error is SecurityException) {
+            return true
+        }
+        val message = error.message?.trim()?.lowercase().orEmpty()
+        if (message.isEmpty()) {
+            return false
+        }
+        return message.contains("request_install_packages")
+            || message.contains("unknown sources")
+            || message.contains("not allowed to install")
+            || message.contains("permission denied")
     }
 }

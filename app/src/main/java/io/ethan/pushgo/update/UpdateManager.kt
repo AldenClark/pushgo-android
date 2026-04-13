@@ -80,8 +80,22 @@ class UpdateManager(
     }
 
     suspend fun install(candidate: UpdateCandidate): UpdateInstallStartResult {
-        SilentSink.i(TAG, "install requested version=${candidate.versionName}(${candidate.versionCode})")
+        SilentSink.i(
+            TAG,
+            "install requested version=${candidate.versionName}(${candidate.versionCode}) package=${candidate.packageKey}",
+        )
         return installer.install(candidate)
+    }
+
+    suspend fun install(
+        candidate: UpdateCandidate,
+        onProgress: ((UpdateInstallProgressStage) -> Unit)?,
+    ): UpdateInstallStartResult {
+        SilentSink.i(
+            TAG,
+            "install requested version=${candidate.versionName}(${candidate.versionCode}) package=${candidate.packageKey}",
+        )
+        return installer.install(candidate, onProgress)
     }
 
     suspend fun skipVersion(versionCode: Int) {

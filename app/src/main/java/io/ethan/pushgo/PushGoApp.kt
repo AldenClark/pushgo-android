@@ -7,15 +7,15 @@ import coil.ImageLoaderFactory
 import coil.disk.DiskCache
 import coil.memory.MemoryCache
 import com.google.firebase.messaging.FirebaseMessaging
-import com.google.android.gms.common.ConnectionResult
-import com.google.android.gms.common.GoogleApiAvailability
 import io.ethan.pushgo.data.AppContainer
 import io.ethan.pushgo.automation.PushGoAutomation
 import io.ethan.pushgo.notifications.KeepaliveState
 import io.ethan.pushgo.notifications.AlertPlaybackController
 import io.ethan.pushgo.notifications.NotificationHelper
 import io.ethan.pushgo.notifications.PrivateChannelServiceManager
+import io.ethan.pushgo.notifications.ProviderIngressCoordinator
 import io.ethan.pushgo.update.UpdateCheckScheduler
+import io.ethan.pushgo.util.FcmSupport
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -103,15 +103,20 @@ class PushGoApp : Application(), ImageLoaderFactory {
         initializePushRuntime()
         UpdateCheckScheduler.refreshSchedule(this)
         scheduleStartupSyncIfNeeded()
+        scheduleProviderIngressSync(reason = "app_start")
         registerActivityLifecycleCallbacks(object : ActivityLifecycleCallbacks {
             override fun onActivityStarted(activity: android.app.Activity) {
                 startedActivities += 1
+                val becameForeground = startedActivities == 1
                 AlertPlaybackController.stopAll(this@PushGoApp)
                 val automationSession = PushGoAutomation.isSessionConfigured()
                 container.privateChannelClient.setForeground(startedActivities > 0 && !automationSession)
                 PrivateChannelServiceManager.refreshForMode(this@PushGoApp, isEffectiveFcmModeEnabled())
                 if (!automationSession) {
                     scheduleStartupSyncIfNeeded()
+                }
+                if (becameForeground) {
+                    scheduleProviderIngressSync(reason = "app_foreground")
                 }
             }
 
@@ -149,6 +154,28 @@ class PushGoApp : Application(), ImageLoaderFactory {
         appScope.launch {
             applyAutomationGatewayOverrideIfNeeded(container)
             syncSubscriptionsOnLaunch()
+        }
+    }
+
+    private fun scheduleProviderIngressSync(reason: String) {
+        val container = containerOrNull() ?: return
+        appScope.launch {
+            runCatching {
+                ProviderIngressCoordinator.pullPersistAndDrainAcks(
+                    context = this@PushGoApp,
+                    channelRepository = container.channelRepository,
+                    messageRepository = container.messageRepository,
+                    entityRepository = container.entityRepository,
+                    inboundDeliveryLedgerRepository = container.inboundDeliveryLedgerRepository,
+                    settingsRepository = container.settingsRepository,
+                )
+            }.onFailure { error ->
+                io.ethan.pushgo.util.SilentSink.w(
+                    TAG,
+                    "provider ingress sync failed reason=$reason error=${error.message}",
+                    error,
+                )
+            }
         }
     }
 
@@ -273,6 +300,7 @@ class PushGoApp : Application(), ImageLoaderFactory {
             )
             PrivateChannelServiceManager.refreshForMode(this@PushGoApp, false)
             container.privateChannelClient.triggerProviderWakeupRecovery()
+            scheduleProviderIngressSync(reason = "startup_sync_private_mode")
             return
         }
         val cachedToken = runCatching {
@@ -302,6 +330,7 @@ class PushGoApp : Application(), ImageLoaderFactory {
                     // Keep provider mode enabled; token fetch may recover on next retry/update.
                 }
         }
+        scheduleProviderIngressSync(reason = "startup_sync_provider_mode")
     }
 
     private suspend fun requestFcmTokenWithRetry(): String {
@@ -361,8 +390,7 @@ class PushGoApp : Application(), ImageLoaderFactory {
     }
 
     private fun isFcmSupported(): Boolean {
-        val status = GoogleApiAvailability.getInstance().isGooglePlayServicesAvailable(this)
-        return status == ConnectionResult.SUCCESS
+        return FcmSupport.isAvailable(this)
     }
 
     private fun effectiveFcmModeForSelection(useFcmChannel: Boolean): Boolean {

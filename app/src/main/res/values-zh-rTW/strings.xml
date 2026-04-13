@@ -83,6 +83,7 @@
     <string name="label_enable_notifications">通知已關閉</string>
     <string name="label_enable_notifications_hint">我們發現你已關閉 PushGo 通知，可能會錯過新的訊息、事件與物件更新。到系統設定開啟通知後，回來就能第一時間收到提醒。</string>
     <string name="label_turn_on">開啟</string>
+    <string name="label_update_install_manual_continue">手動繼續安裝</string>
     <string name="label_body">內文</string>
     <string name="label_url">連結</string>
     <string name="label_image_url">圖片 URL</string>
@@ -367,6 +368,10 @@
     <string name="label_update_install_now">立即安裝</string>
     <string name="label_update_remind_later">稍後提醒</string>
     <string name="label_update_skip_version">跳過此版本</string>
+    <string name="label_update_install_status_downloading">正在下載更新套件…</string>
+    <string name="label_update_install_status_verifying">正在驗證安裝包完整性…</string>
+    <string name="label_update_install_status_preparing">正在準備安裝…</string>
+    <string name="label_update_install_status_handoff">正在開啟系統安裝器…</string>
     <string name="label_update_install_permission_title">允許安裝應用套件</string>
     <string name="label_update_install_permission_body">要安裝 PushGo 更新，請在系統設定中允許本應用安裝未知來源應用套件。</string>
     <string name="message_update_available">檢測到更新：%1$s</string>

@@ -79,6 +79,7 @@
     <string name="label_enable_notifications">通知がオフです</string>
     <string name="label_enable_notifications_hint">通知がオフのため、新着メッセージ・イベント・オブジェクト更新を PushGo が知らせられません。システム設定で PushGo 通知をオンにして、この画面に戻ってください。</string>
     <string name="label_turn_on">オンにする</string>
+    <string name="label_update_install_manual_continue">手動で続行</string>
     <string name="label_body">本文</string>
     <string name="label_url">URL</string>
     <string name="label_image_url">画像 URL</string>
@@ -397,6 +398,10 @@
     <string name="label_update_install_now">Install now</string>
     <string name="label_update_remind_later">Remind later</string>
     <string name="label_update_skip_version">Skip this version</string>
+    <string name="label_update_install_status_downloading">更新パッケージをダウンロード中…</string>
+    <string name="label_update_install_status_verifying">パッケージの整合性を検証中…</string>
+    <string name="label_update_install_status_preparing">インストールを準備中…</string>
+    <string name="label_update_install_status_handoff">システムインストーラーを起動中…</string>
     <string name="label_update_install_permission_title">Allow package installation</string>
     <string name="label_update_install_permission_body">To install updates from PushGo, allow this app to install unknown packages in system settings.</string>
     <string name="message_update_available">Update found: %1$s</string>

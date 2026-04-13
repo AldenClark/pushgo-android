@@ -135,11 +135,92 @@ class UpdateCandidateSelectorTest {
             currentVersionCode = 1020001,
             betaEnabled = false,
             nowEpochMs = 2_000L,
-            runtime = runtime(supportedAbis = setOf("arm64-v8a")),
+            runtime = runtime(supportedAbis = listOf("arm64-v8a")),
         )
 
         assertNotNull(selected)
         assertEquals(1020100, selected?.versionCode)
+    }
+
+    @Test
+    fun packageMatrix_selectsBestMatchingAbiArtifact() {
+        val payload = payloadOf(
+            entry(
+                versionCode = 1020201,
+                versionName = "v1.2.2-beta.1",
+                channel = "beta",
+                packages = mapOf(
+                    "v8a" to pkg("https://example.com/v8a.apk", "1".repeat(64)),
+                    "v7a" to pkg("https://example.com/v7a.apk", "2".repeat(64)),
+                    "x86" to pkg("https://example.com/x86.apk", "3".repeat(64)),
+                    "universal" to pkg("https://example.com/universal.apk", "4".repeat(64)),
+                ),
+            ),
+        )
+
+        val selected = UpdateCandidateSelector.selectBestCandidate(
+            payload = payload,
+            currentVersionCode = 1020001,
+            betaEnabled = true,
+            nowEpochMs = 2_000L,
+            runtime = runtime(supportedAbis = listOf("arm64-v8a", "armeabi-v7a")),
+        )
+
+        assertNotNull(selected)
+        assertEquals("v8a", selected?.packageKey)
+        assertEquals("https://example.com/v8a.apk", selected?.apkUrl)
+    }
+
+    @Test
+    fun packageMatrix_fallsBackToUniversalWhenExactAbiMissing() {
+        val payload = payloadOf(
+            entry(
+                versionCode = 1020202,
+                versionName = "v1.2.2-beta.2",
+                channel = "beta",
+                packages = mapOf(
+                    "universal" to pkg("https://example.com/universal.apk", "4".repeat(64)),
+                ),
+            ),
+        )
+
+        val selected = UpdateCandidateSelector.selectBestCandidate(
+            payload = payload,
+            currentVersionCode = 1020001,
+            betaEnabled = true,
+            nowEpochMs = 2_000L,
+            runtime = runtime(supportedAbis = listOf("x86_64")),
+        )
+
+        assertNotNull(selected)
+        assertEquals("universal", selected?.packageKey)
+        assertEquals("https://example.com/universal.apk", selected?.apkUrl)
+    }
+
+    @Test
+    fun packageMatrix_usesLegacyFieldsWhenPackagesAbsent() {
+        val payload = payloadOf(
+            entry(
+                versionCode = 1020203,
+                versionName = "v1.2.2-beta.3",
+                channel = "beta",
+                apkUrl = "https://example.com/legacy.apk",
+                apkSha256 = "f".repeat(64),
+                allowedAbis = listOf("arm64-v8a"),
+            ),
+        )
+
+        val selected = UpdateCandidateSelector.selectBestCandidate(
+            payload = payload,
+            currentVersionCode = 1020001,
+            betaEnabled = true,
+            nowEpochMs = 2_000L,
+            runtime = runtime(supportedAbis = listOf("arm64-v8a")),
+        )
+
+        assertNotNull(selected)
+        assertEquals("legacy", selected?.packageKey)
+        assertEquals("https://example.com/legacy.apk", selected?.apkUrl)
     }
 
     @Test
@@ -313,7 +394,7 @@ class UpdateCandidateSelectorTest {
 
     private fun runtime(
         sdkInt: Int = 31,
-        supportedAbis: Set<String> = setOf("arm64-v8a"),
+        supportedAbis: List<String> = listOf("arm64-v8a"),
         deviceBucketFraction: Double = 0.25,
         preferredLocales: List<String> = emptyList(),
     ): UpdateRuntimeContext {
@@ -331,6 +412,7 @@ class UpdateCandidateSelectorTest {
         channel: String,
         apkUrl: String = "https://example.com/pushgo-$versionCode.apk",
         apkSha256: String = "a".repeat(64),
+        packages: Map<String, UpdatePackageArtifact> = emptyMap(),
         minSdk: Int? = null,
         allowedAbis: List<String> = emptyList(),
         minimumSupportedVersionCode: Int? = null,
@@ -346,6 +428,7 @@ class UpdateCandidateSelectorTest {
             versionName = versionName,
             apkUrl = apkUrl,
             apkSha256 = apkSha256,
+            packages = packages,
             minSdk = minSdk,
             allowedAbis = allowedAbis,
             minimumSupportedVersionCode = minimumSupportedVersionCode,
@@ -355,5 +438,9 @@ class UpdateCandidateSelectorTest {
             notes = notes,
             notesI18n = notesI18n,
         )
+    }
+
+    private fun pkg(url: String, sha: String): UpdatePackageArtifact {
+        return UpdatePackageArtifact(apkUrl = url, apkSha256 = sha)
     }
 }

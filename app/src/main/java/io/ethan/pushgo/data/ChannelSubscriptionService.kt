@@ -59,6 +59,7 @@ class ChannelSubscriptionService {
         internal const val DEVICE_REGISTER_ENDPOINT = "/device/register"
         internal const val DEVICE_CHANNEL_DELETE_ENDPOINT = "/channel/device/delete"
         internal const val PULL_MESSAGE_ENDPOINT = "/messages/pull"
+        internal const val ACK_MESSAGE_ENDPOINT = "/messages/ack"
     }
 
     data class EventSendResult(
@@ -181,31 +182,67 @@ class ChannelSubscriptionService {
         Unit
     }
 
-    suspend fun pullMessage(
+    suspend fun pullMessages(
         baseUrl: String,
         token: String?,
+        deviceKey: String,
+        deliveryId: String? = null,
+    ): List<PullItem> = withContext(Dispatchers.IO) {
+        val normalizedDeviceKey = deviceKey.trim()
+        if (normalizedDeviceKey.isEmpty()) {
+            throw ChannelSubscriptionException("Missing device_key")
+        }
+        val normalizedDeliveryId = deliveryId?.trim()?.takeIf { it.isNotEmpty() }
+        val endpoint = buildUrl(baseUrl, PULL_MESSAGE_ENDPOINT)
+        val payload = JSONObject().apply {
+            put("device_key", normalizedDeviceKey)
+            if (normalizedDeliveryId != null) {
+                put("delivery_id", normalizedDeliveryId)
+            }
+        }
+        val response = execute(endpoint, token, "POST", payload)
+        val data = response.data ?: throw ChannelSubscriptionException("Invalid response")
+        val items = data.optJSONArray("items") ?: return@withContext emptyList()
+        return@withContext buildList {
+            for (index in 0 until items.length()) {
+                val item = items.optJSONObject(index) ?: continue
+                val itemPayload = item.optJSONObject("payload")?.toStringMap() ?: continue
+                val resolvedDeliveryId = item.optString("delivery_id", "")
+                    .trim()
+                    .ifEmpty { normalizedDeliveryId.orEmpty() }
+                if (resolvedDeliveryId.isEmpty()) continue
+                add(
+                    PullItem(
+                        deliveryId = resolvedDeliveryId,
+                        payload = itemPayload,
+                    )
+                )
+            }
+        }
+    }
+
+    suspend fun ackMessage(
+        baseUrl: String,
+        token: String?,
+        deviceKey: String,
         deliveryId: String,
-    ): PullItem? = withContext(Dispatchers.IO) {
+    ): Boolean = withContext(Dispatchers.IO) {
+        val normalizedDeviceKey = deviceKey.trim()
+        if (normalizedDeviceKey.isEmpty()) {
+            throw ChannelSubscriptionException("Missing device_key")
+        }
         val normalizedDeliveryId = deliveryId.trim()
         if (normalizedDeliveryId.isEmpty()) {
             throw ChannelSubscriptionException("Missing delivery_id")
         }
-        val endpoint = buildUrl(baseUrl, PULL_MESSAGE_ENDPOINT)
+        val endpoint = buildUrl(baseUrl, ACK_MESSAGE_ENDPOINT)
         val payload = JSONObject().apply {
+            put("device_key", normalizedDeviceKey)
             put("delivery_id", normalizedDeliveryId)
         }
         val response = execute(endpoint, token, "POST", payload)
         val data = response.data ?: throw ChannelSubscriptionException("Invalid response")
-        if (data.isNull("item")) return@withContext null
-        val item = data.optJSONObject("item") ?: return@withContext null
-        val resolvedDeliveryId = item.optString("delivery_id", normalizedDeliveryId)
-            .trim()
-            .ifEmpty { normalizedDeliveryId }
-        val itemPayload = item.optJSONObject("payload")?.toStringMap() ?: return@withContext null
-        return@withContext PullItem(
-            deliveryId = resolvedDeliveryId,
-            payload = itemPayload,
-        )
+        return@withContext data.optBoolean("removed", false)
     }
 
     suspend fun renameChannel(

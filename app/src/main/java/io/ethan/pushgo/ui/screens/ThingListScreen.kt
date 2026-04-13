@@ -24,6 +24,7 @@ import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material.icons.outlined.FilterList as OutlinedFilterList
 import androidx.compose.material3.*
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -53,6 +54,7 @@ import io.ethan.pushgo.data.model.*
 import io.ethan.pushgo.data.parseThingProfile
 import io.ethan.pushgo.notifications.ForegroundNotificationPresentationState
 import io.ethan.pushgo.notifications.ForegroundNotificationTopMetrics
+import io.ethan.pushgo.notifications.ProviderIngressCoordinator
 import io.ethan.pushgo.ui.PushGoViewModelFactory
 import io.ethan.pushgo.ui.rememberBottomBarNestedScrollConnection
 import io.ethan.pushgo.ui.rememberBottomGestureInset
@@ -184,6 +186,7 @@ fun ThingListScreen(
     var selectedThingIds by remember { mutableStateOf<Set<String>>(emptySet()) }
     var initialSelectionStateForDrag by remember { mutableStateOf<Boolean?>(null) }
     var showBatchDeleteConfirmation by remember { mutableStateOf(false) }
+    var isPullRefreshing by remember { mutableStateOf(false) }
     var searchQuery by remember { mutableStateOf("") }
     var channelFilter by remember { mutableStateOf<String?>(null) }
     var showOnlyActive by remember { mutableStateOf(false) }
@@ -268,17 +271,46 @@ fun ThingListScreen(
             }
     }
 
+    suspend fun reloadThingsInternal() {
+        if (isLoadingMoreThings) return
+        isLoadingMoreThings = true
+        try {
+            thingCursor = null
+            val firstPage = container.entityRepository.getThingProjectionMessagesPage(before = null, limit = THING_PAGE_SIZE)
+            allThings = withContext(Dispatchers.Default) { buildThingCardsInternal(firstPage) }
+            hasMoreThings = firstPage.size >= THING_PAGE_SIZE
+            hasLoadedOnce = true
+        } finally { isLoadingMoreThings = false }
+    }
+
     fun reloadThings() {
         scope.launch {
-            if (isLoadingMoreThings) return@launch
-            isLoadingMoreThings = true
-            try {
-                thingCursor = null
-                val firstPage = container.entityRepository.getThingProjectionMessagesPage(before = null, limit = THING_PAGE_SIZE)
-                allThings = withContext(Dispatchers.Default) { buildThingCardsInternal(firstPage) }
-                hasMoreThings = firstPage.size >= THING_PAGE_SIZE
-                hasLoadedOnce = true
-            } finally { isLoadingMoreThings = false }
+            reloadThingsInternal()
+        }
+    }
+
+    fun refreshProviderIngressFromPullDown() {
+        if (isPullRefreshing) return
+        scope.launch {
+            isPullRefreshing = true
+            runCatching {
+                ProviderIngressCoordinator.pullPersistAndDrainAcks(
+                    context = context,
+                    channelRepository = container.channelRepository,
+                    messageRepository = container.messageRepository,
+                    entityRepository = container.entityRepository,
+                    inboundDeliveryLedgerRepository = container.inboundDeliveryLedgerRepository,
+                    settingsRepository = container.settingsRepository,
+                )
+                reloadThingsInternal()
+            }.onFailure { error ->
+                io.ethan.pushgo.util.SilentSink.w(
+                    "ThingListScreen",
+                    "provider ingress refresh failed",
+                    error,
+                )
+            }
+            isPullRefreshing = false
         }
     }
 
@@ -350,14 +382,19 @@ fun ThingListScreen(
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
-        LazyColumn(
-            modifier = Modifier.fillMaxSize()
-                .nestedScroll(bottomBarNestedScrollConnection)
-                .onGloballyPositioned { listTopInWindow = it.positionInWindow().y },
-            state = listState,
-            verticalArrangement = Arrangement.spacedBy(10.dp),
-            contentPadding = PaddingValues(bottom = bottomGestureInset + 24.dp),
+        PullToRefreshBox(
+            isRefreshing = isPullRefreshing,
+            onRefresh = { refreshProviderIngressFromPullDown() },
+            modifier = Modifier.fillMaxSize(),
         ) {
+            LazyColumn(
+                modifier = Modifier.fillMaxSize()
+                    .nestedScroll(bottomBarNestedScrollConnection)
+                    .onGloballyPositioned { listTopInWindow = it.positionInWindow().y },
+                state = listState,
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+                contentPadding = PaddingValues(bottom = bottomGestureInset + 24.dp),
+            ) {
             item {
                 Column(modifier = Modifier.fillMaxWidth().heightIn(min = 120.dp)) {
                     Box(modifier = Modifier.fillMaxWidth().heightIn(min = 64.dp), contentAlignment = Alignment.Center) {
@@ -430,6 +467,7 @@ fun ThingListScreen(
                 items(items = filteredThings, key = { it.thingId }) { thing ->
                     ThingRow(thing = thing, onClick = { if (isSelectionMode) toggleSelection(thing.thingId) else { selectedThing = thing; onThingDetailOpened(thing.thingId) } }, selectionMode = isSelectionMode, selected = selectedThingIds.contains(thing.thingId), onToggleSelection = { toggleSelection(thing.thingId) })
                 }
+            }
             }
         }
     }

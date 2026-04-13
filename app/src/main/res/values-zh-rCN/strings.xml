@@ -112,6 +112,7 @@
     <string name="label_enable_notifications">通知已关闭</string>
     <string name="label_enable_notifications_hint">我们发现你已关闭 PushGo 通知，可能会错过新的消息、事件和对象更新。去系统设置打开通知后，回来就能第一时间收到提醒。</string>
     <string name="label_turn_on">开启</string>
+    <string name="label_update_install_manual_continue">手动继续安装</string>
     <string name="label_data_page_toggle_hint">仅从导航隐藏；收到对应新数据后会自动恢复显示</string>
     <string name="label_body">正文</string>
     <string name="label_url">链接</string>
@@ -172,6 +173,9 @@
         <item quantity="other">密钥长度不匹配：需要 %1$d 字节 (%2$d 位)，实际 %3$d 字节</item>
     </plurals>
     <string name="error_unable_to_get_fcm_token">无法获取 FCM 令牌</string>
+    <string name="error_fcm_token_network_unavailable">无法获取 FCM 令牌：当前网络无法连接 Google 服务</string>
+    <string name="error_fcm_token_project_not_configured">无法获取 FCM 令牌：Firebase 项目配置与当前应用不匹配</string>
+    <string name="error_fcm_token_auth_failed">无法获取 FCM 令牌：Firebase 认证失败</string>
     <string name="error_fcm_not_supported">该设备不支持 FCM</string>
     <string name="error_fcm_token_timeout">获取 FCM 令牌超时</string>
     <string name="error_channel_name_required">请输入频道名称</string>
@@ -381,6 +385,10 @@
     <string name="label_update_install_now">立即安装</string>
     <string name="label_update_remind_later">稍后提醒</string>
     <string name="label_update_skip_version">跳过此版本</string>
+    <string name="label_update_install_status_downloading">正在下载更新包…</string>
+    <string name="label_update_install_status_verifying">正在校验安装包完整性…</string>
+    <string name="label_update_install_status_preparing">正在准备安装…</string>
+    <string name="label_update_install_status_handoff">正在打开系统安装器…</string>
     <string name="label_update_install_permission_title">允许安装应用包</string>
     <string name="label_update_install_permission_body">要安装 PushGo 更新，请在系统设置中允许本应用安装未知来源应用包。</string>
     <string name="message_update_available">检测到更新：%1$s</string>

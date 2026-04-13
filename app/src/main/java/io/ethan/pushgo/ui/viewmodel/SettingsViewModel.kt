@@ -8,8 +8,6 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.google.android.gms.common.ConnectionResult
-import com.google.android.gms.common.GoogleApiAvailability
 import com.google.firebase.messaging.FirebaseMessaging
 import io.ethan.pushgo.R
 import io.ethan.pushgo.data.AppConstants
@@ -31,7 +29,9 @@ import io.ethan.pushgo.notifications.PrivateChannelServiceManager
 import io.ethan.pushgo.update.UpdateCandidate
 import io.ethan.pushgo.update.UpdateCheckScheduler
 import io.ethan.pushgo.update.UpdateInstallStartResult
+import io.ethan.pushgo.update.UpdateInstallProgressStage
 import io.ethan.pushgo.update.UpdateManager
+import io.ethan.pushgo.util.FcmSupport
 import io.ethan.pushgo.util.UrlValidators
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.delay
@@ -135,7 +135,11 @@ class SettingsViewModel(
         private set
     var isInstallingUpdate by mutableStateOf(false)
         private set
+    var updateInstallProgressMessage by mutableStateOf<UiMessage?>(null)
+        private set
     var shouldShowInstallPermissionDialog by mutableStateOf(false)
+        private set
+    var pendingManualInstallApkPath by mutableStateOf<String?>(null)
         private set
     var errorMessage by mutableStateOf<UiMessage?>(null)
         private set
@@ -266,12 +270,34 @@ class SettingsViewModel(
         if (isInstallingUpdate) return
         viewModelScope.launch {
             isInstallingUpdate = true
+            pendingManualInstallApkPath = null
+            updateInstallProgressMessage = ResMessage(R.string.label_update_install_status_downloading)
             try {
-                when (val result = updateManager.install(candidate)) {
+                when (
+                    val result = updateManager.install(candidate) { stage ->
+                        viewModelScope.launch {
+                            updateInstallProgressMessage = when (stage) {
+                                UpdateInstallProgressStage.DOWNLOADING_PACKAGE -> {
+                                    ResMessage(R.string.label_update_install_status_downloading)
+                                }
+                                UpdateInstallProgressStage.VERIFYING_PACKAGE -> {
+                                    ResMessage(R.string.label_update_install_status_verifying)
+                                }
+                                UpdateInstallProgressStage.PREPARING_INSTALL -> {
+                                    ResMessage(R.string.label_update_install_status_preparing)
+                                }
+                                UpdateInstallProgressStage.HANDOFF_TO_SYSTEM -> {
+                                    ResMessage(R.string.label_update_install_status_handoff)
+                                }
+                            }
+                        }
+                    }
+                ) {
                     UpdateInstallStartResult.Started -> {
                         successMessage = ResMessage(R.string.message_update_install_started)
                     }
-                    UpdateInstallStartResult.PermissionRequired -> {
+                    is UpdateInstallStartResult.PermissionRequired -> {
+                        pendingManualInstallApkPath = result.apkFilePath
                         shouldShowInstallPermissionDialog = true
                     }
                     is UpdateInstallStartResult.Failed -> {
@@ -436,14 +462,13 @@ class SettingsViewModel(
             null
         } catch (ex: Exception) {
             io.ethan.pushgo.util.SilentSink.e(TAG, "Unable to get FCM token: ${ex.message}", ex)
-            errorMessage = ResMessage(R.string.error_unable_to_get_fcm_token)
+            errorMessage = ResMessage(classifyFcmTokenFailureRes(ex))
             null
         }
     }
 
     private fun isFcmSupported(context: Context): Boolean {
-        val availability = GoogleApiAvailability.getInstance()
-        return availability.isGooglePlayServicesAvailable(context) == ConnectionResult.SUCCESS
+        return FcmSupport.isAvailable(context)
     }
 
     private fun shouldUseFcm(context: Context): Boolean {
@@ -473,17 +498,63 @@ class SettingsViewModel(
     }
 
     private fun isRetriableFcmTokenError(error: Throwable): Boolean {
-        val message = buildString {
-            append(error.message.orEmpty())
-            val cause = error.cause
-            if (cause != null) {
-                append(" ")
-                append(cause.message.orEmpty())
-            }
-        }.uppercase()
+        val message = collectErrorMessages(error)
         return message.contains("SERVICE_NOT_AVAILABLE")
             || message.contains("INTERNAL_SERVER_ERROR")
             || message.contains("TIMEOUT")
+    }
+
+    private fun classifyFcmTokenFailureRes(error: Throwable): Int {
+        val message = collectErrorMessages(error)
+        if (message.contains("SERVICE_NOT_AVAILABLE")
+            || message.contains("INTERNAL_SERVER_ERROR")
+            || message.contains("TIMEOUT")
+            || message.contains("NETWORK")
+            || message.contains("CONNECTION")
+            || message.contains("UNAVAILABLE")
+            || message.contains("HOST")
+        ) {
+            return R.string.error_fcm_token_network_unavailable
+        }
+
+        if (message.contains("DEFAULT FIREBASEAPP")
+            || message.contains("NO DEFAULT FIREBASEAPP")
+            || message.contains("MISSING GOOGLE APP ID")
+            || message.contains("MISSING_INSTANCEID_SERVICE")
+            || message.contains("APPLICATION_ID")
+            || message.contains("SENDER_ID")
+            || message.contains("PROJECT_NOT_PERMITTED")
+            || message.contains("API_KEY")
+        ) {
+            return R.string.error_fcm_token_project_not_configured
+        }
+
+        if (message.contains("FIS_AUTH_ERROR")
+            || message.contains("AUTHENTICATION")
+            || message.contains("AUTH")
+            || message.contains("INVALID_SENDER")
+            || message.contains("MISMATCH_SENDER_ID")
+            || message.contains("PERMISSION_DENIED")
+            || message.contains("UNREGISTERED")
+        ) {
+            return R.string.error_fcm_token_auth_failed
+        }
+
+        return R.string.error_unable_to_get_fcm_token
+    }
+
+    private fun collectErrorMessages(error: Throwable): String {
+        val messages = buildString {
+            var cursor: Throwable? = error
+            var depth = 0
+            while (cursor != null && depth < 4) {
+                append(cursor.message.orEmpty())
+                append(' ')
+                cursor = cursor.cause
+                depth += 1
+            }
+        }
+        return messages.uppercase()
     }
 
     private suspend fun fetchFcmTokenOnce(): String = withTimeout(AppConstants.fcmTokenTimeoutMs) {
@@ -971,6 +1042,10 @@ class SettingsViewModel(
 
     fun consumeInstallPermissionDialog() {
         shouldShowInstallPermissionDialog = false
+    }
+
+    fun consumePendingManualInstallApkPath() {
+        pendingManualInstallApkPath = null
     }
 
     private fun Throwable.toUiErrorMessage(@StringRes fallbackResId: Int): UiMessage {

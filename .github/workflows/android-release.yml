@@ -264,12 +264,18 @@ jobs:
           if [[ "${{ steps.tag.outputs.kind }}" == "beta" ]]; then
             track="beta"
           fi
+          base_url="${PUSHGO_UPDATE_BASE_URL:-}"
+          if [[ -z "$base_url" ]]; then
+            echo "Missing required PUSHGO_UPDATE_BASE_URL for server-hosted update feed URLs." >&2
+            exit 1
+          fi
           cmd=(
             scripts/generate_update_feed.sh
             "$track"
             dist
             --tag "${GITHUB_REF_NAME}"
             --repo "${GITHUB_REPOSITORY}"
+            --base-url "$base_url"
             --existing-feed "release/update-feed-v1.json"
             --repo-feed-path ""
           )
@@ -280,6 +286,51 @@ jobs:
             cmd+=(--ecdsa-private-key-file "${PUSHGO_UPDATE_FEED_ECDSA_SIGNING_KEY_FILE}")
           fi
           "${cmd[@]}"
+        env:
+          PUSHGO_UPDATE_BASE_URL: ${{ vars.PUSHGO_UPDATE_BASE_URL != '' && vars.PUSHGO_UPDATE_BASE_URL || secrets.PUSHGO_UPDATE_BASE_URL }}
+
+      - name: Enforce ABI package matrix artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          apk_files=(dist/*.apk)
+          shopt -u nullglob
+          if [[ ${#apk_files[@]} -eq 0 ]]; then
+            echo "No APK artifacts found under dist/" >&2
+            exit 1
+          fi
+
+          find_match() {
+            local regex="$1"
+            for file in "${apk_files[@]}"; do
+              local name
+              name="$(basename "$file")"
+              if [[ "$name" =~ $regex ]]; then
+                echo "$name"
+                return 0
+              fi
+            done
+            return 1
+          }
+
+          v8a_file="$(find_match 'arm64-v8a|aarch64' || true)"
+          v7a_file="$(find_match 'armeabi-v7a|armv7|arm-v7a' || true)"
+          x86_file="$(find_match 'x86_64|x86' || true)"
+          universal_file="$(find_match 'universal|all' || true)"
+
+          if [[ -z "$v8a_file" || -z "$v7a_file" || -z "$x86_file" || -z "$universal_file" ]]; then
+            echo "ABI package matrix check failed. Required APK variants: v8a / v7a / x86 / universal." >&2
+            printf 'Detected APK files:\n%s\n' "${apk_files[*]}" >&2
+            echo "Detected matches: v8a=${v8a_file:-<missing>} v7a=${v7a_file:-<missing>} x86=${x86_file:-<missing>} universal=${universal_file:-<missing>}" >&2
+            exit 1
+          fi
+
+          echo "ABI package matrix ready:"
+          echo "  v8a      -> $v8a_file"
+          echo "  v7a      -> $v7a_file"
+          echo "  x86      -> $x86_file"
+          echo "  universal-> $universal_file"
 
       - name: Generate update deploy bundle
         shell: bash
@@ -303,6 +354,43 @@ jobs:
         run: |
           set -euo pipefail
           scripts/verify_update_feed.sh dist/update-feed-v1.json
+          jq -e '
+            .payload.entries
+            | map(
+                (.packages | type == "object")
+                and (.packages.v8a | type == "object")
+                and (.packages.v7a | type == "object")
+                and (.packages.x86 | type == "object")
+                and (.packages.universal | type == "object")
+              )
+            | all
+          ' dist/update-feed-v1.json >/dev/null
+          echo "Feed schema gate passed: packages.v8a/v7a/x86/universal all present."
+          base_url="${PUSHGO_UPDATE_BASE_URL:-}"
+          if [[ -z "$base_url" ]]; then
+            echo "Missing required PUSHGO_UPDATE_BASE_URL for URL prefix verification." >&2
+            exit 1
+          fi
+          jq -e --arg base "${base_url%/}" '
+            .payload.entries
+            | map(
+                . as $entry
+                | (($entry.channel == "stable") or ($entry.channel == "beta"))
+                and (
+                  [
+                    $entry.packages.v8a.apkUrl,
+                    $entry.packages.v7a.apkUrl,
+                    $entry.packages.x86.apkUrl,
+                    $entry.packages.universal.apkUrl
+                  ]
+                  | all(type == "string" and startswith($base + "/" + $entry.channel + "/" + $entry.versionName + "/"))
+                )
+              )
+            | all
+          ' dist/update-feed-v1.json >/dev/null
+          echo "Feed URL gate passed: all package URLs point to ${base_url%/}/{stable|beta}/{version}/..."
+        env:
+          PUSHGO_UPDATE_BASE_URL: ${{ vars.PUSHGO_UPDATE_BASE_URL != '' && vars.PUSHGO_UPDATE_BASE_URL || secrets.PUSHGO_UPDATE_BASE_URL }}
 
       - name: Prepare update deploy SSH key
         shell: bash
@@ -326,10 +414,15 @@ jobs:
             echo "Skip update publish: deploy host/user/path is not fully configured."
             exit 0
           fi
+          track="stable"
+          if [[ "${{ steps.tag.outputs.kind }}" == "beta" ]]; then
+            track="beta"
+          fi
           scripts/publish_update_artifacts.sh \
             dist \
             "${PUSHGO_UPDATE_DEPLOY_USER}@${PUSHGO_UPDATE_DEPLOY_HOST}" \
-            "${PUSHGO_UPDATE_DEPLOY_PATH}"
+            "${PUSHGO_UPDATE_DEPLOY_PATH}" \
+            "${track}"
         env:
           PUSHGO_UPDATE_DEPLOY_HOST: ${{ secrets.PUSHGO_UPDATE_DEPLOY_HOST }}
           PUSHGO_UPDATE_DEPLOY_USER: ${{ secrets.PUSHGO_UPDATE_DEPLOY_USER }}
@@ -459,6 +552,10 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          if [[ -z "${PUSHGO_UPDATE_BASE_URL:-}" ]]; then
+            echo "Missing required PUSHGO_UPDATE_BASE_URL while persisting repository feed." >&2
+            exit 1
+          fi
 
           default_branch="${{ github.event.repository.default_branch }}"
           track="stable"
@@ -480,6 +577,7 @@ jobs:
               dist
               --tag "${GITHUB_REF_NAME}"
               --repo "${GITHUB_REPOSITORY}"
+              --base-url "${PUSHGO_UPDATE_BASE_URL}"
               --repo-feed-path "release/update-feed-v1.json"
             )
             if [[ -n "${PUSHGO_UPDATE_FEED_SIGNING_KEY_FILE:-}" ]]; then
@@ -508,3 +606,5 @@ jobs:
 
           echo "Failed to persist update feed after multiple attempts." >&2
           exit 1
+        env:
+          PUSHGO_UPDATE_BASE_URL: ${{ vars.PUSHGO_UPDATE_BASE_URL != '' && vars.PUSHGO_UPDATE_BASE_URL || secrets.PUSHGO_UPDATE_BASE_URL }}

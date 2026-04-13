@@ -42,6 +42,7 @@ class PushGoMessagingService : FirebaseMessagingService() {
                     channelRepository = channelRepository,
                     messageRepository = messageRepository,
                     entityRepository = entityRepository,
+                    inboundDeliveryLedgerRepository = container.inboundDeliveryLedgerRepository,
                     settingsRepository = settingsRepository,
                     deliveryId = providerPullDeliveryId,
                 )
@@ -51,14 +52,22 @@ class PushGoMessagingService : FirebaseMessagingService() {
         val messageRepository = container.messageRepository
         val entityRepository = container.entityRepository
         val settingsRepository = container.settingsRepository
+        val channelRepository = container.channelRepository
         serviceScope.launch {
             val parsed = parseMessage(message, settingsRepository)
             if (parsed != null) {
-                handleInbound(
+                val outcome = handleInbound(
                     messageRepository = messageRepository,
                     entityRepository = entityRepository,
+                    inboundDeliveryLedgerRepository = container.inboundDeliveryLedgerRepository,
                     settingsRepository = settingsRepository,
                     parsed = parsed,
+                )
+                ProviderIngressCoordinator.ackDirectDeliveryIfNeeded(
+                    channelRepository = channelRepository,
+                    inboundDeliveryLedgerRepository = container.inboundDeliveryLedgerRepository,
+                    inbound = parsed,
+                    outcome = outcome,
                 )
             }
         }
@@ -77,14 +86,15 @@ class PushGoMessagingService : FirebaseMessagingService() {
     private suspend fun handleInbound(
         messageRepository: MessageRepository,
         entityRepository: EntityRepository,
+        inboundDeliveryLedgerRepository: io.ethan.pushgo.data.InboundDeliveryLedgerRepository,
         settingsRepository: SettingsRepository,
         parsed: InboundPersistenceRequest,
-    ) {
-        InboundPersistenceCoordinator.persistAndNotify(
+    ): InboundPersistenceOutcome {
+        return InboundPersistenceCoordinator.persistAndNotify(
             context = applicationContext,
             messageRepository = messageRepository,
             entityRepository = entityRepository,
-            inboundDeliveryLedgerRepository = (application as PushGoApp).container.inboundDeliveryLedgerRepository,
+            inboundDeliveryLedgerRepository = inboundDeliveryLedgerRepository,
             settingsRepository = settingsRepository,
             inbound = parsed,
         ) { message, imageUrl ->
@@ -96,11 +106,22 @@ class PushGoMessagingService : FirebaseMessagingService() {
         channelRepository: ChannelSubscriptionRepository,
         messageRepository: MessageRepository,
         entityRepository: EntityRepository,
+        inboundDeliveryLedgerRepository: io.ethan.pushgo.data.InboundDeliveryLedgerRepository,
         settingsRepository: SettingsRepository,
         deliveryId: String,
     ) {
-        val pulled = runCatching {
-            channelRepository.pullMessage(deliveryId)
+        runCatching {
+            ProviderIngressCoordinator.pullPersistAndDrainAcks(
+                context = applicationContext,
+                channelRepository = channelRepository,
+                messageRepository = messageRepository,
+                entityRepository = entityRepository,
+                inboundDeliveryLedgerRepository = inboundDeliveryLedgerRepository,
+                settingsRepository = settingsRepository,
+                deliveryId = deliveryId,
+            ) { message, imageUrl ->
+                enqueuePostProcess(message.id, imageUrl)
+            }
         }
             .onFailure { error ->
                 io.ethan.pushgo.util.SilentSink.w(
@@ -109,30 +130,6 @@ class PushGoMessagingService : FirebaseMessagingService() {
                     error,
                 )
             }
-            .getOrNull()
-            ?: return
-        val keyBytes = settingsRepository.getNotificationKeyBytes()
-        val parsed = NotificationIngressParser.parse(
-            data = pulled.payload,
-            transportMessageId = pulled.deliveryId,
-            keyBytes = keyBytes,
-            textLocalizer = NotificationIngressParser.NotificationTextLocalizer.fromContext(
-                applicationContext
-            ),
-        )
-        if (parsed == null) {
-            io.ethan.pushgo.util.SilentSink.w(
-                TAG,
-                "provider wakeup pull payload rejected deliveryId=${pulled.deliveryId}",
-            )
-            return
-        }
-        handleInbound(
-            messageRepository = messageRepository,
-            entityRepository = entityRepository,
-            settingsRepository = settingsRepository,
-            parsed = parsed,
-        )
     }
 
     private suspend fun parseMessage(

@@ -42,6 +42,7 @@ import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
@@ -83,14 +84,15 @@ import io.ethan.pushgo.ui.theme.pushGoSegmentedButtonColors
 import io.ethan.pushgo.ui.viewmodel.SettingsViewModel
 
 import androidx.core.app.NotificationManagerCompat
+import androidx.core.content.FileProvider
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import io.ethan.pushgo.BuildConfig
 import io.ethan.pushgo.data.AppConstants
-import com.google.android.gms.common.ConnectionResult
-import com.google.android.gms.common.GoogleApiAvailability
 import io.ethan.pushgo.update.UpdateCandidate
+import io.ethan.pushgo.util.FcmSupport
+import java.io.File
 
 private val ScreenHorizontalPadding = 12.dp
 
@@ -350,7 +352,11 @@ fun SettingsScreen(
                     icon = Icons.Outlined.Info,
                     title = stringResource(R.string.label_update_check_now),
                     subtitle = subtitle,
-                    onClick = { viewModel.refreshUpdateState(manual = true) },
+                    onClick = if (viewModel.isCheckingUpdates) {
+                        null
+                    } else {
+                        { viewModel.refreshUpdateState(manual = true) }
+                    },
                 )
             }
             if (viewModel.availableUpdate != null) {
@@ -358,6 +364,7 @@ fun SettingsScreen(
                     UpdateCandidateCard(
                         candidate = viewModel.availableUpdate!!,
                         installing = viewModel.isInstallingUpdate,
+                        installProgressText = viewModel.updateInstallProgressMessage?.resolve(context),
                         onInstall = { viewModel.installAvailableUpdate() },
                         onSkip = { viewModel.skipAvailableUpdate() },
                         onRemindLater = { viewModel.remindLaterForAvailableUpdate() },
@@ -461,8 +468,24 @@ fun SettingsScreen(
                 }
             },
             dismissButton = {
-                TextButton(onClick = viewModel::consumeInstallPermissionDialog) {
-                    Text(text = stringResource(R.string.label_cancel))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    TextButton(
+                        onClick = {
+                            val launched = openManualApkInstall(
+                                context = context,
+                                apkPath = viewModel.pendingManualInstallApkPath,
+                            )
+                            if (launched) {
+                                viewModel.consumeInstallPermissionDialog()
+                                viewModel.consumePendingManualInstallApkPath()
+                            }
+                        },
+                    ) {
+                        Text(text = stringResource(R.string.label_update_install_manual_continue))
+                    }
+                    TextButton(onClick = viewModel::consumeInstallPermissionDialog) {
+                        Text(text = stringResource(R.string.label_cancel))
+                    }
                 }
             },
         )
@@ -648,6 +671,7 @@ private fun UpdateChannelSelectorRow(
 private fun UpdateCandidateCard(
     candidate: UpdateCandidate,
     installing: Boolean,
+    installProgressText: String?,
     onInstall: () -> Unit,
     onSkip: () -> Unit,
     onRemindLater: () -> Unit,
@@ -676,6 +700,19 @@ private fun UpdateCandidateCard(
                 style = MaterialTheme.typography.bodyMedium,
                 color = uiColors.textSecondary,
             )
+            if (installing) {
+                LinearProgressIndicator(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("progress.settings.update.install"),
+                )
+                Text(
+                    text = installProgressText ?: stringResource(R.string.label_update_install_status_preparing),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = uiColors.textSecondary,
+                    modifier = Modifier.testTag("text.settings.update.install_status"),
+                )
+            }
             Row(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
@@ -984,6 +1021,28 @@ private fun openUnknownAppSourcesSettings(context: Context) {
     }
 }
 
+private fun openManualApkInstall(context: Context, apkPath: String?): Boolean {
+    val path = apkPath?.trim().orEmpty()
+    if (path.isEmpty()) {
+        return false
+    }
+    val apkFile = File(path)
+    if (!apkFile.exists()) {
+        return false
+    }
+    val apkUri = FileProvider.getUriForFile(
+        context,
+        "${context.packageName}.fileprovider",
+        apkFile,
+    )
+    val installIntent = Intent(Intent.ACTION_VIEW)
+        .setDataAndType(apkUri, "application/vnd.android.package-archive")
+        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_GRANT_READ_URI_PERMISSION)
+    return runCatching {
+        context.startActivity(installIntent)
+    }.isSuccess
+}
+
 private fun startActivityOrFallback(
     context: Context,
     intent: Intent,
@@ -995,8 +1054,7 @@ private fun startActivityOrFallback(
 }
 
 private fun isFcmSupported(context: Context): Boolean {
-    val availability = GoogleApiAvailability.getInstance()
-    return availability.isGooglePlayServicesAvailable(context) == ConnectionResult.SUCCESS
+    return FcmSupport.isAvailable(context)
 }
 
 @Composable

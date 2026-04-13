@@ -56,8 +56,35 @@ echo "$raw" | jq -e '
 echo "$raw" | jq -e '
   .payload.entries[]
   | (.versionName | type == "string" and length > 0)
-    and (.apkUrl | type == "string" and length > 0)
-    and (.apkSha256 | type == "string" and length == 64)
+    and (
+      (
+        (.packages? | type == "object")
+        and (
+          (.packages.v8a? | type == "object")
+          and (.packages.v8a.apkUrl | type == "string" and length > 0)
+          and (.packages.v8a.apkSha256 | type == "string" and length == 64)
+        )
+        and (
+          (.packages.v7a? | type == "object")
+          and (.packages.v7a.apkUrl | type == "string" and length > 0)
+          and (.packages.v7a.apkSha256 | type == "string" and length == 64)
+        )
+        and (
+          (.packages.x86? | type == "object")
+          and (.packages.x86.apkUrl | type == "string" and length > 0)
+          and (.packages.x86.apkSha256 | type == "string" and length == 64)
+        )
+        and (
+          (.packages.universal? | type == "object")
+          and (.packages.universal.apkUrl | type == "string" and length > 0)
+          and (.packages.universal.apkSha256 | type == "string" and length == 64)
+        )
+      )
+      or (
+        (.apkUrl | type == "string" and length > 0)
+        and (.apkSha256 | type == "string" and length == 64)
+      )
+    )
 ' >/dev/null
 echo "$raw" | jq -e '
   ((.signature? == null) or (.signature | type == "string"))
@@ -97,7 +124,16 @@ if [[ "$check_urls" == "true" ]]; then
       continue
     fi
     curl -fsI "$url" >/dev/null
-  done < <(echo "$raw" | jq -r '.payload.entries[] | .apkUrl, (.releaseNotesUrl // empty)')
+  done < <(echo "$raw" | jq -r '
+    .payload.entries[] |
+    (
+      if (.packages? | type == "object")
+      then (.packages[]?.apkUrl // empty)
+      else (.apkUrl // empty)
+      end
+    ),
+    (.releaseNotesUrl // empty)
+  ')
 fi
 
 echo "Feed verification passed"

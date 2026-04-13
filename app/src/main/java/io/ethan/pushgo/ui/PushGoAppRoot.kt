@@ -1,7 +1,10 @@
 package io.ethan.pushgo.ui
 
 import android.content.Intent
+import android.net.Uri
 import android.os.SystemClock
+import android.provider.Settings
+import androidx.core.content.FileProvider
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
@@ -19,13 +22,18 @@ import androidx.compose.material.icons.outlined.Group
 import androidx.compose.material.icons.outlined.Memory
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
@@ -42,6 +50,7 @@ import io.ethan.pushgo.ui.screens.ChannelListScreen
 import io.ethan.pushgo.ui.screens.EventListScreen
 import io.ethan.pushgo.ui.screens.MessageDetailScreen
 import io.ethan.pushgo.ui.screens.MessageListScreen
+import io.ethan.pushgo.ui.screens.PushGoAlertDialog
 import io.ethan.pushgo.ui.screens.SettingsScreen
 import io.ethan.pushgo.ui.screens.ThingListScreen
 import io.ethan.pushgo.ui.theme.PushGoThemeExtras
@@ -54,6 +63,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import java.io.File
 
 @Serializable object MessagesRoute
 @Serializable object EventsRoute
@@ -75,6 +85,8 @@ fun PushGoAppRoot(
     startIntent: Intent?,
     useDarkTheme: Boolean,
 ) {
+    val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
     val navController = rememberNavController()
     val factory = remember(container) { PushGoViewModelFactory(container) }
     val automationController = remember(container) { container.automationController }
@@ -96,6 +108,9 @@ fun PushGoAppRoot(
     var pendingMessageReselectJob by remember { mutableStateOf<Job?>(null) }
     var lastReselectedRoute by remember { mutableStateOf<TopLevelRoute?>(null) }
     var lastReselectTimestampMs by remember { mutableLongStateOf(0L) }
+    var autoUpdateDialogVisible by rememberSaveable { mutableStateOf(false) }
+    var autoUpdatePromptedVersionCode by rememberSaveable { mutableIntStateOf(-1) }
+    var autoUpdateWasInstalling by remember { mutableStateOf(false) }
     val appScope = rememberCoroutineScope()
 
     val unreadCount by container.messageRepository.observeUnreadCount().collectAsStateWithLifecycle(initialValue = 0)
@@ -122,6 +137,7 @@ fun PushGoAppRoot(
     val currentBackStackEntry by navController.currentBackStackEntryAsState()
     val currentDestination = currentBackStackEntry?.destination
     val currentRoute = currentDestination?.route
+    val isOnSettingsRoute = currentRoute.matchesSettingsRoute()
 
     val currentTopLevelRoute = currentRoute.topLevelRoute()
     val showBottomBar = currentTopLevelRoute != null
@@ -170,6 +186,38 @@ fun PushGoAppRoot(
 
     LaunchedEffect(currentTopLevelRoute) {
         bottomBarVisible = true
+    }
+
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_START) {
+                settingsViewModel.refreshUpdateState(manual = false)
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
+    LaunchedEffect(Unit) {
+        settingsViewModel.refreshUpdateState(manual = false)
+    }
+
+    LaunchedEffect(settingsViewModel.availableUpdate?.versionCode, isOnSettingsRoute) {
+        val candidate = settingsViewModel.availableUpdate ?: run {
+            autoUpdateDialogVisible = false
+            return@LaunchedEffect
+        }
+        if (!isOnSettingsRoute && autoUpdatePromptedVersionCode != candidate.versionCode) {
+            autoUpdatePromptedVersionCode = candidate.versionCode
+            autoUpdateDialogVisible = true
+        }
+    }
+
+    LaunchedEffect(settingsViewModel.isInstallingUpdate) {
+        if (autoUpdateWasInstalling && !settingsViewModel.isInstallingUpdate) {
+            autoUpdateDialogVisible = false
+        }
+        autoUpdateWasInstalling = settingsViewModel.isInstallingUpdate
     }
 
     LaunchedEffect(startIntent) {
@@ -321,6 +369,108 @@ fun PushGoAppRoot(
             )
         }
     }
+
+    val availableUpdate = settingsViewModel.availableUpdate
+    if (autoUpdateDialogVisible && availableUpdate != null) {
+        val updateBody = availableUpdate.notes?.takeIf { it.isNotBlank() }
+            ?: stringResource(R.string.label_update_available_body)
+        val isInstallingUpdate = settingsViewModel.isInstallingUpdate
+        val installProgressText = settingsViewModel.updateInstallProgressMessage?.resolve(context)
+        PushGoAlertDialog(
+            onDismissRequest = {
+                if (!isInstallingUpdate) {
+                    settingsViewModel.remindLaterForAvailableUpdate()
+                    autoUpdateDialogVisible = false
+                }
+            },
+            title = {
+                Text(
+                    text = stringResource(
+                        R.string.label_update_available_title,
+                        availableUpdate.versionName,
+                    )
+                )
+            },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text(text = updateBody)
+                    if (isInstallingUpdate) {
+                        LinearProgressIndicator(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag("progress.dialog.update.install"),
+                        )
+                        Text(
+                            text = installProgressText
+                                ?: stringResource(R.string.label_update_install_status_preparing),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = PushGoThemeExtras.colors.textSecondary,
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    enabled = !isInstallingUpdate,
+                    onClick = {
+                        settingsViewModel.installAvailableUpdate()
+                    },
+                ) {
+                    Text(text = stringResource(R.string.label_update_install_now))
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    enabled = !isInstallingUpdate,
+                    onClick = {
+                        settingsViewModel.remindLaterForAvailableUpdate()
+                        autoUpdateDialogVisible = false
+                    },
+                ) {
+                    Text(text = stringResource(R.string.label_update_remind_later))
+                }
+            },
+        )
+    }
+
+    if (!isOnSettingsRoute && settingsViewModel.shouldShowInstallPermissionDialog) {
+        PushGoAlertDialog(
+            onDismissRequest = settingsViewModel::consumeInstallPermissionDialog,
+            title = { Text(text = stringResource(R.string.label_update_install_permission_title)) },
+            text = { Text(text = stringResource(R.string.label_update_install_permission_body)) },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        settingsViewModel.consumeInstallPermissionDialog()
+                        openUnknownAppSourcesSettings(context)
+                    },
+                ) {
+                    Text(text = stringResource(R.string.label_turn_on))
+                }
+            },
+            dismissButton = {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    TextButton(
+                        onClick = {
+                            val launched = openManualApkInstall(
+                                context = context,
+                                apkPath = settingsViewModel.pendingManualInstallApkPath,
+                            )
+                            if (launched) {
+                                settingsViewModel.consumeInstallPermissionDialog()
+                                settingsViewModel.consumePendingManualInstallApkPath()
+                            }
+                        },
+                    ) {
+                        Text(text = stringResource(R.string.label_update_install_manual_continue))
+                    }
+                    TextButton(onClick = settingsViewModel::consumeInstallPermissionDialog) {
+                        Text(text = stringResource(R.string.label_cancel))
+                    }
+                }
+            },
+        )
+    }
 }
 
 @Composable
@@ -440,6 +590,11 @@ private fun String?.matches(spec: RouteMatchSpec): Boolean {
     return route == spec.serialRoute || route == spec.legacyRoute
 }
 
+private fun String?.matchesSettingsRoute(): Boolean {
+    val route = this ?: return false
+    return route == SettingsRoute.serializer().descriptor.serialName || route == "settings"
+}
+
 private fun String?.topLevelRoute(): TopLevelRoute? {
     return TopLevelRoute.entries.firstOrNull { this.matches(it.spec) }
 }
@@ -462,4 +617,39 @@ private fun BottomItem.topLevelRoute(): TopLevelRoute? {
         is ChannelsRoute -> TopLevelRoute.CHANNELS
         else -> null
     }
+}
+
+private fun openUnknownAppSourcesSettings(context: android.content.Context) {
+    val intent = Intent(
+        Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+        Uri.fromParts("package", context.packageName, null),
+    ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+    val fallback = Intent(
+        Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+        Uri.fromParts("package", context.packageName, null),
+    ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+    runCatching { context.startActivity(intent) }
+        .onFailure { context.startActivity(fallback) }
+}
+
+private fun openManualApkInstall(context: android.content.Context, apkPath: String?): Boolean {
+    val path = apkPath?.trim().orEmpty()
+    if (path.isEmpty()) {
+        return false
+    }
+    val apkFile = File(path)
+    if (!apkFile.exists()) {
+        return false
+    }
+    val apkUri = FileProvider.getUriForFile(
+        context,
+        "${context.packageName}.fileprovider",
+        apkFile,
+    )
+    val installIntent = Intent(Intent.ACTION_VIEW)
+        .setDataAndType(apkUri, "application/vnd.android.package-archive")
+        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_GRANT_READ_URI_PERMISSION)
+    return runCatching {
+        context.startActivity(installIntent)
+    }.isSuccess
 }

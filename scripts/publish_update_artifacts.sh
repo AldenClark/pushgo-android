@@ -4,10 +4,10 @@ set -euo pipefail
 usage() {
   cat <<'EOF'
 Usage:
-  scripts/publish_update_artifacts.sh <dist_dir> <remote_user_host> <remote_base_path>
+  scripts/publish_update_artifacts.sh <dist_dir> <remote_user_host> <remote_base_path> [stable|beta]
 
 Example:
-  scripts/publish_update_artifacts.sh dist deploy@update.pushgo.cn /var/www/update.pushgo.cn/android
+  scripts/publish_update_artifacts.sh dist deploy@update.pushgo.cn /var/www/update.pushgo.cn/android beta
 
 Requirements:
   - rsync
@@ -28,7 +28,13 @@ fi
 dist_dir="$1"
 remote_user_host="$2"
 remote_base_path="$3"
+track="${4:-stable}"
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+if [[ "$track" != "stable" && "$track" != "beta" ]]; then
+  echo "Error: track must be stable or beta, got: $track" >&2
+  exit 1
+fi
 
 if [[ ! -d "$dist_dir" ]]; then
   echo "Error: dist directory not found: $dist_dir" >&2
@@ -72,7 +78,7 @@ if [[ -z "$version_name" ]]; then
   exit 1
 fi
 
-release_dir="${remote_base_path%/}/releases/${version_name}"
+release_dir="${remote_base_path%/}/${track}/${version_name}"
 active_feed_file="${remote_base_path%/}/update-feed-v1.json"
 active_sha_file="${remote_base_path%/}/SHA256SUMS.txt"
 
@@ -86,4 +92,4 @@ ssh "${ssh_opts[@]}" "$remote_user_host" \
   "cp '${release_dir}/update-feed-v1.json' '${active_feed_file}' && \
    cp '${release_dir}/SHA256SUMS.txt' '${active_sha_file}'"
 
-echo "Published update artifacts to ${remote_user_host}:${release_dir}"
+echo "Published update artifacts to ${remote_user_host}:${release_dir} and refreshed active feed ${active_feed_file}"

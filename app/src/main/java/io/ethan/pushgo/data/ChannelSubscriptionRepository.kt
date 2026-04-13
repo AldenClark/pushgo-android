@@ -35,14 +35,32 @@ class ChannelSubscriptionRepository(
     }
 
     suspend fun pullMessage(deliveryId: String): PullItem? {
+        return pullMessages(deliveryId).firstOrNull()
+    }
+
+    suspend fun pullMessages(deliveryId: String? = null): List<PullItem> {
+        val normalizedDeliveryId = deliveryId?.trim()?.takeIf { it.isNotEmpty() }
+        val config = resolveServerConfig()
+        val deviceKey = resolveProviderDeviceKeyForIngress(config)
+        return service.pullMessages(
+            baseUrl = config.address,
+            token = config.token,
+            deviceKey = deviceKey,
+            deliveryId = normalizedDeliveryId,
+        )
+    }
+
+    suspend fun ackMessage(deliveryId: String): Boolean {
         val normalizedDeliveryId = deliveryId.trim()
         if (normalizedDeliveryId.isEmpty()) {
             throw ChannelSubscriptionException("Missing delivery_id")
         }
         val config = resolveServerConfig()
-        return service.pullMessage(
+        val deviceKey = resolveProviderDeviceKeyForIngress(config)
+        return service.ackMessage(
             baseUrl = config.address,
             token = config.token,
+            deviceKey = deviceKey,
             deliveryId = normalizedDeliveryId,
         )
     }
@@ -282,6 +300,20 @@ class ChannelSubscriptionRepository(
         val resolvedDeviceKey = upserted.deviceKey.trim()
         settingsRepository.setProviderDeviceKey(platform = "android", deviceKey = resolvedDeviceKey)
         return resolvedDeviceKey
+    }
+
+    private suspend fun resolveProviderDeviceKeyForIngress(config: ServerConfig): String {
+        val cached = settingsRepository.getProviderDeviceKey(platform = "android")
+            ?.trim()
+            ?.ifEmpty { null }
+        if (cached != null) {
+            return cached
+        }
+        val token = settingsRepository.getFcmToken()
+            ?.trim()
+            ?.ifEmpty { null }
+            ?: throw ChannelSubscriptionException("Missing provider device_key")
+        return ensureProviderRoute(token, config)
     }
 
     private suspend fun retireOldProviderToken(

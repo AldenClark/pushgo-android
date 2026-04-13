@@ -32,6 +32,7 @@ import androidx.compose.material.icons.outlined.*
 import androidx.compose.material.icons.filled.FilterList as FilledFilterList
 import androidx.compose.material.icons.outlined.FilterList as OutlinedFilterList
 import androidx.compose.material3.*
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -76,6 +77,7 @@ import io.ethan.pushgo.data.model.PushMessage
 import io.ethan.pushgo.data.model.MessageSeverity
 import io.ethan.pushgo.notifications.ForegroundNotificationPresentationState
 import io.ethan.pushgo.notifications.ForegroundNotificationTopMetrics
+import io.ethan.pushgo.notifications.ProviderIngressCoordinator
 import io.ethan.pushgo.ui.PushGoViewModelFactory
 import io.ethan.pushgo.ui.announceForAccessibility
 import io.ethan.pushgo.ui.rememberBottomBarNestedScrollConnection
@@ -133,6 +135,7 @@ fun MessageListScreen(
     var selectedMessageIds by remember { mutableStateOf(emptySet<String>()) }
     var initialSelectionStateForDrag by remember { mutableStateOf<Boolean?>(null) }
     var showBatchDeleteConfirmation by remember { mutableStateOf(false) }
+    var isPullRefreshing by remember { mutableStateOf(false) }
     var listTopInWindow by remember { mutableFloatStateOf(0f) }
     var selectionRailTopInWindow by remember { mutableFloatStateOf(0f) }
 
@@ -195,6 +198,32 @@ fun MessageListScreen(
         if (unreadIds.isEmpty()) return
         unreadIds.forEach { viewModel.markRead(it) }
         exitSelectionMode()
+    }
+
+    fun refreshProviderIngressFromPullDown() {
+        if (isPullRefreshing) return
+        scope.launch {
+            isPullRefreshing = true
+            runCatching {
+                ProviderIngressCoordinator.pullPersistAndDrainAcks(
+                    context = context,
+                    channelRepository = container.channelRepository,
+                    messageRepository = container.messageRepository,
+                    entityRepository = container.entityRepository,
+                    inboundDeliveryLedgerRepository = container.inboundDeliveryLedgerRepository,
+                    settingsRepository = container.settingsRepository,
+                )
+            }.onFailure { error ->
+                io.ethan.pushgo.util.SilentSink.w(
+                    "MessageListScreen",
+                    "provider ingress refresh failed",
+                    error,
+                )
+            }
+            channelNameMap = container.channelRepository.loadSubscriptionLookup(includeDeleted = true)
+            messages.refresh()
+            isPullRefreshing = false
+        }
     }
 
     BackHandler(enabled = isSelectionMode) { exitSelectionMode() }
@@ -266,96 +295,101 @@ fun MessageListScreen(
     val channelOptions = remember(channelCounts) { channelCounts.map { it.channel.trim() }.distinct() }
 
     Box(modifier = Modifier.fillMaxSize()) {
-        LazyColumn(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(uiColors.surfaceBase)
-                .nestedScroll(bottomBarNestedScrollConnection)
-                .onGloballyPositioned { listTopInWindow = it.positionInWindow().y },
-            state = listState,
-            contentPadding = PaddingValues(bottom = bottomGestureInset + 24.dp),
+        PullToRefreshBox(
+            isRefreshing = isPullRefreshing,
+            onRefresh = { refreshProviderIngressFromPullDown() },
+            modifier = Modifier.fillMaxSize(),
         ) {
-            item {
-                Column(modifier = Modifier.fillMaxWidth().heightIn(min = 120.dp)) {
-                    Box(modifier = Modifier.fillMaxWidth().heightIn(min = 64.dp), contentAlignment = Alignment.Center) {
-                        if (isSelectionMode) {
-                            Row(modifier = Modifier.fillMaxWidth().padding(horizontal = ScreenHorizontalPadding), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                val selectedCount = selectedMessageIds.size
-                                Text(text = stringResource(R.string.label_selected_count, selectedCount), style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
-                                IconButton(onClick = { scope.launch { markSelectedMessagesRead() } }) {
-                                    Icon(Icons.Outlined.MarkEmailRead, stringResource(R.string.action_mark_read))
-                                }
-                                IconButton(onClick = { showBatchDeleteConfirmation = true }) {
-                                    Icon(Icons.Outlined.Delete, stringResource(R.string.action_delete))
-                                }
-                                TextButton(onClick = { exitSelectionMode() }) { Text(stringResource(R.string.label_cancel)) }
-                            }
-                        } else {
-                            Row(modifier = Modifier.fillMaxWidth().padding(horizontal = ScreenHorizontalPadding), verticalAlignment = Alignment.CenterVertically) {
-                                var searchMenuExpanded by remember { mutableStateOf(false) }
-                                PushGoSearchBar(
-                                    value = query,
-                                    onValueChange = searchViewModel::updateQuery,
-                                    placeholderText = stringResource(R.string.label_search),
-                                    modifier = Modifier.weight(1f).testTag("field.message.search")
-                                ) {
-                                    Box {
-                                        IconButton(onClick = {
-                                            val nextSortMode =
-                                                if (filterState.sortMode == MessageListSortMode.UNREAD_FIRST) {
-                                                    MessageListSortMode.TIME_DESC
-                                                } else {
-                                                    MessageListSortMode.UNREAD_FIRST
-                                                }
-                                            viewModel.setSortMode(nextSortMode)
-                                            searchViewModel.setSortMode(nextSortMode)
-                                        }) {
-                                            val unreadFirstEnabled = filterState.sortMode == MessageListSortMode.UNREAD_FIRST
-                                            Icon(
-                                                imageVector = Icons.Outlined.SwapVert,
-                                                contentDescription = stringResource(R.string.label_sort),
-                                                tint = if (unreadFirstEnabled) uiColors.accentPrimary else uiColors.iconMuted,
-                                            )
-                                        }
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(uiColors.surfaceBase)
+                    .nestedScroll(bottomBarNestedScrollConnection)
+                    .onGloballyPositioned { listTopInWindow = it.positionInWindow().y },
+                state = listState,
+                contentPadding = PaddingValues(bottom = bottomGestureInset + 24.dp),
+            ) {
+                item {
+                    Column(modifier = Modifier.fillMaxWidth().heightIn(min = 120.dp)) {
+                        Box(modifier = Modifier.fillMaxWidth().heightIn(min = 64.dp), contentAlignment = Alignment.Center) {
+                            if (isSelectionMode) {
+                                Row(modifier = Modifier.fillMaxWidth().padding(horizontal = ScreenHorizontalPadding), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    val selectedCount = selectedMessageIds.size
+                                    Text(text = stringResource(R.string.label_selected_count, selectedCount), style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
+                                    IconButton(onClick = { scope.launch { markSelectedMessagesRead() } }) {
+                                        Icon(Icons.Outlined.MarkEmailRead, stringResource(R.string.action_mark_read))
                                     }
-                                    Box {
-                                        IconButton(onClick = { searchMenuExpanded = true }) {
-                                            val hasActiveFilter = filterState.channel != null
-                                            Icon(
-                                                imageVector = if (!hasActiveFilter) Icons.Outlined.OutlinedFilterList else Icons.Filled.FilledFilterList,
-                                                contentDescription = stringResource(R.string.label_channel_id),
-                                                tint = if (hasActiveFilter) uiColors.accentPrimary else uiColors.iconMuted,
-                                            )
+                                    IconButton(onClick = { showBatchDeleteConfirmation = true }) {
+                                        Icon(Icons.Outlined.Delete, stringResource(R.string.action_delete))
+                                    }
+                                    TextButton(onClick = { exitSelectionMode() }) { Text(stringResource(R.string.label_cancel)) }
+                                }
+                            } else {
+                                Row(modifier = Modifier.fillMaxWidth().padding(horizontal = ScreenHorizontalPadding), verticalAlignment = Alignment.CenterVertically) {
+                                    var searchMenuExpanded by remember { mutableStateOf(false) }
+                                    PushGoSearchBar(
+                                        value = query,
+                                        onValueChange = searchViewModel::updateQuery,
+                                        placeholderText = stringResource(R.string.label_search),
+                                        modifier = Modifier.weight(1f).testTag("field.message.search")
+                                    ) {
+                                        Box {
+                                            IconButton(onClick = {
+                                                val nextSortMode =
+                                                    if (filterState.sortMode == MessageListSortMode.UNREAD_FIRST) {
+                                                        MessageListSortMode.TIME_DESC
+                                                    } else {
+                                                        MessageListSortMode.UNREAD_FIRST
+                                                    }
+                                                viewModel.setSortMode(nextSortMode)
+                                                searchViewModel.setSortMode(nextSortMode)
+                                            }) {
+                                                val unreadFirstEnabled = filterState.sortMode == MessageListSortMode.UNREAD_FIRST
+                                                Icon(
+                                                    imageVector = Icons.Outlined.SwapVert,
+                                                    contentDescription = stringResource(R.string.label_sort),
+                                                    tint = if (unreadFirstEnabled) uiColors.accentPrimary else uiColors.iconMuted,
+                                                )
+                                            }
                                         }
-                                        DropdownMenu(expanded = searchMenuExpanded, onDismissRequest = { searchMenuExpanded = false }) {
-                                            if (channelOptions.isNotEmpty()) {
-                                                channelOptions.forEach { channel ->
-                                                    DropdownMenuItem(
-                                                        text = { Text(if (channel.isBlank()) stringResource(R.string.label_group_ungrouped) else channelNameMap[channel] ?: channel, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-                                                        onClick = { viewModel.setChannel(if (filterState.channel == channel) null else channel); searchMenuExpanded = false },
-                                                        trailingIcon = { if (filterState.channel == channel) Icon(Icons.Outlined.Check, null, modifier = Modifier.size(18.dp)) }
-                                                    )
+                                        Box {
+                                            IconButton(onClick = { searchMenuExpanded = true }) {
+                                                val hasActiveFilter = filterState.channel != null
+                                                Icon(
+                                                    imageVector = if (!hasActiveFilter) Icons.Outlined.OutlinedFilterList else Icons.Filled.FilledFilterList,
+                                                    contentDescription = stringResource(R.string.label_channel_id),
+                                                    tint = if (hasActiveFilter) uiColors.accentPrimary else uiColors.iconMuted,
+                                                )
+                                            }
+                                            DropdownMenu(expanded = searchMenuExpanded, onDismissRequest = { searchMenuExpanded = false }) {
+                                                if (channelOptions.isNotEmpty()) {
+                                                    channelOptions.forEach { channel ->
+                                                        DropdownMenuItem(
+                                                            text = { Text(if (channel.isBlank()) stringResource(R.string.label_group_ungrouped) else channelNameMap[channel] ?: channel, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                                                            onClick = { viewModel.setChannel(if (filterState.channel == channel) null else channel); searchMenuExpanded = false },
+                                                            trailingIcon = { if (filterState.channel == channel) Icon(Icons.Outlined.Check, null, modifier = Modifier.size(18.dp)) }
+                                                        )
+                                                    }
                                                 }
                                             }
                                         }
-                                    }
-                                    IconButton(onClick = { isSelectionMode = true; selectedMessageIds = emptySet() }) {
-                                        Icon(Icons.Outlined.Checklist, stringResource(R.string.action_batch_select), tint = uiColors.iconMuted)
+                                        IconButton(onClick = { isSelectionMode = true; selectedMessageIds = emptySet() }) {
+                                            Icon(Icons.Outlined.Checklist, stringResource(R.string.action_batch_select), tint = uiColors.iconMuted)
+                                        }
                                     }
                                 }
                             }
                         }
+                        Text(
+                            text = stringResource(R.string.tab_messages),
+                            style = MaterialTheme.typography.headlineMedium.copy(fontWeight = FontWeight.SemiBold, letterSpacing = (-0.5).sp),
+                            color = uiColors.textPrimary,
+                            modifier = Modifier.padding(start = ScreenHorizontalPadding, top = 8.dp, bottom = 12.dp).semantics { heading() },
+                        )
                     }
-                    Text(
-                        text = stringResource(R.string.tab_messages),
-                        style = MaterialTheme.typography.headlineMedium.copy(fontWeight = FontWeight.SemiBold, letterSpacing = (-0.5).sp),
-                        color = uiColors.textPrimary,
-                        modifier = Modifier.padding(start = ScreenHorizontalPadding, top = 8.dp, bottom = 12.dp).semantics { heading() },
-                    )
                 }
-            }
 
-            if (query.isBlank()) {
+                if (query.isBlank()) {
                     if (messages.itemCount == 0 && messages.loadState.refresh is LoadState.NotLoading) {
                         item { AppEmptyState(icon = Icons.Outlined.Email, title = stringResource(R.string.message_list_empty_title), description = stringResource(R.string.message_list_empty_hint)) }
                     } else {
@@ -407,29 +441,30 @@ fun MessageListScreen(
                 }
             }
 
-            if (isSelectionMode) {
-                Box(
-                    modifier = Modifier.align(Alignment.TopStart).fillMaxHeight().width(72.dp)
-                        .onGloballyPositioned { selectionRailTopInWindow = it.positionInWindow().y }
-                        .pointerInput(query, searchResults.size, messages.itemCount, listTopInWindow, selectionRailTopInWindow) {
-                            detectDragGestures(
-                                onDragStart = { point ->
-                                    val listLocalY = point.y + (selectionRailTopInWindow - listTopInWindow)
-                                    val target = listState.layoutInfo.visibleItemsInfo.firstOrNull { item ->
-                                        listLocalY in item.offset.toFloat()..(item.offset + item.size).toFloat()
-                                    }
-                                    val messageId = target?.index?.let { index -> messageIdForVisibleItemIndex(index) }
-                                    if (messageId != null) {
-                                        initialSelectionStateForDrag = !selectedMessageIds.contains(messageId)
-                                        updateSelectionAtRailY(point.y, !selectedMessageIds.contains(messageId))
-                                    }
-                                },
-                                onDrag = { change, _ -> initialSelectionStateForDrag?.let { updateSelectionAtRailY(change.position.y, it) } },
-                                onDragEnd = { initialSelectionStateForDrag = null },
-                                onDragCancel = { initialSelectionStateForDrag = null }
-                            )
-                        },
-                )
+                if (isSelectionMode) {
+                    Box(
+                        modifier = Modifier.align(Alignment.TopStart).fillMaxHeight().width(72.dp)
+                            .onGloballyPositioned { selectionRailTopInWindow = it.positionInWindow().y }
+                            .pointerInput(query, searchResults.size, messages.itemCount, listTopInWindow, selectionRailTopInWindow) {
+                                detectDragGestures(
+                                    onDragStart = { point ->
+                                        val listLocalY = point.y + (selectionRailTopInWindow - listTopInWindow)
+                                        val target = listState.layoutInfo.visibleItemsInfo.firstOrNull { item ->
+                                            listLocalY in item.offset.toFloat()..(item.offset + item.size).toFloat()
+                                        }
+                                        val messageId = target?.index?.let { index -> messageIdForVisibleItemIndex(index) }
+                                        if (messageId != null) {
+                                            initialSelectionStateForDrag = !selectedMessageIds.contains(messageId)
+                                            updateSelectionAtRailY(point.y, !selectedMessageIds.contains(messageId))
+                                        }
+                                    },
+                                    onDrag = { change, _ -> initialSelectionStateForDrag?.let { updateSelectionAtRailY(change.position.y, it) } },
+                                    onDragEnd = { initialSelectionStateForDrag = null },
+                                    onDragCancel = { initialSelectionStateForDrag = null }
+                                )
+                            },
+                    )
+                }
             }
         }
 

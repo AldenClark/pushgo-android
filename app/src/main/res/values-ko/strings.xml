@@ -79,6 +79,7 @@
     <string name="label_enable_notifications">알림이 꺼져 있습니다</string>
     <string name="label_enable_notifications_hint">알림이 꺼져 있어 새 메시지, 이벤트, 객체 업데이트를 PushGo가 알려줄 수 없습니다. 시스템 설정에서 PushGo 알림을 켠 뒤 이 화면으로 돌아와 주세요.</string>
     <string name="label_turn_on">켜기</string>
+    <string name="label_update_install_manual_continue">수동으로 계속</string>
     <string name="label_body">본문</string>
     <string name="label_url">URL</string>
     <string name="label_image_url">이미지 URL</string>
@@ -397,6 +398,10 @@
     <string name="label_update_install_now">Install now</string>
     <string name="label_update_remind_later">Remind later</string>
     <string name="label_update_skip_version">Skip this version</string>
+    <string name="label_update_install_status_downloading">업데이트 패키지를 다운로드하는 중…</string>
+    <string name="label_update_install_status_verifying">패키지 무결성을 확인하는 중…</string>
+    <string name="label_update_install_status_preparing">설치를 준비하는 중…</string>
+    <string name="label_update_install_status_handoff">시스템 설치 프로그램을 여는 중…</string>
     <string name="label_update_install_permission_title">Allow package installation</string>
     <string name="label_update_install_permission_body">To install updates from PushGo, allow this app to install unknown packages in system settings.</string>
     <string name="message_update_available">Update found: %1$s</string>

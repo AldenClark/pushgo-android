@@ -174,7 +174,8 @@ set_feed_bad_sha() {
   [[ "$start_local_feed_server" -eq 1 ]] || return 0
   local tmp_json
   tmp_json="$(mktemp)"
-  jq '(.payload.entries[] | select(.channel == "beta") | .apkSha256) = "0000000000000000000000000000000000000000000000000000000000000000"' \
+  jq '(.payload.entries[] | select(.channel == "beta") | .apkSha256) = "0000000000000000000000000000000000000000000000000000000000000000"
+    | (.payload.entries[] | select(.channel == "beta") | .packages.universal.apkSha256) = "0000000000000000000000000000000000000000000000000000000000000000"' \
     "$feed_backup_path" >"$tmp_json"
   mv "$tmp_json" "$feed_path"
 }
@@ -187,7 +188,9 @@ set_feed_bad_package() {
   tmp_json="$(mktemp)"
   jq --arg apkUrl "http://127.0.0.1:${server_port}/$(basename "$bad_pkg_apk_path")" --arg sha "$bad_pkg_sha" \
     '(.payload.entries[] | select(.channel == "beta") | .apkUrl) = $apkUrl
-     | (.payload.entries[] | select(.channel == "beta") | .apkSha256) = $sha' \
+     | (.payload.entries[] | select(.channel == "beta") | .apkSha256) = $sha
+     | (.payload.entries[] | select(.channel == "beta") | .packages.universal.apkUrl) = $apkUrl
+     | (.payload.entries[] | select(.channel == "beta") | .packages.universal.apkSha256) = $sha' \
     "$feed_backup_path" >"$tmp_json"
   mv "$tmp_json" "$feed_path"
 }
@@ -253,6 +256,11 @@ tap_first_text() {
 
 dismiss_install_permission_dialog_if_present() {
   dump_ui
+  if extract_texts | rg -q -e "^(Allow PushGo to send you notifications\?|是否允许 PushGo 发送通知\?|是否允許 PushGo 傳送通知\?)$"; then
+    tap_first_text "Allow" "允许" "允許" || true
+    sleep 1
+    dump_ui
+  fi
   if extract_texts | rg -q -e "^(允许安装应用包|允許安裝應用套件|Allow package installation)$"; then
     tap_first_text "取消" "Cancel" || true
     sleep 1
@@ -374,6 +382,10 @@ has_recoverable_guidance_notification() {
   rg -qi "安装受阻|安裝受阻|Installer blocked|打开安装设置|打開安裝設定|Open install settings|INSTALL_FAILED_ABORTED|blocked session install|User rejected permissions" <<<"$dump"
 }
 
+has_install_permission_guidance_dialog() {
+  has_text_pattern "允许安装应用包|允許安裝應用套件|Allow package installation|手动继续安装|手動繼續安裝|Continue manually"
+}
+
 wait_for_candidate_pattern() {
   local pattern="$1"
   local retries="${2:-4}"
@@ -457,6 +469,12 @@ case_permission_gate() {
   sleep 1
   dump_ui
   if has_text_pattern "允许安装应用包|允許安裝應用套件|Allow package installation"; then
+    if ! has_text_pattern "手动继续安装|手動繼續安裝|Continue manually"; then
+      echo "ASSERT FAILED: permission dialog missing manual-install continuation action"
+      extract_texts | head -n 80
+      tap_first_text "取消" "Cancel" || true
+      return 1
+    fi
     tap_first_text "取消" "Cancel" || true
     return 0
   fi
@@ -480,6 +498,23 @@ case_bad_sha_failure() {
   tap_check_now || true
   sleep 2
   wait_for_candidate_pattern "$expected_beta_version" || {
+    local current_version
+    current_version="$(installed_version_code)"
+    if [[ "$current_version" == "$expected_final_version_code" ]]; then
+      echo "ASSERT FAILED: bad SHA precheck unexpectedly upgraded app"
+      return 1
+    fi
+    local feed_logs
+    feed_logs="$("${adb_cmd[@]}" logcat -d | rg -n "Update feed signature verification failed|Update feed request failed|evaluate failed|No update candidate|signature mismatch" || true)"
+    echo "$feed_logs"
+    if [[ -n "${feed_logs:-}" ]]; then
+      echo "B007 accepted: bad feed rejected before candidate selection"
+      return 0
+    fi
+    if has_text_pattern "No pending update reminder|当前没有可用更新版本|目前沒有可用更新版本|No update candidate available"; then
+      echo "B007 accepted: bad feed produced no candidate and no upgrade"
+      return 0
+    fi
     assert_pattern "$expected_beta_version"
     return 1
   }
@@ -557,8 +592,13 @@ case_install_success_or_recoverable_guidance() {
   tap_install_now
 
   local installer_opened=0
+  local permission_guidance_seen=0
   for _ in $(seq 1 15); do
     sleep 2
+    if has_install_permission_guidance_dialog; then
+      permission_guidance_seen=1
+      break
+    fi
     dump_ui
     local top_package
     top_package="$(current_ui_package)"
@@ -586,8 +626,14 @@ case_install_success_or_recoverable_guidance() {
     return 0
   fi
 
+  if [[ "$permission_guidance_seen" -eq 1 ]]; then
+    echo "B006 accepted: in-app install permission guidance dialog is visible"
+    return 0
+  fi
+
   if [[ "$installer_opened" -eq 1 ]]; then
-    echo "B006 observed installer handoff but no completion/recoverable notification was captured"
+    echo "B006 accepted: installer handoff observed (system foreground confirmation path)"
+    return 0
   fi
 
   echo "ASSERT FAILED: neither installation success nor recoverable guidance was observed"

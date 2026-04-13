@@ -21,7 +21,10 @@ class UpdatePolicyEngine(private val context: Context) {
             nowEpochMs = nowEpochMs,
             runtime = UpdateRuntimeContext(
                 sdkInt = Build.VERSION.SDK_INT,
-                supportedAbis = Build.SUPPORTED_ABIS?.map { it.trim().lowercase() }?.toSet().orEmpty(),
+                supportedAbis = Build.SUPPORTED_ABIS
+                    ?.map { it.trim().lowercase() }
+                    ?.filter { it.isNotEmpty() }
+                    .orEmpty(),
                 deviceBucketFraction = deviceBucketFraction(),
                 preferredLocales = preferredLocales(),
             ),
@@ -57,9 +60,14 @@ class UpdatePolicyEngine(private val context: Context) {
 
 internal data class UpdateRuntimeContext(
     val sdkInt: Int,
-    val supportedAbis: Set<String>,
+    val supportedAbis: List<String>,
     val deviceBucketFraction: Double,
     val preferredLocales: List<String> = emptyList(),
+)
+
+internal data class ResolvedPackageArtifact(
+    val packageKey: String,
+    val artifact: UpdatePackageArtifact,
 )
 
 internal object UpdateCandidateSelector {
@@ -81,31 +89,66 @@ internal object UpdateCandidateSelector {
             .map { it to UpdateChannel.fromWireValue(it.channel) }
             .filter { (_, channel) -> channel in allowedChannels }
             .filter { (entry, _) -> entry.versionCode > currentVersionCode }
-            .filter { (entry, _) -> entry.versionName.isNotBlank() && entry.apkUrl.isNotBlank() && entry.apkSha256.isNotBlank() }
-            .filter { (entry, _) -> isSdkCompatible(entry, runtime) }
-            .filter { (entry, _) -> isAbiCompatible(entry, runtime) }
-            .filter { (entry, _) -> isSupportedByMinimumVersion(entry, currentVersionCode) }
-            .filter { (entry, _) -> isRolledOut(entry, nowEpochMs, runtime) }
+            .filter { (entry, _) -> entry.versionName.isNotBlank() }
+            .mapNotNull { (entry, channel) ->
+                val resolvedArtifact = resolvePackageArtifact(entry, runtime) ?: return@mapNotNull null
+                if (!isSdkCompatible(entry, runtime)) return@mapNotNull null
+                if (!isSupportedByMinimumVersion(entry, currentVersionCode)) return@mapNotNull null
+                if (!isRolledOut(entry, nowEpochMs, runtime)) return@mapNotNull null
+                Triple(entry, channel, resolvedArtifact)
+            }
             .toList()
             .sortedWith(
-                compareBy<Pair<UpdateFeedEntry, UpdateChannel>> { it.first.versionCode }
+                compareBy<Triple<UpdateFeedEntry, UpdateChannel, ResolvedPackageArtifact>> { it.first.versionCode }
                     .thenBy { if (it.second == UpdateChannel.STABLE) 1 else 0 }
             )
 
         val selected = entries.lastOrNull() ?: return null
-        val (entry, channel) = selected
+        val (entry, channel, resolvedArtifact) = selected
         return UpdateCandidate(
             channel = channel,
             versionCode = entry.versionCode,
             versionName = entry.versionName,
-            apkUrl = entry.apkUrl,
-            apkSha256 = entry.apkSha256,
+            apkUrl = resolvedArtifact.artifact.apkUrl,
+            apkSha256 = resolvedArtifact.artifact.apkSha256,
+            packageKey = resolvedArtifact.packageKey,
             releaseNotesUrl = entry.releaseNotesUrl,
             critical = entry.critical,
             notes = resolveNotes(entry, runtime.preferredLocales),
             minimumAutoUpdateVersionCode = entry.minimumAutoUpdateVersionCode,
             ignoreSkippedUpgradesBelowVersionCode = entry.ignoreSkippedUpgradesBelowVersionCode,
         )
+    }
+
+    private fun resolvePackageArtifact(
+        entry: UpdateFeedEntry,
+        runtime: UpdateRuntimeContext,
+    ): ResolvedPackageArtifact? {
+        val normalizedPackages = normalizePackages(entry.packages)
+        if (normalizedPackages.isEmpty()) {
+            if (!hasValidLegacyPackage(entry)) return null
+            if (!isLegacyAbiCompatible(entry, runtime)) return null
+            return ResolvedPackageArtifact(
+                packageKey = "legacy",
+                artifact = UpdatePackageArtifact(apkUrl = entry.apkUrl, apkSha256 = entry.apkSha256),
+            )
+        }
+
+        val runtimeAbis = runtime.supportedAbis
+        if (runtimeAbis.isEmpty()) {
+            val universal = normalizedPackages["universal"] ?: return null
+            return universal.takeIf { isValidArtifact(it.artifact) }
+        }
+
+        for (abi in runtimeAbis) {
+            for (candidateKey in packageKeysForAbi(abi)) {
+                val candidate = normalizedPackages[candidateKey] ?: continue
+                if (isValidArtifact(candidate.artifact)) {
+                    return candidate
+                }
+            }
+        }
+        return null
     }
 
     private fun resolveNotes(entry: UpdateFeedEntry, preferredLocales: List<String>): String? {
@@ -171,10 +214,15 @@ internal object UpdateCandidateSelector {
         return runtime.sdkInt >= minSdk
     }
 
-    private fun isAbiCompatible(entry: UpdateFeedEntry, runtime: UpdateRuntimeContext): Boolean {
+    private fun hasValidLegacyPackage(entry: UpdateFeedEntry): Boolean {
+        return entry.apkUrl.isNotBlank() && entry.apkSha256.isNotBlank()
+    }
+
+    private fun isLegacyAbiCompatible(entry: UpdateFeedEntry, runtime: UpdateRuntimeContext): Boolean {
         if (entry.allowedAbis.isEmpty()) return true
         if (runtime.supportedAbis.isEmpty()) return true
-        return entry.allowedAbis.any { it.trim().lowercase() in runtime.supportedAbis }
+        val runtimeAbis = runtime.supportedAbis.toSet()
+        return entry.allowedAbis.any { it.trim().lowercase() in runtimeAbis }
     }
 
     private fun isSupportedByMinimumVersion(entry: UpdateFeedEntry, currentVersionCode: Int): Boolean {
@@ -195,5 +243,41 @@ internal object UpdateCandidateSelector {
         val progression = (elapsedMillis.toDouble() / (intervalSeconds * 1000.0)).coerceIn(0.0, 1.0)
         val dynamicFraction = progression * targetFraction
         return bucket <= dynamicFraction
+    }
+
+    private fun normalizePackages(
+        packages: Map<String, UpdatePackageArtifact>,
+    ): Map<String, ResolvedPackageArtifact> {
+        if (packages.isEmpty()) return emptyMap()
+        val normalized = linkedMapOf<String, ResolvedPackageArtifact>()
+        packages.forEach { (rawKey, artifact) ->
+            val key = normalizePackageKey(rawKey) ?: return@forEach
+            if (normalized.containsKey(key)) return@forEach
+            normalized[key] = ResolvedPackageArtifact(packageKey = key, artifact = artifact)
+        }
+        return normalized
+    }
+
+    private fun normalizePackageKey(raw: String): String? {
+        return when (raw.trim().lowercase().replace('_', '-')) {
+            "v8a", "arm64", "arm64-v8a", "aarch64" -> "v8a"
+            "v7a", "armeabi", "armeabi-v7a", "armv7", "arm-v7a" -> "v7a"
+            "x86", "x86-64", "x86_64" -> "x86"
+            "universal", "all", "any" -> "universal"
+            else -> null
+        }
+    }
+
+    private fun packageKeysForAbi(abi: String): List<String> {
+        return when (abi.trim().lowercase()) {
+            "arm64-v8a", "aarch64" -> listOf("v8a", "universal")
+            "armeabi-v7a", "armeabi", "armv7", "arm-v7a" -> listOf("v7a", "universal")
+            "x86_64", "x86-64", "x86" -> listOf("x86", "universal")
+            else -> listOf("universal")
+        }
+    }
+
+    private fun isValidArtifact(artifact: UpdatePackageArtifact): Boolean {
+        return artifact.apkUrl.isNotBlank() && artifact.apkSha256.length == 64
     }
 }

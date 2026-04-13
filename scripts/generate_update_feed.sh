@@ -9,6 +9,7 @@ Usage:
 Options:
   --tag <vX.Y.Z or vX.Y.Z-beta.N>      Release tag (required)
   --repo <owner/repo>                   Repository slug for release asset URL (required)
+  --base-url <https://host/path>        Base URL for update artifacts; package URLs become <base-url>/<track>/<apk>
   --existing-feed <url-or-path>         Existing feed to merge entries from
   --repo-feed-path <path>               Persistent repo feed path (default: release/update-feed-v1.json)
   --update-notes-dir <path>             Directory containing <tag>.json note maps (default: release/update-notes)
@@ -47,6 +48,7 @@ fi
 
 tag=""
 repo=""
+base_url=""
 existing_feed=""
 repo_feed_path="release/update-feed-v1.json"
 update_notes_dir="release/update-notes"
@@ -64,6 +66,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --repo)
       repo="${2:-}"
+      shift 2
+      ;;
+    --base-url)
+      base_url="${2:-}"
       shift 2
       ;;
     --existing-feed)
@@ -115,6 +121,11 @@ if [[ -z "$tag" || -z "$repo" ]]; then
   exit 1
 fi
 
+if [[ -n "$base_url" && ! "$base_url" =~ ^https?:// ]]; then
+  echo "Error: --base-url must start with http:// or https://, got: $base_url" >&2
+  exit 1
+fi
+
 if [[ -n "$private_key_file" && -z "$ed25519_private_key_file" ]]; then
   ed25519_private_key_file="$private_key_file"
 fi
@@ -129,16 +140,35 @@ if ! command -v jq >/dev/null 2>&1; then
   exit 1
 fi
 
-apk_path="$(find "$dist_dir" -maxdepth 1 -type f -name '*.apk' | sort | grep -E 'universal|all' | head -n 1 || true)"
-if [[ -z "$apk_path" ]]; then
-  apk_path="$(find "$dist_dir" -maxdepth 1 -type f -name '*.apk' | sort | head -n 1 || true)"
-fi
-if [[ -z "$apk_path" ]]; then
-  echo "Error: no APK found under $dist_dir" >&2
-  exit 1
-fi
+declare -A apk_by_key=()
+while IFS= read -r apk_file; do
+  base_name="$(basename "$apk_file")"
+  base_lower="$(printf '%s' "$base_name" | tr '[:upper:]' '[:lower:]')"
+  package_key=""
+  if [[ "$base_lower" == *"universal"* || "$base_lower" == *"-all-"* ]]; then
+    package_key="universal"
+  elif [[ "$base_lower" == *"arm64-v8a"* || "$base_lower" == *"aarch64"* ]]; then
+    package_key="v8a"
+  elif [[ "$base_lower" == *"armeabi-v7a"* || "$base_lower" == *"armv7"* || "$base_lower" == *"arm-v7a"* ]]; then
+    package_key="v7a"
+  elif [[ "$base_lower" == *"x86_64"* || "$base_lower" == *"-x86-"* || "$base_lower" == *"-x86."* ]]; then
+    package_key="x86"
+  fi
+  if [[ -n "$package_key" && -z "${apk_by_key[$package_key]:-}" ]]; then
+    apk_by_key[$package_key]="$apk_file"
+  fi
+done < <(find "$dist_dir" -maxdepth 1 -type f -name '*.apk' | sort)
 
-apk_name="$(basename "$apk_path")"
+required_package_keys=(v8a v7a x86 universal)
+for required_key in "${required_package_keys[@]}"; do
+  if [[ -z "${apk_by_key[$required_key]:-}" ]]; then
+    echo "Error: missing ${required_key} package APK under $dist_dir" >&2
+    exit 1
+  fi
+done
+
+universal_apk_path="${apk_by_key[universal]}"
+apk_name="$(basename "$universal_apk_path")"
 version_name="$(awk -F= '$1=="versionName"{print $2}' "${dist_dir%/}/BUILD_INFO.txt" | tr -d '\r' | tail -n1)"
 version_code="$(awk -F= '$1=="versionCode"{print $2}' "${dist_dir%/}/BUILD_INFO.txt" | tr -d '\r' | tail -n1)"
 if [[ -z "$version_name" || -z "$version_code" ]]; then
@@ -146,17 +176,34 @@ if [[ -z "$version_name" || -z "$version_code" ]]; then
   exit 1
 fi
 
-sha256=""
-if [[ -f "${dist_dir%/}/SHA256SUMS.txt" ]]; then
-  sha256="$(awk -v f="$apk_name" '$2==f{print $1}' "${dist_dir%/}/SHA256SUMS.txt" | tr -d '\r' | tail -n1)"
-fi
-if [[ -z "$sha256" ]]; then
-  sha256="$(sha256sum "$apk_path" | awk '{print $1}')"
-fi
-
 release_notes_url="https://github.com/${repo}/releases/tag/${tag}"
-apk_url="https://github.com/${repo}/releases/download/${tag}/${apk_name}"
 generated_at_ms="$(($(date +%s) * 1000))"
+
+packages_json="{}"
+for package_key in "${required_package_keys[@]}"; do
+  package_path="${apk_by_key[$package_key]}"
+  package_name="$(basename "$package_path")"
+  package_sha256=""
+  if [[ -f "${dist_dir%/}/SHA256SUMS.txt" ]]; then
+    package_sha256="$(awk -v f="$package_name" '$2==f{print $1}' "${dist_dir%/}/SHA256SUMS.txt" | tr -d '\r' | tail -n1)"
+  fi
+  if [[ -z "$package_sha256" ]]; then
+    package_sha256="$(sha256sum "$package_path" | awk '{print $1}')"
+  fi
+  if [[ -n "$base_url" ]]; then
+    package_url="${base_url%/}/${track}/${version_name}/${package_name}"
+  else
+    package_url="https://github.com/${repo}/releases/download/${tag}/${package_name}"
+  fi
+  packages_json="$(jq -c \
+    --arg key "$package_key" \
+    --arg url "$package_url" \
+    --arg sha "$package_sha256" \
+    '. + {($key): {apkUrl: $url, apkSha256: $sha}}' <<<"$packages_json")"
+done
+
+apk_url="$(printf '%s' "$packages_json" | jq -r '.universal.apkUrl')"
+sha256="$(printf '%s' "$packages_json" | jq -r '.universal.apkSha256')"
 
 notes_file="$update_notes_file"
 if [[ -z "$notes_file" && -n "$update_notes_dir" ]]; then
@@ -201,6 +248,7 @@ new_entry_json="$(jq -n \
   --arg versionName "$version_name" \
   --arg apkUrl "$apk_url" \
   --arg apkSha256 "$sha256" \
+  --argjson packages "$packages_json" \
   --arg releaseNotesUrl "$release_notes_url" \
   --arg notes "$notes_fallback" \
   --argjson notesI18n "$notes_i18n_json" \
@@ -212,6 +260,7 @@ new_entry_json="$(jq -n \
     versionName: $versionName,
     apkUrl: $apkUrl,
     apkSha256: $apkSha256,
+    packages: $packages,
     releaseNotesUrl: $releaseNotesUrl,
     publishedAtEpochMs: $generatedAt,
     critical: false

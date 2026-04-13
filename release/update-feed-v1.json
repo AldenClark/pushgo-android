@@ -20,7 +20,25 @@
         "publishedAtEpochMs": 1775839251000,
         "releaseNotesUrl": "https://github.com/AldenClark/pushgo-android/releases/tag/v1.2.0-beta.2",
         "versionCode": 1020002,
-        "versionName": "v1.2.0-beta.2"
+        "versionName": "v1.2.0-beta.2",
+        "packages": {
+          "v8a": {
+            "apkUrl": "https://github.com/AldenClark/pushgo-android/releases/download/v1.2.0-beta.2/pushgo-android-v1.2.0-beta.2-universal-release.apk",
+            "apkSha256": "643e94e6d36179976c9071d05225c8fd126a0153dea67146ace787be3c34149e"
+          },
+          "v7a": {
+            "apkUrl": "https://github.com/AldenClark/pushgo-android/releases/download/v1.2.0-beta.2/pushgo-android-v1.2.0-beta.2-universal-release.apk",
+            "apkSha256": "643e94e6d36179976c9071d05225c8fd126a0153dea67146ace787be3c34149e"
+          },
+          "x86": {
+            "apkUrl": "https://github.com/AldenClark/pushgo-android/releases/download/v1.2.0-beta.2/pushgo-android-v1.2.0-beta.2-universal-release.apk",
+            "apkSha256": "643e94e6d36179976c9071d05225c8fd126a0153dea67146ace787be3c34149e"
+          },
+          "universal": {
+            "apkUrl": "https://github.com/AldenClark/pushgo-android/releases/download/v1.2.0-beta.2/pushgo-android-v1.2.0-beta.2-universal-release.apk",
+            "apkSha256": "643e94e6d36179976c9071d05225c8fd126a0153dea67146ace787be3c34149e"
+          }
+        }
       }
     ],
     "generatedAtEpochMs": 1775839251000,

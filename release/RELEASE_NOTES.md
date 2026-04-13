@@ -20,3 +20,17 @@ Policy:
 - Added `Skip this version` and reminder cooldown to reduce repeated interruption.
 - Added clearer installer recovery guidance when system installer blocks update flow.
 - Improved app stability and reliability for daily notification delivery.
+
+### Update Feed Protocol
+- Update feed entry now carries a four-variant package matrix under `packages`:
+  - `packages.v8a` for `arm64-v8a`
+  - `packages.v7a` for `armeabi-v7a`
+  - `packages.x86` for `x86_64/x86`
+  - `packages.universal` as fallback
+- Each package object contains:
+  - `apkUrl`: direct download URL for this ABI package
+  - `apkSha256`: SHA-256 checksum for integrity verification
+- Client package selection order:
+  - Match runtime ABI in order of `Build.SUPPORTED_ABIS`
+  - Prefer exact ABI package (`v8a/v7a/x86`)
+  - Fall back to `universal` when no exact match exists

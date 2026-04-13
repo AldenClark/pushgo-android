@@ -160,6 +160,7 @@
     <string name="label_enable_notifications">Notifications are off</string>
     <string name="label_enable_notifications_hint">Notifications are turned off, so PushGo cannot alert you about new messages, events, or object updates. Open system settings, enable PushGo notifications, then return to continue.</string>
     <string name="label_turn_on">Turn on</string>
+    <string name="label_update_install_manual_continue">Continue manually</string>
     <string name="label_data_page_toggle_hint">Hide from navigation only; auto re-enabled when new data arrives</string>
     <string name="label_body">Body</string>
     <string name="label_url">URL</string>
@@ -240,6 +241,9 @@
         <item quantity="other">Key length mismatch: need %1$d bytes (%2$d-bit), got %3$d</item>
     </plurals>
     <string name="error_unable_to_get_fcm_token">Unable to get FCM token</string>
+    <string name="error_fcm_token_network_unavailable">Unable to get FCM token: network to Google services is unavailable</string>
+    <string name="error_fcm_token_project_not_configured">Unable to get FCM token: Firebase project config is invalid for this app</string>
+    <string name="error_fcm_token_auth_failed">Unable to get FCM token: Firebase authentication failed</string>
     <string name="error_fcm_not_supported">This device does not support FCM</string>
     <string name="error_fcm_token_timeout">FCM token request timed out</string>
     <string name="error_gateway_private_disabled_use_fcm">Gateway private channel is disabled. Please use FCM.</string>
@@ -396,6 +400,10 @@
     <string name="label_update_install_now">Install now</string>
     <string name="label_update_remind_later">Remind later</string>
     <string name="label_update_skip_version">Skip this version</string>
+    <string name="label_update_install_status_downloading">Downloading update package…</string>
+    <string name="label_update_install_status_verifying">Verifying package integrity…</string>
+    <string name="label_update_install_status_preparing">Preparing installation…</string>
+    <string name="label_update_install_status_handoff">Opening system installer…</string>
     <string name="label_update_install_permission_title">Allow package installation</string>
     <string name="label_update_install_permission_body">To install updates from PushGo, allow this app to install unknown packages in system settings.</string>
     <string name="message_update_available">Update found: %1$s</string>

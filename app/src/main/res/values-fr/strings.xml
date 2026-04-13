@@ -79,6 +79,7 @@
     <string name="label_enable_notifications">Notifications désactivées</string>
     <string name="label_enable_notifications_hint">Vous avez désactivé les notifications PushGo. Les alertes de nouveaux messages, événements et mises à jour des objets ne pourront donc pas arriver à temps. Ouvrez les réglages système, activez les notifications PushGo puis revenez dans application.</string>
     <string name="label_turn_on">Activer</string>
+    <string name="label_update_install_manual_continue">Continuer manuellement</string>
     <string name="label_body">Corps</string>
     <string name="label_url">URL</string>
     <string name="label_image_url">URL de l’image</string>
@@ -402,6 +403,10 @@
     <string name="label_update_install_now">Install now</string>
     <string name="label_update_remind_later">Remind later</string>
     <string name="label_update_skip_version">Skip this version</string>
+    <string name="label_update_install_status_downloading">Telechargement du paquet de mise a jour…</string>
+    <string name="label_update_install_status_verifying">Verification de l’integrite du paquet…</string>
+    <string name="label_update_install_status_preparing">Preparation de l’installation…</string>
+    <string name="label_update_install_status_handoff">Ouverture de l’installateur systeme…</string>
     <string name="label_update_install_permission_title">Allow package installation</string>
     <string name="label_update_install_permission_body">To install updates from PushGo, allow this app to install unknown packages in system settings.</string>
     <string name="message_update_available">Update found: %1$s</string>
