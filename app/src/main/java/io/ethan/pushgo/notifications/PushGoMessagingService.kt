@@ -64,7 +64,7 @@ class PushGoMessagingService : FirebaseMessagingService() {
                     parsed = parsed,
                 )
                 ProviderIngressCoordinator.ackDirectDeliveryIfNeeded(
-                    channelRepository = channelRepository,
+                    context = applicationContext,
                     inboundDeliveryLedgerRepository = container.inboundDeliveryLedgerRepository,
                     inbound = parsed,
                     outcome = outcome,

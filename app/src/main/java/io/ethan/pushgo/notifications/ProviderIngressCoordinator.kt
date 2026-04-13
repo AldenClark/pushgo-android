@@ -31,10 +31,6 @@ object ProviderIngressCoordinator {
             deliveryId = deliveryId,
             beforeMessageNotify = beforeMessageNotify,
         )
-        drainPendingAcks(
-            channelRepository = channelRepository,
-            inboundDeliveryLedgerRepository = inboundDeliveryLedgerRepository,
-        )
         return persisted
     }
 
@@ -88,51 +84,16 @@ object ProviderIngressCoordinator {
     }
 
     suspend fun ackDirectDeliveryIfNeeded(
-        channelRepository: ChannelSubscriptionRepository,
+        context: Context,
         inboundDeliveryLedgerRepository: InboundDeliveryLedgerRepository,
         inbound: InboundPersistenceRequest,
         outcome: InboundPersistenceOutcome,
     ) {
         if (!outcome.shouldAck) return
         val deliveryId = inboundDeliveryId(inbound) ?: return
-        inboundDeliveryLedgerRepository.enqueueAcks(
-            deliveryIds = listOf(deliveryId),
-            source = "provider_direct",
-        )
-        drainPendingAcks(
-            channelRepository = channelRepository,
-            inboundDeliveryLedgerRepository = inboundDeliveryLedgerRepository,
-        )
-    }
-
-    suspend fun drainPendingAcks(
-        channelRepository: ChannelSubscriptionRepository,
-        inboundDeliveryLedgerRepository: InboundDeliveryLedgerRepository,
-        limit: Int = 200,
-    ): Int {
-        val pending = inboundDeliveryLedgerRepository.loadPendingAckIds(limit)
-        if (pending.isEmpty()) {
-            return 0
-        }
-        val acked = mutableListOf<String>()
-        for (deliveryId in pending) {
-            runCatching {
-                channelRepository.ackMessage(deliveryId)
-            }.onSuccess {
-                // `removed=false` also means server no longer has this delivery.
-                acked += deliveryId
-            }.onFailure { error ->
-                io.ethan.pushgo.util.SilentSink.w(
-                    TAG,
-                    "provider ack failed deliveryId=$deliveryId",
-                    error,
-                )
-            }
-        }
-        if (acked.isNotEmpty()) {
-            inboundDeliveryLedgerRepository.markAcked(acked)
-        }
-        return acked.size
+        // Direct ACK is best effort: do not block ingress, do not retry.
+        inboundDeliveryLedgerRepository.markAcked(listOf(deliveryId))
+        InboundDeliveryAckWorker.enqueue(context, deliveryId)
     }
 
     fun inboundDeliveryId(inbound: InboundPersistenceRequest): String? {
