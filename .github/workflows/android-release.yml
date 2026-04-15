@@ -87,7 +87,7 @@ jobs:
           fi
 
           release_notes_link="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/blob/${GITHUB_REF_NAME}/${release_notes_file}"
-          release_body="# ${GITHUB_REF_NAME}"$'\n\n'"Source: [${release_notes_file}](${release_notes_link}) [$section]"$'\n\n'"$section_body"
+          release_body="Source: [${release_notes_file}](${release_notes_link}) [$section]"$'\n\n'"$section_body"
 
           {
             echo "RELEASE_CHANGELOG_BODY<<__PUSHGO_ANDROID_RELEASE_BODY_EOF__"

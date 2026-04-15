@@ -48,7 +48,6 @@ fi
 
 required_files=(
   "update-feed-v1.json"
-  "SHA256SUMS.txt"
 )
 for name in "${required_files[@]}"; do
   if [[ ! -f "${dist_dir%/}/$name" ]]; then
@@ -56,6 +55,14 @@ for name in "${required_files[@]}"; do
     exit 1
   fi
 done
+
+shopt -s nullglob
+apk_files=( "${dist_dir%/}"/*.apk )
+shopt -u nullglob
+if [[ ${#apk_files[@]} -eq 0 ]]; then
+  echo "Error: no APK artifacts found under ${dist_dir%/}" >&2
+  exit 1
+fi
 
 if ! command -v ssh >/dev/null 2>&1; then
   echo "Error: ssh is required" >&2
@@ -84,7 +91,6 @@ fi
 
 release_dir="${remote_base_path%/}/${track}/${version_name}"
 active_feed_file="${remote_base_path%/}/update-feed-v1.json"
-active_sha_file="${remote_base_path%/}/SHA256SUMS.txt"
 
 retry_ssh() {
   local cmd="$1"
@@ -103,13 +109,33 @@ retry_ssh() {
 
 retry_upload() {
   local attempt
+  local apk_names=()
+  local apk_path
+  for apk_path in "${apk_files[@]}"; do
+    apk_names+=( "$(basename "$apk_path")" )
+  done
   for attempt in 1 2 3; do
-    if tar -C "${dist_dir%/}" -cf - . \
+    if tar -C "${dist_dir%/}" -cf - "${apk_names[@]}" \
       | ssh "${ssh_opts[@]}" "$remote_user_host" "tar -xf - -C '${release_dir}'"; then
       return 0
     fi
     if [[ "$attempt" -lt 3 ]]; then
       echo "Upload failed (attempt ${attempt}/3), retrying..." >&2
+      sleep "$attempt"
+    fi
+  done
+  return 1
+}
+
+retry_upload_active_files() {
+  local attempt
+  for attempt in 1 2 3; do
+    if tar -C "${dist_dir%/}" -cf - update-feed-v1.json \
+      | ssh "${ssh_opts[@]}" "$remote_user_host" "tar -xf - -C '${remote_base_path%/}'"; then
+      return 0
+    fi
+    if [[ "$attempt" -lt 3 ]]; then
+      echo "Active file upload failed (attempt ${attempt}/3), retrying..." >&2
       sleep "$attempt"
     fi
   done
@@ -127,14 +153,18 @@ if ! retry_ssh "rm -rf '${release_dir}'/*"; then
 fi
 
 if ! retry_upload; then
-  echo "Error: failed to upload artifacts after 3 attempts" >&2
+  echo "Error: failed to upload APK artifacts after 3 attempts" >&2
   exit 1
 fi
 
-if ! retry_ssh "cp '${release_dir}/update-feed-v1.json' '${active_feed_file}' && \
-   cp '${release_dir}/SHA256SUMS.txt' '${active_sha_file}'"; then
-  echo "Error: failed to refresh active feed files after 3 attempts" >&2
+if ! retry_upload_active_files; then
+  echo "Error: failed to upload active feed files after 3 attempts" >&2
   exit 1
 fi
 
-echo "Published update artifacts to ${remote_user_host}:${release_dir} and refreshed active feed ${active_feed_file}"
+if ! retry_ssh "test -f '${active_feed_file}'"; then
+  echo "Error: active update feed file missing after upload checks" >&2
+  exit 1
+fi
+
+echo "Published APK artifacts to ${remote_user_host}:${release_dir} and refreshed active feed ${active_feed_file}"
