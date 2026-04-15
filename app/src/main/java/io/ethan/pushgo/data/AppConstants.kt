@@ -17,8 +17,6 @@ object AppConstants {
     const val updateImpatientIntervalSeconds = 604_800L
     val defaultUpdateFeedUrl: String
         get() = BuildConfig.DEFAULT_UPDATE_FEED_URL
-    val updateFeedEd25519PublicKeyBase64: String
-        get() = BuildConfig.UPDATE_FEED_PUBLIC_KEY_B64
-    val updateFeedEcdsaP256PublicKeyBase64: String
+    val updateFeedSignaturePublicKeyBase64: String
         get() = BuildConfig.UPDATE_FEED_ECDSA_P256_PUBLIC_KEY_B64
 }

@@ -60,22 +60,16 @@ echo "$raw" | jq -e '
       (
         (.packages? | type == "object")
         and (
-          (.packages.v8a? | type == "object")
-          and (.packages.v8a.apkUrl | type == "string" and length > 0)
-          and (.packages.v8a.apkSha256 | type == "string" and length == 64)
-        )
-        and (
-          (.packages.v7a? | type == "object")
-          and (.packages.v7a.apkUrl | type == "string" and length > 0)
-          and (.packages.v7a.apkSha256 | type == "string" and length == 64)
-        )
-        and (
-          (.packages.x86? | type == "object")
-          and (.packages.x86.apkUrl | type == "string" and length > 0)
-          and (.packages.x86.apkSha256 | type == "string" and length == 64)
-        )
-        and (
-          (.packages.universal? | type == "object")
+          (.packages["arm64-v8a"]? | type == "object")
+          and (.packages["arm64-v8a"].apkUrl | type == "string" and length > 0)
+          and (.packages["arm64-v8a"].apkSha256 | type == "string" and length == 64)
+          and (.packages["armeabi-v7a"]? | type == "object")
+          and (.packages["armeabi-v7a"].apkUrl | type == "string" and length > 0)
+          and (.packages["armeabi-v7a"].apkSha256 | type == "string" and length == 64)
+          and (.packages["x86_64"]? | type == "object")
+          and (.packages["x86_64"].apkUrl | type == "string" and length > 0)
+          and (.packages["x86_64"].apkSha256 | type == "string" and length == 64)
+          and (.packages.universal? | type == "object")
           and (.packages.universal.apkUrl | type == "string" and length > 0)
           and (.packages.universal.apkSha256 | type == "string" and length == 64)
         )
@@ -87,15 +81,12 @@ echo "$raw" | jq -e '
     )
 ' >/dev/null
 echo "$raw" | jq -e '
-  ((.signature? == null) or (.signature | type == "string"))
+  (.signature? == null)
     and (
-      (.signatures? == null)
-      or (
-        (.signatures | type == "object")
-        and (
-          [.signatures | to_entries[] | ((.key | type == "string" and length > 0) and (.value | type == "string" and length > 0))]
-          | all
-        )
+      (.signatures | type == "object")
+      and (
+        (.signatures | keys | length) == 1
+        and (.signatures["ecdsa-p256-sha256"] | type == "string" and length > 0)
       )
     )
 ' >/dev/null

@@ -191,7 +191,6 @@ jobs:
         run: ./gradlew --no-daemon clean :app:assembleRelease -Ppushgo.versionName=${{ steps.tag.outputs.tag_name }}
         env:
           PUSHGO_UPDATE_FEED_URL: ${{ vars.PUSHGO_UPDATE_FEED_URL }}
-          PUSHGO_UPDATE_FEED_PUBLIC_KEY_B64: ${{ secrets.PUSHGO_UPDATE_FEED_PUBLIC_KEY_B64 }}
           PUSHGO_UPDATE_FEED_ECDSA_P256_PUBLIC_KEY_B64: ${{ secrets.PUSHGO_UPDATE_FEED_ECDSA_P256_PUBLIC_KEY_B64 }}
 
       - name: Verify signed release artifacts
@@ -243,17 +242,14 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          if [ -z "${PUSHGO_UPDATE_FEED_ECDSA_SIGNING_KEY_B64:-}" ]; then
+            echo "Missing required secret: PUSHGO_UPDATE_FEED_ECDSA_SIGNING_KEY_B64" >&2
+            exit 1
+          fi
           mkdir -p "$GITHUB_WORKSPACE/.ci"
-          if [ -n "${PUSHGO_UPDATE_FEED_SIGNING_KEY_B64:-}" ]; then
-            echo "$PUSHGO_UPDATE_FEED_SIGNING_KEY_B64" | base64 --decode > "$GITHUB_WORKSPACE/.ci/update-feed-signing-key.pem"
-            echo "PUSHGO_UPDATE_FEED_SIGNING_KEY_FILE=$GITHUB_WORKSPACE/.ci/update-feed-signing-key.pem" >> "$GITHUB_ENV"
-          fi
-          if [ -n "${PUSHGO_UPDATE_FEED_ECDSA_SIGNING_KEY_B64:-}" ]; then
-            echo "$PUSHGO_UPDATE_FEED_ECDSA_SIGNING_KEY_B64" | base64 --decode > "$GITHUB_WORKSPACE/.ci/update-feed-ecdsa-signing-key.pem"
-            echo "PUSHGO_UPDATE_FEED_ECDSA_SIGNING_KEY_FILE=$GITHUB_WORKSPACE/.ci/update-feed-ecdsa-signing-key.pem" >> "$GITHUB_ENV"
-          fi
+          echo "$PUSHGO_UPDATE_FEED_ECDSA_SIGNING_KEY_B64" | base64 --decode > "$GITHUB_WORKSPACE/.ci/update-feed-ecdsa-signing-key.pem"
+          echo "PUSHGO_UPDATE_FEED_ECDSA_SIGNING_KEY_FILE=$GITHUB_WORKSPACE/.ci/update-feed-ecdsa-signing-key.pem" >> "$GITHUB_ENV"
         env:
-          PUSHGO_UPDATE_FEED_SIGNING_KEY_B64: ${{ secrets.PUSHGO_UPDATE_FEED_SIGNING_KEY_B64 }}
           PUSHGO_UPDATE_FEED_ECDSA_SIGNING_KEY_B64: ${{ secrets.PUSHGO_UPDATE_FEED_ECDSA_SIGNING_KEY_B64 }}
 
       - name: Generate update feed artifacts
@@ -278,13 +274,8 @@ jobs:
             --base-url "$base_url"
             --existing-feed "release/update-feed-v1.json"
             --repo-feed-path ""
+            --ecdsa-private-key-file "${PUSHGO_UPDATE_FEED_ECDSA_SIGNING_KEY_FILE}"
           )
-          if [[ -n "${PUSHGO_UPDATE_FEED_SIGNING_KEY_FILE:-}" ]]; then
-            cmd+=(--private-key-file "${PUSHGO_UPDATE_FEED_SIGNING_KEY_FILE}")
-          fi
-          if [[ -n "${PUSHGO_UPDATE_FEED_ECDSA_SIGNING_KEY_FILE:-}" ]]; then
-            cmd+=(--ecdsa-private-key-file "${PUSHGO_UPDATE_FEED_ECDSA_SIGNING_KEY_FILE}")
-          fi
           "${cmd[@]}"
         env:
           PUSHGO_UPDATE_BASE_URL: ${{ vars.PUSHGO_UPDATE_BASE_URL != '' && vars.PUSHGO_UPDATE_BASE_URL || secrets.PUSHGO_UPDATE_BASE_URL }}
@@ -314,23 +305,23 @@ jobs:
             return 1
           }
 
-          v8a_file="$(find_match 'arm64-v8a|aarch64' || true)"
-          v7a_file="$(find_match 'armeabi-v7a|armv7|arm-v7a' || true)"
-          x86_file="$(find_match 'x86_64|x86' || true)"
+          arm64_file="$(find_match 'arm64-v8a|aarch64' || true)"
+          armv7_file="$(find_match 'armeabi-v7a|armv7|arm-v7a' || true)"
+          x86_64_file="$(find_match 'x86_64|x86' || true)"
           universal_file="$(find_match 'universal|all' || true)"
 
-          if [[ -z "$v8a_file" || -z "$v7a_file" || -z "$x86_file" || -z "$universal_file" ]]; then
-            echo "ABI package matrix check failed. Required APK variants: v8a / v7a / x86 / universal." >&2
+          if [[ -z "$arm64_file" || -z "$armv7_file" || -z "$x86_64_file" || -z "$universal_file" ]]; then
+            echo "ABI package matrix check failed. Required APK variants: arm64-v8a / armeabi-v7a / x86_64 / universal." >&2
             printf 'Detected APK files:\n%s\n' "${apk_files[*]}" >&2
-            echo "Detected matches: v8a=${v8a_file:-<missing>} v7a=${v7a_file:-<missing>} x86=${x86_file:-<missing>} universal=${universal_file:-<missing>}" >&2
+            echo "Detected matches: arm64-v8a=${arm64_file:-<missing>} armeabi-v7a=${armv7_file:-<missing>} x86_64=${x86_64_file:-<missing>} universal=${universal_file:-<missing>}" >&2
             exit 1
           fi
 
           echo "ABI package matrix ready:"
-          echo "  v8a      -> $v8a_file"
-          echo "  v7a      -> $v7a_file"
-          echo "  x86      -> $x86_file"
-          echo "  universal-> $universal_file"
+          echo "  arm64-v8a   -> $arm64_file"
+          echo "  armeabi-v7a -> $armv7_file"
+          echo "  x86_64      -> $x86_64_file"
+          echo "  universal   -> $universal_file"
 
       - name: Generate update deploy bundle
         shell: bash
@@ -358,14 +349,14 @@ jobs:
             .payload.entries
             | map(
                 (.packages | type == "object")
-                and (.packages.v8a | type == "object")
-                and (.packages.v7a | type == "object")
-                and (.packages.x86 | type == "object")
+                and (.packages["arm64-v8a"] | type == "object")
+                and (.packages["armeabi-v7a"] | type == "object")
+                and (.packages["x86_64"] | type == "object")
                 and (.packages.universal | type == "object")
               )
             | all
           ' dist/update-feed-v1.json >/dev/null
-          echo "Feed schema gate passed: packages.v8a/v7a/x86/universal all present."
+          echo "Feed schema gate passed: packages.arm64-v8a/armeabi-v7a/x86_64/universal all present."
           base_url="${PUSHGO_UPDATE_BASE_URL:-}"
           if [[ -z "$base_url" ]]; then
             echo "Missing required PUSHGO_UPDATE_BASE_URL for URL prefix verification." >&2
@@ -378,9 +369,9 @@ jobs:
                 | (($entry.channel == "stable") or ($entry.channel == "beta"))
                 and (
                   [
-                    $entry.packages.v8a.apkUrl,
-                    $entry.packages.v7a.apkUrl,
-                    $entry.packages.x86.apkUrl,
+                    $entry.packages["arm64-v8a"].apkUrl,
+                    $entry.packages["armeabi-v7a"].apkUrl,
+                    $entry.packages["x86_64"].apkUrl,
                     $entry.packages.universal.apkUrl
                   ]
                   | all(type == "string" and startswith($base + "/" + $entry.channel + "/" + $entry.versionName + "/"))
@@ -397,7 +388,8 @@ jobs:
         run: |
           set -euo pipefail
           if [ -z "${PUSHGO_UPDATE_DEPLOY_SSH_KEY_B64:-}" ]; then
-            exit 0
+            echo "Missing required secret: PUSHGO_UPDATE_DEPLOY_SSH_KEY_B64" >&2
+            exit 1
           fi
           mkdir -p "$GITHUB_WORKSPACE/.ci"
           echo "$PUSHGO_UPDATE_DEPLOY_SSH_KEY_B64" | base64 --decode > "$GITHUB_WORKSPACE/.ci/update-deploy-key"
@@ -406,13 +398,30 @@ jobs:
         env:
           PUSHGO_UPDATE_DEPLOY_SSH_KEY_B64: ${{ secrets.PUSHGO_UPDATE_DEPLOY_SSH_KEY_B64 }}
 
+      - name: Install update deploy known_hosts
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -z "${PUSHGO_UPDATE_DEPLOY_KNOWN_HOSTS:-}" ]]; then
+            echo "Missing required secret: PUSHGO_UPDATE_DEPLOY_KNOWN_HOSTS" >&2
+            exit 1
+          fi
+          mkdir -p "$HOME/.ssh"
+          chmod 700 "$HOME/.ssh"
+
+          printf '%s\n' "$PUSHGO_UPDATE_DEPLOY_KNOWN_HOSTS" | sed 's/\r$//' > "$HOME/.ssh/known_hosts"
+
+          chmod 600 "$HOME/.ssh/known_hosts"
+        env:
+          PUSHGO_UPDATE_DEPLOY_KNOWN_HOSTS: ${{ secrets.PUSHGO_UPDATE_DEPLOY_KNOWN_HOSTS }}
+
       - name: Publish update artifacts to update host
         shell: bash
         run: |
           set -euo pipefail
           if [[ -z "${PUSHGO_UPDATE_DEPLOY_HOST:-}" || -z "${PUSHGO_UPDATE_DEPLOY_USER:-}" || -z "${PUSHGO_UPDATE_DEPLOY_PATH:-}" ]]; then
-            echo "Skip update publish: deploy host/user/path is not fully configured."
-            exit 0
+            echo "Missing required deploy configuration. Please set PUSHGO_UPDATE_DEPLOY_HOST, PUSHGO_UPDATE_DEPLOY_USER, and PUSHGO_UPDATE_DEPLOY_PATH." >&2
+            exit 1
           fi
           track="stable"
           if [[ "${{ steps.tag.outputs.kind }}" == "beta" ]]; then
@@ -579,13 +588,8 @@ jobs:
               --repo "${GITHUB_REPOSITORY}"
               --base-url "${PUSHGO_UPDATE_BASE_URL}"
               --repo-feed-path "release/update-feed-v1.json"
+              --ecdsa-private-key-file "${PUSHGO_UPDATE_FEED_ECDSA_SIGNING_KEY_FILE}"
             )
-            if [[ -n "${PUSHGO_UPDATE_FEED_SIGNING_KEY_FILE:-}" ]]; then
-              cmd+=(--private-key-file "${PUSHGO_UPDATE_FEED_SIGNING_KEY_FILE}")
-            fi
-            if [[ -n "${PUSHGO_UPDATE_FEED_ECDSA_SIGNING_KEY_FILE:-}" ]]; then
-              cmd+=(--ecdsa-private-key-file "${PUSHGO_UPDATE_FEED_ECDSA_SIGNING_KEY_FILE}")
-            fi
             "${cmd[@]}"
 
             if git diff --quiet -- release/update-feed-v1.json; then

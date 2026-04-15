@@ -6,7 +6,6 @@ import kotlinx.serialization.Serializable
 @Serializable
 data class SignedUpdateFeed(
     val payload: UpdateFeedPayload,
-    val signature: String? = null,
     val signatures: Map<String, String> = emptyMap(),
 )
 

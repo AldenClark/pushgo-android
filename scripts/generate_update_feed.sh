@@ -15,8 +15,6 @@ Options:
   --update-notes-dir <path>             Directory containing <tag>.json note maps (default: release/update-notes)
   --update-notes-file <path>            Override note file path for this tag
   --output <path>                       Output signed feed JSON (default: <dist_dir>/update-feed-v1.json)
-  --private-key-file <path>             Legacy alias of --ed25519-private-key-file
-  --ed25519-private-key-file <path>     Ed25519 private key (PKCS8 PEM) for payload signature
   --ecdsa-private-key-file <path>       ECDSA P-256 private key (PKCS8 PEM) for payload signature
   -h, --help                            Show this help
 EOF
@@ -54,8 +52,6 @@ repo_feed_path="release/update-feed-v1.json"
 update_notes_dir="release/update-notes"
 update_notes_file=""
 output_path="${dist_dir%/}/update-feed-v1.json"
-private_key_file=""
-ed25519_private_key_file=""
 ecdsa_private_key_file=""
 
 while [[ $# -gt 0 ]]; do
@@ -92,14 +88,6 @@ while [[ $# -gt 0 ]]; do
       output_path="${2:-}"
       shift 2
       ;;
-    --private-key-file)
-      private_key_file="${2:-}"
-      shift 2
-      ;;
-    --ed25519-private-key-file)
-      ed25519_private_key_file="${2:-}"
-      shift 2
-      ;;
     --ecdsa-private-key-file)
       ecdsa_private_key_file="${2:-}"
       shift 2
@@ -121,13 +109,14 @@ if [[ -z "$tag" || -z "$repo" ]]; then
   exit 1
 fi
 
-if [[ -n "$base_url" && ! "$base_url" =~ ^https?:// ]]; then
-  echo "Error: --base-url must start with http:// or https://, got: $base_url" >&2
+if [[ -z "$ecdsa_private_key_file" ]]; then
+  echo "Error: --ecdsa-private-key-file is required" >&2
   exit 1
 fi
 
-if [[ -n "$private_key_file" && -z "$ed25519_private_key_file" ]]; then
-  ed25519_private_key_file="$private_key_file"
+if [[ -n "$base_url" && ! "$base_url" =~ ^https?:// ]]; then
+  echo "Error: --base-url must start with http:// or https://, got: $base_url" >&2
+  exit 1
 fi
 
 if [[ ! -f "${dist_dir%/}/BUILD_INFO.txt" ]]; then
@@ -148,18 +137,18 @@ while IFS= read -r apk_file; do
   if [[ "$base_lower" == *"universal"* || "$base_lower" == *"-all-"* ]]; then
     package_key="universal"
   elif [[ "$base_lower" == *"arm64-v8a"* || "$base_lower" == *"aarch64"* ]]; then
-    package_key="v8a"
+    package_key="arm64-v8a"
   elif [[ "$base_lower" == *"armeabi-v7a"* || "$base_lower" == *"armv7"* || "$base_lower" == *"arm-v7a"* ]]; then
-    package_key="v7a"
+    package_key="armeabi-v7a"
   elif [[ "$base_lower" == *"x86_64"* || "$base_lower" == *"-x86-"* || "$base_lower" == *"-x86."* ]]; then
-    package_key="x86"
+    package_key="x86_64"
   fi
   if [[ -n "$package_key" && -z "${apk_by_key[$package_key]:-}" ]]; then
     apk_by_key[$package_key]="$apk_file"
   fi
 done < <(find "$dist_dir" -maxdepth 1 -type f -name '*.apk' | sort)
 
-required_package_keys=(v8a v7a x86 universal)
+required_package_keys=("arm64-v8a" "armeabi-v7a" "x86_64" "universal")
 for required_key in "${required_package_keys[@]}"; do
   if [[ -z "${apk_by_key[$required_key]:-}" ]]; then
     echo "Error: missing ${required_key} package APK under $dist_dir" >&2
@@ -289,7 +278,32 @@ fi
 merged_entries_json="$(jq -c -n \
   --argjson existing "$existing_entries_json" \
   --argjson entry "$new_entry_json" \
-  '($existing + [$entry])
+  '
+   def normalize_package_key($k):
+     ($k | tostring | ascii_downcase | gsub("_"; "-")) as $lower
+     | if ($lower == "arm64-v8a") then "arm64-v8a"
+       elif ($lower == "armeabi-v7a") then "armeabi-v7a"
+       elif ($lower == "x86-64" or $lower == "x86_64") then "x86_64"
+       elif ($lower == "universal" or $lower == "all" or $lower == "any") then "universal"
+       else null
+       end;
+   def normalize_packages:
+     if (.packages? | type == "object") then
+       .packages = (
+         .packages
+         | to_entries
+         | map(
+             normalize_package_key(.key) as $key
+             | select($key != null)
+             | {key: $key, value: .value}
+           )
+         | from_entries
+       )
+     else
+       .
+     end;
+   ($existing + [$entry])
+   | map(normalize_packages)
    | map(select(.channel | type == "string" and length > 0))
    | sort_by(.channel, .versionCode)
    | group_by(.channel)
@@ -311,40 +325,24 @@ payload_json="$(jq -n \
 
 payload_canonical="$(printf '%s' "$payload_json" | jq -cS '.')"
 
-ed25519_signature=""
 ecdsa_signature=""
-if [[ -n "$ed25519_private_key_file" || -n "$ecdsa_private_key_file" ]]; then
-  sign_input_file="$(mktemp)"
-  trap 'rm -f "$sign_input_file"' EXIT
-  printf '%s' "$payload_canonical" >"$sign_input_file"
+sign_input_file="$(mktemp)"
+trap 'rm -f "$sign_input_file"' EXIT
+printf '%s' "$payload_canonical" >"$sign_input_file"
 
-  if [[ -n "$ed25519_private_key_file" ]]; then
-    if [[ ! -f "$ed25519_private_key_file" ]]; then
-      echo "Error: private key file not found: $ed25519_private_key_file" >&2
-      exit 1
-    fi
-    ed25519_signature="$(openssl pkeyutl -sign -inkey "$ed25519_private_key_file" -rawin -in "$sign_input_file" \
-      | base64 | tr -d '\n')"
-  fi
-
-  if [[ -n "$ecdsa_private_key_file" ]]; then
-    if [[ ! -f "$ecdsa_private_key_file" ]]; then
-      echo "Error: private key file not found: $ecdsa_private_key_file" >&2
-      exit 1
-    fi
-    ecdsa_signature="$(openssl dgst -sha256 -sign "$ecdsa_private_key_file" "$sign_input_file" \
-      | base64 | tr -d '\n')"
-  fi
-
-  rm -f "$sign_input_file"
-  trap - EXIT
+if [[ ! -f "$ecdsa_private_key_file" ]]; then
+  echo "Error: private key file not found: $ecdsa_private_key_file" >&2
+  exit 1
 fi
+ecdsa_signature="$(openssl dgst -sha256 -sign "$ecdsa_private_key_file" "$sign_input_file" \
+  | base64 | tr -d '\n')"
+
+rm -f "$sign_input_file"
+trap - EXIT
 
 signatures_json="$(jq -n \
-  --arg ed25519 "$ed25519_signature" \
   --arg ecdsa "$ecdsa_signature" \
   '{
-    "ed25519": $ed25519,
     "ecdsa-p256-sha256": $ecdsa
   }
   | with_entries(select(.value | length > 0))')"
@@ -352,9 +350,8 @@ signatures_json="$(jq -n \
 mkdir -p "$(dirname "$output_path")"
 jq -n \
   --argjson payload "$payload_canonical" \
-  --arg signature "$ed25519_signature" \
   --argjson signatures "$signatures_json" \
-  '{payload: $payload, signature: (if ($signature | length) > 0 then $signature else null end), signatures: $signatures}' >"$output_path"
+  '{payload: $payload, signatures: $signatures}' >"$output_path"
 
 echo "Generated update feed: $output_path"
 if [[ -n "$repo_feed_path" ]]; then

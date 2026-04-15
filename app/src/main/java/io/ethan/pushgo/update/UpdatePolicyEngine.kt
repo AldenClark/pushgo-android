@@ -260,9 +260,9 @@ internal object UpdateCandidateSelector {
 
     private fun normalizePackageKey(raw: String): String? {
         return when (raw.trim().lowercase().replace('_', '-')) {
-            "v8a", "arm64", "arm64-v8a", "aarch64" -> "v8a"
-            "v7a", "armeabi", "armeabi-v7a", "armv7", "arm-v7a" -> "v7a"
-            "x86", "x86-64", "x86_64" -> "x86"
+            "arm64-v8a" -> "arm64-v8a"
+            "armeabi-v7a" -> "armeabi-v7a"
+            "x86_64" -> "x86_64"
             "universal", "all", "any" -> "universal"
             else -> null
         }
@@ -270,9 +270,9 @@ internal object UpdateCandidateSelector {
 
     private fun packageKeysForAbi(abi: String): List<String> {
         return when (abi.trim().lowercase()) {
-            "arm64-v8a", "aarch64" -> listOf("v8a", "universal")
-            "armeabi-v7a", "armeabi", "armv7", "arm-v7a" -> listOf("v7a", "universal")
-            "x86_64", "x86-64", "x86" -> listOf("x86", "universal")
+            "arm64-v8a", "aarch64" -> listOf("arm64-v8a", "universal")
+            "armeabi-v7a", "armeabi", "armv7", "arm-v7a" -> listOf("armeabi-v7a", "universal")
+            "x86_64", "x86-64", "x86" -> listOf("x86_64", "universal")
             else -> listOf("universal")
         }
     }

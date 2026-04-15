@@ -91,16 +91,7 @@ class UpdateFeedClient(private val context: Context) {
 
     private fun configuredSignatureVerifiers(): List<SignatureVerifierConfig> {
         val configured = mutableListOf<SignatureVerifierConfig>()
-        val ed25519Key = AppConstants.updateFeedEd25519PublicKeyBase64.trim()
-        if (ed25519Key.isNotEmpty()) {
-            configured += SignatureVerifierConfig(
-                signatureKey = "ed25519",
-                signatureAlgorithm = "Ed25519",
-                keyFactoryAlgorithm = "Ed25519",
-                publicKeyBase64 = ed25519Key,
-            )
-        }
-        val ecdsaP256Key = AppConstants.updateFeedEcdsaP256PublicKeyBase64.trim()
+        val ecdsaP256Key = AppConstants.updateFeedSignaturePublicKeyBase64.trim()
         if (ecdsaP256Key.isNotEmpty()) {
             configured += SignatureVerifierConfig(
                 signatureKey = "ecdsa-p256-sha256",
@@ -120,10 +111,6 @@ class UpdateFeedClient(private val context: Context) {
             if (key.isNotEmpty() && value.isNotEmpty()) {
                 normalized[key] = value
             }
-        }
-        val legacySignature = document.signature?.trim().orEmpty()
-        if (legacySignature.isNotEmpty() && normalized["ed25519"].isNullOrEmpty()) {
-            normalized["ed25519"] = legacySignature
         }
         return normalized
     }

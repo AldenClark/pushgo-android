@@ -47,7 +47,7 @@ val releaseStorePassword = project.resolveSigningProperty("PUSHGO_RELEASE_STORE_
 val releaseKeyAlias = project.resolveSigningProperty("PUSHGO_RELEASE_KEY_ALIAS")
 val releaseKeyPassword = project.resolveSigningProperty("PUSHGO_RELEASE_KEY_PASSWORD")
 val appVersionName = providers.gradleProperty("pushgo.versionName").orNull?.trim()?.takeIf { it.isNotEmpty() }
-    ?: "v1.2.0-beta.3"
+    ?: "v1.2.0-beta.4"
 val appVersionCode = parseVersionCodeFromName(appVersionName)
 val enableAbiSplits = when (val value = providers.gradleProperty("pushgo.enableAbiSplits").orNull?.trim()?.lowercase()) {
     null -> true
@@ -65,10 +65,6 @@ val updateFeedUrl = project.resolveSigningProperty("PUSHGO_UPDATE_FEED_URL")
     ?.trim()
     ?.takeIf { it.isNotEmpty() }
     ?: "https://update.pushgo.cn/android/update-feed-v1.json"
-val updateFeedPublicKeyB64 = project.resolveSigningProperty("PUSHGO_UPDATE_FEED_PUBLIC_KEY_B64")
-    ?.trim()
-    ?.replace("\"", "")
-    ?: ""
 val updateFeedEcdsaP256PublicKeyB64 = project.resolveSigningProperty("PUSHGO_UPDATE_FEED_ECDSA_P256_PUBLIC_KEY_B64")
     ?.trim()
     ?.replace("\"", "")
@@ -120,7 +116,6 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         buildConfigField("String", "PRIVATE_CERT_PIN_SHA256", "\"$privateCertPinSha256\"")
         buildConfigField("String", "DEFAULT_UPDATE_FEED_URL", "\"$updateFeedUrl\"")
-        buildConfigField("String", "UPDATE_FEED_PUBLIC_KEY_B64", "\"$updateFeedPublicKeyB64\"")
         buildConfigField("String", "UPDATE_FEED_ECDSA_P256_PUBLIC_KEY_B64", "\"$updateFeedEcdsaP256PublicKeyB64\"")
 
         vectorDrawables {

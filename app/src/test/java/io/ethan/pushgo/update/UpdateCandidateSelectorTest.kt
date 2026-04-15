@@ -150,9 +150,9 @@ class UpdateCandidateSelectorTest {
                 versionName = "v1.2.2-beta.1",
                 channel = "beta",
                 packages = mapOf(
-                    "v8a" to pkg("https://example.com/v8a.apk", "1".repeat(64)),
-                    "v7a" to pkg("https://example.com/v7a.apk", "2".repeat(64)),
-                    "x86" to pkg("https://example.com/x86.apk", "3".repeat(64)),
+                    "arm64-v8a" to pkg("https://example.com/v8a.apk", "1".repeat(64)),
+                    "armeabi-v7a" to pkg("https://example.com/v7a.apk", "2".repeat(64)),
+                    "x86_64" to pkg("https://example.com/x86.apk", "3".repeat(64)),
                     "universal" to pkg("https://example.com/universal.apk", "4".repeat(64)),
                 ),
             ),
@@ -167,7 +167,7 @@ class UpdateCandidateSelectorTest {
         )
 
         assertNotNull(selected)
-        assertEquals("v8a", selected?.packageKey)
+        assertEquals("arm64-v8a", selected?.packageKey)
         assertEquals("https://example.com/v8a.apk", selected?.apkUrl)
     }
 

@@ -2,7 +2,7 @@
   "payload": {
     "entries": [
       {
-        "apkSha256": "5be27fbc844065b8f5ccacf8a46dfa0b3e7ff4d1c81671bc57390f88858b2463",
+        "apkSha256": "7b679b292a581090e6c7268bc7faa00f28e01a0f0d09b4b907c2b57870091477",
         "apkUrl": "https://update.pushgo.cn/android/beta/v1.2.0-beta.3/pushgo-android-v1.2.0-beta.3-universal-release.apk",
         "channel": "beta",
         "critical": false,
@@ -18,39 +18,37 @@
           "zh-TW": "此測試版重點提升 provider 下發訊息的 ACK + pull 可靠性。\n- 優化 token 更新後的拉取鏈路與冷啟動恢復\n- 強化通知權限與電池最佳化設定的啟動引導\n- 提升通知呈現等級與鎖定畫面隱私預設策略的一致性"
         },
         "packages": {
-          "universal": {
-            "apkSha256": "5be27fbc844065b8f5ccacf8a46dfa0b3e7ff4d1c81671bc57390f88858b2463",
-            "apkUrl": "https://update.pushgo.cn/android/beta/v1.2.0-beta.3/pushgo-android-v1.2.0-beta.3-universal-release.apk"
-          },
-          "v7a": {
-            "apkSha256": "cf85a2f428629240199d67e2623f802f714814d8e546303e261c7594b7c25129",
-            "apkUrl": "https://update.pushgo.cn/android/beta/v1.2.0-beta.3/pushgo-android-v1.2.0-beta.3-armeabi-v7a-release.apk"
-          },
-          "v8a": {
-            "apkSha256": "7b7fe35d85d449fb27108cc5ab83a7c07351af476abb75dd308ed48cee845354",
+          "arm64-v8a": {
+            "apkSha256": "5745e74b5a90a15900d6657c1fb0d2524122e249ecd8707f8b9b828afe1879cc",
             "apkUrl": "https://update.pushgo.cn/android/beta/v1.2.0-beta.3/pushgo-android-v1.2.0-beta.3-arm64-v8a-release.apk"
           },
-          "x86": {
-            "apkSha256": "147bb164d662d03a36abc4b91dd310db4feef3fb4a0a1dcf72ed3da6ad6caaa7",
+          "armeabi-v7a": {
+            "apkSha256": "c854b0020ac1509269f456d30d622cd17cc23c758cf53a32a723e255a2804428",
+            "apkUrl": "https://update.pushgo.cn/android/beta/v1.2.0-beta.3/pushgo-android-v1.2.0-beta.3-armeabi-v7a-release.apk"
+          },
+          "x86_64": {
+            "apkSha256": "bcb42a4e678d62f247797210c642fe1882cb9147f501fa9f3138b6ae6c20c105",
             "apkUrl": "https://update.pushgo.cn/android/beta/v1.2.0-beta.3/pushgo-android-v1.2.0-beta.3-x86_64-release.apk"
+          },
+          "universal": {
+            "apkSha256": "7b679b292a581090e6c7268bc7faa00f28e01a0f0d09b4b907c2b57870091477",
+            "apkUrl": "https://update.pushgo.cn/android/beta/v1.2.0-beta.3/pushgo-android-v1.2.0-beta.3-universal-release.apk"
           }
         },
-        "publishedAtEpochMs": 1776233310000,
+        "publishedAtEpochMs": 1776225802000,
         "releaseNotesUrl": "https://github.com/AldenClark/pushgo-android/releases/tag/v1.2.0-beta.3",
         "versionCode": 1020003,
         "versionName": "v1.2.0-beta.3"
       }
     ],
-    "generatedAtEpochMs": 1776233310000,
+    "generatedAtEpochMs": 1776225802000,
     "policy": {
       "impatientReminderIntervalSeconds": 604800,
       "scheduledCheckIntervalSeconds": 21600
     },
     "schemaVersion": 1
   },
-  "signature": "iS8ftrjg6rXir/ZGKRCKLjUV/oSnuKQ/hO5p6XdzOX13xPQvL2ZUwUiIZGBB/HOoqHqj/pAtBj/7eZKcxim6AQ==",
   "signatures": {
-    "ed25519": "iS8ftrjg6rXir/ZGKRCKLjUV/oSnuKQ/hO5p6XdzOX13xPQvL2ZUwUiIZGBB/HOoqHqj/pAtBj/7eZKcxim6AQ==",
-    "ecdsa-p256-sha256": "MEUCIGXyO91Aq7rgdpiZHipFEuq3U2tymyn+PG0G6+TMAddFAiEA1bXmihFmmx4nac3btGFleraNrBLdXii55+Ta+XvjWO4="
+    "ecdsa-p256-sha256": "MEQCIBd2VZl5IIaHg0HEdQx8C9NIm2IyDEEbrk/AWinQZC55AiBWIiip0mee0yPVGezAFufWHx7I2HlK1CSRxg+QB0yP7Q=="
   }
 }
