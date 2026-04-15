@@ -10,7 +10,6 @@ Example:
   scripts/publish_update_artifacts.sh dist deploy@update.pushgo.cn /var/www/update.pushgo.cn/android beta
 
 Requirements:
-  - rsync
   - ssh access configured (optionally via PUSHGO_UPDATE_DEPLOY_SSH_KEY_FILE)
 EOF
 }
@@ -58,8 +57,13 @@ for name in "${required_files[@]}"; do
   fi
 done
 
-if ! command -v rsync >/dev/null 2>&1; then
-  echo "Error: rsync is required" >&2
+if ! command -v ssh >/dev/null 2>&1; then
+  echo "Error: ssh is required" >&2
+  exit 1
+fi
+
+if ! command -v tar >/dev/null 2>&1; then
+  echo "Error: tar is required" >&2
   exit 1
 fi
 
@@ -82,14 +86,55 @@ release_dir="${remote_base_path%/}/${track}/${version_name}"
 active_feed_file="${remote_base_path%/}/update-feed-v1.json"
 active_sha_file="${remote_base_path%/}/SHA256SUMS.txt"
 
-ssh "${ssh_opts[@]}" "$remote_user_host" "mkdir -p '$release_dir' '${remote_base_path%/}'"
+retry_ssh() {
+  local cmd="$1"
+  local attempt
+  for attempt in 1 2 3; do
+    if ssh "${ssh_opts[@]}" "$remote_user_host" "$cmd"; then
+      return 0
+    fi
+    if [[ "$attempt" -lt 3 ]]; then
+      echo "SSH command failed (attempt ${attempt}/3), retrying..." >&2
+      sleep "$attempt"
+    fi
+  done
+  return 1
+}
 
-rsync -avz --delete -e "ssh ${ssh_opts[*]}" \
-  "${dist_dir%/}/" \
-  "${remote_user_host}:${release_dir}/"
+retry_upload() {
+  local attempt
+  for attempt in 1 2 3; do
+    if tar -C "${dist_dir%/}" -cf - . \
+      | ssh "${ssh_opts[@]}" "$remote_user_host" "tar -xf - -C '${release_dir}'"; then
+      return 0
+    fi
+    if [[ "$attempt" -lt 3 ]]; then
+      echo "Upload failed (attempt ${attempt}/3), retrying..." >&2
+      sleep "$attempt"
+    fi
+  done
+  return 1
+}
 
-ssh "${ssh_opts[@]}" "$remote_user_host" \
-  "cp '${release_dir}/update-feed-v1.json' '${active_feed_file}' && \
-   cp '${release_dir}/SHA256SUMS.txt' '${active_sha_file}'"
+if ! retry_ssh "mkdir -p '$release_dir' '${remote_base_path%/}'"; then
+  echo "Error: failed to create remote directories after 3 attempts" >&2
+  exit 1
+fi
+
+if ! retry_ssh "rm -rf '${release_dir}'/*"; then
+  echo "Error: failed to clean remote release directory after 3 attempts" >&2
+  exit 1
+fi
+
+if ! retry_upload; then
+  echo "Error: failed to upload artifacts after 3 attempts" >&2
+  exit 1
+fi
+
+if ! retry_ssh "cp '${release_dir}/update-feed-v1.json' '${active_feed_file}' && \
+   cp '${release_dir}/SHA256SUMS.txt' '${active_sha_file}'"; then
+  echo "Error: failed to refresh active feed files after 3 attempts" >&2
+  exit 1
+fi
 
 echo "Published update artifacts to ${remote_user_host}:${release_dir} and refreshed active feed ${active_feed_file}"
