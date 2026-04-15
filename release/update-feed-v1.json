@@ -2,35 +2,35 @@
   "payload": {
     "entries": [
       {
-        "apkSha256": "af0ec29ffc9aa4767cc2c2604070cfa61aa06324927ba95f80c13c047d0908ba",
-        "apkUrl": "https://update.pushgo.cn/android/beta/v1.2.0-beta.6/pushgo-android-v1.2.0-beta.6-universal-release.apk",
+        "apkSha256": "42eed28ce97abc61654202a37f2d7ae33d2dff3a9edbf3512abef6ec3b6df538",
+        "apkUrl": "https://update.pushgo.cn/android/beta/v1.2.0-beta.7/pushgo-android-v1.2.0-beta.7-universal-release.apk",
         "channel": "beta",
         "critical": false,
         "packages": {
           "arm64-v8a": {
-            "apkSha256": "d88828956cf92d954cd9a5875e7fee19f331ba0568d4631a938ddb5c471430c0",
-            "apkUrl": "https://update.pushgo.cn/android/beta/v1.2.0-beta.6/pushgo-android-v1.2.0-beta.6-arm64-v8a-release.apk"
+            "apkSha256": "364700e5a3641d277f85faaecfaf9797df451421f28ccc2d6215ea44528720d8",
+            "apkUrl": "https://update.pushgo.cn/android/beta/v1.2.0-beta.7/pushgo-android-v1.2.0-beta.7-arm64-v8a-release.apk"
           },
           "armeabi-v7a": {
-            "apkSha256": "fc5c83b7f5481d5cde464d7b593ae802f5901a82bccd11da05efecf5a79e0067",
-            "apkUrl": "https://update.pushgo.cn/android/beta/v1.2.0-beta.6/pushgo-android-v1.2.0-beta.6-armeabi-v7a-release.apk"
+            "apkSha256": "feec909b295bf25cb20461533fa468bc92afe09bdefdf2452dcc0a66267d6c95",
+            "apkUrl": "https://update.pushgo.cn/android/beta/v1.2.0-beta.7/pushgo-android-v1.2.0-beta.7-armeabi-v7a-release.apk"
           },
           "universal": {
-            "apkSha256": "af0ec29ffc9aa4767cc2c2604070cfa61aa06324927ba95f80c13c047d0908ba",
-            "apkUrl": "https://update.pushgo.cn/android/beta/v1.2.0-beta.6/pushgo-android-v1.2.0-beta.6-universal-release.apk"
+            "apkSha256": "42eed28ce97abc61654202a37f2d7ae33d2dff3a9edbf3512abef6ec3b6df538",
+            "apkUrl": "https://update.pushgo.cn/android/beta/v1.2.0-beta.7/pushgo-android-v1.2.0-beta.7-universal-release.apk"
           },
           "x86_64": {
-            "apkSha256": "1bb10284d194bab52f46d6d968cc2cd335ba1e09c45503a188d0f83e3028749c",
-            "apkUrl": "https://update.pushgo.cn/android/beta/v1.2.0-beta.6/pushgo-android-v1.2.0-beta.6-x86_64-release.apk"
+            "apkSha256": "a4e0d534e0548b02269e83a47ef99933c1bd4fdda9dbdb1867f7e1b25c1f65a4",
+            "apkUrl": "https://update.pushgo.cn/android/beta/v1.2.0-beta.7/pushgo-android-v1.2.0-beta.7-x86_64-release.apk"
           }
         },
-        "publishedAtEpochMs": 1776253935000,
-        "releaseNotesUrl": "https://github.com/AldenClark/pushgo-android/releases/tag/v1.2.0-beta.6",
-        "versionCode": 1020006,
-        "versionName": "v1.2.0-beta.6"
+        "publishedAtEpochMs": 1776255733000,
+        "releaseNotesUrl": "https://github.com/AldenClark/pushgo-android/releases/tag/v1.2.0-beta.7",
+        "versionCode": 1020007,
+        "versionName": "v1.2.0-beta.7"
       }
     ],
-    "generatedAtEpochMs": 1776253935000,
+    "generatedAtEpochMs": 1776255733000,
     "policy": {
       "impatientReminderIntervalSeconds": 604800,
       "scheduledCheckIntervalSeconds": 21600
@@ -38,6 +38,6 @@
     "schemaVersion": 1
   },
   "signatures": {
-    "ecdsa-p256-sha256": "MEQCIFtYph2sPJ2rw8iXcZ/tr9B2iU7ymVaE3vAVe5MQPPwBAiBK+4cLH8zhbwqNUZbYfKto3u4AERmln1LjcOe1wPx4Hw=="
+    "ecdsa-p256-sha256": "MEUCIQDkC7GvzFQ/BfTgoK1uwzz7lTVrzdzOTaZG1t9vraqT2gIgRgdGHn0vHzlhVcN+qEg0twifdMdVg8NjCK0/aRhcSUs="
   }
 }
