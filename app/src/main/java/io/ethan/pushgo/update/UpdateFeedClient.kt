@@ -2,6 +2,7 @@ package io.ethan.pushgo.update
 
 import android.content.Context
 import android.util.Base64
+import android.util.Log
 import io.ethan.pushgo.data.AppConstants
 import java.io.BufferedInputStream
 import java.io.BufferedReader
@@ -24,6 +25,9 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonObject
 
 class UpdateFeedClient(private val context: Context) {
+    companion object {
+        private const val TAG = "UpdateFeedClient"
+    }
     private data class SignatureVerifierConfig(
         val signatureKey: String,
         val signatureAlgorithm: String,
@@ -72,6 +76,7 @@ class UpdateFeedClient(private val context: Context) {
             attempted += verifier.signatureKey
             try {
                 if (verifySignature(verifier, payloadBytes, signatureB64)) {
+                    Log.i(TAG, "Update feed signature verified with ${verifier.signatureKey}")
                     return
                 }
                 errors += "${verifier.signatureKey}: signature mismatch"
@@ -85,6 +90,7 @@ class UpdateFeedClient(private val context: Context) {
         if (attempted.isEmpty()) {
             error("Update feed does not contain a signature compatible with this app")
         }
+        Log.e(TAG, "Update feed signature verification failed (${attempted.joinToString()})")
         error(
             "Update feed signature verification failed: ${errors.joinToString(separator = "; ")}"
         )

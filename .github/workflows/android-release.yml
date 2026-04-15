@@ -93,7 +93,24 @@ jobs:
             echo "RELEASE_CHANGELOG_BODY<<__PUSHGO_ANDROID_RELEASE_BODY_EOF__"
             printf "%s\n" "$release_body"
             echo "__PUSHGO_ANDROID_RELEASE_BODY_EOF__"
+            echo "RELEASE_NOTES_SECTION_BODY<<__PUSHGO_ANDROID_RELEASE_SECTION_EOF__"
+            printf "%s\n" "$section_body"
+            echo "__PUSHGO_ANDROID_RELEASE_SECTION_EOF__"
           } >> "$GITHUB_ENV"
+
+      - name: Build update notes payload
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -z "${RELEASE_NOTES_SECTION_BODY:-}" ]]; then
+            echo "RELEASE_NOTES_SECTION_BODY is empty." >&2
+            exit 1
+          fi
+          mkdir -p "$GITHUB_WORKSPACE/.ci"
+          update_notes_file="$GITHUB_WORKSPACE/.ci/update-notes-${GITHUB_REF_NAME}.json"
+          printf '%s' "${RELEASE_NOTES_SECTION_BODY}" \
+            | jq -Rs '{ "en": ., "zh-CN": . }' > "$update_notes_file"
+          echo "PUSHGO_UPDATE_NOTES_FILE=$update_notes_file" >> "$GITHUB_ENV"
 
       - name: Set up Java
         uses: actions/setup-java@v5
@@ -299,6 +316,7 @@ jobs:
             --base-url "$base_url"
             --existing-feed "release/update-feed-v1.json"
             --repo-feed-path ""
+            --update-notes-file "${PUSHGO_UPDATE_NOTES_FILE}"
             --ecdsa-private-key-file "${PUSHGO_UPDATE_FEED_ECDSA_SIGNING_KEY_FILE}"
           )
           "${cmd[@]}"
@@ -390,6 +408,24 @@ jobs:
             | all
           ' dist/update-feed-v1.json >/dev/null
           echo "Feed schema gate passed: packages.arm64-v8a/armeabi-v7a/x86_64/universal all present."
+          jq -e --arg version "${GITHUB_REF_NAME}" '
+            [ .payload.entries[] | select(.versionName == $version) ] as $tagged
+            | ($tagged | length) > 0
+            and (
+              $tagged
+              | map(
+                  (
+                    (.notes? | type == "string" and (.notes | length) > 0)
+                    or (
+                      (.notesI18n? | type == "object")
+                      and ((.notesI18n | length) > 0)
+                    )
+                  )
+                )
+              | all
+            )
+          ' dist/update-feed-v1.json >/dev/null
+          echo "Feed notes gate passed: ${GITHUB_REF_NAME} entries include notes/notesI18n."
           base_url="${PUSHGO_UPDATE_BASE_URL:-}"
           if [[ -z "$base_url" ]]; then
             echo "Missing required PUSHGO_UPDATE_BASE_URL for URL prefix verification." >&2
@@ -621,6 +657,7 @@ jobs:
               --repo "${GITHUB_REPOSITORY}"
               --base-url "${PUSHGO_UPDATE_BASE_URL}"
               --repo-feed-path "release/update-feed-v1.json"
+              --update-notes-file "${PUSHGO_UPDATE_NOTES_FILE}"
               --ecdsa-private-key-file "${PUSHGO_UPDATE_FEED_ECDSA_SIGNING_KEY_FILE}"
             )
             "${cmd[@]}"
