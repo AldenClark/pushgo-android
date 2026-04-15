@@ -2,55 +2,55 @@
   "payload": {
     "entries": [
       {
-        "apkSha256": "8df4772d502ff9fbe4b0480ff53af123b2b705bd40b40833a12bd216b4761e15",
-        "apkUrl": "https://github.com/AldenClark/pushgo-android/releases/download/v1.2.0-beta.2/pushgo-android-v1.2.0-beta.2-universal-release.apk",
+        "apkSha256": "7b679b292a581090e6c7268bc7faa00f28e01a0f0d09b4b907c2b57870091477",
+        "apkUrl": "https://update.pushgo.cn/android/beta/v1.2.0-beta.3/pushgo-android-v1.2.0-beta.3-universal-release.apk",
         "channel": "beta",
         "critical": false,
-        "notes": "Self-hosted app updates are now available.\n- Silent background checks + manual check in Settings\n- Channels: stable / beta (beta also receives stable)\n- Skip this version + reminder cooldown\n- Improved guidance when installer is blocked",
+        "notes": "This beta improves ACK + pull reliability for provider-delivered messages.\n- Better token-update handling and startup pull recovery\n- Better startup guidance for notification and battery-optimization settings\n- More consistent notification presentation and lock-screen privacy defaults",
         "notesI18n": {
-          "de": "Selbst gehostete App-Updates sind jetzt verfügbar.\n- Stille Hintergrundprüfung + manuelle Prüfung in den Einstellungen\n- Kanäle: Stabil / Beta (Beta empfängt auch Stabil)\n- Diese Version überspringen + Erinnerungs-Abkühlzeit\n- Verbesserte Hinweise, wenn der Installer blockiert wird",
-          "en": "Self-hosted app updates are now available.\n- Silent background checks + manual check in Settings\n- Channels: stable / beta (beta also receives stable)\n- Skip this version + reminder cooldown\n- Improved guidance when installer is blocked",
-          "es": "Las actualizaciones autoalojadas ya están disponibles.\n- Comprobación silenciosa en segundo plano + comprobación manual en Ajustes\n- Canales: estable / beta (beta también recibe estable)\n- Omitir esta versión + ventana de enfriamiento de recordatorios\n- Mejor orientación cuando el instalador es bloqueado",
-          "fr": "Les mises à jour auto-hébergées sont désormais disponibles.\n- Vérification silencieuse en arrière-plan + vérification manuelle dans les réglages\n- Canaux : stable / beta (beta reçoit aussi stable)\n- Ignorer cette version + fenêtre de refroidissement des rappels\n- Meilleure guidance lorsque l'installateur est bloqué",
-          "ja": "自己配布アップデートに対応しました。\n- バックグラウンド自動チェック + 設定からの手動チェック\n- チャネル: 安定版 / ベータ（ベータは安定版も受信）\n- このバージョンをスキップ + リマインド冷却期間\n- インストーラーがブロックされた場合の案内を改善",
-          "ko": "자체 배포 업데이트를 지원합니다.\n- 백그라운드 자동 점검 + 설정에서 수동 점검\n- 채널: 안정판 / 베타 (베타는 안정판도 수신)\n- 이번 버전 건너뛰기 + 알림 냉각 시간\n- 설치 프로그램이 차단될 때 안내 개선",
-          "zh-CN": "已支持自托管应用更新。\n- 后台静默检测 + 设置页手动检查\n- 更新通道：稳定版 / 测试版（测试版同时接收稳定版）\n- 支持跳过当前版本 + 提醒冷却窗口\n- 安装器被拦截时提供更清晰的恢复引导",
-          "zh-TW": "已支援自託管應用更新。\n- 背景靜默檢查 + 設定頁手動檢查\n- 更新通道：穩定版 / 測試版（測試版同時接收穩定版）\n- 支援跳過目前版本 + 提醒冷卻視窗\n- 安裝器被攔截時提供更清晰的恢復引導"
+          "de": "Diese Beta verbessert die ACK- und Pull-Zuverlässigkeit für providerbasierte Zustellungen.\n- Bessere Token-Update-Behandlung und Pull-Wiederherstellung beim Start\n- Bessere Hinweise zu Benachrichtigungs- und Akkuoptimierungs-Einstellungen\n- Konsistentere Benachrichtigungsdarstellung und Datenschutz-Standard auf dem Sperrbildschirm",
+          "en": "This beta improves ACK + pull reliability for provider-delivered messages.\n- Better token-update handling and startup pull recovery\n- Better startup guidance for notification and battery-optimization settings\n- More consistent notification presentation and lock-screen privacy defaults",
+          "es": "Esta beta mejora la fiabilidad de ACK + pull para mensajes entregados por proveedor.\n- Mejor manejo de actualización de token y recuperación de pull al inicio\n- Mejor guía de inicio para ajustes de notificaciones y optimización de batería\n- Presentación de notificaciones y privacidad en pantalla de bloqueo más consistentes",
+          "fr": "Cette bêta améliore la fiabilité ACK + pull pour les messages délivrés par fournisseur.\n- Meilleure gestion des mises à jour de jeton et récupération pull au démarrage\n- Meilleure guidance au démarrage pour les réglages notifications et batterie\n- Présentation des notifications et confidentialité écran verrouillé plus cohérentes",
+          "ja": "このベータでは、プロバイダ配信メッセージの ACK + Pull の信頼性を改善しました。\n- トークン更新処理と起動時 Pull 復旧を改善\n- 通知権限とバッテリー最適化設定の起動時ガイダンスを改善\n- 通知表示とロック画面プライバシーの既定動作をより一貫化",
+          "ko": "이번 베타는 제공자 전달 메시지의 ACK + pull 신뢰성을 개선합니다.\n- 토큰 업데이트 처리와 시작 시 pull 복구 개선\n- 알림 권한/배터리 최적화 설정에 대한 시작 가이드 개선\n- 알림 표시와 잠금화면 개인정보 기본값 일관성 개선",
+          "zh-CN": "此测试版重点提升 provider 下发消息的 ACK + pull 可靠性。\n- 优化 token 更新后的拉取链路与冷启动恢复\n- 增强通知权限与电池优化设置的启动引导\n- 提升通知展示级别与锁屏隐私默认策略的一致性",
+          "zh-TW": "此測試版重點提升 provider 下發訊息的 ACK + pull 可靠性。\n- 優化 token 更新後的拉取鏈路與冷啟動恢復\n- 強化通知權限與電池最佳化設定的啟動引導\n- 提升通知呈現等級與鎖定畫面隱私預設策略的一致性"
         },
-        "publishedAtEpochMs": 1775839251000,
-        "releaseNotesUrl": "https://github.com/AldenClark/pushgo-android/releases/tag/v1.2.0-beta.2",
-        "versionCode": 1020002,
-        "versionName": "v1.2.0-beta.2",
         "packages": {
-          "v8a": {
-            "apkUrl": "https://github.com/AldenClark/pushgo-android/releases/download/v1.2.0-beta.2/pushgo-android-v1.2.0-beta.2-universal-release.apk",
-            "apkSha256": "643e94e6d36179976c9071d05225c8fd126a0153dea67146ace787be3c34149e"
+          "universal": {
+            "apkSha256": "7b679b292a581090e6c7268bc7faa00f28e01a0f0d09b4b907c2b57870091477",
+            "apkUrl": "https://update.pushgo.cn/android/beta/v1.2.0-beta.3/pushgo-android-v1.2.0-beta.3-universal-release.apk"
           },
           "v7a": {
-            "apkUrl": "https://github.com/AldenClark/pushgo-android/releases/download/v1.2.0-beta.2/pushgo-android-v1.2.0-beta.2-universal-release.apk",
-            "apkSha256": "643e94e6d36179976c9071d05225c8fd126a0153dea67146ace787be3c34149e"
+            "apkSha256": "c854b0020ac1509269f456d30d622cd17cc23c758cf53a32a723e255a2804428",
+            "apkUrl": "https://update.pushgo.cn/android/beta/v1.2.0-beta.3/pushgo-android-v1.2.0-beta.3-armeabi-v7a-release.apk"
+          },
+          "v8a": {
+            "apkSha256": "5745e74b5a90a15900d6657c1fb0d2524122e249ecd8707f8b9b828afe1879cc",
+            "apkUrl": "https://update.pushgo.cn/android/beta/v1.2.0-beta.3/pushgo-android-v1.2.0-beta.3-arm64-v8a-release.apk"
           },
           "x86": {
-            "apkUrl": "https://github.com/AldenClark/pushgo-android/releases/download/v1.2.0-beta.2/pushgo-android-v1.2.0-beta.2-universal-release.apk",
-            "apkSha256": "643e94e6d36179976c9071d05225c8fd126a0153dea67146ace787be3c34149e"
-          },
-          "universal": {
-            "apkUrl": "https://github.com/AldenClark/pushgo-android/releases/download/v1.2.0-beta.2/pushgo-android-v1.2.0-beta.2-universal-release.apk",
-            "apkSha256": "643e94e6d36179976c9071d05225c8fd126a0153dea67146ace787be3c34149e"
+            "apkSha256": "bcb42a4e678d62f247797210c642fe1882cb9147f501fa9f3138b6ae6c20c105",
+            "apkUrl": "https://update.pushgo.cn/android/beta/v1.2.0-beta.3/pushgo-android-v1.2.0-beta.3-x86_64-release.apk"
           }
-        }
+        },
+        "publishedAtEpochMs": 1776225802000,
+        "releaseNotesUrl": "https://github.com/AldenClark/pushgo-android/releases/tag/v1.2.0-beta.3",
+        "versionCode": 1020003,
+        "versionName": "v1.2.0-beta.3"
       }
     ],
-    "generatedAtEpochMs": 1775839251000,
+    "generatedAtEpochMs": 1776225802000,
     "policy": {
       "impatientReminderIntervalSeconds": 604800,
       "scheduledCheckIntervalSeconds": 21600
     },
     "schemaVersion": 1
   },
-  "signature": "sDDC5VMz9vo09ZXVvZ29180wuH4Juzz/Iur1TCbzo0EIKWKx2b+q7rRi2NXOln0l6JCjbwoATRx/FjoocL+eDw==",
+  "signature": "TO1jU0RxAJ/FOgib3aiPweitUjxIcxDGoiZh/mi5vGQT3VRoly8DxyNZiXMtj1RPj5IcVcm/vxZpTbBIx+PGDQ==",
   "signatures": {
-    "ed25519": "sDDC5VMz9vo09ZXVvZ29180wuH4Juzz/Iur1TCbzo0EIKWKx2b+q7rRi2NXOln0l6JCjbwoATRx/FjoocL+eDw==",
-    "ecdsa-p256-sha256": "MEQCIGzttvKU0hACAcnuqk1G+nHHYeZlW1fdvPRBIcPc/7IMAiB5b3Ehi1cpbmd5in0UvxDIG7PuuuKnumkaKXCJHMpI2g=="
+    "ed25519": "TO1jU0RxAJ/FOgib3aiPweitUjxIcxDGoiZh/mi5vGQT3VRoly8DxyNZiXMtj1RPj5IcVcm/vxZpTbBIx+PGDQ==",
+    "ecdsa-p256-sha256": "MEQCIBd2VZl5IIaHg0HEdQx8C9NIm2IyDEEbrk/AWinQZC55AiBWIiip0mee0yPVGezAFufWHx7I2HlK1CSRxg+QB0yP7Q=="
   }
 }
