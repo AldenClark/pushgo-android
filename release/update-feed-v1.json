@@ -2,40 +2,40 @@
   "payload": {
     "entries": [
       {
-        "apkSha256": "7fae5b6d35f8778cf32739e84b5e6eedd4ffd32044976672d702125eda71a3a0",
-        "apkUrl": "https://update.pushgo.cn/android/beta/v1.2.0-beta.10/pushgo-android-v1.2.0-beta.10-universal-release.apk",
+        "apkSha256": "705c42e329e4da7f0cd6302120ed365f64bcea71e84575226b1c3306eb544568",
+        "apkUrl": "https://update.pushgo.cn/android/beta/v1.2.0-beta.11/pushgo-android-v1.2.0-beta.11-universal-release.apk",
         "channel": "beta",
         "critical": false,
-        "notes": "\n### Improved\n- Improved ACK + pull reliability for provider-delivered notifications, especially after token refresh and app cold start.\n- Improved startup guidance for critical delivery permissions (notification permission and battery optimization).\n- Improved foreground re-entry behavior so provider ingress sync runs at the right lifecycle point.\n- Improved notification presentation consistency for normal/high/critical levels and lock-screen privacy defaults.",
+        "notes": "\n### Fixed\n- Fixed Android in-app update checks so signed update feeds verify correctly again.\n- Fixed update prompts so release notes appear again when a new version is detected.",
         "notesI18n": {
-          "en": "\n### Improved\n- Improved ACK + pull reliability for provider-delivered notifications, especially after token refresh and app cold start.\n- Improved startup guidance for critical delivery permissions (notification permission and battery optimization).\n- Improved foreground re-entry behavior so provider ingress sync runs at the right lifecycle point.\n- Improved notification presentation consistency for normal/high/critical levels and lock-screen privacy defaults.",
-          "zh-CN": "\n### Improved\n- Improved ACK + pull reliability for provider-delivered notifications, especially after token refresh and app cold start.\n- Improved startup guidance for critical delivery permissions (notification permission and battery optimization).\n- Improved foreground re-entry behavior so provider ingress sync runs at the right lifecycle point.\n- Improved notification presentation consistency for normal/high/critical levels and lock-screen privacy defaults."
+          "en": "\n### Fixed\n- Fixed Android in-app update checks so signed update feeds verify correctly again.\n- Fixed update prompts so release notes appear again when a new version is detected.",
+          "zh-CN": "\n### Fixed\n- Fixed Android in-app update checks so signed update feeds verify correctly again.\n- Fixed update prompts so release notes appear again when a new version is detected."
         },
         "packages": {
           "arm64-v8a": {
-            "apkSha256": "eac0a4ead3f2ee866619f88ef547cdc8b411b707ae446aafc7705ef9e6c21af6",
-            "apkUrl": "https://update.pushgo.cn/android/beta/v1.2.0-beta.10/pushgo-android-v1.2.0-beta.10-arm64-v8a-release.apk"
+            "apkSha256": "cc7164b91730c315c95d2849b1d75bd2da42b70cb54485628c3c1d0a8731b514",
+            "apkUrl": "https://update.pushgo.cn/android/beta/v1.2.0-beta.11/pushgo-android-v1.2.0-beta.11-arm64-v8a-release.apk"
           },
           "armeabi-v7a": {
-            "apkSha256": "e3af579ee96140a364b7b9ca2c6b73e3fcfaf8767f3375d2fc4594d728b0f471",
-            "apkUrl": "https://update.pushgo.cn/android/beta/v1.2.0-beta.10/pushgo-android-v1.2.0-beta.10-armeabi-v7a-release.apk"
+            "apkSha256": "27836759d48b2f325235ba54ea4e8b9938a440a9afe8323fe083043034850e51",
+            "apkUrl": "https://update.pushgo.cn/android/beta/v1.2.0-beta.11/pushgo-android-v1.2.0-beta.11-armeabi-v7a-release.apk"
           },
           "universal": {
-            "apkSha256": "7fae5b6d35f8778cf32739e84b5e6eedd4ffd32044976672d702125eda71a3a0",
-            "apkUrl": "https://update.pushgo.cn/android/beta/v1.2.0-beta.10/pushgo-android-v1.2.0-beta.10-universal-release.apk"
+            "apkSha256": "705c42e329e4da7f0cd6302120ed365f64bcea71e84575226b1c3306eb544568",
+            "apkUrl": "https://update.pushgo.cn/android/beta/v1.2.0-beta.11/pushgo-android-v1.2.0-beta.11-universal-release.apk"
           },
           "x86_64": {
-            "apkSha256": "d5da34bd56eab9b58a3e6736940ab7f6706942746a232e4dbba09f47d7c3cca2",
-            "apkUrl": "https://update.pushgo.cn/android/beta/v1.2.0-beta.10/pushgo-android-v1.2.0-beta.10-x86_64-release.apk"
+            "apkSha256": "1ac1b35c40e3932861276bd65d2359c148fc4f493dda57eb021e39ba54f9a7c2",
+            "apkUrl": "https://update.pushgo.cn/android/beta/v1.2.0-beta.11/pushgo-android-v1.2.0-beta.11-x86_64-release.apk"
           }
         },
-        "publishedAtEpochMs": 1776267053000,
-        "releaseNotesUrl": "https://github.com/AldenClark/pushgo-android/releases/tag/v1.2.0-beta.10",
-        "versionCode": 1020010,
-        "versionName": "v1.2.0-beta.10"
+        "publishedAtEpochMs": 1776270511000,
+        "releaseNotesUrl": "https://github.com/AldenClark/pushgo-android/releases/tag/v1.2.0-beta.11",
+        "versionCode": 1020011,
+        "versionName": "v1.2.0-beta.11"
       }
     ],
-    "generatedAtEpochMs": 1776267053000,
+    "generatedAtEpochMs": 1776270511000,
     "policy": {
       "impatientReminderIntervalSeconds": 604800,
       "scheduledCheckIntervalSeconds": 21600
@@ -43,6 +43,6 @@
     "schemaVersion": 1
   },
   "signatures": {
-    "ecdsa-p256-sha256": "MEQCIEtXXVXq1ZZ/wmCKmPAIlWcccuPdvD1GjhM5yR7Yoq7EAiADXqWuOo0koElBtMkHVo5KwkSGHDPREmEqFWL6yr0r7Q=="
+    "ecdsa-p256-sha256": "MEUCIQCJSz74nMGqzoZJZysUCusiBUCpSmBsOLZWWhY77ROo8wIgBegtv/OcSp1ENZwPpqHTDeZymysPPUErw+eN4hI3dYg="
   }
 }
