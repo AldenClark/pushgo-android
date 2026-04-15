@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "1067173090092",
+    "project_id": "pushgo-1b0e0",
+    "storage_bucket": "pushgo-1b0e0.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:1067173090092:android:de95f9ec7958790bba1289",
+        "android_client_info": {
+          "package_name": "io.ethan.pushgo"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAo2nnq5j5kriudLp6H_pH3kaIytuLCGgA"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

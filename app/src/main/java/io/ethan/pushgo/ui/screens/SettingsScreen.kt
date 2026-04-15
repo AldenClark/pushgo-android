@@ -1,10 +1,8 @@
 package io.ethan.pushgo.ui.screens
 
-import android.app.ActivityManager
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
-import android.os.Build
 import android.provider.Settings
 import android.widget.Toast
 import androidx.compose.foundation.clickable
@@ -116,7 +114,6 @@ fun SettingsScreen(
     val fcmSupported = remember(context) { isFcmSupported(context) }
     var notificationsEnabled by remember { mutableStateOf(false) }
     var batteryOptimizationEnabled by remember { mutableStateOf(false) }
-    var backgroundRestrictedDebugState by remember { mutableStateOf(readBackgroundRestrictedDebugState(context)) }
     var dozeReminderSnoozed by remember { mutableStateOf(false) }
     val lifecycleOwner = LocalLifecycleOwner.current
     val baseVersionName = remember {
@@ -135,14 +132,12 @@ fun SettingsScreen(
             if (event == Lifecycle.Event.ON_RESUME) {
                 notificationsEnabled = NotificationManagerCompat.from(context).areNotificationsEnabled()
                 batteryOptimizationEnabled = context.isAppSubjectToBatteryOptimization()
-                backgroundRestrictedDebugState = readBackgroundRestrictedDebugState(context)
                 dozeReminderSnoozed = context.isDozeReminderSnoozed()
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
         notificationsEnabled = NotificationManagerCompat.from(context).areNotificationsEnabled()
         batteryOptimizationEnabled = context.isAppSubjectToBatteryOptimization()
-        backgroundRestrictedDebugState = readBackgroundRestrictedDebugState(context)
         dozeReminderSnoozed = context.isDozeReminderSnoozed()
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
@@ -236,15 +231,6 @@ fun SettingsScreen(
                         },
                     )
                 }
-            }
-            item {
-                SettingsRow(
-                    testTag = "row.settings.background_restricted_debug",
-                    icon = Icons.Outlined.Info,
-                    title = "调试：isBackgroundRestricted",
-                    subtitle = backgroundRestrictedDebugState.displayText,
-                    onClick = null,
-                )
             }
             item {
                 SettingsSectionHeader(text = stringResource(R.string.section_connection_device))
@@ -1156,26 +1142,6 @@ private fun startActivityOrFallback(
 
 private fun isFcmSupported(context: Context): Boolean {
     return FcmSupport.isAvailable(context)
-}
-
-private enum class BackgroundRestrictedDebugState(val displayText: String) {
-    Restricted("isBackgroundRestricted = true（后台受限）"),
-    Unrestricted("isBackgroundRestricted = false（后台未受限）"),
-    Unsupported("当前系统版本不支持该 API（< Android 9）"),
-    Unknown("无法读取 isBackgroundRestricted"),
-}
-
-private fun readBackgroundRestrictedDebugState(context: Context): BackgroundRestrictedDebugState {
-    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.P) {
-        return BackgroundRestrictedDebugState.Unsupported
-    }
-    val am = context.getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager
-        ?: return BackgroundRestrictedDebugState.Unknown
-    return if (am.isBackgroundRestricted) {
-        BackgroundRestrictedDebugState.Restricted
-    } else {
-        BackgroundRestrictedDebugState.Unrestricted
-    }
 }
 
 @Composable
