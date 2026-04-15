@@ -21,6 +21,7 @@ import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonObject
 
 class UpdateFeedClient(private val context: Context) {
     private data class SignatureVerifierConfig(
@@ -44,20 +45,20 @@ class UpdateFeedClient(private val context: Context) {
         }
 
         val raw = fetchText(feedUrl)
+        val rawDocument = json.parseToJsonElement(raw).jsonObject
         val parsed = json.decodeFromString<SignedUpdateFeed>(raw)
-        verifySignatureIfConfigured(parsed)
+        val rawPayload = rawDocument["payload"] ?: error("Update feed payload is missing")
+        verifySignatureIfConfigured(parsed, rawPayload)
         parsed.payload
     }
 
-    private fun verifySignatureIfConfigured(document: SignedUpdateFeed) {
+    private fun verifySignatureIfConfigured(document: SignedUpdateFeed, rawPayload: JsonElement) {
         val verifiers = configuredSignatureVerifiers()
         if (verifiers.isEmpty()) {
             return
         }
 
-        val payloadCanonical = canonicalJson(
-            json.encodeToJsonElement(UpdateFeedPayload.serializer(), document.payload)
-        )
+        val payloadCanonical = canonicalJson(rawPayload)
         val payloadBytes = payloadCanonical.toByteArray(StandardCharsets.UTF_8)
         val signaturesByAlgorithm = collectSignatures(document)
         if (signaturesByAlgorithm.isEmpty()) {
