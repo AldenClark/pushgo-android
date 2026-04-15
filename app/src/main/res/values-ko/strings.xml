@@ -76,9 +76,17 @@
     <string name="label_decryption_subtitle">키 및 인코딩</string>
     <string name="label_close">닫기</string>
     <string name="label_cancel">취소</string>
+    <string name="label_urgent_attention">긴급</string>
     <string name="label_enable_notifications">알림이 꺼져 있습니다</string>
     <string name="label_enable_notifications_hint">알림이 꺼져 있어 새 메시지, 이벤트, 객체 업데이트를 PushGo가 알려줄 수 없습니다. 시스템 설정에서 PushGo 알림을 켠 뒤 이 화면으로 돌아와 주세요.</string>
+    <string name="label_notification_permission_urgent_hint">알림 권한을 켜기 전까지 새 알림이 지연되어 도착할 수 있습니다.</string>
+    <string name="label_disable_doze_title">배터리 최적화가 켜져 있습니다</string>
+    <string name="label_disable_doze_hint">PushGo가 현재 Doze/배터리 최적화의 영향을 받고 있습니다. 백그라운드 수신이 지연될 수 있습니다. 알림을 제때 받으려면 PushGo를 “제한 없음”으로 설정해 주세요.</string>
+    <string name="label_disable_doze_urgent_hint">“제한 없음”을 켜기 전까지 백그라운드 수신이 지연될 수 있습니다.</string>
     <string name="label_turn_on">켜기</string>
+    <string name="label_turn_on_now">지금 켜기</string>
+    <string name="label_set_unrestricted">무제한으로 설정</string>
+    <string name="label_skip_for_one_month">지금은 무시</string>
     <string name="label_update_install_manual_continue">수동으로 계속</string>
     <string name="label_body">본문</string>
     <string name="label_url">URL</string>

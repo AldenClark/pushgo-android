@@ -76,9 +76,17 @@
     <string name="label_decryption_subtitle">Schlüssel und Kodierung</string>
     <string name="label_close">Schließen</string>
     <string name="label_cancel">Abbrechen</string>
+    <string name="label_urgent_attention">Dringend</string>
     <string name="label_enable_notifications">Benachrichtigungen sind deaktiviert</string>
     <string name="label_enable_notifications_hint">Du hast Benachrichtigungen für PushGo deaktiviert. Neue Nachrichten, Ereignisse und Objekt-Updates werden daher nicht rechtzeitig angezeigt. Öffne die Systemeinstellungen, aktiviere PushGo-Benachrichtigungen und kehre dann zur App zurück.</string>
+    <string name="label_notification_permission_urgent_hint">Bis die Benachrichtigungsberechtigung aktiviert ist, können neue Hinweise verspätet eintreffen.</string>
+    <string name="label_disable_doze_title">Batterieoptimierung ist aktiviert</string>
+    <string name="label_disable_doze_hint">PushGo wird derzeit durch Doze/Batterieoptimierung eingeschränkt. Die Zustellung im Hintergrund kann sich verzögern. Setze PushGo auf „Uneingeschränkt“, damit Hinweise rechtzeitig ankommen.</string>
+    <string name="label_disable_doze_urgent_hint">Solange „Uneingeschränkt“ nicht aktiv ist, kann sich die Zustellung im Hintergrund verzögern.</string>
     <string name="label_turn_on">Einschalten</string>
+    <string name="label_turn_on_now">Jetzt einschalten</string>
+    <string name="label_set_unrestricted">Uneingeschränkt setzen</string>
+    <string name="label_skip_for_one_month">Vorerst ignorieren</string>
     <string name="label_update_install_manual_continue">Manuell fortfahren</string>
     <string name="label_body">Inhalt</string>
     <string name="label_url">URL</string>

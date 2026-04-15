@@ -33,6 +33,14 @@ object NotificationHelper {
     const val EXTRA_ENTITY_TYPE = "extra_entity_type"
     const val EXTRA_ENTITY_ID = "extra_entity_id"
 
+    internal fun normalizeNotificationPresentationLevel(level: String?): String? {
+        return level
+    }
+
+    internal fun defaultLockscreenVisibilityForLevel(level: String?): Int {
+        return resolveLevelProfile(level).lockscreenVisibility
+    }
+
     private enum class NotificationKind {
         MESSAGE,
         EVENT,
@@ -512,7 +520,10 @@ object NotificationHelper {
     )
 
     private fun resolveLevelProfile(level: String?): LevelProfile {
-        val normalized = level?.trim()?.lowercase().orEmpty()
+        val normalized = normalizeNotificationPresentationLevel(level)
+            ?.trim()
+            ?.lowercase()
+            .orEmpty()
         return when (normalized) {
             "critical" -> LevelProfile(
                 channelTag = "critical",
@@ -524,7 +535,7 @@ object NotificationHelper {
                 shouldVibrate = true,
                 vibrationPattern = longArrayOf(0L, 300L, 180L, 300L, 180L, 420L),
                 bypassDnd = true,
-                lockscreenVisibility = NotificationCompat.VISIBILITY_PUBLIC,
+                lockscreenVisibility = NotificationCompat.VISIBILITY_PRIVATE,
                 allowBubbles = true,
                 lightColor = Color.RED,
             )
@@ -538,21 +549,21 @@ object NotificationHelper {
                 shouldVibrate = true,
                 vibrationPattern = longArrayOf(0L, 240L, 160L, 240L),
                 bypassDnd = false,
-                lockscreenVisibility = NotificationCompat.VISIBILITY_PUBLIC,
+                lockscreenVisibility = NotificationCompat.VISIBILITY_PRIVATE,
                 allowBubbles = true,
                 lightColor = Color.WHITE,
             )
             "normal" -> LevelProfile(
                 channelTag = "normal",
                 isCritical = false,
-                isHighPriority = false,
-                channelImportance = NotificationManager.IMPORTANCE_DEFAULT,
-                compatPriority = NotificationCompat.PRIORITY_DEFAULT,
+                isHighPriority = true,
+                channelImportance = NotificationManager.IMPORTANCE_HIGH,
+                compatPriority = NotificationCompat.PRIORITY_HIGH,
                 enableSound = true,
                 shouldVibrate = true,
                 vibrationPattern = longArrayOf(0L, 80L),
                 bypassDnd = false,
-                lockscreenVisibility = NotificationCompat.VISIBILITY_PUBLIC,
+                lockscreenVisibility = NotificationCompat.VISIBILITY_PRIVATE,
                 allowBubbles = true,
                 lightColor = Color.WHITE,
             )
@@ -573,14 +584,14 @@ object NotificationHelper {
             else -> LevelProfile(
                 channelTag = "normal",
                 isCritical = false,
-                isHighPriority = false,
-                channelImportance = NotificationManager.IMPORTANCE_DEFAULT,
-                compatPriority = NotificationCompat.PRIORITY_DEFAULT,
+                isHighPriority = true,
+                channelImportance = NotificationManager.IMPORTANCE_HIGH,
+                compatPriority = NotificationCompat.PRIORITY_HIGH,
                 enableSound = true,
                 shouldVibrate = true,
                 vibrationPattern = longArrayOf(0L, 80L),
                 bypassDnd = false,
-                lockscreenVisibility = NotificationCompat.VISIBILITY_PUBLIC,
+                lockscreenVisibility = NotificationCompat.VISIBILITY_PRIVATE,
                 allowBubbles = true,
                 lightColor = Color.WHITE,
             )

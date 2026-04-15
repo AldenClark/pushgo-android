@@ -9,8 +9,6 @@ import io.ethan.pushgo.data.SettingsRepository
 import io.ethan.pushgo.data.model.PushMessage
 
 object ProviderIngressCoordinator {
-    private const val TAG = "ProviderIngressCoordinator"
-
     suspend fun pullPersistAndDrainAcks(
         context: Context,
         channelRepository: ChannelSubscriptionRepository,
@@ -44,6 +42,12 @@ object ProviderIngressCoordinator {
         deliveryId: String? = null,
         beforeMessageNotify: suspend (PushMessage, String?) -> Unit = { _, _ -> },
     ): Int {
+        runCatching {
+            repairProviderRouteSnapshotIfNeeded(
+                channelRepository = channelRepository,
+                settingsRepository = settingsRepository,
+            )
+        }
         val items = channelRepository.pullMessages(deliveryId)
         if (items.isEmpty()) {
             return 0
@@ -57,13 +61,7 @@ object ProviderIngressCoordinator {
                 keyBytes = keyBytes,
                 textLocalizer = NotificationIngressParser.NotificationTextLocalizer.fromContext(context),
             )
-            if (parsed == null) {
-                io.ethan.pushgo.util.SilentSink.w(
-                    TAG,
-                    "provider pull payload rejected deliveryId=${item.deliveryId}",
-                )
-                continue
-            }
+            if (parsed == null) continue
             val outcome = InboundPersistenceCoordinator.persistAndNotify(
                 context = context,
                 messageRepository = messageRepository,
@@ -77,10 +75,27 @@ object ProviderIngressCoordinator {
                 persisted += 1
             }
             if (outcome.shouldAck) {
-                inboundDeliveryId(parsed)?.let { inboundDeliveryLedgerRepository.markAcked(listOf(it)) }
+                inboundDeliveryId(parsed)?.let {
+                    inboundDeliveryLedgerRepository.markAcked(listOf(it))
+                }
             }
         }
         return persisted
+    }
+
+    private suspend fun repairProviderRouteSnapshotIfNeeded(
+        channelRepository: ChannelSubscriptionRepository,
+        settingsRepository: SettingsRepository,
+    ) {
+        if (!settingsRepository.getUseFcmChannel()) {
+            return
+        }
+        val token = settingsRepository.getFcmToken()
+            ?.trim()
+            ?.takeIf { it.isNotEmpty() }
+            ?: return
+        channelRepository.syncProviderDeviceToken(token)
+        channelRepository.syncSubscriptionsIfNeeded(token)
     }
 
     suspend fun ackDirectDeliveryIfNeeded(

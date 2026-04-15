@@ -10,18 +10,14 @@ import io.ethan.pushgo.PushGoApp
 import io.ethan.pushgo.data.EntityRepository
 import io.ethan.pushgo.data.MessageRepository
 import io.ethan.pushgo.data.SettingsRepository
-import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.cancel
-import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withContext
 
 class PushGoMessagingService : FirebaseMessagingService() {
     companion object {
         private const val TAG = "PushGoMessagingService"
     }
-
-    private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     override fun onMessageReceived(message: RemoteMessage) {
         val app = application as PushGoApp
@@ -30,46 +26,17 @@ class PushGoMessagingService : FirebaseMessagingService() {
             io.ethan.pushgo.util.SilentSink.e(TAG, "onMessageReceived ignored: local storage unavailable")
             return
         }
-        val providerPullDeliveryId =
-            NotificationIngressParser.providerWakeupPullDeliveryId(message.data)
-        if (providerPullDeliveryId != null) {
-            val messageRepository = container.messageRepository
-            val entityRepository = container.entityRepository
-            val settingsRepository = container.settingsRepository
-            val channelRepository = container.channelRepository
-            serviceScope.launch {
-                handleProviderWakeupPull(
-                    channelRepository = channelRepository,
-                    messageRepository = messageRepository,
-                    entityRepository = entityRepository,
-                    inboundDeliveryLedgerRepository = container.inboundDeliveryLedgerRepository,
-                    settingsRepository = settingsRepository,
-                    deliveryId = providerPullDeliveryId,
-                )
+        runCatching {
+            runBlocking {
+                withContext(Dispatchers.IO) {
+                    handleInboundMessage(
+                        message = message,
+                        container = container,
+                    )
+                }
             }
-            return
-        }
-        val messageRepository = container.messageRepository
-        val entityRepository = container.entityRepository
-        val settingsRepository = container.settingsRepository
-        val channelRepository = container.channelRepository
-        serviceScope.launch {
-            val parsed = parseMessage(message, settingsRepository)
-            if (parsed != null) {
-                val outcome = handleInbound(
-                    messageRepository = messageRepository,
-                    entityRepository = entityRepository,
-                    inboundDeliveryLedgerRepository = container.inboundDeliveryLedgerRepository,
-                    settingsRepository = settingsRepository,
-                    parsed = parsed,
-                )
-                ProviderIngressCoordinator.ackDirectDeliveryIfNeeded(
-                    context = applicationContext,
-                    inboundDeliveryLedgerRepository = container.inboundDeliveryLedgerRepository,
-                    inbound = parsed,
-                    outcome = outcome,
-                )
-            }
+        }.onFailure { error ->
+            io.ethan.pushgo.util.SilentSink.e(TAG, "onMessageReceived failed", error)
         }
     }
 
@@ -78,9 +45,39 @@ class PushGoMessagingService : FirebaseMessagingService() {
         app.handlePushTokenUpdate(token)
     }
 
-    override fun onDestroy() {
-        super.onDestroy()
-        serviceScope.cancel()
+    private suspend fun handleInboundMessage(
+        message: RemoteMessage,
+        container: io.ethan.pushgo.data.AppContainer,
+    ) {
+        val providerPullDeliveryId =
+            NotificationIngressParser.providerWakeupPullDeliveryId(message.data)
+        if (providerPullDeliveryId != null) {
+            handleProviderWakeupPull(
+                channelRepository = container.channelRepository,
+                messageRepository = container.messageRepository,
+                entityRepository = container.entityRepository,
+                inboundDeliveryLedgerRepository = container.inboundDeliveryLedgerRepository,
+                settingsRepository = container.settingsRepository,
+                deliveryId = providerPullDeliveryId,
+            )
+            return
+        }
+        val parsed = parseMessage(message, container.settingsRepository)
+        if (parsed != null) {
+            val outcome = handleInbound(
+                messageRepository = container.messageRepository,
+                entityRepository = container.entityRepository,
+                inboundDeliveryLedgerRepository = container.inboundDeliveryLedgerRepository,
+                settingsRepository = container.settingsRepository,
+                parsed = parsed,
+            )
+            ProviderIngressCoordinator.ackDirectDeliveryIfNeeded(
+                context = applicationContext,
+                inboundDeliveryLedgerRepository = container.inboundDeliveryLedgerRepository,
+                inbound = parsed,
+                outcome = outcome,
+            )
+        }
     }
 
     private suspend fun handleInbound(

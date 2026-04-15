@@ -76,9 +76,17 @@
     <string name="label_decryption_subtitle">キーとエンコーディング</string>
     <string name="label_close">閉じる</string>
     <string name="label_cancel">キャンセル</string>
+    <string name="label_urgent_attention">緊急</string>
     <string name="label_enable_notifications">通知がオフです</string>
     <string name="label_enable_notifications_hint">通知がオフのため、新着メッセージ・イベント・オブジェクト更新を PushGo が知らせられません。システム設定で PushGo 通知をオンにして、この画面に戻ってください。</string>
+    <string name="label_notification_permission_urgent_hint">通知権限を有効にするまで、新しい通知が遅れて届く可能性があります。</string>
+    <string name="label_disable_doze_title">バッテリー最適化が有効です</string>
+    <string name="label_disable_doze_hint">PushGo は現在 Doze/バッテリー最適化の対象です。バックグラウンド受信が遅れる可能性があります。通知遅延を避けるため PushGo を「制限なし」に設定してください。</string>
+    <string name="label_disable_doze_urgent_hint">「制限なし」を有効にするまで、バックグラウンド受信が遅れる可能性があります。</string>
     <string name="label_turn_on">オンにする</string>
+    <string name="label_turn_on_now">すぐにオンにする</string>
+    <string name="label_set_unrestricted">制限なしに設定</string>
+    <string name="label_skip_for_one_month">一時的に無視</string>
     <string name="label_update_install_manual_continue">手動で続行</string>
     <string name="label_body">本文</string>
     <string name="label_url">URL</string>

@@ -21,37 +21,17 @@ PushGo Android policy:
 ## [Unreleased]
 
 ### Added
-- Added self-hosted Android updater framework for APK distribution:
-  - background silent checks + manual check in settings
-  - stable/beta channel selection (`beta` receives both stable + beta and picks newest)
-  - skip current version and reminder cooldown policy
-  - PackageInstaller recovery guidance when installer is blocked/intercepted
-- Added update feed/deploy scripts for release automation:
-  - `scripts/generate_update_feed.sh`
-  - `scripts/generate_update_deploy_config.sh`
-  - `scripts/publish_update_artifacts.sh`
-- Added release record workspace under `release/` and update-note source directory:
-  - `release/CHANGELOG.md`
-  - `release/RELEASE_NOTES.md`
-  - `release/update-notes/`
-- Added root-level changelog governance for Android release notes and version history.
-- Added SemVer tag parsing in Android release workflow for `vX.Y.Z` and `vX.Y.Z-beta.N`.
-- Added workflow extraction of GitHub Release notes from `release/RELEASE_NOTES.md`:
-  - beta tags use `[Unreleased]`
-  - release tags use `[vX.Y.Z]`
+- Added startup delivery guard dialogs for notification permission and battery optimization guidance, including one-month snooze support.
+- Added provider route bootstrap fallback in subscription sync path (`fetchFcmTokenForIngress`) to reduce first-run pull failures.
+- Added route-repair step before provider pull execution in ingress coordinator.
+- Added versioned update notes source: `release/update-notes/v1.2.0-beta.3.json`.
 
 ### Changed
-- Android release workflow now reads user-facing release notes from `release/RELEASE_NOTES.md` instead of `release/CHANGELOG.md`.
-- Android release workflow now triggers on SemVer tags (`v*`) instead of legacy `Release-*`.
-- Android packaging now takes `versionName` directly from tag input passed to Gradle.
-- Release asset naming now uses normalized SemVer version names from tag/Gradle metadata.
-- GitHub Release publishing now uses release-notes-driven notes instead of generated release notes.
-- Updater feed protocol simplified to a single file (`update-feed-v1.json`), removing separate payload artifact.
-- Active online feed path switched to `/android/update-feed-v1.json` and workflow uses repository variable `PUSHGO_UPDATE_FEED_URL` instead of secret.
-- Prepared next beta release metadata:
-  - bumped default `appVersionName` to `v1.2.0-beta.2`
-  - added `release/update-notes/v1.2.0-beta.2.json` for localized updater notes source
+- Centralized token-update handling in app startup/runtime, and trigger provider ingress pull on `token_update`.
+- Push ingress processing now runs provider wakeup-pull path earlier and keeps direct-delivery ACK handling aligned in the same flow.
+- Notification presentation mapping is now normalized and channel defaults were tuned (schema version `6`, private lock-screen visibility, higher normal priority).
+- Bumped default `appVersionName` to `v1.2.0-beta.3`.
 
 ### Fixed
-- Updated Android version metadata parsing to support both release and beta SemVer formats.
-- Fixed `versionCode` strategy to deterministic formula-based derivation from `versionName`.
+- Fixed stale provider route snapshots causing pull misses after token or mode changes.
+- Fixed startup/foreground sequencing gaps where ingress pull could be skipped before startup sync completion.

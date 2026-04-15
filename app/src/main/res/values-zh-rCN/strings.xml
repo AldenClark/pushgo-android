@@ -109,9 +109,17 @@
     <string name="label_close">关闭</string>
     <string name="label_cancel">取消</string>
     <string name="label_got_it">知道了</string>
+    <string name="label_urgent_attention">紧急提醒</string>
     <string name="label_enable_notifications">通知已关闭</string>
     <string name="label_enable_notifications_hint">我们发现你已关闭 PushGo 通知，可能会错过新的消息、事件和对象更新。去系统设置打开通知后，回来就能第一时间收到提醒。</string>
+    <string name="label_notification_permission_urgent_hint">未开启通知权限前，新的提醒可能无法及时送达。</string>
+    <string name="label_disable_doze_title">系统省电限制已开启</string>
+    <string name="label_disable_doze_hint">当前 PushGo 仍受 Doze/电池优化限制，后台消息接收可能延迟。请将 PushGo 设为“无限制运行”。</string>
+    <string name="label_disable_doze_urgent_hint">未设为无限制运行前，后台消息接收可能明显延迟。</string>
     <string name="label_turn_on">开启</string>
+    <string name="label_turn_on_now">立即开启</string>
+    <string name="label_set_unrestricted">设为无限制运行</string>
+    <string name="label_skip_for_one_month">暂时忽略</string>
     <string name="label_update_install_manual_continue">手动继续安装</string>
     <string name="label_data_page_toggle_hint">仅从导航隐藏；收到对应新数据后会自动恢复显示</string>
     <string name="label_body">正文</string>

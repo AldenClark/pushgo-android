@@ -1,12 +1,15 @@
 package io.ethan.pushgo.ui.screens
 
+import android.app.ActivityManager
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import android.os.Build
 import android.provider.Settings
 import android.widget.Toast
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.background
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -34,8 +37,8 @@ import androidx.compose.material.icons.outlined.Memory
 import androidx.compose.material.icons.outlined.NotificationsActive
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Card
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
@@ -45,7 +48,6 @@ import androidx.compose.material3.ListItem
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
@@ -64,6 +66,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
@@ -92,6 +95,11 @@ import io.ethan.pushgo.BuildConfig
 import io.ethan.pushgo.data.AppConstants
 import io.ethan.pushgo.update.UpdateCandidate
 import io.ethan.pushgo.util.FcmSupport
+import io.ethan.pushgo.util.isDozeReminderSnoozed
+import io.ethan.pushgo.util.isAppSubjectToBatteryOptimization
+import io.ethan.pushgo.util.openAppNotificationSettings
+import io.ethan.pushgo.util.openBatteryOptimizationSettings
+import io.ethan.pushgo.util.snoozeDozeReminderForOneMonth
 import java.io.File
 
 private val ScreenHorizontalPadding = 12.dp
@@ -107,6 +115,9 @@ fun SettingsScreen(
     val uiColors = PushGoThemeExtras.colors
     val fcmSupported = remember(context) { isFcmSupported(context) }
     var notificationsEnabled by remember { mutableStateOf(false) }
+    var batteryOptimizationEnabled by remember { mutableStateOf(false) }
+    var backgroundRestrictedDebugState by remember { mutableStateOf(readBackgroundRestrictedDebugState(context)) }
+    var dozeReminderSnoozed by remember { mutableStateOf(false) }
     val lifecycleOwner = LocalLifecycleOwner.current
     val baseVersionName = remember {
         BuildConfig.VERSION_NAME.replace(Regex("(?i)\\s*build\\s*\\d+\\s*$"), "").trim()
@@ -123,10 +134,16 @@ fun SettingsScreen(
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
                 notificationsEnabled = NotificationManagerCompat.from(context).areNotificationsEnabled()
+                batteryOptimizationEnabled = context.isAppSubjectToBatteryOptimization()
+                backgroundRestrictedDebugState = readBackgroundRestrictedDebugState(context)
+                dozeReminderSnoozed = context.isDozeReminderSnoozed()
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
         notificationsEnabled = NotificationManagerCompat.from(context).areNotificationsEnabled()
+        batteryOptimizationEnabled = context.isAppSubjectToBatteryOptimization()
+        backgroundRestrictedDebugState = readBackgroundRestrictedDebugState(context)
+        dozeReminderSnoozed = context.isDozeReminderSnoozed()
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
@@ -205,9 +222,29 @@ fun SettingsScreen(
             if (!notificationsEnabled) {
                 item {
                     NotificationCard(
-                        onClick = { openNotificationSettings(context) },
+                        onClick = { context.openAppNotificationSettings() },
                     )
                 }
+            }
+            if (batteryOptimizationEnabled && !dozeReminderSnoozed) {
+                item {
+                    DozeModeCard(
+                        onClick = { context.openBatteryOptimizationSettings() },
+                        onSkip = {
+                            context.snoozeDozeReminderForOneMonth()
+                            dozeReminderSnoozed = true
+                        },
+                    )
+                }
+            }
+            item {
+                SettingsRow(
+                    testTag = "row.settings.background_restricted_debug",
+                    icon = Icons.Outlined.Info,
+                    title = "调试：isBackgroundRestricted",
+                    subtitle = backgroundRestrictedDebugState.displayText,
+                    onClick = null,
+                )
             }
             item {
                 SettingsSectionHeader(text = stringResource(R.string.section_connection_device))
@@ -942,66 +979,130 @@ private fun DataPageFilterChip(
 
 @Composable
 private fun NotificationCard(onClick: () -> Unit) {
+    DeliveryRiskCard(
+        testTag = "banner.settings.notifications_disabled",
+        actionTestTag = "action.settings.open_notification_settings",
+        icon = Icons.Outlined.NotificationsActive,
+        title = stringResource(R.string.label_enable_notifications),
+        message = stringResource(R.string.label_enable_notifications_hint),
+        actionLabel = stringResource(R.string.label_turn_on_now),
+        onClick = onClick,
+    )
+}
+
+@Composable
+private fun DozeModeCard(onClick: () -> Unit, onSkip: () -> Unit) {
+    DeliveryRiskCard(
+        testTag = "banner.settings.doze_enabled",
+        actionTestTag = "action.settings.open_battery_optimization_settings",
+        secondaryActionTestTag = "action.settings.snooze_doze_reminder",
+        icon = Icons.Outlined.Memory,
+        title = stringResource(R.string.label_disable_doze_title),
+        message = stringResource(R.string.label_disable_doze_hint),
+        actionLabel = stringResource(R.string.label_set_unrestricted),
+        secondaryActionLabel = stringResource(R.string.label_skip_for_one_month),
+        onClick = onClick,
+        onSecondaryClick = onSkip,
+    )
+}
+
+@Composable
+private fun DeliveryRiskCard(
+    testTag: String,
+    actionTestTag: String,
+    secondaryActionTestTag: String? = null,
+    icon: ImageVector,
+    title: String,
+    message: String,
+    actionLabel: String,
+    secondaryActionLabel: String? = null,
+    onClick: () -> Unit,
+    onSecondaryClick: (() -> Unit)? = null,
+) {
     val uiColors = PushGoThemeExtras.colors
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .testTag("banner.settings.notifications_disabled")
+            .testTag(testTag)
             .padding(horizontal = 24.dp, vertical = 8.dp),
         shape = RoundedCornerShape(20.dp),
+        border = BorderStroke(
+            width = 1.dp,
+            color = uiColors.stateDanger.foreground.copy(alpha = 0.35f),
+        ),
         colors = CardDefaults.cardColors(
             containerColor = uiColors.stateDanger.background,
             contentColor = uiColors.stateDanger.foreground,
         ),
     ) {
-        Row(
+        Column(
             modifier = Modifier.padding(16.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            Box(
-                modifier = Modifier
-                    .size(36.dp)
-                    .background(uiColors.stateDanger.background, CircleShape),
-                contentAlignment = Alignment.Center,
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                Icon(
-                    imageVector = Icons.Outlined.NotificationsActive,
-                    contentDescription = null,
-                    tint = uiColors.stateDanger.foreground,
-                )
+                Box(
+                    modifier = Modifier
+                        .size(36.dp)
+                        .background(
+                            color = uiColors.stateDanger.foreground.copy(alpha = 0.14f),
+                            shape = CircleShape,
+                        ),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        imageVector = icon,
+                        contentDescription = null,
+                        tint = uiColors.stateDanger.foreground,
+                    )
+                }
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = stringResource(R.string.label_urgent_attention),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = uiColors.stateDanger.foreground,
+                    )
+                    Text(
+                        text = title,
+                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
+                    )
+                    Text(
+                        text = message,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = uiColors.stateDanger.foreground,
+                    )
+                }
             }
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = stringResource(R.string.label_enable_notifications),
-                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
-                )
-                Text(
-                    text = stringResource(R.string.label_enable_notifications_hint),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = uiColors.stateDanger.foreground,
-                )
-            }
-            Button(
-                modifier = Modifier.testTag("action.settings.open_notification_settings"),
-                onClick = onClick,
-                colors = pushGoDangerButtonColors(),
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
             ) {
-                Text(stringResource(R.string.label_turn_on))
+                Button(
+                    modifier = Modifier
+                        .weight(1f)
+                        .testTag(actionTestTag),
+                    onClick = onClick,
+                    colors = pushGoDangerButtonColors(),
+                ) {
+                    Text(actionLabel)
+                }
+                if (secondaryActionLabel != null && onSecondaryClick != null && secondaryActionTestTag != null) {
+                    TextButton(
+                        modifier = Modifier.testTag(secondaryActionTestTag),
+                        onClick = onSecondaryClick,
+                        colors = ButtonDefaults.textButtonColors(contentColor = uiColors.stateDanger.foreground),
+                    ) {
+                        Text(secondaryActionLabel)
+                    }
+                }
             }
         }
     }
 }
 
-
-private fun openNotificationSettings(context: Context) {
-    val intent = Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).apply {
-        putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
-    }
-    startActivityOrFallback(context, intent) {
-        openAppDetailsSettings(context)
-    }
-}
 
 private fun openAppDetailsSettings(context: Context) {
     val intent = Intent(
@@ -1055,6 +1156,26 @@ private fun startActivityOrFallback(
 
 private fun isFcmSupported(context: Context): Boolean {
     return FcmSupport.isAvailable(context)
+}
+
+private enum class BackgroundRestrictedDebugState(val displayText: String) {
+    Restricted("isBackgroundRestricted = true（后台受限）"),
+    Unrestricted("isBackgroundRestricted = false（后台未受限）"),
+    Unsupported("当前系统版本不支持该 API（< Android 9）"),
+    Unknown("无法读取 isBackgroundRestricted"),
+}
+
+private fun readBackgroundRestrictedDebugState(context: Context): BackgroundRestrictedDebugState {
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.P) {
+        return BackgroundRestrictedDebugState.Unsupported
+    }
+    val am = context.getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager
+        ?: return BackgroundRestrictedDebugState.Unknown
+    return if (am.isBackgroundRestricted) {
+        BackgroundRestrictedDebugState.Restricted
+    } else {
+        BackgroundRestrictedDebugState.Unrestricted
+    }
 }
 
 @Composable

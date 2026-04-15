@@ -1,0 +1,10 @@
+{
+  "en": "This beta improves ACK + pull reliability for provider-delivered messages.\n- Better token-update handling and startup pull recovery\n- Better startup guidance for notification and battery-optimization settings\n- More consistent notification presentation and lock-screen privacy defaults",
+  "de": "Diese Beta verbessert die ACK- und Pull-Zuverlässigkeit für providerbasierte Zustellungen.\n- Bessere Token-Update-Behandlung und Pull-Wiederherstellung beim Start\n- Bessere Hinweise zu Benachrichtigungs- und Akkuoptimierungs-Einstellungen\n- Konsistentere Benachrichtigungsdarstellung und Datenschutz-Standard auf dem Sperrbildschirm",
+  "es": "Esta beta mejora la fiabilidad de ACK + pull para mensajes entregados por proveedor.\n- Mejor manejo de actualización de token y recuperación de pull al inicio\n- Mejor guía de inicio para ajustes de notificaciones y optimización de batería\n- Presentación de notificaciones y privacidad en pantalla de bloqueo más consistentes",
+  "fr": "Cette bêta améliore la fiabilité ACK + pull pour les messages délivrés par fournisseur.\n- Meilleure gestion des mises à jour de jeton et récupération pull au démarrage\n- Meilleure guidance au démarrage pour les réglages notifications et batterie\n- Présentation des notifications et confidentialité écran verrouillé plus cohérentes",
+  "ja": "このベータでは、プロバイダ配信メッセージの ACK + Pull の信頼性を改善しました。\n- トークン更新処理と起動時 Pull 復旧を改善\n- 通知権限とバッテリー最適化設定の起動時ガイダンスを改善\n- 通知表示とロック画面プライバシーの既定動作をより一貫化",
+  "ko": "이번 베타는 제공자 전달 메시지의 ACK + pull 신뢰성을 개선합니다.\n- 토큰 업데이트 처리와 시작 시 pull 복구 개선\n- 알림 권한/배터리 최적화 설정에 대한 시작 가이드 개선\n- 알림 표시와 잠금화면 개인정보 기본값 일관성 개선",
+  "zh-CN": "此测试版重点提升 provider 下发消息的 ACK + pull 可靠性。\n- 优化 token 更新后的拉取链路与冷启动恢复\n- 增强通知权限与电池优化设置的启动引导\n- 提升通知展示级别与锁屏隐私默认策略的一致性",
+  "zh-TW": "此測試版重點提升 provider 下發訊息的 ACK + pull 可靠性。\n- 優化 token 更新後的拉取鏈路與冷啟動恢復\n- 強化通知權限與電池最佳化設定的啟動引導\n- 提升通知呈現等級與鎖定畫面隱私預設策略的一致性"
+}

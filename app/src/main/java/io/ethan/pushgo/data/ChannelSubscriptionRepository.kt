@@ -1,11 +1,15 @@
 package io.ethan.pushgo.data
 
-import android.util.Log
+import com.google.firebase.messaging.FirebaseMessaging
 import io.ethan.pushgo.data.model.ChannelSubscription
 import io.ethan.pushgo.notifications.MessageStateCoordinator
 import io.ethan.pushgo.util.UrlValidators
+import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.suspendCancellableCoroutine
 import org.json.JSONObject
 import java.net.URLEncoder
+import kotlin.coroutines.resume
+import kotlin.coroutines.resumeWithException
 
 class ChannelSubscriptionRepository(
     private val store: ChannelSubscriptionStore,
@@ -15,6 +19,7 @@ class ChannelSubscriptionRepository(
     companion object {
         private const val TAG = "ChannelSubscriptionRepo"
         private const val FCM_CHANNEL_TYPE = "fcm"
+        private const val FCM_TOKEN_BOOTSTRAP_TIMEOUT_MS = 10_000L
     }
 
     private val service = ChannelSubscriptionService()
@@ -312,8 +317,41 @@ class ChannelSubscriptionRepository(
         val token = settingsRepository.getFcmToken()
             ?.trim()
             ?.ifEmpty { null }
+            ?: fetchFcmTokenForIngress()
             ?: throw ChannelSubscriptionException("Missing provider device_key")
         return ensureProviderRoute(token, config)
+    }
+
+    private suspend fun fetchFcmTokenForIngress(): String? {
+        return runCatching {
+            withTimeout(FCM_TOKEN_BOOTSTRAP_TIMEOUT_MS) {
+                suspendCancellableCoroutine { cont ->
+                    FirebaseMessaging.getInstance().token
+                        .addOnSuccessListener { token ->
+                            if (cont.isActive) {
+                                cont.resume(token)
+                            }
+                        }
+                        .addOnFailureListener { error ->
+                            if (cont.isActive) {
+                                cont.resumeWithException(error)
+                            }
+                        }
+                        .addOnCanceledListener {
+                            if (cont.isActive) {
+                                cont.resumeWithException(
+                                    IllegalStateException("FCM token task cancelled")
+                                )
+                            }
+                        }
+                }
+            }
+        }.getOrNull()
+            ?.trim()
+            ?.ifEmpty { null }
+            ?.also { token ->
+                settingsRepository.setFcmToken(token)
+            }
     }
 
     private suspend fun retireOldProviderToken(

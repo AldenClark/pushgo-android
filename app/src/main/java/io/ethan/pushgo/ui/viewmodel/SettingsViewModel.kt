@@ -1,7 +1,6 @@
 package io.ethan.pushgo.ui.viewmodel
 
 import android.content.Context
-import android.util.Log
 import androidx.annotation.StringRes
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -302,7 +301,6 @@ class SettingsViewModel(
                     }
                     is UpdateInstallStartResult.Failed -> {
                         io.ethan.pushgo.util.SilentSink.w(TAG, "install start failed: ${result.message}")
-                        Log.w(TAG, "install start failed: ${result.message}")
                         errorMessage = TextMessage(result.message)
                     }
                 }
@@ -352,6 +350,10 @@ class SettingsViewModel(
                 channelRepository.syncProviderDeviceToken(cachedToken)
             }.onFailure {
                 io.ethan.pushgo.util.SilentSink.w(TAG, "syncProviderDeviceToken failed with cached token: ${it.message}", it)
+            }.onSuccess {
+                runCatching {
+                    channelRepository.syncSubscriptionsIfNeeded(cachedToken)
+                }
             }
         } else {
             // Keep private loop disabled while waiting for token.
@@ -370,6 +372,10 @@ class SettingsViewModel(
             channelRepository.syncProviderDeviceToken(token)
         }.onFailure {
             io.ethan.pushgo.util.SilentSink.w(TAG, "syncProviderDeviceToken failed after token fetch: ${it.message}", it)
+        }.onSuccess {
+            runCatching {
+                channelRepository.syncSubscriptionsIfNeeded(token)
+            }
         }
         privateChannelClient.setRuntime(fcmAvailable = true, systemToken = token)
     }

@@ -41,6 +41,8 @@ class PushGoApp : Application(), ImageLoaderFactory {
     @Volatile
     private var startupSyncScheduled: Boolean = false
     @Volatile
+    private var startupSyncCompleted: Boolean = false
+    @Volatile
     private var cachedUseFcmChannel: Boolean = true
 
     val container: AppContainer
@@ -103,7 +105,6 @@ class PushGoApp : Application(), ImageLoaderFactory {
         initializePushRuntime()
         UpdateCheckScheduler.refreshSchedule(this)
         scheduleStartupSyncIfNeeded()
-        scheduleProviderIngressSync(reason = "app_start")
         registerActivityLifecycleCallbacks(object : ActivityLifecycleCallbacks {
             override fun onActivityStarted(activity: android.app.Activity) {
                 startedActivities += 1
@@ -115,7 +116,7 @@ class PushGoApp : Application(), ImageLoaderFactory {
                 if (!automationSession) {
                     scheduleStartupSyncIfNeeded()
                 }
-                if (becameForeground) {
+                if (becameForeground && startupSyncCompleted) {
                     scheduleProviderIngressSync(reason = "app_foreground")
                 }
             }
@@ -152,8 +153,12 @@ class PushGoApp : Application(), ImageLoaderFactory {
             startupSyncScheduled = true
         }
         appScope.launch {
-            applyAutomationGatewayOverrideIfNeeded(container)
-            syncSubscriptionsOnLaunch()
+            try {
+                applyAutomationGatewayOverrideIfNeeded(container)
+                syncSubscriptionsOnLaunch()
+            } finally {
+                startupSyncCompleted = true
+            }
         }
     }
 
@@ -169,14 +174,49 @@ class PushGoApp : Application(), ImageLoaderFactory {
                     inboundDeliveryLedgerRepository = container.inboundDeliveryLedgerRepository,
                     settingsRepository = container.settingsRepository,
                 )
-            }.onFailure { error ->
-                io.ethan.pushgo.util.SilentSink.w(
-                    TAG,
-                    "provider ingress sync failed reason=$reason error=${error.message}",
-                    error,
-                )
             }
         }
+    }
+
+    private suspend fun processPushTokenUpdate(
+        container: AppContainer,
+        normalizedToken: String,
+        triggerPull: Boolean,
+    ) {
+        val useFcmChannel = runCatching { container.settingsRepository.getUseFcmChannel() }
+            .getOrDefault(true)
+        cachedUseFcmChannel = useFcmChannel
+        val effectiveFcmMode = effectiveFcmModeForSelection(useFcmChannel)
+        if (effectiveFcmMode) {
+            runCatching {
+                container.channelRepository.syncProviderDeviceToken(normalizedToken)
+            }.onFailure { error ->
+                PushGoAutomation.recordRuntimeError(
+                    source = "provider.sync_device_token",
+                    error = error,
+                    category = "provider",
+                )
+            }
+            runCatching {
+                container.channelRepository.syncSubscriptionsIfNeeded(normalizedToken)
+            }.onFailure { error ->
+                PushGoAutomation.recordRuntimeError(
+                    source = "channel.sync.after_token_update",
+                    error = error,
+                    category = "subscription",
+                )
+            }
+        } else {
+            runCatching { container.handlePushTokenUpdate(normalizedToken) }
+        }
+        if (effectiveFcmMode && triggerPull) {
+            scheduleProviderIngressSync(reason = "token_update")
+        }
+        container.privateChannelClient.setRuntime(
+            fcmAvailable = effectiveFcmMode,
+            systemToken = if (effectiveFcmMode) normalizedToken else null,
+        )
+        PrivateChannelServiceManager.refreshForMode(this@PushGoApp, effectiveFcmMode)
     }
 
     private suspend fun applyAutomationGatewayOverrideIfNeeded(container: AppContainer) {
@@ -252,38 +292,11 @@ class PushGoApp : Application(), ImageLoaderFactory {
         }
         appScope.launch {
             val normalizedToken = deviceToken.trim().ifEmpty { return@launch }
-            val useFcmChannel = runCatching { container.settingsRepository.getUseFcmChannel() }.getOrDefault(true)
-            cachedUseFcmChannel = useFcmChannel
-            val effectiveFcmMode = effectiveFcmModeForSelection(useFcmChannel)
-            if (effectiveFcmMode) {
-                runCatching {
-                    container.channelRepository.syncProviderDeviceToken(normalizedToken)
-                }.onFailure { error ->
-                    io.ethan.pushgo.util.SilentSink.w(TAG, "syncProviderDeviceToken failed: ${error.message}", error)
-                    PushGoAutomation.recordRuntimeError(
-                        source = "provider.sync_device_token",
-                        error = error,
-                        category = "provider",
-                    )
-                }
-                runCatching {
-                    container.channelRepository.syncSubscriptionsIfNeeded(normalizedToken)
-                }.onFailure { error ->
-                    io.ethan.pushgo.util.SilentSink.w(TAG, "syncSubscriptionsIfNeeded after token update failed: ${error.message}", error)
-                    PushGoAutomation.recordRuntimeError(
-                        source = "channel.sync.after_token_update",
-                        error = error,
-                        category = "subscription",
-                    )
-                }
-            } else {
-                runCatching { container.handlePushTokenUpdate(normalizedToken) }
-            }
-            container.privateChannelClient.setRuntime(
-                fcmAvailable = effectiveFcmMode,
-                systemToken = if (effectiveFcmMode) normalizedToken else null
+            processPushTokenUpdate(
+                container = container,
+                normalizedToken = normalizedToken,
+                triggerPull = true,
             )
-            PrivateChannelServiceManager.refreshForMode(this@PushGoApp, effectiveFcmMode)
         }
     }
 
@@ -308,11 +321,15 @@ class PushGoApp : Application(), ImageLoaderFactory {
         }.getOrNull()
         container.privateChannelClient.setRuntime(
             fcmAvailable = true,
-            systemToken = cachedToken
+            systemToken = cachedToken,
         )
         PrivateChannelServiceManager.refreshForMode(this@PushGoApp, true)
         if (!cachedToken.isNullOrBlank()) {
-            handlePushTokenUpdate(cachedToken)
+            processPushTokenUpdate(
+                container = container,
+                normalizedToken = cachedToken,
+                triggerPull = false,
+            )
         }
         appScope.launch {
             runCatching { requestFcmTokenWithRetry() }

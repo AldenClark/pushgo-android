@@ -80,9 +80,17 @@
     <string name="label_decryption_subtitle">金鑰與編碼</string>
     <string name="label_close">關閉</string>
     <string name="label_cancel">取消</string>
+    <string name="label_urgent_attention">緊急提醒</string>
     <string name="label_enable_notifications">通知已關閉</string>
     <string name="label_enable_notifications_hint">我們發現你已關閉 PushGo 通知，可能會錯過新的訊息、事件與物件更新。到系統設定開啟通知後，回來就能第一時間收到提醒。</string>
+    <string name="label_notification_permission_urgent_hint">未開啟通知權限前，新的提醒可能無法及時送達。</string>
+    <string name="label_disable_doze_title">系統省電限制已開啟</string>
+    <string name="label_disable_doze_hint">目前 PushGo 仍受 Doze/電池優化限制，背景訊息接收可能延遲。請將 PushGo 設為「無限制運行」。</string>
+    <string name="label_disable_doze_urgent_hint">未設為無限制運行前，背景訊息接收可能明顯延遲。</string>
     <string name="label_turn_on">開啟</string>
+    <string name="label_turn_on_now">立即開啟</string>
+    <string name="label_set_unrestricted">設為無限制運行</string>
+    <string name="label_skip_for_one_month">暫時忽略</string>
     <string name="label_update_install_manual_continue">手動繼續安裝</string>
     <string name="label_body">內文</string>
     <string name="label_url">連結</string>

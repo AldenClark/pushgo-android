@@ -157,9 +157,17 @@
     <string name="label_close">Close</string>
     <string name="label_cancel">Cancel</string>
     <string name="label_got_it">Got it</string>
+    <string name="label_urgent_attention">Urgent</string>
     <string name="label_enable_notifications">Notifications are off</string>
     <string name="label_enable_notifications_hint">Notifications are turned off, so PushGo cannot alert you about new messages, events, or object updates. Open system settings, enable PushGo notifications, then return to continue.</string>
+    <string name="label_notification_permission_urgent_hint">Until notification permission is enabled, new alerts may not arrive in time.</string>
+    <string name="label_disable_doze_title">Battery optimization is enabled</string>
+    <string name="label_disable_doze_hint">PushGo is currently affected by Doze/battery optimization. Background message delivery can be delayed. Set PushGo to unrestricted mode to keep delivery timely.</string>
+    <string name="label_disable_doze_urgent_hint">Until unrestricted mode is enabled, background message delivery may be delayed.</string>
     <string name="label_turn_on">Turn on</string>
+    <string name="label_turn_on_now">Turn on now</string>
+    <string name="label_set_unrestricted">Set unrestricted</string>
+    <string name="label_skip_for_one_month">Ignore for now</string>
     <string name="label_update_install_manual_continue">Continue manually</string>
     <string name="label_data_page_toggle_hint">Hide from navigation only; auto re-enabled when new data arrives</string>
     <string name="label_body">Body</string>

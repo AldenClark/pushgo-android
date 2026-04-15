@@ -76,9 +76,17 @@
     <string name="label_decryption_subtitle">Clés et encodage</string>
     <string name="label_close">Fermer</string>
     <string name="label_cancel">Annuler</string>
+    <string name="label_urgent_attention">Urgent</string>
     <string name="label_enable_notifications">Notifications désactivées</string>
     <string name="label_enable_notifications_hint">Vous avez désactivé les notifications PushGo. Les alertes de nouveaux messages, événements et mises à jour des objets ne pourront donc pas arriver à temps. Ouvrez les réglages système, activez les notifications PushGo puis revenez dans application.</string>
+    <string name="label_notification_permission_urgent_hint">Tant que l’autorisation de notification n’est pas activée, les nouvelles alertes peuvent arriver en retard.</string>
+    <string name="label_disable_doze_title">L’optimisation batterie est activée</string>
+    <string name="label_disable_doze_hint">PushGo est encore soumis à Doze/à l’optimisation batterie. La réception en arrière-plan peut être retardée. Passez PushGo en mode “sans restriction” pour garder une réception à temps.</string>
+    <string name="label_disable_doze_urgent_hint">Tant que le mode sans restriction n’est pas activé, la réception en arrière-plan peut être retardée.</string>
     <string name="label_turn_on">Activer</string>
+    <string name="label_turn_on_now">Activer maintenant</string>
+    <string name="label_set_unrestricted">Passer en sans restriction</string>
+    <string name="label_skip_for_one_month">Ignorer pour le moment</string>
     <string name="label_update_install_manual_continue">Continuer manuellement</string>
     <string name="label_body">Corps</string>
     <string name="label_url">URL</string>
