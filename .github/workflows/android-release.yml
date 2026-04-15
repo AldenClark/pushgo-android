@@ -252,6 +252,31 @@ jobs:
         env:
           PUSHGO_UPDATE_FEED_ECDSA_SIGNING_KEY_B64: ${{ secrets.PUSHGO_UPDATE_FEED_ECDSA_SIGNING_KEY_B64 }}
 
+      - name: Validate update feed ECDSA key pair
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "${PUSHGO_UPDATE_FEED_ECDSA_P256_PUBLIC_KEY_B64:-}" ]; then
+            echo "Missing required secret: PUSHGO_UPDATE_FEED_ECDSA_P256_PUBLIC_KEY_B64" >&2
+            exit 1
+          fi
+          mkdir -p "$GITHUB_WORKSPACE/.ci"
+          printf '%s' "${PUSHGO_UPDATE_FEED_ECDSA_P256_PUBLIC_KEY_B64}" | base64 --decode > "$GITHUB_WORKSPACE/.ci/update-feed-ecdsa-public-key.der"
+          openssl pkey -pubin -inform DER -in "$GITHUB_WORKSPACE/.ci/update-feed-ecdsa-public-key.der" -out "$GITHUB_WORKSPACE/.ci/update-feed-ecdsa-public-key.pem" >/dev/null 2>&1
+          derived_public_key_b64="$(
+            openssl pkey -in "$PUSHGO_UPDATE_FEED_ECDSA_SIGNING_KEY_FILE" -pubout -outform DER \
+              | base64 \
+              | tr -d '\n'
+          )"
+          expected_public_key_b64="$(printf '%s' "${PUSHGO_UPDATE_FEED_ECDSA_P256_PUBLIC_KEY_B64}" | tr -d '\n\r\t ')"
+          if [[ "$derived_public_key_b64" != "$expected_public_key_b64" ]]; then
+            echo "Update feed ECDSA key mismatch: signing private key does not match PUSHGO_UPDATE_FEED_ECDSA_P256_PUBLIC_KEY_B64." >&2
+            exit 1
+          fi
+          echo "Update feed key-pair gate passed."
+        env:
+          PUSHGO_UPDATE_FEED_ECDSA_P256_PUBLIC_KEY_B64: ${{ secrets.PUSHGO_UPDATE_FEED_ECDSA_P256_PUBLIC_KEY_B64 }}
+
       - name: Generate update feed artifacts
         shell: bash
         run: |
@@ -345,6 +370,13 @@ jobs:
         run: |
           set -euo pipefail
           scripts/verify_update_feed.sh dist/update-feed-v1.json
+          jq -cS '.payload' dist/update-feed-v1.json > "$GITHUB_WORKSPACE/.ci/update-feed-payload.canonical.json"
+          jq -r '.signatures["ecdsa-p256-sha256"]' dist/update-feed-v1.json | base64 --decode > "$GITHUB_WORKSPACE/.ci/update-feed-signature.der"
+          openssl dgst -sha256 \
+            -verify "$GITHUB_WORKSPACE/.ci/update-feed-ecdsa-public-key.pem" \
+            -signature "$GITHUB_WORKSPACE/.ci/update-feed-signature.der" \
+            "$GITHUB_WORKSPACE/.ci/update-feed-payload.canonical.json" >/dev/null
+          echo "Feed cryptographic signature gate passed."
           jq -e '
             .payload.entries
             | map(

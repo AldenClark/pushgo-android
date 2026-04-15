@@ -1,4 +1,5 @@
 import java.io.File
+import java.util.Properties
 import org.gradle.api.tasks.Exec
 
 plugins {
@@ -13,7 +14,17 @@ fun Project.resolveSigningProperty(name: String): String? {
     val fromGradle = providers.gradleProperty(name).orNull
     if (!fromGradle.isNullOrBlank()) return fromGradle
     val fromEnv = System.getenv(name)
-    return if (fromEnv.isNullOrBlank()) null else fromEnv
+    if (!fromEnv.isNullOrBlank()) return fromEnv
+    val fromLocalProperties = rootProject.readLocalProperty(name)
+    return if (fromLocalProperties.isNullOrBlank()) null else fromLocalProperties
+}
+
+fun Project.readLocalProperty(name: String): String? {
+    val localPropsFile = rootProject.file("local.properties")
+    if (!localPropsFile.exists()) return null
+    val props = Properties()
+    localPropsFile.inputStream().use { props.load(it) }
+    return props.getProperty(name)?.trim()?.takeIf { it.isNotEmpty() }
 }
 
 fun parseVersionCodeFromName(versionName: String): Int {
@@ -47,7 +58,7 @@ val releaseStorePassword = project.resolveSigningProperty("PUSHGO_RELEASE_STORE_
 val releaseKeyAlias = project.resolveSigningProperty("PUSHGO_RELEASE_KEY_ALIAS")
 val releaseKeyPassword = project.resolveSigningProperty("PUSHGO_RELEASE_KEY_PASSWORD")
 val appVersionName = providers.gradleProperty("pushgo.versionName").orNull?.trim()?.takeIf { it.isNotEmpty() }
-    ?: "v1.2.0-beta.5"
+    ?: "v1.2.0-beta.6"
 val appVersionCode = parseVersionCodeFromName(appVersionName)
 val enableAbiSplits = when (val value = providers.gradleProperty("pushgo.enableAbiSplits").orNull?.trim()?.lowercase()) {
     null -> true
