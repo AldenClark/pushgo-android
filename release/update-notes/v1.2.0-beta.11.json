@@ -1,0 +1,10 @@
+{
+  "en": "This beta fixes Android in-app update verification and restores update notes in the update prompt.\n- Signed update feeds now verify correctly again\n- Release notes are shown again when a new version is detected",
+  "de": "Diese Beta behebt die Android-In-App-Update-Prüfung und stellt die Update-Hinweise im Update-Dialog wieder her.\n- Signierte Update-Feeds werden wieder korrekt verifiziert\n- Release Notes werden bei erkannten neuen Versionen wieder angezeigt",
+  "es": "Esta beta corrige la verificacion de actualizaciones dentro de la app en Android y restaura las notas en el aviso de actualizacion.\n- Los feeds firmados de actualizacion vuelven a verificarse correctamente\n- Las notas de la version vuelven a mostrarse al detectar una nueva version",
+  "fr": "Cette beta corrige la verification des mises a jour integrees sur Android et restaure les notes de version dans l'invite de mise a jour.\n- Les flux de mise a jour signes sont de nouveau verifies correctement\n- Les notes de version s'affichent a nouveau lorsqu'une nouvelle version est detectee",
+  "ja": "このベータでは、Android アプリ内アップデートの検証を修正し、更新ダイアログのリリースノート表示を復旧しました。\n- 署名付き update feed を再び正しく検証できるよう修正\n- 新しいバージョンを検出したときにリリースノートを再表示",
+  "ko": "이번 베타는 Android 인앱 업데이트 검증을 수정하고 업데이트 안내의 릴리스 노트 표시를 복구합니다.\n- 서명된 업데이트 피드를 다시 올바르게 검증하도록 수정\n- 새 버전을 감지하면 릴리스 노트를 다시 표시",
+  "zh-CN": "此测试版修复了 Android 应用内更新的签名校验，并恢复了更新提示中的更新说明显示。\n- 已签名的更新 feed 现在可以再次正确校验\n- 检测到新版本时会重新显示更新说明",
+  "zh-TW": "此測試版修復了 Android 應用內更新的簽章校驗，並恢復了更新提示中的更新說明顯示。\n- 已簽章的更新 feed 現在可以再次正確校驗\n- 偵測到新版本時會重新顯示更新說明"
+}

@@ -17,10 +17,7 @@ import java.security.Signature
 import java.security.spec.X509EncodedKeySpec
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
-import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonObject
 
@@ -62,7 +59,7 @@ class UpdateFeedClient(private val context: Context) {
             return
         }
 
-        val payloadCanonical = canonicalJson(rawPayload)
+        val payloadCanonical = CanonicalJson.encode(rawPayload)
         val payloadBytes = payloadCanonical.toByteArray(StandardCharsets.UTF_8)
         val signaturesByAlgorithm = collectSignatures(document)
         if (signaturesByAlgorithm.isEmpty()) {
@@ -140,52 +137,6 @@ class UpdateFeedClient(private val context: Context) {
         val keyFactory = KeyFactory.getInstance(verifierConfig.keyFactoryAlgorithm)
         return keyFactory.generatePublic(X509EncodedKeySpec(keyBytes))
     }
-
-    private fun canonicalJson(element: JsonElement): String {
-        return when (element) {
-            is JsonObject -> {
-                element.entries
-                    .sortedBy { it.key }
-                    .joinToString(prefix = "{", postfix = "}") { (key, value) ->
-                        "\"${escapeJsonString(key)}\":${canonicalJson(value)}"
-                    }
-            }
-            is JsonArray -> {
-                element.joinToString(prefix = "[", postfix = "]") { canonicalJson(it) }
-            }
-            is JsonPrimitive -> {
-                if (element.isString) {
-                    "\"${escapeJsonString(element.content)}\""
-                } else {
-                    element.toString()
-                }
-            }
-        }
-    }
-
-    private fun escapeJsonString(value: String): String {
-        val builder = StringBuilder(value.length + 8)
-        value.forEach { ch ->
-            when (ch) {
-                '\\' -> builder.append("\\\\")
-                '"' -> builder.append("\\\"")
-                '\b' -> builder.append("\\b")
-                '\u000C' -> builder.append("\\f")
-                '\n' -> builder.append("\\n")
-                '\r' -> builder.append("\\r")
-                '\t' -> builder.append("\\t")
-                else -> {
-                    if (ch.code in 0x00..0x1F) {
-                        builder.append("\\u%04x".format(ch.code))
-                    } else {
-                        builder.append(ch)
-                    }
-                }
-            }
-        }
-        return builder.toString()
-    }
-
     private fun fetchText(endpoint: String): String {
         val connection = (URL(endpoint).openConnection() as HttpURLConnection).apply {
             requestMethod = "GET"

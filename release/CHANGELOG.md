@@ -21,17 +21,13 @@ PushGo Android policy:
 ## [Unreleased]
 
 ### Added
-- Added startup delivery guard dialogs for notification permission and battery optimization guidance, including one-month snooze support.
-- Added provider route bootstrap fallback in subscription sync path (`fetchFcmTokenForIngress`) to reduce first-run pull failures.
-- Added route-repair step before provider pull execution in ingress coordinator.
-- Added versioned update notes source: `release/update-notes/v1.2.0-beta.3.json`.
+- Added canonical update-feed signature regression coverage using a real `v1.2.0-beta.10` feed fixture.
+- Added versioned update notes source: `release/update-notes/v1.2.0-beta.11.json`.
 
 ### Changed
-- Centralized token-update handling in app startup/runtime, and trigger provider ingress pull on `token_update`.
-- Push ingress processing now runs provider wakeup-pull path earlier and keeps direct-delivery ACK handling aligned in the same flow.
-- Notification presentation mapping is now normalized and channel defaults were tuned (schema version `6`, private lock-screen visibility, higher normal priority).
-- Bumped default `appVersionName` to `v1.2.0-beta.3`.
+- Moved update-feed canonical JSON generation into a shared encoder used by both production code and regression tests.
+- Bumped default `appVersionName` to `v1.2.0-beta.11`.
 
 ### Fixed
-- Fixed stale provider route snapshots causing pull misses after token or mode changes.
-- Fixed startup/foreground sequencing gaps where ingress pull could be skipped before startup sync completion.
+- Fixed Android update-feed signature verification by removing whitespace drift from client-side canonical JSON encoding.
+- Fixed update prompts so `notes`/`notesI18n` content is exercised by regression fixtures and shown again in update cards.

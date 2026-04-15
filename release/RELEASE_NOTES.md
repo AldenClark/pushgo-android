@@ -10,8 +10,6 @@ Policy:
 
 ## [Unreleased]
 
-### Improved
-- Improved ACK + pull reliability for provider-delivered notifications, especially after token refresh and app cold start.
-- Improved startup guidance for critical delivery permissions (notification permission and battery optimization).
-- Improved foreground re-entry behavior so provider ingress sync runs at the right lifecycle point.
-- Improved notification presentation consistency for normal/high/critical levels and lock-screen privacy defaults.
+### Fixed
+- Fixed Android in-app update checks so signed update feeds verify correctly again.
+- Fixed update prompts so release notes appear again when a new version is detected.
