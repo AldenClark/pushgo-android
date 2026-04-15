@@ -2,35 +2,35 @@
   "payload": {
     "entries": [
       {
-        "apkSha256": "6fc2d97535bfa7cdf4ea52f387e08244b8a6280ddd2c514fb03ea2250f9835f4",
+        "apkSha256": "787ff24964da6cd70dbd50ca84ba2908f8dcb522ef09d5ee66573e7383a82be2",
         "apkUrl": "https://update.pushgo.cn/android/beta/v1.2.0-beta.5/pushgo-android-v1.2.0-beta.5-universal-release.apk",
         "channel": "beta",
         "critical": false,
         "packages": {
           "arm64-v8a": {
-            "apkSha256": "3e0654d5cba7613ffd714dbb7175e6e9a5ed4ac08a16da142fc75a0dcfb76067",
+            "apkSha256": "7216984801e6d9f2fa31b3786fe923ef436e679f9124532c9cbb7d7a4ab69b24",
             "apkUrl": "https://update.pushgo.cn/android/beta/v1.2.0-beta.5/pushgo-android-v1.2.0-beta.5-arm64-v8a-release.apk"
           },
           "armeabi-v7a": {
-            "apkSha256": "0315e82fa2cd87a729d125aed5bb4e9180d01ba19dbe3600545c30a021cc3f83",
+            "apkSha256": "e4c7097aa182ed54e7c21f8c1f40ad68c3b5a371e86e1a4ee89cea80da4a48a6",
             "apkUrl": "https://update.pushgo.cn/android/beta/v1.2.0-beta.5/pushgo-android-v1.2.0-beta.5-armeabi-v7a-release.apk"
           },
           "universal": {
-            "apkSha256": "6fc2d97535bfa7cdf4ea52f387e08244b8a6280ddd2c514fb03ea2250f9835f4",
+            "apkSha256": "787ff24964da6cd70dbd50ca84ba2908f8dcb522ef09d5ee66573e7383a82be2",
             "apkUrl": "https://update.pushgo.cn/android/beta/v1.2.0-beta.5/pushgo-android-v1.2.0-beta.5-universal-release.apk"
           },
           "x86_64": {
-            "apkSha256": "a126bb0193a5dbade7499ac138a6a99e8227843f68da136f3b22314c389ebf39",
+            "apkSha256": "7b73ba703a959edbfe3394faa6b275d895a804f81218a302b516145d363ef666",
             "apkUrl": "https://update.pushgo.cn/android/beta/v1.2.0-beta.5/pushgo-android-v1.2.0-beta.5-x86_64-release.apk"
           }
         },
-        "publishedAtEpochMs": 1776243121000,
+        "publishedAtEpochMs": 1776246619000,
         "releaseNotesUrl": "https://github.com/AldenClark/pushgo-android/releases/tag/v1.2.0-beta.5",
         "versionCode": 1020005,
         "versionName": "v1.2.0-beta.5"
       }
     ],
-    "generatedAtEpochMs": 1776243121000,
+    "generatedAtEpochMs": 1776246619000,
     "policy": {
       "impatientReminderIntervalSeconds": 604800,
       "scheduledCheckIntervalSeconds": 21600
@@ -38,6 +38,6 @@
     "schemaVersion": 1
   },
   "signatures": {
-    "ecdsa-p256-sha256": "MEYCIQCslmOl+BakIcXdOzTcWOdHpWgjjqiT7Toi8D/h0vcHOwIhALy0Rj7IypUplqXy3OIp8YdLYgy+iaOCYn0WUDuo1ZoY"
+    "ecdsa-p256-sha256": "MEUCIFJOuPNLF+PSY9wfA8/NgqdI4An/9TXWW1Tqeel60y9vAiEAxN6L9sYb4nVr1gWei2ENdHECCHURFsTHFVbMR+REvgo="
   }
 }
