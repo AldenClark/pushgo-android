@@ -415,10 +415,11 @@ jobs:
               $tagged
               | map(
                   (
-                    (.notes? | type == "string" and (.notes | length) > 0)
+                    (.notes? != null and (.notes | type) == "string" and (.notes | length) > 0)
                     or (
-                      (.notesI18n? | type == "object")
-                      and ((.notesI18n | length) > 0)
+                      .notesI18n? != null
+                      and (.notesI18n | type) == "object"
+                      and (.notesI18n | length) > 0
                     )
                   )
                 )
