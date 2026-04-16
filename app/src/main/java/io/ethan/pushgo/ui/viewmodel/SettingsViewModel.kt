@@ -30,6 +30,7 @@ import io.ethan.pushgo.update.UpdateCheckScheduler
 import io.ethan.pushgo.update.UpdateInstallStartResult
 import io.ethan.pushgo.update.UpdateInstallProgressStage
 import io.ethan.pushgo.update.UpdateManager
+import io.ethan.pushgo.update.UpdateInstallUiEvents
 import io.ethan.pushgo.util.FcmSupport
 import io.ethan.pushgo.util.UrlValidators
 import kotlinx.coroutines.TimeoutCancellationException
@@ -140,6 +141,12 @@ class SettingsViewModel(
         private set
     var pendingManualInstallApkPath by mutableStateOf<String?>(null)
         private set
+    var shouldShowInstallBlockedDialog by mutableStateOf(false)
+        private set
+    var installBlockedDetail by mutableStateOf<String?>(null)
+        private set
+    var blockedInstallApkPath by mutableStateOf<String?>(null)
+        private set
     var errorMessage by mutableStateOf<UiMessage?>(null)
         private set
     var successMessage by mutableStateOf<UiMessage?>(null)
@@ -202,6 +209,15 @@ class SettingsViewModel(
 
         viewModelScope.launch {
             refreshChannelSubscriptions()
+        }
+        viewModelScope.launch {
+            UpdateInstallUiEvents.blockedInstallEvents.collect { event ->
+                installBlockedDetail = event.detail
+                blockedInstallApkPath = event.apkPath
+                shouldShowInstallBlockedDialog = true
+                isInstallingUpdate = false
+                updateInstallProgressMessage = null
+            }
         }
     }
 
@@ -1052,6 +1068,18 @@ class SettingsViewModel(
 
     fun consumePendingManualInstallApkPath() {
         pendingManualInstallApkPath = null
+    }
+
+    fun consumeInstallBlockedDialog() {
+        shouldShowInstallBlockedDialog = false
+    }
+
+    fun consumeBlockedInstallDetail() {
+        installBlockedDetail = null
+    }
+
+    fun consumeBlockedInstallApkPath() {
+        blockedInstallApkPath = null
     }
 
     private fun Throwable.toUiErrorMessage(@StringRes fallbackResId: Int): UiMessage {

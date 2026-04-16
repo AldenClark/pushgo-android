@@ -177,6 +177,7 @@ class UpdateInstaller(private val context: Context) {
                     action = UpdateInstallStatusReceiver.ACTION_INSTALL_STATUS
                     putExtra(UpdateInstallStatusReceiver.EXTRA_VERSION_CODE, candidate.versionCode)
                     putExtra(UpdateInstallStatusReceiver.EXTRA_VERSION_NAME, candidate.versionName)
+                    putExtra(UpdateInstallStatusReceiver.EXTRA_APK_FILE_PATH, apkFile.absolutePath)
                 }
                 val pendingIntent = PendingIntent.getBroadcast(
                     context,

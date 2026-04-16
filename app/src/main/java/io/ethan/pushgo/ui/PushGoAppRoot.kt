@@ -4,7 +4,6 @@ import android.content.Intent
 import android.net.Uri
 import android.os.SystemClock
 import android.provider.Settings
-import androidx.core.content.FileProvider
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
@@ -45,6 +44,7 @@ import io.ethan.pushgo.automation.PushGoAutomation
 import io.ethan.pushgo.data.AppContainer
 import io.ethan.pushgo.data.AutomationSnapshot
 import io.ethan.pushgo.notifications.NotificationHelper
+import io.ethan.pushgo.update.UpdateInstallIntentLauncher
 import io.ethan.pushgo.update.UpdateNotifier
 import io.ethan.pushgo.ui.screens.ChannelListScreen
 import io.ethan.pushgo.ui.screens.EventListScreen
@@ -63,7 +63,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
-import java.io.File
 
 @Serializable object MessagesRoute
 @Serializable object EventsRoute
@@ -451,7 +450,7 @@ fun PushGoAppRoot(
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     TextButton(
                         onClick = {
-                            val launched = openManualApkInstall(
+                            val launched = UpdateInstallIntentLauncher.openManualApkInstall(
                                 context = context,
                                 apkPath = settingsViewModel.pendingManualInstallApkPath,
                             )
@@ -464,6 +463,55 @@ fun PushGoAppRoot(
                         Text(text = stringResource(R.string.label_update_install_manual_continue))
                     }
                     TextButton(onClick = settingsViewModel::consumeInstallPermissionDialog) {
+                        Text(text = stringResource(R.string.label_cancel))
+                    }
+                }
+            },
+        )
+    }
+
+    if (!isOnSettingsRoute && settingsViewModel.shouldShowInstallBlockedDialog) {
+        val installBlockedDetail = settingsViewModel.installBlockedDetail
+            ?: stringResource(R.string.label_unknown_error)
+        PushGoAlertDialog(
+            onDismissRequest = settingsViewModel::consumeInstallBlockedDialog,
+            title = { Text(text = stringResource(R.string.label_update_install_blocked_title)) },
+            text = {
+                Text(
+                    text = stringResource(
+                        R.string.label_update_install_blocked_body,
+                        installBlockedDetail,
+                    )
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        settingsViewModel.consumeInstallBlockedDialog()
+                        openUnknownAppSourcesSettings(context)
+                    },
+                ) {
+                    Text(text = stringResource(R.string.label_update_install_blocked_action))
+                }
+            },
+            dismissButton = {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    TextButton(
+                        onClick = {
+                            val launched = UpdateInstallIntentLauncher.openManualApkInstall(
+                                context = context,
+                                apkPath = settingsViewModel.blockedInstallApkPath,
+                            )
+                            if (launched) {
+                                settingsViewModel.consumeInstallBlockedDialog()
+                                settingsViewModel.consumeBlockedInstallApkPath()
+                                settingsViewModel.consumeBlockedInstallDetail()
+                            }
+                        },
+                    ) {
+                        Text(text = stringResource(R.string.label_update_install_manual_continue))
+                    }
+                    TextButton(onClick = settingsViewModel::consumeInstallBlockedDialog) {
                         Text(text = stringResource(R.string.label_cancel))
                     }
                 }
@@ -628,26 +676,4 @@ private fun openUnknownAppSourcesSettings(context: android.content.Context) {
     ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
     runCatching { context.startActivity(intent) }
         .onFailure { context.startActivity(fallback) }
-}
-
-private fun openManualApkInstall(context: android.content.Context, apkPath: String?): Boolean {
-    val path = apkPath?.trim().orEmpty()
-    if (path.isEmpty()) {
-        return false
-    }
-    val apkFile = File(path)
-    if (!apkFile.exists()) {
-        return false
-    }
-    val apkUri = FileProvider.getUriForFile(
-        context,
-        "${context.packageName}.fileprovider",
-        apkFile,
-    )
-    val installIntent = Intent(Intent.ACTION_VIEW)
-        .setDataAndType(apkUri, "application/vnd.android.package-archive")
-        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_GRANT_READ_URI_PERMISSION)
-    return runCatching {
-        context.startActivity(installIntent)
-    }.isSuccess
 }

@@ -12,6 +12,7 @@ class UpdateInstallStatusReceiver : BroadcastReceiver() {
         const val ACTION_INSTALL_STATUS = "io.ethan.pushgo.action.UPDATE_INSTALL_STATUS"
         const val EXTRA_VERSION_CODE = "extra_update_version_code"
         const val EXTRA_VERSION_NAME = "extra_update_version_name"
+        const val EXTRA_APK_FILE_PATH = "extra_apk_file_path"
         private const val TAG = "UpdateInstallStatus"
         private val recoverableInstallFailureHints = listOf(
             "install_failed_aborted",
@@ -67,7 +68,20 @@ class UpdateInstallStatusReceiver : BroadcastReceiver() {
                     ?: "status=$status"
                 SilentSink.w(TAG, "install failed status=$status message=$message")
                 if (isRecoverableInstallerBlock(status, message)) {
-                    UpdateNotifier.showInstallBlockedRecovery(context, message)
+                    val apkPath = intent.getStringExtra(EXTRA_APK_FILE_PATH)
+                    UpdateInstallUiEvents.emitInstallBlocked(
+                        detail = message,
+                        apkPath = apkPath,
+                    )
+                    val manualInstallIntent = UpdateInstallIntentLauncher.buildManualApkInstallIntent(context, apkPath)
+                    val launched = manualInstallIntent?.let { intent ->
+                        UpdateInstallIntentLauncher.launchIntent(context, intent)
+                    } == true
+                    if (launched) {
+                        UpdateNotifier.showInstallActionRequired(context, manualInstallIntent)
+                    } else {
+                        UpdateNotifier.showInstallBlockedRecovery(context, message)
+                    }
                 } else {
                     UpdateNotifier.showInstallFailed(context, message)
                 }

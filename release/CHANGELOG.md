@@ -21,13 +21,13 @@ PushGo Android policy:
 ## [Unreleased]
 
 ### Added
-- Added canonical update-feed signature regression coverage using a real `v1.2.0-beta.10` feed fixture.
-- Added versioned update notes source: `release/update-notes/v1.2.0-beta.11.json`.
+- Added in-app install-blocked dialog state bridge from installer receiver to settings UI.
+- Added versioned update notes source: `release/update-notes/v1.2.0-beta.13.json`.
+- Added shared manual install launcher used by both UI actions and receiver fallback.
 
 ### Changed
-- Moved update-feed canonical JSON generation into a shared encoder used by both production code and regression tests.
-- Bumped default `appVersionName` to `v1.2.0-beta.11`.
+- Bumped default `appVersionName` to `v1.2.0-beta.13`.
 
 ### Fixed
-- Fixed Android update-feed signature verification by removing whitespace drift from client-side canonical JSON encoding.
-- Fixed update prompts so `notes`/`notesI18n` content is exercised by regression fixtures and shown again in update cards.
+- Fixed update blocked-install handling so app now surfaces a visible in-app error prompt.
+- Fixed blocked-install recovery flow to retry via system package installer when possible.

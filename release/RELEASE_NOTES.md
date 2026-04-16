@@ -11,5 +11,5 @@ Policy:
 ## [Unreleased]
 
 ### Fixed
-- Fixed Android in-app update checks so signed update feeds verify correctly again.
-- Fixed update prompts so release notes appear again when a new version is detected.
+- Fixed Android update install-blocked flow so users now get an in-app error alert immediately.
+- Fixed blocked-install fallback so users can continue via Android system installer in one tap.
