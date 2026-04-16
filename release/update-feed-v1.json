@@ -2,46 +2,46 @@
   "payload": {
     "entries": [
       {
-        "apkSha256": "ded8ff4e2298f1c97ed2682bccc91ad4c3ff695f1b606d19f7ddf906cb8cb8e8",
-        "apkUrl": "https://update.pushgo.cn/android/beta/v1.2.0-beta.12/pushgo-android-v1.2.0-beta.12-universal-release.apk",
+        "apkSha256": "575f48206a3c9b8ee4387fa7ec30a8949f52b1bbde665f9d8a581a8b6c0cafc1",
+        "apkUrl": "https://update.pushgo.cn/android/beta/v1.2.0-beta.13/pushgo-android-v1.2.0-beta.13-universal-release.apk",
         "channel": "beta",
         "critical": false,
-        "notes": "This beta improves Android stability and release-note delivery in update prompts.\n- Update feed notes now strictly use per-version update-notes sources\n- Improved reliability for app startup and settings navigation",
+        "notes": "This beta improves blocked-install handling during Android in-app updates.\n- App now shows an in-app alert when installation is blocked by system policy\n- Added one-tap fallback to continue with Android system installer",
         "notesI18n": {
-          "de": "Diese Beta verbessert die Android-Stabilitat und die Bereitstellung von Versionshinweisen im Update-Dialog.\n- Hinweise im Update-Feed werden jetzt strikt aus versionsbezogenen update-notes bezogen\n- Verbesserte Zuverlassigkeit beim App-Start und bei der Navigation in den Einstellungen",
-          "en": "This beta improves Android stability and release-note delivery in update prompts.\n- Update feed notes now strictly use per-version update-notes sources\n- Improved reliability for app startup and settings navigation",
-          "es": "Esta beta mejora la estabilidad de Android y la entrega de notas en el aviso de actualizacion.\n- Las notas del feed de actualizacion ahora usan estrictamente fuentes update-notes por version\n- Mejora de la fiabilidad al iniciar la app y al navegar en Ajustes",
-          "fr": "Cette beta ameliore la stabilite Android et la diffusion des notes de version dans l'invite de mise a jour.\n- Les notes du flux de mise a jour utilisent desormais strictement les sources update-notes par version\n- Fiabilite amelioree au demarrage de l'application et dans la navigation des reglages",
-          "ja": "このベータでは、Android の安定性と更新ダイアログ内の更新ノート配信を改善しました。\n- update feed のノートは、バージョンごとの update-notes を厳密に使用\n- アプリ起動と設定画面ナビゲーションの信頼性を改善",
-          "ko": "이번 베타는 Android 안정성과 업데이트 안내의 릴리스 노트 전달을 개선했습니다.\n- 업데이트 피드 노트가 이제 버전별 update-notes 소스를 엄격히 사용합니다\n- 앱 시작 및 설정 화면 이동의 신뢰성을 개선했습니다",
-          "zh-CN": "此测试版提升了 Android 稳定性，并改进了更新提示中的升级说明投放。\n- 更新 feed 的说明现在严格使用对应版本的 update-notes 数据源\n- 提升了应用启动与设置页导航的稳定性",
-          "zh-TW": "此測試版提升了 Android 穩定性，並改進了更新提示中的升級說明投放。\n- 更新 feed 的說明現在嚴格使用對應版本的 update-notes 資料來源\n- 提升了應用啟動與設定頁導覽的穩定性"
+          "de": "Diese Beta verbessert den Umgang mit blockierten Installationen bei Android In-App-Updates.\n- Die App zeigt nun einen In-App-Hinweis, wenn die Installation durch Systemrichtlinien blockiert wird\n- Ein Ein-Klick-Fallback zum Fortsetzen mit dem Android-Systeminstaller wurde hinzugefugt",
+          "en": "This beta improves blocked-install handling during Android in-app updates.\n- App now shows an in-app alert when installation is blocked by system policy\n- Added one-tap fallback to continue with Android system installer",
+          "es": "Esta beta mejora el manejo de instalaciones bloqueadas durante actualizaciones in-app en Android.\n- La app ahora muestra una alerta interna cuando la instalacion es bloqueada por politicas del sistema\n- Se agrego un acceso directo para continuar con el instalador del sistema Android",
+          "fr": "Cette beta ameliore la gestion des installations bloquees pendant les mises a jour integrees Android.\n- L'application affiche maintenant une alerte integree lorsque l'installation est bloquee par la politique systeme\n- Ajout d'un raccourci pour continuer avec l'installateur systeme Android",
+          "ja": "このベータでは、Android アプリ内更新でインストールがブロックされた場合の処理を改善しました。\n- システムポリシーでインストールが阻止されたとき、アプリ内に警告を表示\n- Android のシステムインストーラーで続行するワンタップのフォールバックを追加",
+          "ko": "이번 베타는 Android 앱 내 업데이트 중 설치가 차단되는 상황 처리를 개선했습니다.\n- 시스템 정책으로 설치가 차단되면 앱 내 경고를 표시합니다\n- Android 시스템 설치 프로그램으로 계속 진행하는 원탭 대체 경로를 추가했습니다",
+          "zh-CN": "此测试版改进了 Android 应用内更新时“安装受阻”的处理体验。\n- 当系统策略拦截安装时，应用内会弹出明确提示\n- 新增一键回退到 Android 系统安装器继续安装",
+          "zh-TW": "此測試版改善了 Android 應用內更新時「安裝受阻」的處理體驗。\n- 當系統策略攔截安裝時，應用內會彈出明確提示\n- 新增一鍵回退至 Android 系統安裝器繼續安裝"
         },
         "packages": {
           "arm64-v8a": {
-            "apkSha256": "a6ac350abfc42e284a75b3e26457248d5ac314af1d465f3ff16dfb0bd234c341",
-            "apkUrl": "https://update.pushgo.cn/android/beta/v1.2.0-beta.12/pushgo-android-v1.2.0-beta.12-arm64-v8a-release.apk"
+            "apkSha256": "cfd9ae1f5a06e47b5b0b831ef2e3a540cf4eacf02fb4ea353d5919dbcd2ce290",
+            "apkUrl": "https://update.pushgo.cn/android/beta/v1.2.0-beta.13/pushgo-android-v1.2.0-beta.13-arm64-v8a-release.apk"
           },
           "armeabi-v7a": {
-            "apkSha256": "662c5a82ffce430eac878b66f88fe87139f9d93dfcb39ba5aae978a4e299775f",
-            "apkUrl": "https://update.pushgo.cn/android/beta/v1.2.0-beta.12/pushgo-android-v1.2.0-beta.12-armeabi-v7a-release.apk"
+            "apkSha256": "62cf47346a09f04b9e870095352893197730bf5977bb691ab17496c4ac2af0e6",
+            "apkUrl": "https://update.pushgo.cn/android/beta/v1.2.0-beta.13/pushgo-android-v1.2.0-beta.13-armeabi-v7a-release.apk"
           },
           "universal": {
-            "apkSha256": "ded8ff4e2298f1c97ed2682bccc91ad4c3ff695f1b606d19f7ddf906cb8cb8e8",
-            "apkUrl": "https://update.pushgo.cn/android/beta/v1.2.0-beta.12/pushgo-android-v1.2.0-beta.12-universal-release.apk"
+            "apkSha256": "575f48206a3c9b8ee4387fa7ec30a8949f52b1bbde665f9d8a581a8b6c0cafc1",
+            "apkUrl": "https://update.pushgo.cn/android/beta/v1.2.0-beta.13/pushgo-android-v1.2.0-beta.13-universal-release.apk"
           },
           "x86_64": {
-            "apkSha256": "c0b4ec78cc805a711b5b7feb351cbf894e5449019ecec432b15e4ba7d84e2e0c",
-            "apkUrl": "https://update.pushgo.cn/android/beta/v1.2.0-beta.12/pushgo-android-v1.2.0-beta.12-x86_64-release.apk"
+            "apkSha256": "83aaf14635b4c919fd3684deaf2ea35625f175435768b0f1662b839c00bd32d2",
+            "apkUrl": "https://update.pushgo.cn/android/beta/v1.2.0-beta.13/pushgo-android-v1.2.0-beta.13-x86_64-release.apk"
           }
         },
-        "publishedAtEpochMs": 1776301263000,
-        "releaseNotesUrl": "https://github.com/AldenClark/pushgo-android/releases/tag/v1.2.0-beta.12",
-        "versionCode": 1020012,
-        "versionName": "v1.2.0-beta.12"
+        "publishedAtEpochMs": 1776303358000,
+        "releaseNotesUrl": "https://github.com/AldenClark/pushgo-android/releases/tag/v1.2.0-beta.13",
+        "versionCode": 1020013,
+        "versionName": "v1.2.0-beta.13"
       }
     ],
-    "generatedAtEpochMs": 1776301263000,
+    "generatedAtEpochMs": 1776303358000,
     "policy": {
       "impatientReminderIntervalSeconds": 604800,
       "scheduledCheckIntervalSeconds": 21600
@@ -49,6 +49,6 @@
     "schemaVersion": 1
   },
   "signatures": {
-    "ecdsa-p256-sha256": "MEUCIEFMYzLPr4luaVEE+ynniiUA83/QuXrXwVkipstpSvJQAiEAgvc+Cbxj3wn7GNf1dZ4XmY83JXuBeG3G57y4Dr84gHk="
+    "ecdsa-p256-sha256": "MEQCIC+0KGcFISlo4CjxteFeyCwQS8BDe/ijigAotD/ruLKfAiAVAqzCfqLiYqaNrP8qlAR2K5732/7U1C4sTPyE1cm5Jg=="
   }
 }
