@@ -47,6 +47,11 @@ import io.ethan.pushgo.util.isAppSubjectToBatteryOptimization
 import io.ethan.pushgo.util.openAppNotificationSettings
 import io.ethan.pushgo.util.openBatteryOptimizationSettings
 import io.ethan.pushgo.util.snoozeDozeReminderForOneMonth
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlin.system.exitProcess
 
 class MainActivity : AppCompatActivity() {
@@ -58,6 +63,8 @@ class MainActivity : AppCompatActivity() {
     private var latestIntent by mutableStateOf<Intent?>(null)
     private var showNotificationPermissionDialog by mutableStateOf(false)
     private var showDozeModeDialog by mutableStateOf(false)
+    private val guardRefreshScope = CoroutineScope(Dispatchers.Main.immediate)
+    private var delayedGuardRefreshJob: Job? = null
     private val requestNotificationPermissionLauncher =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
             if (!granted) {
@@ -160,6 +167,7 @@ class MainActivity : AppCompatActivity() {
     override fun onResume() {
         super.onResume()
         evaluateStartupDeliveryGuards(requestNotificationRuntimePermission = false)
+        scheduleDelayedStartupGuardRefresh()
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -200,6 +208,20 @@ class MainActivity : AppCompatActivity() {
         }
         showNotificationPermissionDialog = false
         showDozeModeDialog = isAppSubjectToBatteryOptimization() && !isDozeReminderSnoozed()
+    }
+
+    private fun scheduleDelayedStartupGuardRefresh() {
+        delayedGuardRefreshJob?.cancel()
+        delayedGuardRefreshJob = guardRefreshScope.launch {
+            // Battery optimization exemption can apply asynchronously after returning from system settings.
+            delay(450)
+            evaluateStartupDeliveryGuards(requestNotificationRuntimePermission = false)
+        }
+    }
+
+    override fun onDestroy() {
+        delayedGuardRefreshJob?.cancel()
+        super.onDestroy()
     }
 
     @androidx.compose.runtime.Composable

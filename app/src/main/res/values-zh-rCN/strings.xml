@@ -96,6 +96,7 @@
     <string name="label_group_ungrouped">未分组</string>
     <string name="label_loading">加载中…</string>
     <string name="section_connection_device">连接与设备</string><string name="section_channels">频道</string>
+    <string name="section_notification_settings">通知设置</string>
     <string name="section_decryption">消息解密</string>
     <string name="section_security">安全</string>
     <string name="section_data_pages">启用数据页面</string>
@@ -215,6 +216,8 @@
     <string name="label_notification_transport_private_only_hint">当前设备不支持 FCM，推送将默认使用私有通道。</string>
     <string name="label_notification_transport_gateway_private_disabled_hint">网关已关闭私有通道，当前网关下 Android 只能使用 FCM。</string>
     <string name="label_notification_transport_unavailable_hint">网关已关闭私有通道，且当前设备不支持 FCM，推送不可用。</string>
+    <string name="label_notification_settings">通知设置</string>
+    <string name="label_notification_settings_hint">打开系统中的 PushGo 通知设置页面。</string>
     <string name="label_transport_fcm">FCM</string>
     <string name="label_transport_private">私有通道</string>
     <string name="label_fcm_wakeup_pull_mode">使用唤醒拉取模式</string>

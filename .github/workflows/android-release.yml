@@ -93,23 +93,34 @@ jobs:
             echo "RELEASE_CHANGELOG_BODY<<__PUSHGO_ANDROID_RELEASE_BODY_EOF__"
             printf "%s\n" "$release_body"
             echo "__PUSHGO_ANDROID_RELEASE_BODY_EOF__"
-            echo "RELEASE_NOTES_SECTION_BODY<<__PUSHGO_ANDROID_RELEASE_SECTION_EOF__"
-            printf "%s\n" "$section_body"
-            echo "__PUSHGO_ANDROID_RELEASE_SECTION_EOF__"
           } >> "$GITHUB_ENV"
 
-      - name: Build update notes payload
+      - name: Resolve versioned update notes payload
         shell: bash
         run: |
           set -euo pipefail
-          if [[ -z "${RELEASE_NOTES_SECTION_BODY:-}" ]]; then
-            echo "RELEASE_NOTES_SECTION_BODY is empty." >&2
+          update_notes_file="release/update-notes/${GITHUB_REF_NAME}.json"
+          if [[ ! -f "$update_notes_file" ]]; then
+            echo "Missing update notes file for tag ${GITHUB_REF_NAME}: $update_notes_file" >&2
             exit 1
           fi
-          mkdir -p "$GITHUB_WORKSPACE/.ci"
-          update_notes_file="$GITHUB_WORKSPACE/.ci/update-notes-${GITHUB_REF_NAME}.json"
-          printf '%s' "${RELEASE_NOTES_SECTION_BODY}" \
-            | jq -Rs '{ "en": ., "zh-CN": . }' > "$update_notes_file"
+          jq -e '
+            if type != "object" then
+              error("update notes must be a JSON object")
+            else
+              with_entries(
+                select(
+                  (.key | type == "string")
+                  and (.value | type == "string" and (gsub("\\s+"; "") | length > 0))
+                )
+              )
+              | if length == 0 then
+                  error("update notes has no non-empty locale entries")
+                else
+                  .
+                end
+            end
+          ' "$update_notes_file" >/dev/null
           echo "PUSHGO_UPDATE_NOTES_FILE=$update_notes_file" >> "$GITHUB_ENV"
 
       - name: Set up Java

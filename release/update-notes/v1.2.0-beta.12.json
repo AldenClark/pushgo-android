@@ -1,0 +1,10 @@
+{
+  "en": "This beta improves Android stability and release-note delivery in update prompts.\n- Update feed notes now strictly use per-version update-notes sources\n- Improved reliability for app startup and settings navigation",
+  "de": "Diese Beta verbessert die Android-Stabilitat und die Bereitstellung von Versionshinweisen im Update-Dialog.\n- Hinweise im Update-Feed werden jetzt strikt aus versionsbezogenen update-notes bezogen\n- Verbesserte Zuverlassigkeit beim App-Start und bei der Navigation in den Einstellungen",
+  "es": "Esta beta mejora la estabilidad de Android y la entrega de notas en el aviso de actualizacion.\n- Las notas del feed de actualizacion ahora usan estrictamente fuentes update-notes por version\n- Mejora de la fiabilidad al iniciar la app y al navegar en Ajustes",
+  "fr": "Cette beta ameliore la stabilite Android et la diffusion des notes de version dans l'invite de mise a jour.\n- Les notes du flux de mise a jour utilisent desormais strictement les sources update-notes par version\n- Fiabilite amelioree au demarrage de l'application et dans la navigation des reglages",
+  "ja": "このベータでは、Android の安定性と更新ダイアログ内の更新ノート配信を改善しました。\n- update feed のノートは、バージョンごとの update-notes を厳密に使用\n- アプリ起動と設定画面ナビゲーションの信頼性を改善",
+  "ko": "이번 베타는 Android 안정성과 업데이트 안내의 릴리스 노트 전달을 개선했습니다.\n- 업데이트 피드 노트가 이제 버전별 update-notes 소스를 엄격히 사용합니다\n- 앱 시작 및 설정 화면 이동의 신뢰성을 개선했습니다",
+  "zh-CN": "此测试版提升了 Android 稳定性，并改进了更新提示中的升级说明投放。\n- 更新 feed 的说明现在严格使用对应版本的 update-notes 数据源\n- 提升了应用启动与设置页导航的稳定性",
+  "zh-TW": "此測試版提升了 Android 穩定性，並改進了更新提示中的升級說明投放。\n- 更新 feed 的說明現在嚴格使用對應版本的 update-notes 資料來源\n- 提升了應用啟動與設定頁導覽的穩定性"
+}

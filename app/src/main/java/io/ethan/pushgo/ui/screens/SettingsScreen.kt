@@ -61,6 +61,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -99,6 +100,9 @@ import io.ethan.pushgo.util.openAppNotificationSettings
 import io.ethan.pushgo.util.openBatteryOptimizationSettings
 import io.ethan.pushgo.util.snoozeDozeReminderForOneMonth
 import java.io.File
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 private val ScreenHorizontalPadding = 12.dp
 
@@ -106,7 +110,6 @@ private val ScreenHorizontalPadding = 12.dp
 @OptIn(ExperimentalMaterial3Api::class)
 fun SettingsScreen(
     viewModel: SettingsViewModel,
-    onOpenConnectionDiagnosis: (() -> Unit)? = null,
     onBackClick: (() -> Unit)? = null,
 ) {
     val context = LocalContext.current
@@ -115,6 +118,8 @@ fun SettingsScreen(
     var notificationsEnabled by remember { mutableStateOf(false) }
     var batteryOptimizationEnabled by remember { mutableStateOf(false) }
     var dozeReminderSnoozed by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+    var delayedGuardRefreshJob by remember { mutableStateOf<Job?>(null) }
     val lifecycleOwner = LocalLifecycleOwner.current
     val baseVersionName = remember {
         BuildConfig.VERSION_NAME.replace(Regex("(?i)\\s*build\\s*\\d+\\s*$"), "").trim()
@@ -127,19 +132,34 @@ fun SettingsScreen(
     var showGatewaySheet by remember { mutableStateOf(false) }
     val bottomGestureInset = rememberBottomGestureInset()
 
-    DisposableEffect(lifecycleOwner) {
-        val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_RESUME) {
-                notificationsEnabled = NotificationManagerCompat.from(context).areNotificationsEnabled()
-                batteryOptimizationEnabled = context.isAppSubjectToBatteryOptimization()
-                dozeReminderSnoozed = context.isDozeReminderSnoozed()
-            }
-        }
-        lifecycleOwner.lifecycle.addObserver(observer)
+    fun refreshDeliveryRiskState() {
         notificationsEnabled = NotificationManagerCompat.from(context).areNotificationsEnabled()
         batteryOptimizationEnabled = context.isAppSubjectToBatteryOptimization()
         dozeReminderSnoozed = context.isDozeReminderSnoozed()
-        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
+    fun scheduleDelayedDeliveryRiskRefresh() {
+        delayedGuardRefreshJob?.cancel()
+        delayedGuardRefreshJob = scope.launch {
+            // System battery settings changes may take a short moment to reflect after foreground.
+            delay(450)
+            refreshDeliveryRiskState()
+        }
+    }
+
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                refreshDeliveryRiskState()
+                scheduleDelayedDeliveryRiskRefresh()
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        refreshDeliveryRiskState()
+        onDispose {
+            delayedGuardRefreshJob?.cancel()
+            lifecycleOwner.lifecycle.removeObserver(observer)
+        }
     }
 
     LaunchedEffect(viewModel.errorMessage) {
@@ -284,12 +304,15 @@ fun SettingsScreen(
                 }
             }
             item {
+                SettingsSectionHeader(text = stringResource(R.string.section_notification_settings))
+            }
+            item {
                 SettingsRow(
-                    testTag = "row.settings.connection_diagnosis",
-                    icon = Icons.Outlined.Dns,
-                    title = stringResource(R.string.label_connection_diagnosis),
-                    subtitle = stringResource(R.string.label_connection_diagnosis_hint),
-                    onClick = onOpenConnectionDiagnosis,
+                    testTag = "row.settings.system_notification_settings",
+                    icon = Icons.Outlined.NotificationsActive,
+                    title = stringResource(R.string.label_notification_settings),
+                    subtitle = stringResource(R.string.label_notification_settings_hint),
+                    onClick = { context.openAppNotificationSettings() },
                 )
             }
 

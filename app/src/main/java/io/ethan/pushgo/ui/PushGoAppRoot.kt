@@ -71,7 +71,6 @@ import java.io.File
 @Serializable object ChannelsRoute
 @Serializable object SettingsRoute
 @Serializable object DecryptionRoute
-@Serializable object ConnectionDiagnosisRoute
 
 private data class BottomItem(
     val route: Any,
@@ -539,9 +538,8 @@ private fun PushGoNavHost(
                 thingScrollToTopToken
             )
         }
-        composable<SettingsRoute> { SettingsScreen(settingsViewModel, { navController.navigate(ConnectionDiagnosisRoute) }, { navController.navigateUp() }) }
+        composable<SettingsRoute> { SettingsScreen(settingsViewModel, { navController.navigateUp() }) }
         composable<DecryptionRoute> { io.ethan.pushgo.ui.screens.MessageDecryptionScreen(navController, factory, settingsViewModel) }
-        composable<ConnectionDiagnosisRoute> { io.ethan.pushgo.ui.screens.ConnectionDiagnosisScreen(navController, factory) }
     }
 }
 

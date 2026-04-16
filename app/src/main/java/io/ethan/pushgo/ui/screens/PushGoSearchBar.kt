@@ -42,7 +42,7 @@ internal fun PushGoSearchBar(
             .clip(RoundedCornerShape(24.dp))
             .background(uiColors.fieldContainer),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(4.dp),
+        horizontalArrangement = Arrangement.spacedBy(2.dp),
     ) {
         Spacer(modifier = Modifier.width(16.dp))
         androidx.compose.material3.Icon(Icons.Default.Search, null, tint = uiColors.iconMuted)

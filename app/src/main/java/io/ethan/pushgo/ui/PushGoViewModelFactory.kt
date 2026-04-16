@@ -3,7 +3,6 @@ package io.ethan.pushgo.ui
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import io.ethan.pushgo.data.AppContainer
-import io.ethan.pushgo.ui.viewmodel.ConnectionDiagnosisViewModel
 import io.ethan.pushgo.ui.viewmodel.MessageListViewModel
 import io.ethan.pushgo.ui.viewmodel.MessageSearchViewModel
 import io.ethan.pushgo.ui.viewmodel.SettingsViewModel
@@ -33,13 +32,6 @@ class PushGoViewModelFactory(private val container: AppContainer) : ViewModelPro
                     messageStateCoordinator = container.messageStateCoordinator,
                     privateChannelClient = container.privateChannelClient,
                     updateManager = container.updateManager,
-                ) as T
-            }
-            modelClass.isAssignableFrom(ConnectionDiagnosisViewModel::class.java) -> {
-                ConnectionDiagnosisViewModel(
-                    appContext = container.appContext,
-                    settingsRepository = container.settingsRepository,
-                    privateChannelClient = container.privateChannelClient,
                 ) as T
             }
             else -> throw IllegalArgumentException("Unknown ViewModel: ${modelClass.name}")

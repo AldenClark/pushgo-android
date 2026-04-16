@@ -105,11 +105,14 @@
     <string name="label_group_ungrouped">No channel</string>
     <string name="label_loading">Loading…</string>
     <string name="section_connection_device">Connection &amp; Device</string><string name="section_channels">Channels</string>
+    <string name="section_notification_settings">Notification Settings</string>
     <string name="label_notification_transport">Notification transport</string>
     <string name="label_notification_transport_hint">Choose whether Android receives pushes through FCM or the private channel.</string>
     <string name="label_notification_transport_private_only_hint">This device does not support FCM. Pushes will use the private channel.</string>
     <string name="label_notification_transport_gateway_private_disabled_hint">Gateway private channel is disabled. Android can only use FCM on this gateway.</string>
     <string name="label_notification_transport_unavailable_hint">Gateway private channel is disabled and this device does not support FCM. Push delivery is unavailable.</string>
+    <string name="label_notification_settings">Notification settings</string>
+    <string name="label_notification_settings_hint">Open system notification settings for PushGo.</string>
     <string name="label_transport_fcm">FCM</string>
     <string name="label_transport_private">Private</string>
     <string name="label_fcm_wakeup_pull_mode">Use wakeup pull mode</string>
