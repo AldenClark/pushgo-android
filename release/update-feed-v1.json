@@ -2,40 +2,46 @@
   "payload": {
     "entries": [
       {
-        "apkSha256": "705c42e329e4da7f0cd6302120ed365f64bcea71e84575226b1c3306eb544568",
-        "apkUrl": "https://update.pushgo.cn/android/beta/v1.2.0-beta.11/pushgo-android-v1.2.0-beta.11-universal-release.apk",
+        "apkSha256": "ded8ff4e2298f1c97ed2682bccc91ad4c3ff695f1b606d19f7ddf906cb8cb8e8",
+        "apkUrl": "https://update.pushgo.cn/android/beta/v1.2.0-beta.12/pushgo-android-v1.2.0-beta.12-universal-release.apk",
         "channel": "beta",
         "critical": false,
-        "notes": "\n### Fixed\n- Fixed Android in-app update checks so signed update feeds verify correctly again.\n- Fixed update prompts so release notes appear again when a new version is detected.",
+        "notes": "This beta improves Android stability and release-note delivery in update prompts.\n- Update feed notes now strictly use per-version update-notes sources\n- Improved reliability for app startup and settings navigation",
         "notesI18n": {
-          "en": "\n### Fixed\n- Fixed Android in-app update checks so signed update feeds verify correctly again.\n- Fixed update prompts so release notes appear again when a new version is detected.",
-          "zh-CN": "\n### Fixed\n- Fixed Android in-app update checks so signed update feeds verify correctly again.\n- Fixed update prompts so release notes appear again when a new version is detected."
+          "de": "Diese Beta verbessert die Android-Stabilitat und die Bereitstellung von Versionshinweisen im Update-Dialog.\n- Hinweise im Update-Feed werden jetzt strikt aus versionsbezogenen update-notes bezogen\n- Verbesserte Zuverlassigkeit beim App-Start und bei der Navigation in den Einstellungen",
+          "en": "This beta improves Android stability and release-note delivery in update prompts.\n- Update feed notes now strictly use per-version update-notes sources\n- Improved reliability for app startup and settings navigation",
+          "es": "Esta beta mejora la estabilidad de Android y la entrega de notas en el aviso de actualizacion.\n- Las notas del feed de actualizacion ahora usan estrictamente fuentes update-notes por version\n- Mejora de la fiabilidad al iniciar la app y al navegar en Ajustes",
+          "fr": "Cette beta ameliore la stabilite Android et la diffusion des notes de version dans l'invite de mise a jour.\n- Les notes du flux de mise a jour utilisent desormais strictement les sources update-notes par version\n- Fiabilite amelioree au demarrage de l'application et dans la navigation des reglages",
+          "ja": "このベータでは、Android の安定性と更新ダイアログ内の更新ノート配信を改善しました。\n- update feed のノートは、バージョンごとの update-notes を厳密に使用\n- アプリ起動と設定画面ナビゲーションの信頼性を改善",
+          "ko": "이번 베타는 Android 안정성과 업데이트 안내의 릴리스 노트 전달을 개선했습니다.\n- 업데이트 피드 노트가 이제 버전별 update-notes 소스를 엄격히 사용합니다\n- 앱 시작 및 설정 화면 이동의 신뢰성을 개선했습니다",
+          "zh-CN": "此测试版提升了 Android 稳定性，并改进了更新提示中的升级说明投放。\n- 更新 feed 的说明现在严格使用对应版本的 update-notes 数据源\n- 提升了应用启动与设置页导航的稳定性",
+          "zh-TW": "此測試版提升了 Android 穩定性，並改進了更新提示中的升級說明投放。\n- 更新 feed 的說明現在嚴格使用對應版本的 update-notes 資料來源\n- 提升了應用啟動與設定頁導覽的穩定性"
         },
         "packages": {
           "arm64-v8a": {
-            "apkSha256": "cc7164b91730c315c95d2849b1d75bd2da42b70cb54485628c3c1d0a8731b514",
-            "apkUrl": "https://update.pushgo.cn/android/beta/v1.2.0-beta.11/pushgo-android-v1.2.0-beta.11-arm64-v8a-release.apk"
+            "apkSha256": "a6ac350abfc42e284a75b3e26457248d5ac314af1d465f3ff16dfb0bd234c341",
+            "apkUrl": "https://update.pushgo.cn/android/beta/v1.2.0-beta.12/pushgo-android-v1.2.0-beta.12-arm64-v8a-release.apk"
           },
           "armeabi-v7a": {
-            "apkSha256": "27836759d48b2f325235ba54ea4e8b9938a440a9afe8323fe083043034850e51",
-            "apkUrl": "https://update.pushgo.cn/android/beta/v1.2.0-beta.11/pushgo-android-v1.2.0-beta.11-armeabi-v7a-release.apk"
+            "apkSha256": "662c5a82ffce430eac878b66f88fe87139f9d93dfcb39ba5aae978a4e299775f",
+            "apkUrl": "https://update.pushgo.cn/android/beta/v1.2.0-beta.12/pushgo-android-v1.2.0-beta.12-armeabi-v7a-release.apk"
           },
           "universal": {
-            "apkSha256": "705c42e329e4da7f0cd6302120ed365f64bcea71e84575226b1c3306eb544568",
-            "apkUrl": "https://update.pushgo.cn/android/beta/v1.2.0-beta.11/pushgo-android-v1.2.0-beta.11-universal-release.apk"
+            "apkSha256": "ded8ff4e2298f1c97ed2682bccc91ad4c3ff695f1b606d19f7ddf906cb8cb8e8",
+            "apkUrl": "https://update.pushgo.cn/android/beta/v1.2.0-beta.12/pushgo-android-v1.2.0-beta.12-universal-release.apk"
           },
           "x86_64": {
-            "apkSha256": "1ac1b35c40e3932861276bd65d2359c148fc4f493dda57eb021e39ba54f9a7c2",
-            "apkUrl": "https://update.pushgo.cn/android/beta/v1.2.0-beta.11/pushgo-android-v1.2.0-beta.11-x86_64-release.apk"
+            "apkSha256": "c0b4ec78cc805a711b5b7feb351cbf894e5449019ecec432b15e4ba7d84e2e0c",
+            "apkUrl": "https://update.pushgo.cn/android/beta/v1.2.0-beta.12/pushgo-android-v1.2.0-beta.12-x86_64-release.apk"
           }
         },
-        "publishedAtEpochMs": 1776270511000,
-        "releaseNotesUrl": "https://github.com/AldenClark/pushgo-android/releases/tag/v1.2.0-beta.11",
-        "versionCode": 1020011,
-        "versionName": "v1.2.0-beta.11"
+        "publishedAtEpochMs": 1776301263000,
+        "releaseNotesUrl": "https://github.com/AldenClark/pushgo-android/releases/tag/v1.2.0-beta.12",
+        "versionCode": 1020012,
+        "versionName": "v1.2.0-beta.12"
       }
     ],
-    "generatedAtEpochMs": 1776270511000,
+    "generatedAtEpochMs": 1776301263000,
     "policy": {
       "impatientReminderIntervalSeconds": 604800,
       "scheduledCheckIntervalSeconds": 21600
@@ -43,6 +49,6 @@
     "schemaVersion": 1
   },
   "signatures": {
-    "ecdsa-p256-sha256": "MEUCIQCJSz74nMGqzoZJZysUCusiBUCpSmBsOLZWWhY77ROo8wIgBegtv/OcSp1ENZwPpqHTDeZymysPPUErw+eN4hI3dYg="
+    "ecdsa-p256-sha256": "MEUCIEFMYzLPr4luaVEE+ynniiUA83/QuXrXwVkipstpSvJQAiEAgvc+Cbxj3wn7GNf1dZ4XmY83JXuBeG3G57y4Dr84gHk="
   }
 }
