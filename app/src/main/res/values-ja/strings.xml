@@ -433,4 +433,18 @@
     <string name="label_update_install_action_required_title">Finish update installation</string>
     <string name="label_update_install_action_required_body">User confirmation is required to continue installing the new package.</string>
     <string name="label_unknown_error">Unknown error</string>
+    <string name="label_sort">並び替え</string>
+    <string name="message_sort_time_desc">新しい順</string>
+    <string name="message_sort_unread_first">未読優先</string>
+    <string name="section_notification_settings">通知設定</string>
+    <string name="label_notification_settings">通知設定</string>
+    <string name="label_notification_settings_hint">PushGo のシステム通知設定を開きます。</string>
+    <string name="error_fcm_token_network_unavailable">FCM トークンを取得できません: Google サービスへのネットワークが利用できません</string>
+    <string name="error_fcm_token_project_not_configured">FCM トークンを取得できません: このアプリ向けの Firebase プロジェクト設定が無効です</string>
+    <string name="error_fcm_token_auth_failed">FCM トークンを取得できません: Firebase 認証に失敗しました</string>
+    <string name="label_share">共有</string>
+    <string name="message_text_copied">内容をコピーしました。</string>
+    <string name="message_image_saved">画像を写真に保存しました。</string>
+    <string name="error_message_image_save_failed">画像の保存に失敗しました。</string>
+    <string name="error_message_image_share_failed">共有パネルを開けませんでした。</string>
 </resources>

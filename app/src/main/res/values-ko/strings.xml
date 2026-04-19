@@ -433,4 +433,18 @@
     <string name="label_update_install_action_required_title">Finish update installation</string>
     <string name="label_update_install_action_required_body">User confirmation is required to continue installing the new package.</string>
     <string name="label_unknown_error">Unknown error</string>
+    <string name="label_sort">정렬</string>
+    <string name="message_sort_time_desc">최신순</string>
+    <string name="message_sort_unread_first">안 읽은 항목 우선</string>
+    <string name="section_notification_settings">알림 설정</string>
+    <string name="label_notification_settings">알림 설정</string>
+    <string name="label_notification_settings_hint">PushGo의 시스템 알림 설정을 엽니다.</string>
+    <string name="error_fcm_token_network_unavailable">FCM 토큰을 가져올 수 없음: Google 서비스로의 네트워크를 사용할 수 없습니다</string>
+    <string name="error_fcm_token_project_not_configured">FCM 토큰을 가져올 수 없음: 이 앱에 대한 Firebase 프로젝트 구성이 올바르지 않습니다</string>
+    <string name="error_fcm_token_auth_failed">FCM 토큰을 가져올 수 없음: Firebase 인증에 실패했습니다</string>
+    <string name="label_share">공유</string>
+    <string name="message_text_copied">내용을 복사했습니다.</string>
+    <string name="message_image_saved">이미지를 사진에 저장했습니다.</string>
+    <string name="error_message_image_save_failed">이미지 저장에 실패했습니다.</string>
+    <string name="error_message_image_share_failed">공유 패널을 열 수 없습니다.</string>
 </resources>

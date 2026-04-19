@@ -436,4 +436,18 @@
     <string name="label_update_install_action_required_title">Finish update installation</string>
     <string name="label_update_install_action_required_body">User confirmation is required to continue installing the new package.</string>
     <string name="label_unknown_error">Unknown error</string>
+    <string name="label_sort">Sortieren</string>
+    <string name="message_sort_time_desc">Neueste zuerst</string>
+    <string name="message_sort_unread_first">Ungelesene zuerst</string>
+    <string name="section_notification_settings">Benachrichtigungseinstellungen</string>
+    <string name="label_notification_settings">Benachrichtigungseinstellungen</string>
+    <string name="label_notification_settings_hint">Öffnen Sie die System-Benachrichtigungseinstellungen für PushGo.</string>
+    <string name="error_fcm_token_network_unavailable">FCM-Token kann nicht abgerufen werden: Netzwerk zu Google-Diensten ist nicht verfügbar</string>
+    <string name="error_fcm_token_project_not_configured">FCM-Token kann nicht abgerufen werden: Firebase-Projektkonfiguration ist für diese App ungültig</string>
+    <string name="error_fcm_token_auth_failed">FCM-Token kann nicht abgerufen werden: Firebase-Authentifizierung fehlgeschlagen</string>
+    <string name="label_share">Teilen</string>
+    <string name="message_text_copied">Inhalt kopiert.</string>
+    <string name="message_image_saved">Bild in Fotos gespeichert.</string>
+    <string name="error_message_image_save_failed">Bild konnte nicht gespeichert werden.</string>
+    <string name="error_message_image_share_failed">Freigabefenster konnte nicht geöffnet werden.</string>
 </resources>
