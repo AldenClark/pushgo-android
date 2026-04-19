@@ -2,46 +2,46 @@
   "payload": {
     "entries": [
       {
-        "apkSha256": "575f48206a3c9b8ee4387fa7ec30a8949f52b1bbde665f9d8a581a8b6c0cafc1",
-        "apkUrl": "https://update.pushgo.cn/android/beta/v1.2.0-beta.13/pushgo-android-v1.2.0-beta.13-universal-release.apk",
+        "apkSha256": "ceead28518f0a01494f461a2c0d711851f54e21a2339ba9beb3339fa60e49c04",
+        "apkUrl": "https://update.pushgo.cn/android/beta/v1.2.0-beta.15/pushgo-android-v1.2.0-beta.15-universal-release.apk",
         "channel": "beta",
         "critical": false,
-        "notes": "This beta improves blocked-install handling during Android in-app updates.\n- App now shows an in-app alert when installation is blocked by system policy\n- Added one-tap fallback to continue with Android system installer",
+        "notes": "This beta rolls up all Android changes accumulated since v1.2.0-beta.13.\n- Improved install-blocked handling with immediate in-app alerting\n- Added one-tap fallback to continue via Android system installer",
         "notesI18n": {
-          "de": "Diese Beta verbessert den Umgang mit blockierten Installationen bei Android In-App-Updates.\n- Die App zeigt nun einen In-App-Hinweis, wenn die Installation durch Systemrichtlinien blockiert wird\n- Ein Ein-Klick-Fallback zum Fortsetzen mit dem Android-Systeminstaller wurde hinzugefugt",
-          "en": "This beta improves blocked-install handling during Android in-app updates.\n- App now shows an in-app alert when installation is blocked by system policy\n- Added one-tap fallback to continue with Android system installer",
-          "es": "Esta beta mejora el manejo de instalaciones bloqueadas durante actualizaciones in-app en Android.\n- La app ahora muestra una alerta interna cuando la instalacion es bloqueada por politicas del sistema\n- Se agrego un acceso directo para continuar con el instalador del sistema Android",
-          "fr": "Cette beta ameliore la gestion des installations bloquees pendant les mises a jour integrees Android.\n- L'application affiche maintenant une alerte integree lorsque l'installation est bloquee par la politique systeme\n- Ajout d'un raccourci pour continuer avec l'installateur systeme Android",
-          "ja": "このベータでは、Android アプリ内更新でインストールがブロックされた場合の処理を改善しました。\n- システムポリシーでインストールが阻止されたとき、アプリ内に警告を表示\n- Android のシステムインストーラーで続行するワンタップのフォールバックを追加",
-          "ko": "이번 베타는 Android 앱 내 업데이트 중 설치가 차단되는 상황 처리를 개선했습니다.\n- 시스템 정책으로 설치가 차단되면 앱 내 경고를 표시합니다\n- Android 시스템 설치 프로그램으로 계속 진행하는 원탭 대체 경로를 추가했습니다",
-          "zh-CN": "此测试版改进了 Android 应用内更新时“安装受阻”的处理体验。\n- 当系统策略拦截安装时，应用内会弹出明确提示\n- 新增一键回退到 Android 系统安装器继续安装",
-          "zh-TW": "此測試版改善了 Android 應用內更新時「安裝受阻」的處理體驗。\n- 當系統策略攔截安裝時，應用內會彈出明確提示\n- 新增一鍵回退至 Android 系統安裝器繼續安裝"
+          "de": "Diese Beta umfasst alle Android-Anderungen seit v1.2.0-beta.13.\n- Verbesserte Behandlung blockierter Installationen mit sofortigem In-App-Hinweis\n- Ein-Klick-Fallback zum Fortsetzen mit dem Android-Systeminstaller hinzugefugt",
+          "en": "This beta rolls up all Android changes accumulated since v1.2.0-beta.13.\n- Improved install-blocked handling with immediate in-app alerting\n- Added one-tap fallback to continue via Android system installer",
+          "es": "Esta beta integra todos los cambios de Android acumulados desde v1.2.0-beta.13.\n- Mejor manejo de instalaciones bloqueadas con alerta inmediata dentro de la app\n- Se agrego un acceso directo para continuar con el instalador del sistema Android",
+          "fr": "Cette beta integre toutes les modifications Android accumulees depuis v1.2.0-beta.13.\n- Gestion amelioree des installations bloquees avec alerte immediate dans l'application\n- Ajout d'un raccourci pour continuer avec l'installateur systeme Android",
+          "ja": "このベータには、v1.2.0-beta.13 以降に蓄積した Android 変更をすべて含みます。\n- インストールがブロックされた際のアプリ内即時アラートを改善\n- Android システムインストーラーで続行するワンタップフォールバックを追加",
+          "ko": "이번 베타에는 v1.2.0-beta.13 이후 누적된 Android 변경사항이 모두 포함됩니다.\n- 설치 차단 시 앱 내 즉시 경고를 개선했습니다\n- Android 시스템 설치 프로그램으로 계속 진행하는 원탭 대체 경로를 추가했습니다",
+          "zh-CN": "此测试版合并了自 v1.2.0-beta.13 以来的全部 Android 累积改动。\n- 优化了安装受阻时的应用内即时提示\n- 新增一键回退到 Android 系统安装器继续安装",
+          "zh-TW": "此測試版合併了自 v1.2.0-beta.13 以來的全部 Android 累積改動。\n- 優化了安裝受阻時的應用內即時提示\n- 新增一鍵回退至 Android 系統安裝器繼續安裝"
         },
         "packages": {
           "arm64-v8a": {
-            "apkSha256": "cfd9ae1f5a06e47b5b0b831ef2e3a540cf4eacf02fb4ea353d5919dbcd2ce290",
-            "apkUrl": "https://update.pushgo.cn/android/beta/v1.2.0-beta.13/pushgo-android-v1.2.0-beta.13-arm64-v8a-release.apk"
+            "apkSha256": "1d4967005c1e667389db8099bdd28638ec0ab5284904c556ac7620fea8dcb3f0",
+            "apkUrl": "https://update.pushgo.cn/android/beta/v1.2.0-beta.15/pushgo-android-v1.2.0-beta.15-arm64-v8a-release.apk"
           },
           "armeabi-v7a": {
-            "apkSha256": "62cf47346a09f04b9e870095352893197730bf5977bb691ab17496c4ac2af0e6",
-            "apkUrl": "https://update.pushgo.cn/android/beta/v1.2.0-beta.13/pushgo-android-v1.2.0-beta.13-armeabi-v7a-release.apk"
+            "apkSha256": "821ffdda9f01e89045ceabef9cd82d8c55b5d045da3b3455e7e9e6de39a335ca",
+            "apkUrl": "https://update.pushgo.cn/android/beta/v1.2.0-beta.15/pushgo-android-v1.2.0-beta.15-armeabi-v7a-release.apk"
           },
           "universal": {
-            "apkSha256": "575f48206a3c9b8ee4387fa7ec30a8949f52b1bbde665f9d8a581a8b6c0cafc1",
-            "apkUrl": "https://update.pushgo.cn/android/beta/v1.2.0-beta.13/pushgo-android-v1.2.0-beta.13-universal-release.apk"
+            "apkSha256": "ceead28518f0a01494f461a2c0d711851f54e21a2339ba9beb3339fa60e49c04",
+            "apkUrl": "https://update.pushgo.cn/android/beta/v1.2.0-beta.15/pushgo-android-v1.2.0-beta.15-universal-release.apk"
           },
           "x86_64": {
-            "apkSha256": "83aaf14635b4c919fd3684deaf2ea35625f175435768b0f1662b839c00bd32d2",
-            "apkUrl": "https://update.pushgo.cn/android/beta/v1.2.0-beta.13/pushgo-android-v1.2.0-beta.13-x86_64-release.apk"
+            "apkSha256": "41c05274f51b0a383427f6b4cc0b0efa3d1aac5251b7b1a2444f53f33b686e26",
+            "apkUrl": "https://update.pushgo.cn/android/beta/v1.2.0-beta.15/pushgo-android-v1.2.0-beta.15-x86_64-release.apk"
           }
         },
-        "publishedAtEpochMs": 1776303358000,
-        "releaseNotesUrl": "https://github.com/AldenClark/pushgo-android/releases/tag/v1.2.0-beta.13",
-        "versionCode": 1020013,
-        "versionName": "v1.2.0-beta.13"
+        "publishedAtEpochMs": 1776570343000,
+        "releaseNotesUrl": "https://github.com/AldenClark/pushgo-android/releases/tag/v1.2.0-beta.15",
+        "versionCode": 1020015,
+        "versionName": "v1.2.0-beta.15"
       }
     ],
-    "generatedAtEpochMs": 1776303358000,
+    "generatedAtEpochMs": 1776570343000,
     "policy": {
       "impatientReminderIntervalSeconds": 604800,
       "scheduledCheckIntervalSeconds": 21600
@@ -49,6 +49,6 @@
     "schemaVersion": 1
   },
   "signatures": {
-    "ecdsa-p256-sha256": "MEQCIC+0KGcFISlo4CjxteFeyCwQS8BDe/ijigAotD/ruLKfAiAVAqzCfqLiYqaNrP8qlAR2K5732/7U1C4sTPyE1cm5Jg=="
+    "ecdsa-p256-sha256": "MEUCIQCAK2zXSwz249OaiNpmpsasFeGpbxZHGR0kY/YzWo/G3QIgNbtW9hO/JCyrbwE0sJigoYTELmMlntvH7CuMFi7pVEU="
   }
 }
