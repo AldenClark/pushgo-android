@@ -13,3 +13,7 @@ Policy:
 ### Fixed
 - Fixed Android update install-blocked flow so users now get an in-app error alert immediately.
 - Fixed blocked-install fallback so users can continue via Android system installer in one tap.
+
+### Improved
+- Updated Android beta line to `v1.2.0-beta.15`.
+- This beta publication includes all accumulated Android changes since `v1.2.0-beta.13`.

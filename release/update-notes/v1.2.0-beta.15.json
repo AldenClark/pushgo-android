@@ -1,0 +1,10 @@
+{
+  "en": "This beta rolls up all Android changes accumulated since v1.2.0-beta.13.\n- Improved install-blocked handling with immediate in-app alerting\n- Added one-tap fallback to continue via Android system installer",
+  "de": "Diese Beta umfasst alle Android-Anderungen seit v1.2.0-beta.13.\n- Verbesserte Behandlung blockierter Installationen mit sofortigem In-App-Hinweis\n- Ein-Klick-Fallback zum Fortsetzen mit dem Android-Systeminstaller hinzugefugt",
+  "es": "Esta beta integra todos los cambios de Android acumulados desde v1.2.0-beta.13.\n- Mejor manejo de instalaciones bloqueadas con alerta inmediata dentro de la app\n- Se agrego un acceso directo para continuar con el instalador del sistema Android",
+  "fr": "Cette beta integre toutes les modifications Android accumulees depuis v1.2.0-beta.13.\n- Gestion amelioree des installations bloquees avec alerte immediate dans l'application\n- Ajout d'un raccourci pour continuer avec l'installateur systeme Android",
+  "ja": "このベータには、v1.2.0-beta.13 以降に蓄積した Android 変更をすべて含みます。\n- インストールがブロックされた際のアプリ内即時アラートを改善\n- Android システムインストーラーで続行するワンタップフォールバックを追加",
+  "ko": "이번 베타에는 v1.2.0-beta.13 이후 누적된 Android 변경사항이 모두 포함됩니다.\n- 설치 차단 시 앱 내 즉시 경고를 개선했습니다\n- Android 시스템 설치 프로그램으로 계속 진행하는 원탭 대체 경로를 추가했습니다",
+  "zh-CN": "此测试版合并了自 v1.2.0-beta.13 以来的全部 Android 累积改动。\n- 优化了安装受阻时的应用内即时提示\n- 新增一键回退到 Android 系统安装器继续安装",
+  "zh-TW": "此測試版合併了自 v1.2.0-beta.13 以來的全部 Android 累積改動。\n- 優化了安裝受阻時的應用內即時提示\n- 新增一鍵回退至 Android 系統安裝器繼續安裝"
+}
