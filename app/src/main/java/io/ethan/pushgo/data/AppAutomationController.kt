@@ -27,7 +27,7 @@ data class AutomationSnapshot(
     val gatewayTokenPresent: Boolean,
     val useFcmChannel: Boolean,
     val providerMode: String,
-    val providerDeviceKeyPresent: Boolean,
+    val deviceKeyPresent: Boolean,
     val privateRoute: String,
     val privateTransport: String,
     val privateStage: String,
@@ -353,8 +353,8 @@ class AppAutomationController(
             ?: AppConstants.defaultServerAddress
         val gatewayTokenPresent = settingsRepository.getGatewayToken()?.trim()?.isNotEmpty() == true
         val useFcmChannel = settingsRepository.getUseFcmChannel()
-        val providerDeviceKeyPresent = settingsRepository
-            .getProviderDeviceKey(platform = "android")
+        val deviceKeyPresent = settingsRepository
+            .getDeviceKey()
             ?.trim()
             ?.isNotEmpty() == true
         val notificationKeyBytes = settingsRepository.getNotificationKeyBytes()
@@ -377,7 +377,7 @@ class AppAutomationController(
             gatewayTokenPresent = gatewayTokenPresent,
             useFcmChannel = useFcmChannel,
             providerMode = if (useFcmChannel) "fcm" else "none",
-            providerDeviceKeyPresent = providerDeviceKeyPresent,
+            deviceKeyPresent = deviceKeyPresent,
             privateRoute = privateStatus.route,
             privateTransport = privateStatus.transport,
             privateStage = privateStatus.stage,

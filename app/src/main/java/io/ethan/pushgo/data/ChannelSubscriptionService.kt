@@ -49,6 +49,10 @@ data class DeviceChannelUpsertResult(
     val deviceKey: String,
 )
 
+data class DeviceRegisterResult(
+    val deviceKey: String,
+)
+
 data class PullItem(
     val deliveryId: String,
     val payload: Map<String, String>,
@@ -57,7 +61,9 @@ data class PullItem(
 class ChannelSubscriptionService {
     companion object {
         internal const val DEVICE_REGISTER_ENDPOINT = "/device/register"
+        internal const val DEVICE_ROUTE_ENDPOINT = "/channel/device"
         internal const val DEVICE_CHANNEL_DELETE_ENDPOINT = "/channel/device/delete"
+        internal const val PROVIDER_TOKEN_RETIRE_ENDPOINT = "/channel/device/provider-token/retire"
         internal const val PULL_MESSAGE_ENDPOINT = "/messages/pull"
         internal const val ACK_MESSAGE_ENDPOINT = "/messages/ack"
     }
@@ -137,6 +143,28 @@ class ChannelSubscriptionService {
         return@withContext data.optBoolean("removed", false)
     }
 
+    suspend fun registerDevice(
+        baseUrl: String,
+        token: String?,
+        platform: String,
+        deviceKey: String?,
+    ): DeviceRegisterResult = withContext(Dispatchers.IO) {
+        val endpoint = buildUrl(baseUrl, DEVICE_REGISTER_ENDPOINT)
+        val payload = JSONObject().apply {
+            if (!deviceKey.isNullOrBlank()) {
+                put("device_key", deviceKey.trim())
+            }
+            put("platform", platform.trim().lowercase())
+        }
+        val response = execute(endpoint, token, "POST", payload)
+        val data = response.data
+        val resolved = data?.optString("device_key", "")?.trim().orEmpty()
+        if (resolved.isEmpty()) {
+            throw ChannelSubscriptionException("gateway response missing device_key")
+        }
+        DeviceRegisterResult(deviceKey = resolved)
+    }
+
     suspend fun upsertDeviceChannel(
         baseUrl: String,
         token: String?,
@@ -145,11 +173,13 @@ class ChannelSubscriptionService {
         channelType: String,
         providerToken: String?,
     ): DeviceChannelUpsertResult = withContext(Dispatchers.IO) {
-        val endpoint = buildUrl(baseUrl, DEVICE_REGISTER_ENDPOINT)
+        val normalizedDeviceKey = deviceKey?.trim().orEmpty()
+        if (normalizedDeviceKey.isEmpty()) {
+            throw ChannelSubscriptionException("Missing device_key")
+        }
+        val endpoint = buildUrl(baseUrl, DEVICE_ROUTE_ENDPOINT)
         val payload = JSONObject().apply {
-            if (!deviceKey.isNullOrBlank()) {
-                put("device_key", deviceKey.trim())
-            }
+            put("device_key", normalizedDeviceKey)
             put("platform", platform.trim().lowercase())
             put("channel_type", channelType.trim().lowercase())
             if (!providerToken.isNullOrBlank()) {
@@ -158,9 +188,7 @@ class ChannelSubscriptionService {
         }
         val response = execute(endpoint, token, "POST", payload)
         val data = response.data
-        val returnedKey = data?.optString("device_key", "")?.trim().orEmpty()
-        val fallbackKey = deviceKey?.trim().orEmpty()
-        val resolved = if (returnedKey.isEmpty()) fallbackKey else returnedKey
+        val resolved = data?.optString("device_key", "")?.trim().orEmpty()
         if (resolved.isEmpty()) {
             throw ChannelSubscriptionException("gateway response missing device_key")
         }
@@ -177,6 +205,25 @@ class ChannelSubscriptionService {
         val payload = JSONObject().apply {
             put("device_key", deviceKey)
             put("channel_type", channelType.trim().lowercase())
+        }
+        execute(endpoint, token, "POST", payload)
+        Unit
+    }
+
+    suspend fun retireProviderToken(
+        baseUrl: String,
+        token: String?,
+        platform: String,
+        providerToken: String,
+    ) = withContext(Dispatchers.IO) {
+        val normalizedProviderToken = providerToken.trim()
+        if (normalizedProviderToken.isEmpty()) {
+            return@withContext
+        }
+        val endpoint = buildUrl(baseUrl, PROVIDER_TOKEN_RETIRE_ENDPOINT)
+        val payload = JSONObject().apply {
+            put("platform", platform.trim().lowercase())
+            put("provider_token", normalizedProviderToken)
         }
         execute(endpoint, token, "POST", payload)
         Unit

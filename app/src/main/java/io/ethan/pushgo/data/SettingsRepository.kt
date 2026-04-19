@@ -157,6 +157,23 @@ class SettingsRepository(
         updateSettings { it.copy(token = null) }
     }
 
+    fun peekDeviceKey(): String? {
+        return secretStore.deviceKey()
+    }
+
+    fun persistDeviceKey(deviceKey: String?) {
+        val normalized = deviceKey?.trim()?.ifEmpty { null }
+        secretStore.setDeviceKey(normalized)
+    }
+
+    suspend fun getDeviceKey(): String? {
+        return secretStore.deviceKey()
+    }
+
+    suspend fun setDeviceKey(deviceKey: String?) {
+        persistDeviceKey(deviceKey)
+    }
+
     suspend fun getNotificationKeyBytes(): ByteArray? =
         secretStore.notificationKeyBytes()
 
@@ -172,15 +189,6 @@ class SettingsRepository(
                 )
             }
         }
-    }
-
-    suspend fun getProviderDeviceKey(platform: String): String? {
-        return secretStore.providerDeviceKey(platform)
-    }
-
-    suspend fun setProviderDeviceKey(platform: String, deviceKey: String?) {
-        val normalized = deviceKey?.trim()?.ifEmpty { null }
-        secretStore.setProviderDeviceKey(platform, normalized)
     }
 
     suspend fun getNotificationKeyUpdatedAt(): Instant? {

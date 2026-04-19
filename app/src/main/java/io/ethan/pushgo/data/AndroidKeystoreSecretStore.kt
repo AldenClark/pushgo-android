@@ -20,8 +20,8 @@ class AndroidKeystoreSecretStore(context: Context) : SecureSecretStore {
         private const val GCM_MIN_PAYLOAD_SIZE = 13
         private const val SECRET_GATEWAY_TOKEN = "gateway_token"
         private const val SECRET_FCM_TOKEN = "fcm_token"
+        private const val SECRET_DEVICE_KEY = "device_key"
         private const val SECRET_NOTIFICATION_KEY = "notification_key_bytes"
-        private const val SECRET_PROVIDER_DEVICE_KEY_PREFIX = "provider_device_key_"
     }
 
     private val prefs = context.applicationContext
@@ -43,22 +43,20 @@ class AndroidKeystoreSecretStore(context: Context) : SecureSecretStore {
         putString(SECRET_FCM_TOKEN, token?.trim()?.ifEmpty { null })
     }
 
+    override fun deviceKey(): String? {
+        return getString(SECRET_DEVICE_KEY)?.trim()?.ifEmpty { null }
+    }
+
+    override fun setDeviceKey(deviceKey: String?) {
+        val normalized = deviceKey?.trim()?.ifEmpty { null }
+        putString(SECRET_DEVICE_KEY, normalized)
+    }
+
     override fun notificationKeyBytes(): ByteArray? =
         getBytes(SECRET_NOTIFICATION_KEY)?.takeIf { it.isNotEmpty() }
 
     override fun setNotificationKeyBytes(value: ByteArray?) {
         putBytes(SECRET_NOTIFICATION_KEY, value?.takeIf { it.isNotEmpty() })
-    }
-
-    override fun providerDeviceKey(platform: String): String? {
-        return getString(providerDeviceSecretKey(platform))?.trim()?.ifEmpty { null }
-    }
-
-    override fun setProviderDeviceKey(platform: String, deviceKey: String?) {
-        putString(
-            providerDeviceSecretKey(platform),
-            deviceKey?.trim()?.ifEmpty { null }
-        )
     }
 
     override fun channelPassword(gatewayUrl: String, channelId: String): String? {
@@ -116,11 +114,6 @@ class AndroidKeystoreSecretStore(context: Context) : SecureSecretStore {
 
     private fun channelPasswordKey(gatewayUrl: String, channelId: String): String {
         return "channel_password_${sha256Hex("${gatewayUrl.trim()}|${channelId.trim()}")}"
-    }
-
-    private fun providerDeviceSecretKey(platform: String): String {
-        val normalized = platform.trim().lowercase().ifEmpty { "unknown" }
-        return SECRET_PROVIDER_DEVICE_KEY_PREFIX + normalized
     }
 
     private fun sha256Hex(value: String): String {

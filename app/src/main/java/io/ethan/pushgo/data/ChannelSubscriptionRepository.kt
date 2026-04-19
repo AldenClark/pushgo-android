@@ -194,25 +194,25 @@ class ChannelSubscriptionRepository(
         return ensureProviderRoute(normalized, config)
     }
 
-    suspend fun cleanupLegacyGatewayDeviceRoute(
-        legacyBaseUrl: String,
-        legacyToken: String?,
-        legacyDeviceKey: String,
+    suspend fun cleanupPreviousGatewayDeviceRoute(
+        previousBaseUrl: String,
+        previousToken: String?,
+        previousDeviceKey: String,
     ) {
-        val deviceKey = legacyDeviceKey.trim()
+        val deviceKey = previousDeviceKey.trim()
         if (deviceKey.isEmpty()) return
         runCatching {
             service.deleteDeviceChannel(
-                baseUrl = legacyBaseUrl,
-                token = legacyToken,
+                baseUrl = previousBaseUrl,
+                token = previousToken,
                 deviceKey = deviceKey,
                 channelType = FCM_CHANNEL_TYPE,
             )
         }
         runCatching {
             service.deleteDeviceChannel(
-                baseUrl = legacyBaseUrl,
-                token = legacyToken,
+                baseUrl = previousBaseUrl,
+                token = previousToken,
                 deviceKey = deviceKey,
                 channelType = "private",
             )
@@ -278,37 +278,52 @@ class ChannelSubscriptionRepository(
         if (normalizedToken.isEmpty()) {
             throw ChannelSubscriptionException("Missing system token for provider route")
         }
+        val deviceKey = ensureDeviceIdentity(config)
         val previousToken = settingsRepository.getFcmToken()?.trim()?.ifEmpty { null }
         if (previousToken != normalizedToken) {
             settingsRepository.setFcmToken(normalizedToken)
         }
-        val existingDeviceKey = settingsRepository.getProviderDeviceKey(platform = "android")
-        if (!previousToken.isNullOrBlank() && previousToken != normalizedToken) {
-            runCatching {
-                retireOldProviderToken(
-                    config = config,
-                    deviceKey = existingDeviceKey?.trim().orEmpty(),
-                    oldProviderToken = previousToken,
-                )
-            }.onFailure { error ->
-                io.ethan.pushgo.util.SilentSink.w(TAG, "retire old FCM token failed: ${error.message}", error)
-            }
-        }
         val upserted = service.upsertDeviceChannel(
             baseUrl = config.address,
             token = config.token,
-            deviceKey = existingDeviceKey,
+            deviceKey = deviceKey,
             platform = "android",
             channelType = FCM_CHANNEL_TYPE,
             providerToken = normalizedToken,
         )
         val resolvedDeviceKey = upserted.deviceKey.trim()
-        settingsRepository.setProviderDeviceKey(platform = "android", deviceKey = resolvedDeviceKey)
+        settingsRepository.setDeviceKey(resolvedDeviceKey)
+        if (previousToken != null && previousToken != normalizedToken) {
+            runCatching {
+                service.retireProviderToken(
+                    baseUrl = config.address,
+                    token = config.token,
+                    platform = "android",
+                    providerToken = previousToken,
+                )
+            }
+        }
+        return resolvedDeviceKey
+    }
+
+    private suspend fun ensureDeviceIdentity(config: ServerConfig): String {
+        val existingDeviceKey = settingsRepository.getDeviceKey()
+        val registered = service.registerDevice(
+            baseUrl = config.address,
+            token = config.token,
+            platform = "android",
+            deviceKey = existingDeviceKey,
+        )
+        val resolvedDeviceKey = registered.deviceKey.trim()
+        if (resolvedDeviceKey.isEmpty()) {
+            throw ChannelSubscriptionException("gateway response missing device_key")
+        }
+        settingsRepository.setDeviceKey(resolvedDeviceKey)
         return resolvedDeviceKey
     }
 
     private suspend fun resolveProviderDeviceKeyForIngress(config: ServerConfig): String {
-        val cached = settingsRepository.getProviderDeviceKey(platform = "android")
+        val cached = settingsRepository.getDeviceKey()
             ?.trim()
             ?.ifEmpty { null }
         if (cached != null) {
@@ -318,7 +333,7 @@ class ChannelSubscriptionRepository(
             ?.trim()
             ?.ifEmpty { null }
             ?: fetchFcmTokenForIngress()
-            ?: throw ChannelSubscriptionException("Missing provider device_key")
+            ?: throw ChannelSubscriptionException("Missing canonical device_key")
         return ensureProviderRoute(token, config)
     }
 
@@ -352,32 +367,6 @@ class ChannelSubscriptionRepository(
             ?.also { token ->
                 settingsRepository.setFcmToken(token)
             }
-    }
-
-    private suspend fun retireOldProviderToken(
-        config: ServerConfig,
-        deviceKey: String,
-        oldProviderToken: String,
-    ) {
-        val normalizedOldToken = oldProviderToken.trim()
-        if (normalizedOldToken.isEmpty()) return
-        val requestedDeviceKey = deviceKey.trim().ifEmpty { null }
-        val upserted = service.upsertDeviceChannel(
-            baseUrl = config.address,
-            token = config.token,
-            deviceKey = requestedDeviceKey,
-            platform = "android",
-            channelType = FCM_CHANNEL_TYPE,
-            providerToken = normalizedOldToken,
-        )
-        val resolvedDeviceKey = upserted.deviceKey.trim()
-        settingsRepository.setProviderDeviceKey(platform = "android", deviceKey = resolvedDeviceKey)
-        service.deleteDeviceChannel(
-            baseUrl = config.address,
-            token = config.token,
-            deviceKey = resolvedDeviceKey,
-            channelType = FCM_CHANNEL_TYPE,
-        )
     }
 
     private suspend fun subscribeInternal(

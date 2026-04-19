@@ -67,12 +67,13 @@ class ProviderGatewayIntegrationDeviceTest {
         val deviceKey = container.channelRepository.syncProviderDeviceToken(deviceToken)
         val password = "benchmark-123"
         val alias = "it-provider-${System.currentTimeMillis()}"
+        val opSuffix = UUID.randomUUID().toString().replace("-", "")
         val subscription = container.channelRepository.createChannel(alias, password, deviceToken)
         val channelId = subscription.channelId
 
         val knownBefore = diagnosticsDeliveryIds(channelId).toMutableSet()
-        sendMessage(channelId, password, "it-op-msg-1")
-        sendMessage(channelId, password, "it-op-msg-2")
+        sendMessage(channelId, password, "it-op-msg-1-$opSuffix")
+        sendMessage(channelId, password, "it-op-msg-2-$opSuffix")
 
         val created = waitForNewDeliveryIds(channelId, knownBefore, expected = 2)
         val first = created.first()
@@ -117,17 +118,19 @@ class ProviderGatewayIntegrationDeviceTest {
         container.channelRepository.syncProviderDeviceToken(deviceToken)
         val password = "benchmark-123"
         val alias = "it-entity-${System.currentTimeMillis()}"
+        val opSuffix = UUID.randomUUID().toString().replace("-", "")
         val subscription = container.channelRepository.createChannel(alias, password, deviceToken)
         val channelId = subscription.channelId
 
         val knownBefore = diagnosticsDeliveryIds(channelId).toMutableSet()
-        val thingId = sendThingCreate(channelId, password, "it-op-thing-create")
+        val thingId = sendThingCreate(channelId, password, "it-op-thing-create-$opSuffix")
 
-        sendEventCreate(channelId, password, "it-op-event-top", thingId = null)
-        sendEventCreate(channelId, password, "it-op-event-sub", thingId = thingId)
-        sendMessage(channelId, password, "it-op-msg-entity-flow")
+        sendEventCreate(channelId, password, "it-op-event-top-$opSuffix", thingId = null)
+        sendEventCreate(channelId, password, "it-op-event-sub-$opSuffix", thingId = thingId)
+        sendMessage(channelId, password, "it-op-msg-entity-flow-$opSuffix")
 
         waitForNewDeliveryIds(channelId, knownBefore, expected = 4)
+        val totalBeforePull = container.messageRepository.totalCount()
 
         val persisted = ProviderIngressCoordinator.pullPersistAndDrainAcks(
             context = context,
@@ -138,7 +141,11 @@ class ProviderGatewayIntegrationDeviceTest {
             settingsRepository = container.settingsRepository,
             deliveryId = null,
         )
-        assertTrue("expected at least one persisted record", persisted >= 1)
+        val totalAfterPull = container.messageRepository.totalCount()
+        assertTrue(
+            "expected ingress messages to be persisted either by explicit pull or by background ingestion",
+            persisted >= 1 || totalAfterPull > totalBeforePull,
+        )
         assertTrue(container.channelRepository.pullMessages(null).isEmpty())
     }
 

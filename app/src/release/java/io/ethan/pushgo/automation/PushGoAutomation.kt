@@ -46,7 +46,7 @@ object PushGoAutomation {
         val gatewayTokenPresent: Boolean,
         val useFcmChannel: Boolean,
         val providerMode: String,
-        val providerDeviceKeyPresent: Boolean,
+        val deviceKeyPresent: Boolean,
         val privateRoute: String,
         val privateTransport: String,
         val privateStage: String,

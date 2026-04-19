@@ -57,7 +57,7 @@ object PushGoAutomation {
         val gatewayTokenPresent: Boolean,
         val useFcmChannel: Boolean,
         val providerMode: String,
-        val providerDeviceKeyPresent: Boolean,
+        val deviceKeyPresent: Boolean,
         val privateRoute: String,
         val privateTransport: String,
         val privateStage: String,
@@ -307,7 +307,7 @@ object PushGoAutomation {
             .put("gateway_token_present", gatewayTokenPresent)
             .put("use_fcm_channel", useFcmChannel)
             .put("provider_mode", providerMode)
-            .put("provider_device_key_present", providerDeviceKeyPresent)
+            .put("device_key_present", deviceKeyPresent)
             .put("private_route", privateRoute)
             .put("private_transport", privateTransport)
             .put("private_stage", privateStage)

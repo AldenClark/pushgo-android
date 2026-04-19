@@ -10,9 +10,104 @@ import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
+import org.junit.Assert.fail
 import org.junit.Test
 
 class ChannelSubscriptionServiceIngressContractTest {
+
+    @Test
+    fun registerDevice_postsIdentityOnlyContract() = runBlocking {
+        CapturingGatewayServer(
+            responseBody = """{"success":true,"data":{"device_key":"device-001"}}"""
+        ).use { server ->
+            val service = ChannelSubscriptionService()
+            val result = service.registerDevice(
+                baseUrl = server.baseUrl,
+                token = "token-001",
+                platform = "android",
+                deviceKey = "device-001",
+            )
+            assertEquals("device-001", result.deviceKey)
+
+            val request = server.firstRequest()
+            assertEquals("POST", request.method)
+            assertEquals("/device/register", request.path)
+            val body = JSONObject(request.body)
+            assertEquals("device-001", body.getString("device_key"))
+            assertEquals("android", body.getString("platform"))
+            assertFalse(body.has("channel_type"))
+            assertFalse(body.has("provider_token"))
+        }
+    }
+
+    @Test
+    fun upsertDeviceChannel_postsRouteContract() = runBlocking {
+        CapturingGatewayServer(
+            responseBody = """{"success":true,"data":{"device_key":"device-001"}}"""
+        ).use { server ->
+            val service = ChannelSubscriptionService()
+            val result = service.upsertDeviceChannel(
+                baseUrl = server.baseUrl,
+                token = "token-001",
+                deviceKey = "device-001",
+                platform = "android",
+                channelType = "fcm",
+                providerToken = "provider-token-001",
+            )
+            assertEquals("device-001", result.deviceKey)
+
+            val request = server.firstRequest()
+            assertEquals("POST", request.method)
+            assertEquals("/channel/device", request.path)
+            val body = JSONObject(request.body)
+            assertEquals("device-001", body.getString("device_key"))
+            assertEquals("android", body.getString("platform"))
+            assertEquals("fcm", body.getString("channel_type"))
+            assertEquals("provider-token-001", body.getString("provider_token"))
+        }
+    }
+
+    @Test
+    fun registerDevice_rejectsMissingDeviceKeyInGatewayResponse() = runBlocking {
+        CapturingGatewayServer(
+            responseBody = """{"success":true,"data":{"device_key":""}}"""
+        ).use { server ->
+            val service = ChannelSubscriptionService()
+            try {
+                service.registerDevice(
+                    baseUrl = server.baseUrl,
+                    token = "token-001",
+                    platform = "android",
+                    deviceKey = "device-001",
+                )
+                fail("expected missing device_key response to throw")
+            } catch (error: ChannelSubscriptionException) {
+                assertEquals("gateway response missing device_key", error.message)
+            }
+        }
+    }
+
+    @Test
+    fun upsertDeviceChannel_rejectsMissingDeviceKeyInGatewayResponse() = runBlocking {
+        CapturingGatewayServer(
+            responseBody = """{"success":true,"data":{"device_key":""}}"""
+        ).use { server ->
+            val service = ChannelSubscriptionService()
+            try {
+                service.upsertDeviceChannel(
+                    baseUrl = server.baseUrl,
+                    token = "token-001",
+                    deviceKey = "device-001",
+                    platform = "android",
+                    channelType = "fcm",
+                    providerToken = "provider-token-001",
+                )
+                fail("expected missing device_key response to throw")
+            } catch (error: ChannelSubscriptionException) {
+                assertEquals("gateway response missing device_key", error.message)
+            }
+        }
+    }
 
     @Test
     fun pullMessages_omitsDeliveryIdWhenNull() = runBlocking {

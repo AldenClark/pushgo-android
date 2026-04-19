@@ -625,17 +625,13 @@ class PrivateChannelClient(
     ) {
         val (baseUrl, token) = channelRepository.loadGatewayConfig()
         withDeviceStateRetry(baseUrl, token) { state ->
-            privatePost(baseUrl, token, "/device/register", JSONObject().apply {
+            privatePost(baseUrl, token, "/channel/device", JSONObject().apply {
                 put("device_key", state.deviceKey)
                 put("platform", "android")
                 put("channel_type", channelType.trim().lowercase())
                 if (!providerToken.isNullOrBlank()) {
                     put("provider_token", providerToken.trim())
                 }
-            })
-            privatePost(baseUrl, token, "/channel/device/delete", JSONObject().apply {
-                put("device_key", state.deviceKey)
-                put("channel_type", "private")
             })
         }
         // Next private operation must not be skipped by route ensure cache.
@@ -646,19 +642,22 @@ class PrivateChannelClient(
     suspend fun switchToPrivateAndRetireProvider(channelType: String, providerToken: String?) {
         val (baseUrl, token) = channelRepository.loadGatewayConfig()
         withDeviceStateRetry(baseUrl, token) { state ->
-            if (!providerToken.isNullOrBlank()) {
-                privatePost(baseUrl, token, "/device/register", JSONObject().apply {
-                    put("device_key", state.deviceKey)
-                    put("platform", "android")
-                    put("channel_type", channelType.trim().lowercase())
-                    put("provider_token", providerToken.trim())
-                })
-            }
             ensurePrivateRoute(baseUrl, token, state, force = true)
-            privatePost(baseUrl, token, "/channel/device/delete", JSONObject().apply {
-                put("device_key", state.deviceKey)
-                put("channel_type", channelType.trim().lowercase())
-            })
+            val normalizedProviderToken = providerToken?.trim().orEmpty()
+            if (
+                channelType.trim().equals("fcm", ignoreCase = true) &&
+                normalizedProviderToken.isNotEmpty()
+            ) {
+                privatePost(
+                    baseUrl,
+                    token,
+                    "/channel/device/provider-token/retire",
+                    JSONObject().apply {
+                        put("platform", "android")
+                        put("provider_token", normalizedProviderToken)
+                    },
+                )
+            }
         }
     }
 
@@ -1875,7 +1874,6 @@ class PrivateChannelClient(
         }
         val register = privatePost(baseUrl, token, "/device/register", JSONObject().apply {
             put("platform", "android")
-            put("channel_type", "private")
             if (!existing?.deviceKey.isNullOrBlank()) {
                 put("device_key", existing.deviceKey)
             }
@@ -1941,7 +1939,7 @@ class PrivateChannelClient(
         }
         val owner = createdDeferred ?: return
         try {
-            privatePost(baseUrl, token, "/device/register", JSONObject().apply {
+            privatePost(baseUrl, token, "/channel/device", JSONObject().apply {
                 put("device_key", state.deviceKey)
                 put("platform", "android")
                 put("channel_type", "private")
@@ -2144,10 +2142,12 @@ class PrivateChannelClient(
         if (resolvedDeviceKey.isEmpty()) {
             return
         }
-        val existing = loadState()
-        if (existing?.deviceKey == resolvedDeviceKey) {
+        val existingDeviceKey = settingsRepository.peekDeviceKey()?.trim()?.ifEmpty { null }
+        if (existingDeviceKey == resolvedDeviceKey) {
             return
         }
+        settingsRepository.persistDeviceKey(resolvedDeviceKey)
+        val existing = loadState()
         val nextState = if (existing != null) {
             existing.copy(deviceKey = resolvedDeviceKey)
         } else {
@@ -2911,8 +2911,12 @@ class PrivateChannelClient(
         val raw = prefs.getString(KEY_STATE, null) ?: return null
         return runCatching {
             val obj = JSONObject(raw)
+            val resolvedDeviceKey = settingsRepository.peekDeviceKey()?.trim()?.ifEmpty { null }
+            if (resolvedDeviceKey.isNullOrEmpty()) {
+                return@runCatching null
+            }
             DeviceState(
-                deviceKey = obj.optString("device_key"),
+                deviceKey = resolvedDeviceKey,
                 issuedAt = obj.optLong("issued_at", 0),
                 subscribedChannels = obj.optJSONArray("subscribed_channels")
                     ?.let { arr ->
@@ -2931,8 +2935,8 @@ class PrivateChannelClient(
     }
 
     private fun saveState(state: DeviceState) {
+        settingsRepository.persistDeviceKey(state.deviceKey)
         val obj = JSONObject().apply {
-            put("device_key", state.deviceKey)
             put("issued_at", state.issuedAt)
             put("subscribed_channels", org.json.JSONArray(state.subscribedChannels))
             put("resume_token", state.resumeToken ?: "")

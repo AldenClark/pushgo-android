@@ -8,7 +8,9 @@ class ChannelSubscriptionServiceEndpointsTest {
     @Test
     fun deviceRouteEndpoints_matchGatewayContract() {
         assertEquals("/device/register", ChannelSubscriptionService.DEVICE_REGISTER_ENDPOINT)
+        assertEquals("/channel/device", ChannelSubscriptionService.DEVICE_ROUTE_ENDPOINT)
         assertEquals("/channel/device/delete", ChannelSubscriptionService.DEVICE_CHANNEL_DELETE_ENDPOINT)
+        assertEquals("/channel/device/provider-token/retire", ChannelSubscriptionService.PROVIDER_TOKEN_RETIRE_ENDPOINT)
         assertEquals("/messages/pull", ChannelSubscriptionService.PULL_MESSAGE_ENDPOINT)
         assertEquals("/messages/ack", ChannelSubscriptionService.ACK_MESSAGE_ENDPOINT)
     }

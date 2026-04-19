@@ -629,7 +629,7 @@ class SettingsViewModel(
                 val previousToken = settingsRepository.getGatewayToken()
                     ?.trim()
                     ?.ifEmpty { null }
-                val previousDeviceKey = settingsRepository.getProviderDeviceKey(platform = "android")
+                val previousDeviceKey = settingsRepository.getDeviceKey()
                     ?.trim()
                     ?.ifEmpty { null }
                 val rawAddress = gatewayAddress.trim().ifBlank { AppConstants.defaultServerAddress }
@@ -691,20 +691,20 @@ class SettingsViewModel(
                     privateChannelClient.onGatewayConfigChanged()
                 }
                 if (oldIdentity != newIdentity && !previousDeviceKey.isNullOrBlank()) {
-                    val legacyAddress = previousAddress
-                    val legacyToken = previousToken
-                    val legacyDeviceKey = previousDeviceKey
+                    val previousGatewayAddress = previousAddress
+                    val previousGatewayToken = previousToken
+                    val previousGatewayDeviceKey = previousDeviceKey
                     viewModelScope.launch {
                         runCatching {
-                            channelRepository.cleanupLegacyGatewayDeviceRoute(
-                                legacyBaseUrl = legacyAddress,
-                                legacyToken = legacyToken,
-                                legacyDeviceKey = legacyDeviceKey,
+                            channelRepository.cleanupPreviousGatewayDeviceRoute(
+                                previousBaseUrl = previousGatewayAddress,
+                                previousToken = previousGatewayToken,
+                                previousDeviceKey = previousGatewayDeviceKey,
                             )
                         }.onFailure {
                             io.ethan.pushgo.util.SilentSink.w(
                                 TAG,
-                                "legacy gateway device cleanup failed: ${it.message}",
+                                "previous gateway device cleanup failed: ${it.message}",
                                 it,
                             )
                         }

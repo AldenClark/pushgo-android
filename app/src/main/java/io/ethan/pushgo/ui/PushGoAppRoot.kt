@@ -606,7 +606,7 @@ private fun buildAutomationState(
         messagePageEnabled = snapshot.messagePageEnabled, eventPageEnabled = snapshot.eventPageEnabled, thingPageEnabled = snapshot.thingPageEnabled,
         notificationKeyConfigured = snapshot.notificationKeyConfigured, notificationKeyEncoding = snapshot.notificationKeyEncoding,
         gatewayBaseUrl = snapshot.gatewayBaseUrl, gatewayTokenPresent = snapshot.gatewayTokenPresent,
-        useFcmChannel = snapshot.useFcmChannel, providerMode = snapshot.providerMode, providerDeviceKeyPresent = snapshot.providerDeviceKeyPresent,
+        useFcmChannel = snapshot.useFcmChannel, providerMode = snapshot.providerMode, deviceKeyPresent = snapshot.deviceKeyPresent,
         privateRoute = snapshot.privateRoute, privateTransport = snapshot.privateTransport, privateStage = snapshot.privateStage, privateDetail = snapshot.privateDetail,
         ackPendingCount = snapshot.ackPendingCount, channelCount = snapshot.channelCount,
         lastNotificationAction = snapshot.lastNotificationAction, lastNotificationTarget = snapshot.lastNotificationTarget,

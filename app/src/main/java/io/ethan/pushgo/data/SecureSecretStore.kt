@@ -7,11 +7,11 @@ interface SecureSecretStore {
     fun fcmToken(): String?
     fun setFcmToken(token: String?)
 
+    fun deviceKey(): String?
+    fun setDeviceKey(deviceKey: String?)
+
     fun notificationKeyBytes(): ByteArray?
     fun setNotificationKeyBytes(value: ByteArray?)
-
-    fun providerDeviceKey(platform: String): String?
-    fun setProviderDeviceKey(platform: String, deviceKey: String?)
 
     fun channelPassword(gatewayUrl: String, channelId: String): String?
     fun setChannelPassword(gatewayUrl: String, channelId: String, password: String?)
