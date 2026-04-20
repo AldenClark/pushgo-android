@@ -5,10 +5,9 @@ import io.ethan.pushgo.data.db.AppSettingsDao
 import io.ethan.pushgo.data.db.AppSettingsEntity
 import io.ethan.pushgo.data.model.KeyEncoding
 import io.ethan.pushgo.data.model.MessageListSortMode
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.runBlocking
 import java.time.Instant
 
 class SettingsRepository(
@@ -16,25 +15,35 @@ class SettingsRepository(
     private val secretStore: SecureSecretStore,
     private val settingsCache: SharedPreferences,
 ) {
-    init {
-        bootstrapCacheFromDatabase()
-    }
-
     private val settingsFlow = appSettingsDao.observe()
 
-    val serverAddressFlow: Flow<String?> = settingsFlow.map { it?.serverAddress }
+    val serverAddressFlow: Flow<String?> = settingsFlow
+        .map { it?.serverAddress }
+        .distinctUntilChanged()
     val messagePageEnabledFlow: Flow<Boolean> =
-        settingsFlow.map { it?.isMessagePageEnabled ?: getCachedMessagePageEnabled() }
+        settingsFlow
+            .map { it?.isMessagePageEnabled ?: getCachedMessagePageEnabled() }
+            .distinctUntilChanged()
     val eventPageEnabledFlow: Flow<Boolean> =
-        settingsFlow.map { it?.isEventPageEnabled ?: getCachedEventPageEnabled() }
+        settingsFlow
+            .map { it?.isEventPageEnabled ?: getCachedEventPageEnabled() }
+            .distinctUntilChanged()
     val thingPageEnabledFlow: Flow<Boolean> =
-        settingsFlow.map { it?.isThingPageEnabled ?: getCachedThingPageEnabled() }
+        settingsFlow
+            .map { it?.isThingPageEnabled ?: getCachedThingPageEnabled() }
+            .distinctUntilChanged()
     val useFcmChannelFlow: Flow<Boolean> =
-        settingsFlow.map { it?.useFcmChannel ?: getCachedUseFcmChannel() }
+        settingsFlow
+            .map { it?.useFcmChannel ?: getCachedUseFcmChannel() }
+            .distinctUntilChanged()
     val updateAutoCheckEnabledFlow: Flow<Boolean> =
-        settingsFlow.map { it?.updateAutoCheckEnabled ?: getCachedUpdateAutoCheckEnabled() }
+        settingsFlow
+            .map { it?.updateAutoCheckEnabled ?: getCachedUpdateAutoCheckEnabled() }
+            .distinctUntilChanged()
     val updateBetaChannelEnabledFlow: Flow<Boolean> =
-        settingsFlow.map { it?.updateBetaChannelEnabled ?: getCachedUpdateBetaChannelEnabled() }
+        settingsFlow
+            .map { it?.updateBetaChannelEnabled ?: getCachedUpdateBetaChannelEnabled() }
+            .distinctUntilChanged()
 
     fun getCachedUseFcmChannel(): Boolean =
         settingsCache.getBoolean(KEY_USE_FCM_CHANNEL, true)
@@ -100,15 +109,6 @@ class SettingsRepository(
             .putLong(KEY_UPDATE_SCHEDULED_CHECK_INTERVAL_SECONDS, normalizedScheduled)
             .putLong(KEY_UPDATE_IMPATIENT_REMINDER_INTERVAL_SECONDS, normalizedImpatient)
             .commit()
-    }
-
-    private fun bootstrapCacheFromDatabase() {
-        val settings = runCatching {
-            runBlocking(Dispatchers.IO) { appSettingsDao.get() }
-        }.getOrNull() ?: return
-        cacheUseFcmChannel(settings.useFcmChannel)
-        cachePageVisibility(settings)
-        cacheUpdatePreferences(settings)
     }
 
     private fun defaultSettings(): AppSettingsEntity {

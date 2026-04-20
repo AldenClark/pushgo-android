@@ -20,6 +20,36 @@ PushGo Android policy:
 
 ## [Unreleased]
 
+### Added
+- Added `SettingsUiState` read-model consolidation for `SettingsScreen`.
+- Added injectable runtime/hooks pipeline for inbound processing:
+  - `InboundProcessorRuntimeResolver`
+  - `InboundProcessorHooksFactory`
+  - `InboundProcessorHooks`
+- Added inbound reliability test coverage:
+  - `InboundMessageWorkerPayloadCodecTest`
+  - `InboundIngressRouteResolverTest`
+  - `InboundMessageProcessorTest`
+- Added `PushTokenProvider` abstraction and default `FirebasePushTokenProvider`.
+- Added `AppCoroutineDispatchers` for centralized dispatcher wiring.
+
+### Changed
+- Bumped Android app `versionName` default to `v1.3.0-beta.1`.
+- Refactored `InboundMessageWorker` to:
+  - use unique work enqueue (`KEEP`) for dedupe,
+  - use exponential backoff and bounded retries,
+  - enrich failure diagnostics with attempt count.
+- Refactored `InboundMessageProcessor` to routed processing (`provider_wakeup` / `direct` / `drop`) with explicit runtime-unavailable signaling.
+- Updated `PushGoMessagingService` ingress path to always enqueue worker processing first.
+- Updated `SettingsRepository` setting flows with `distinctUntilChanged()` to reduce redundant emissions.
+- Updated `ChannelSubscriptionService` IO usage to injected dispatcher path.
+- Updated `MessageDetailScreen` and `MessageSearchScreen` to lifecycle-aware flow collection.
+
+### Fixed
+- Fixed a startup-window ingress risk where messages could be ignored when runtime storage was not yet ready; now handled through worker retry semantics.
+- Fixed event-list incremental load trigger to list-level snapshot observation.
+- Fixed message-detail load failure surfacing with explicit error state handling.
+
 ## [v1.2.0] - 2026-04-20
 
 ### Added

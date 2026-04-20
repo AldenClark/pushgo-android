@@ -323,6 +323,21 @@ fun EventListScreen(
         }
     }
 
+    LaunchedEffect(listState, filteredEvents.size, hasMoreEvents) {
+        snapshotFlow {
+            val lastVisibleIndex = listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: -1
+            val totalItems = listState.layoutInfo.totalItemsCount
+            lastVisibleIndex to totalItems
+        }
+            .distinctUntilChanged()
+            .collect { (lastVisibleIndex, totalItems) ->
+                if (!hasMoreEvents || isLoadingMoreEvents || totalItems <= 0) return@collect
+                if (lastVisibleIndex >= totalItems - 7) {
+                    loadMoreEventsIfNeeded()
+                }
+            }
+    }
+
     val channelOptions = remember(allEvents) { 
         allEvents.mapNotNull { it.channelId?.trim()?.takeIf { v -> v.isNotEmpty() } }.distinct().sorted() 
     }
@@ -421,8 +436,7 @@ fun EventListScreen(
                     )
                 }
             } else {
-                itemsIndexed(filteredEvents, key = { _, item -> item.eventId }) { index, event ->
-                    if (index >= filteredEvents.lastIndex - 6) { LaunchedEffect(event.eventId) { loadMoreEventsIfNeeded() } }
+                itemsIndexed(filteredEvents, key = { _, item -> item.eventId }) { _, event ->
                     EventListRowItem(modifier = Modifier.animateItem(), event = event, onClick = { if (isSelectionMode) toggleSelection(event.eventId) else { selectedEvent = event; onEventDetailOpened(event.eventId) } }, selectionMode = isSelectionMode, selected = selectedEventIds.contains(event.eventId), onToggleSelection = { toggleSelection(event.eventId) })
                 }
             }

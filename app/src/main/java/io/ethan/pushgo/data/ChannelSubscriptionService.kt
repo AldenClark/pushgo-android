@@ -1,6 +1,7 @@
 package io.ethan.pushgo.data
 
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import java.io.BufferedReader
@@ -58,7 +59,9 @@ data class PullItem(
     val payload: Map<String, String>,
 )
 
-class ChannelSubscriptionService {
+class ChannelSubscriptionService(
+    private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
+) {
     companion object {
         internal const val DEVICE_REGISTER_ENDPOINT = "/device/register"
         internal const val DEVICE_ROUTE_ENDPOINT = "/channel/device"
@@ -77,7 +80,7 @@ class ChannelSubscriptionService {
         baseUrl: String,
         token: String?,
         channelId: String,
-    ): ChannelExistsResult = withContext(Dispatchers.IO) {
+    ): ChannelExistsResult = withContext(ioDispatcher) {
         val encoded = URLEncoder.encode(channelId, "UTF-8")
         val endpoint = buildUrl(baseUrl, "/channel/exists?channel_id=$encoded")
         val response = execute(
@@ -101,7 +104,7 @@ class ChannelSubscriptionService {
         channelId: String?,
         channelName: String?,
         password: String,
-    ): ChannelSubscribeResult = withContext(Dispatchers.IO) {
+    ): ChannelSubscribeResult = withContext(ioDispatcher) {
         val endpoint = buildUrl(baseUrl, "/channel/subscribe")
         val payload = JSONObject().apply {
             put("device_key", deviceKey)
@@ -132,7 +135,7 @@ class ChannelSubscriptionService {
         token: String?,
         deviceKey: String,
         channelId: String,
-    ): Boolean = withContext(Dispatchers.IO) {
+    ): Boolean = withContext(ioDispatcher) {
         val endpoint = buildUrl(baseUrl, "/channel/unsubscribe")
         val payload = JSONObject().apply {
             put("device_key", deviceKey)
@@ -148,7 +151,7 @@ class ChannelSubscriptionService {
         token: String?,
         platform: String,
         deviceKey: String?,
-    ): DeviceRegisterResult = withContext(Dispatchers.IO) {
+    ): DeviceRegisterResult = withContext(ioDispatcher) {
         val endpoint = buildUrl(baseUrl, DEVICE_REGISTER_ENDPOINT)
         val payload = JSONObject().apply {
             if (!deviceKey.isNullOrBlank()) {
@@ -172,7 +175,7 @@ class ChannelSubscriptionService {
         platform: String,
         channelType: String,
         providerToken: String?,
-    ): DeviceChannelUpsertResult = withContext(Dispatchers.IO) {
+    ): DeviceChannelUpsertResult = withContext(ioDispatcher) {
         val normalizedDeviceKey = deviceKey?.trim().orEmpty()
         if (normalizedDeviceKey.isEmpty()) {
             throw ChannelSubscriptionException("Missing device_key")
@@ -200,7 +203,7 @@ class ChannelSubscriptionService {
         token: String?,
         deviceKey: String,
         channelType: String,
-    ) = withContext(Dispatchers.IO) {
+    ) = withContext(ioDispatcher) {
         val endpoint = buildUrl(baseUrl, DEVICE_CHANNEL_DELETE_ENDPOINT)
         val payload = JSONObject().apply {
             put("device_key", deviceKey)
@@ -215,7 +218,7 @@ class ChannelSubscriptionService {
         token: String?,
         platform: String,
         providerToken: String,
-    ) = withContext(Dispatchers.IO) {
+    ) = withContext(ioDispatcher) {
         val normalizedProviderToken = providerToken.trim()
         if (normalizedProviderToken.isEmpty()) {
             return@withContext
@@ -234,7 +237,7 @@ class ChannelSubscriptionService {
         token: String?,
         deviceKey: String,
         deliveryId: String? = null,
-    ): List<PullItem> = withContext(Dispatchers.IO) {
+    ): List<PullItem> = withContext(ioDispatcher) {
         val normalizedDeviceKey = deviceKey.trim()
         if (normalizedDeviceKey.isEmpty()) {
             throw ChannelSubscriptionException("Missing device_key")
@@ -273,7 +276,7 @@ class ChannelSubscriptionService {
         token: String?,
         deviceKey: String,
         deliveryId: String,
-    ): Boolean = withContext(Dispatchers.IO) {
+    ): Boolean = withContext(ioDispatcher) {
         val normalizedDeviceKey = deviceKey.trim()
         if (normalizedDeviceKey.isEmpty()) {
             throw ChannelSubscriptionException("Missing device_key")
@@ -298,7 +301,7 @@ class ChannelSubscriptionService {
         channelId: String,
         channelName: String,
         password: String,
-    ): ChannelRenameResult = withContext(Dispatchers.IO) {
+    ): ChannelRenameResult = withContext(ioDispatcher) {
         val endpoint = buildUrl(baseUrl, "/channel/rename")
         val payload = JSONObject().apply {
             put("channel_id", channelId)
@@ -320,7 +323,7 @@ class ChannelSubscriptionService {
         token: String?,
         deviceKey: String,
         channels: List<ChannelSyncItem>,
-    ): ChannelSyncSummary = withContext(Dispatchers.IO) {
+    ): ChannelSyncSummary = withContext(ioDispatcher) {
         val endpoint = buildUrl(baseUrl, "/channel/sync")
         val payload = JSONObject().apply {
             put("device_key", deviceKey)
@@ -368,7 +371,7 @@ class ChannelSubscriptionService {
         token: String?,
         payload: JSONObject,
         endpointPath: String = "/event/update",
-    ): EventSendResult = withContext(Dispatchers.IO) {
+    ): EventSendResult = withContext(ioDispatcher) {
         val endpoint = buildUrl(baseUrl, endpointPath)
         val response = execute(endpoint, token, "POST", payload)
         val data = response.data ?: throw ChannelSubscriptionException("Invalid response")

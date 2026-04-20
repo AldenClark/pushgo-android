@@ -14,7 +14,6 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
@@ -23,6 +22,7 @@ import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavHostController
 import io.ethan.pushgo.R
@@ -42,8 +42,8 @@ fun MessageSearchScreen(
     factory: PushGoViewModelFactory,
 ) {
     val viewModel: MessageSearchViewModel = viewModel(factory = factory)
-    val query by viewModel.queryState.collectAsState()
-    val results by viewModel.results.collectAsState()
+    val query by viewModel.queryState.collectAsStateWithLifecycle()
+    val results by viewModel.results.collectAsStateWithLifecycle()
     val bottomGestureInset = rememberBottomGestureInset()
 
     LaunchedEffect(query, results.size) {

@@ -8,6 +8,8 @@ import io.ethan.pushgo.update.UpdateManager
 
 class AppContainer(context: Context) {
     val appContext = context.applicationContext
+    val coroutineDispatchers = AppCoroutineDispatchers()
+    val pushTokenProvider: PushTokenProvider = FirebasePushTokenProvider()
     internal val database = PushGoDatabase.build(appContext)
     internal val secureSecretStore: SecureSecretStore = AndroidKeystoreSecretStore(appContext)
 
@@ -56,6 +58,8 @@ class AppContainer(context: Context) {
         store = channelStore,
         settingsRepository = settingsRepository,
         messageStateCoordinator = messageStateCoordinator,
+        pushTokenProvider = pushTokenProvider,
+        service = ChannelSubscriptionService(ioDispatcher = coroutineDispatchers.io),
     )
     val privateChannelClient = PrivateChannelClient(
         appContext = appContext,

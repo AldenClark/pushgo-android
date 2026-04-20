@@ -4,10 +4,10 @@ import android.content.Context
 import androidx.annotation.StringRes
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.google.firebase.messaging.FirebaseMessaging
 import io.ethan.pushgo.R
 import io.ethan.pushgo.data.AppConstants
 import io.ethan.pushgo.data.ChannelIdException
@@ -19,6 +19,7 @@ import io.ethan.pushgo.data.ChannelSubscriptionRepository
 import io.ethan.pushgo.data.MessageRepository
 import io.ethan.pushgo.data.NotificationKeyValidationException
 import io.ethan.pushgo.data.NotificationKeyValidator
+import io.ethan.pushgo.data.PushTokenProvider
 import io.ethan.pushgo.data.SettingsRepository
 import io.ethan.pushgo.data.model.ChannelSubscription
 import io.ethan.pushgo.data.model.KeyEncoding
@@ -35,13 +36,15 @@ import io.ethan.pushgo.util.FcmSupport
 import io.ethan.pushgo.util.UrlValidators
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeout
 import java.time.Instant
 import java.time.temporal.ChronoUnit
-import kotlin.coroutines.resume
-import kotlin.coroutines.resumeWithException
 
 
 enum class ClearOption {
@@ -60,6 +63,7 @@ class SettingsViewModel(
     private val messageStateCoordinator: MessageStateCoordinator,
     private val privateChannelClient: PrivateChannelClient,
     private val updateManager: UpdateManager,
+    private val pushTokenProvider: PushTokenProvider,
 ) : ViewModel() {
     companion object {
         private const val TAG = "SettingsViewModel"
@@ -153,6 +157,14 @@ class SettingsViewModel(
         private set
     var shouldShowPrivateChannelWhitelistDialog by mutableStateOf(false)
         private set
+
+    val uiState: StateFlow<SettingsUiState> = snapshotFlow { buildUiState() }
+        .distinctUntilChanged()
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.Eagerly,
+            initialValue = buildUiState(),
+        )
 
     private var hasLoadedGatewayAddress = false
     init {
@@ -580,24 +592,47 @@ class SettingsViewModel(
     }
 
     private suspend fun fetchFcmTokenOnce(): String = withTimeout(AppConstants.fcmTokenTimeoutMs) {
-        kotlinx.coroutines.suspendCancellableCoroutine { cont ->
-            FirebaseMessaging.getInstance().token
-                .addOnSuccessListener { token ->
-                    if (cont.isActive) {
-                        cont.resume(token)
-                    }
-                }
-                .addOnFailureListener { ex ->
-                    if (cont.isActive) {
-                        cont.resumeWithException(IllegalStateException("Unable to get FCM token", ex))
-                    }
-                }
-                .addOnCanceledListener {
-                    if (cont.isActive) {
-                        cont.resumeWithException(IllegalStateException("FCM token task cancelled"))
-                    }
-                }
-        }
+        pushTokenProvider.fetchToken(AppConstants.fcmTokenTimeoutMs)
+            ?: throw IllegalStateException("Unable to get FCM token")
+    }
+
+    private fun buildUiState(): SettingsUiState {
+        return SettingsUiState(
+            gatewayAddress = gatewayAddress,
+            gatewayToken = gatewayToken,
+            deviceToken = deviceToken,
+            useFcmChannel = useFcmChannel,
+            isFcmSupported = isFcmSupported,
+            gatewayPrivateChannelEnabled = gatewayPrivateChannelEnabled,
+            isChannelModeLoaded = isChannelModeLoaded,
+            privateTransportStatus = privateTransportStatus,
+            decryptionKeyInput = decryptionKeyInput,
+            keyEncoding = keyEncoding,
+            decryptionUpdatedAt = decryptionUpdatedAt,
+            isDecryptionConfigured = isDecryptionConfigured,
+            isMessagePageEnabled = isMessagePageEnabled,
+            isEventPageEnabled = isEventPageEnabled,
+            isThingPageEnabled = isThingPageEnabled,
+            updateAutoCheckEnabled = updateAutoCheckEnabled,
+            updateBetaChannelEnabled = updateBetaChannelEnabled,
+            availableUpdate = availableUpdate,
+            updateSuppressedBySkip = updateSuppressedBySkip,
+            updateSuppressedByCooldown = updateSuppressedByCooldown,
+            isSavingGateway = isSavingGateway,
+            isSavingDecryption = isSavingDecryption,
+            isClearing = isClearing,
+            isCheckingUpdates = isCheckingUpdates,
+            isInstallingUpdate = isInstallingUpdate,
+            updateInstallProgressMessage = updateInstallProgressMessage,
+            shouldShowInstallPermissionDialog = shouldShowInstallPermissionDialog,
+            pendingManualInstallApkPath = pendingManualInstallApkPath,
+            shouldShowInstallBlockedDialog = shouldShowInstallBlockedDialog,
+            installBlockedDetail = installBlockedDetail,
+            blockedInstallApkPath = blockedInstallApkPath,
+            errorMessage = errorMessage,
+            successMessage = successMessage,
+            shouldShowPrivateChannelWhitelistDialog = shouldShowPrivateChannelWhitelistDialog,
+        )
     }
 
     fun updateGatewayAddress(value: String) {

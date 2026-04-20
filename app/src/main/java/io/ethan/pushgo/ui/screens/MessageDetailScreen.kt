@@ -42,7 +42,6 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -66,6 +65,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.layout.width
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.core.content.FileProvider
 import coil.compose.AsyncImage
 import io.ethan.pushgo.R
@@ -118,8 +118,9 @@ fun MessageDetailScreen(
         key = messageId,
         factory = MessageDetailViewModelFactory(repository, stateCoordinator, messageId),
     )
-    val message by viewModel.message.collectAsState()
-    val isLoading by viewModel.isLoading.collectAsState()
+    val message by viewModel.message.collectAsStateWithLifecycle()
+    val isLoading by viewModel.isLoading.collectAsStateWithLifecycle()
+    val loadError by viewModel.loadError.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val clipboard = LocalClipboard.current
     val copiedMessage = stringResource(R.string.message_text_copied)
@@ -173,6 +174,18 @@ fun MessageDetailScreen(
                         color = uiColors.accentPrimary
                     )
                 }
+            }
+
+            loadError != null -> {
+                AppEmptyState(
+                    icon = Icons.Outlined.MarkEmailRead,
+                    title = stringResource(R.string.error_request_failed),
+                    description = loadError.orEmpty(),
+                    modifier = Modifier.fillMaxWidth(),
+                    topPadding = 32.dp,
+                    bottomPadding = bottomGestureInset + 24.dp,
+                    iconSize = 44.dp,
+                )
             }
 
             current == null -> {

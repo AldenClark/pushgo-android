@@ -88,6 +88,7 @@ import io.ethan.pushgo.ui.viewmodel.SettingsViewModel
 import androidx.core.app.NotificationManagerCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import io.ethan.pushgo.BuildConfig
 import io.ethan.pushgo.data.AppConstants
@@ -111,6 +112,7 @@ fun SettingsScreen(
     viewModel: SettingsViewModel,
     onBackClick: (() -> Unit)? = null,
 ) {
+    val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val uiColors = PushGoThemeExtras.colors
     val fcmSupported = remember(context) { isFcmSupported(context) }
@@ -161,8 +163,8 @@ fun SettingsScreen(
         }
     }
 
-    LaunchedEffect(viewModel.errorMessage) {
-        val message = viewModel.errorMessage
+    LaunchedEffect(uiState.errorMessage) {
+        val message = uiState.errorMessage
         if (message != null) {
             val text = message.resolve(context)
             Toast.makeText(context, text, Toast.LENGTH_SHORT).show()
@@ -170,8 +172,8 @@ fun SettingsScreen(
             viewModel.consumeError()
         }
     }
-    LaunchedEffect(viewModel.successMessage) {
-        val message = viewModel.successMessage
+    LaunchedEffect(uiState.successMessage) {
+        val message = uiState.successMessage
         if (message != null) {
             if (message is io.ethan.pushgo.ui.viewmodel.ResMessage && message.resId == R.string.message_gateway_saved) {
                 showGatewaySheet = false
@@ -183,8 +185,8 @@ fun SettingsScreen(
         }
     }
 
-    LaunchedEffect(fcmSupported, viewModel.isChannelModeLoaded) {
-        if (viewModel.isChannelModeLoaded) {
+    LaunchedEffect(fcmSupported, uiState.isChannelModeLoaded) {
+        if (uiState.isChannelModeLoaded) {
             viewModel.ensurePrivateTransportWhenFcmUnsupported(context)
         }
     }
@@ -255,7 +257,7 @@ fun SettingsScreen(
                 SettingsSectionHeader(text = stringResource(R.string.section_connection_device))
             }
             item {
-                val gatewaySubtitle = viewModel.gatewayAddress.ifBlank { AppConstants.defaultServerAddress }
+                val gatewaySubtitle = uiState.gatewayAddress.ifBlank { AppConstants.defaultServerAddress }
                 SettingsRow(
                     testTag = "row.settings.gateway",
                     icon = Icons.Outlined.Dns,
@@ -264,40 +266,40 @@ fun SettingsScreen(
                     onClick = { showGatewaySheet = true },
                 )
             }
-            if (viewModel.isChannelModeLoaded) {
+            if (uiState.isChannelModeLoaded) {
                 item {
                     TransportSelectorRow(
                         rowTestTag = "row.settings.notification_transport",
                         icon = Icons.Outlined.NotificationsActive,
                         title = stringResource(R.string.label_notification_transport),
-                        subtitle = if (!fcmSupported && viewModel.gatewayPrivateChannelEnabled == false) {
+                        subtitle = if (!fcmSupported && uiState.gatewayPrivateChannelEnabled == false) {
                             stringResource(R.string.label_notification_transport_unavailable_hint)
-                        } else if (fcmSupported && viewModel.gatewayPrivateChannelEnabled == false) {
+                        } else if (fcmSupported && uiState.gatewayPrivateChannelEnabled == false) {
                             stringResource(R.string.label_notification_transport_gateway_private_disabled_hint)
                         } else if (fcmSupported) {
                             stringResource(R.string.label_notification_transport_hint)
                         } else {
                             stringResource(R.string.label_notification_transport_private_only_hint)
                         },
-                        selectedUseFcm = (viewModel.useFcmChannel && fcmSupported)
-                            || viewModel.gatewayPrivateChannelEnabled == false,
+                        selectedUseFcm = (uiState.useFcmChannel && fcmSupported)
+                            || uiState.gatewayPrivateChannelEnabled == false,
                         isFcmSupported = fcmSupported,
-                        isPrivateSupported = viewModel.gatewayPrivateChannelEnabled != false,
+                        isPrivateSupported = uiState.gatewayPrivateChannelEnabled != false,
                         onSelectUseFcm = { useFcm -> viewModel.updateUseFcmChannel(context, useFcm) },
                     )
                 }
             }
             if (
-                viewModel.isChannelModeLoaded
-                && viewModel.gatewayPrivateChannelEnabled != false
-                && (!fcmSupported || !viewModel.useFcmChannel)
+                uiState.isChannelModeLoaded
+                && uiState.gatewayPrivateChannelEnabled != false
+                && (!fcmSupported || !uiState.useFcmChannel)
             ) {
                 item {
                     SettingsRow(
                         testTag = "row.settings.private_transport",
                         icon = Icons.Outlined.NotificationsActive,
                         title = stringResource(R.string.label_private_transport_status),
-                        subtitle = viewModel.privateTransportStatus,
+                        subtitle = uiState.privateTransportStatus,
                         onClick = null,
                     )
                 }
@@ -320,13 +322,13 @@ fun SettingsScreen(
             }
             item {
                 val statusText = stringResource(
-                    if (viewModel.isDecryptionConfigured) {
+                    if (uiState.isDecryptionConfigured) {
                         R.string.label_decryption_configured
                     } else {
                         R.string.label_decryption_not_configured
                     }
                 )
-                val statusColor = if (viewModel.isDecryptionConfigured) {
+                val statusColor = if (uiState.isDecryptionConfigured) {
                     uiColors.stateInfo.foreground
                 } else {
                     uiColors.stateDanger.foreground
@@ -350,9 +352,9 @@ fun SettingsScreen(
                     messageTitle = stringResource(R.string.tab_messages),
                     eventTitle = stringResource(R.string.label_send_type_event),
                     thingTitle = stringResource(R.string.label_send_type_thing),
-                    messageEnabled = viewModel.isMessagePageEnabled,
-                    eventEnabled = viewModel.isEventPageEnabled,
-                    thingEnabled = viewModel.isThingPageEnabled,
+                    messageEnabled = uiState.isMessagePageEnabled,
+                    eventEnabled = uiState.isEventPageEnabled,
+                    thingEnabled = uiState.isThingPageEnabled,
                     onMessageToggle = { viewModel.updateMessagePageVisibility(it) },
                     onEventToggle = { viewModel.updateEventPageVisibility(it) },
                     onThingToggle = { viewModel.updateThingPageVisibility(it) },
@@ -368,7 +370,7 @@ fun SettingsScreen(
                     icon = Icons.Outlined.NotificationsActive,
                     title = stringResource(R.string.label_update_auto_check),
                     subtitle = stringResource(R.string.label_update_auto_check_hint),
-                    checked = viewModel.updateAutoCheckEnabled,
+                    checked = uiState.updateAutoCheckEnabled,
                     onCheckedChange = { viewModel.updateAutoCheckEnabled(context, it) },
                 )
             }
@@ -377,19 +379,19 @@ fun SettingsScreen(
                     rowTestTag = "row.settings.update.channel",
                     title = stringResource(R.string.label_update_channel),
                     subtitle = stringResource(R.string.label_update_channel_hint),
-                    betaEnabled = viewModel.updateBetaChannelEnabled,
+                    betaEnabled = uiState.updateBetaChannelEnabled,
                     onToggleBeta = { viewModel.updateBetaChannelEnabled(context, it) },
                 )
             }
             item {
                 val subtitle = when {
-                    viewModel.isCheckingUpdates -> stringResource(R.string.label_update_status_checking)
-                    viewModel.availableUpdate != null -> stringResource(
+                    uiState.isCheckingUpdates -> stringResource(R.string.label_update_status_checking)
+                    uiState.availableUpdate != null -> stringResource(
                         R.string.label_update_status_available,
-                        viewModel.availableUpdate?.versionName ?: "",
+                        uiState.availableUpdate?.versionName ?: "",
                     )
-                    viewModel.updateSuppressedBySkip -> stringResource(R.string.label_update_status_skipped)
-                    viewModel.updateSuppressedByCooldown -> stringResource(R.string.label_update_status_cooldown)
+                    uiState.updateSuppressedBySkip -> stringResource(R.string.label_update_status_skipped)
+                    uiState.updateSuppressedByCooldown -> stringResource(R.string.label_update_status_cooldown)
                     else -> stringResource(R.string.label_update_status_idle)
                 }
                 SettingsRow(
@@ -397,19 +399,19 @@ fun SettingsScreen(
                     icon = Icons.Outlined.Info,
                     title = stringResource(R.string.label_update_check_now),
                     subtitle = subtitle,
-                    onClick = if (viewModel.isCheckingUpdates) {
+                    onClick = if (uiState.isCheckingUpdates) {
                         null
                     } else {
                         { viewModel.refreshUpdateState(manual = true) }
                     },
                 )
             }
-            if (viewModel.availableUpdate != null) {
+            if (uiState.availableUpdate != null) {
                 item {
                     UpdateCandidateCard(
-                        candidate = viewModel.availableUpdate!!,
-                        installing = viewModel.isInstallingUpdate,
-                        installProgressText = viewModel.updateInstallProgressMessage?.resolve(context),
+                        candidate = uiState.availableUpdate!!,
+                        installing = uiState.isInstallingUpdate,
+                        installProgressText = uiState.updateInstallProgressMessage?.resolve(context),
                         onInstall = { viewModel.installAvailableUpdate() },
                         onSkip = { viewModel.skipAvailableUpdate() },
                         onRemindLater = { viewModel.remindLaterForAvailableUpdate() },
@@ -479,12 +481,19 @@ fun SettingsScreen(
                     text = stringResource(R.string.label_gateway_settings),
                     style = MaterialTheme.typography.titleLarge,
                 )
-                GatewaySection(viewModel = viewModel)
+                GatewaySection(
+                    gatewayAddress = uiState.gatewayAddress,
+                    gatewayToken = uiState.gatewayToken,
+                    isSavingGateway = uiState.isSavingGateway,
+                    onGatewayAddressChange = viewModel::updateGatewayAddress,
+                    onGatewayTokenChange = viewModel::updateGatewayToken,
+                    onSaveGateway = { viewModel.saveGatewayConfig(context) },
+                )
             }
         }
     }
 
-    if (viewModel.shouldShowPrivateChannelWhitelistDialog) {
+    if (uiState.shouldShowPrivateChannelWhitelistDialog) {
         PushGoAlertDialog(
             onDismissRequest = viewModel::consumePrivateChannelWhitelistDialog,
             title = { Text(text = stringResource(R.string.dialog_private_channel_whitelist_title)) },
@@ -497,7 +506,7 @@ fun SettingsScreen(
         )
     }
 
-    if (viewModel.shouldShowInstallPermissionDialog) {
+    if (uiState.shouldShowInstallPermissionDialog) {
         PushGoAlertDialog(
             onDismissRequest = viewModel::consumeInstallPermissionDialog,
             title = { Text(text = stringResource(R.string.label_update_install_permission_title)) },
@@ -518,7 +527,7 @@ fun SettingsScreen(
                         onClick = {
                             val launched = UpdateInstallIntentLauncher.openManualApkInstall(
                                 context = context,
-                                apkPath = viewModel.pendingManualInstallApkPath,
+                                apkPath = uiState.pendingManualInstallApkPath,
                             )
                             if (launched) {
                                 viewModel.consumeInstallPermissionDialog()
@@ -536,8 +545,8 @@ fun SettingsScreen(
         )
     }
 
-    if (viewModel.shouldShowInstallBlockedDialog) {
-        val installBlockedDetail = viewModel.installBlockedDetail
+    if (uiState.shouldShowInstallBlockedDialog) {
+        val installBlockedDetail = uiState.installBlockedDetail
             ?: stringResource(R.string.label_unknown_error)
         PushGoAlertDialog(
             onDismissRequest = viewModel::consumeInstallBlockedDialog,
@@ -566,7 +575,7 @@ fun SettingsScreen(
                         onClick = {
                             val launched = UpdateInstallIntentLauncher.openManualApkInstall(
                                 context = context,
-                                apkPath = viewModel.blockedInstallApkPath,
+                                apkPath = uiState.blockedInstallApkPath,
                             )
                             if (launched) {
                                 viewModel.consumeInstallBlockedDialog()
@@ -1194,24 +1203,30 @@ private fun isFcmSupported(context: Context): Boolean {
 }
 
 @Composable
-private fun GatewaySection(viewModel: SettingsViewModel) {
+private fun GatewaySection(
+    gatewayAddress: String,
+    gatewayToken: String,
+    isSavingGateway: Boolean,
+    onGatewayAddressChange: (String) -> Unit,
+    onGatewayTokenChange: (String) -> Unit,
+    onSaveGateway: () -> Unit,
+) {
     val uiColors = PushGoThemeExtras.colors
-    val context = LocalContext.current
     Column(
         modifier = Modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(20.dp),
     ) {
         GatewaySheetInputField(
-            value = viewModel.gatewayAddress,
-            onValueChange = viewModel::updateGatewayAddress,
+            value = gatewayAddress,
+            onValueChange = onGatewayAddressChange,
             labelText = stringResource(R.string.label_server_address),
             modifier = Modifier
                 .fillMaxWidth()
                 .testTag("field.settings.gateway.address"),
         )
         GatewaySheetInputField(
-            value = viewModel.gatewayToken,
-            onValueChange = viewModel::updateGatewayToken,
+            value = gatewayToken,
+            onValueChange = onGatewayTokenChange,
             labelText = stringResource(R.string.label_server_token),
             modifier = Modifier
                 .fillMaxWidth()
@@ -1224,8 +1239,8 @@ private fun GatewaySection(viewModel: SettingsViewModel) {
             modifier = Modifier.fillMaxWidth(),
         )
         Button(
-            onClick = { viewModel.saveGatewayConfig(context) },
-            enabled = !viewModel.isSavingGateway,
+            onClick = onSaveGateway,
+            enabled = !isSavingGateway,
             modifier = Modifier
                 .fillMaxWidth()
                 .testTag("action.settings.gateway.save")

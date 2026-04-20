@@ -10,6 +10,14 @@ Policy:
 
 ## [Unreleased]
 
+### Improved
+- Improved inbound message reliability during app startup by queueing and retrying delivery processing instead of dropping early-runtime messages.
+- Improved private/provider ingress handling consistency with stricter routing and safer duplicate suppression.
+- Improved settings and message detail state behavior for more stable screen updates and clearer load-failure feedback.
+
+### Added
+- Added targeted Android beta quality hardening around inbound processing, lifecycle-aware state collection, and transport token/runtime wiring.
+
 ## [v1.2.0]
 
 ### Fixed

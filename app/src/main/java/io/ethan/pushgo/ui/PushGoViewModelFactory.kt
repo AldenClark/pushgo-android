@@ -32,6 +32,7 @@ class PushGoViewModelFactory(private val container: AppContainer) : ViewModelPro
                     messageStateCoordinator = container.messageStateCoordinator,
                     privateChannelClient = container.privateChannelClient,
                     updateManager = container.updateManager,
+                    pushTokenProvider = container.pushTokenProvider,
                 ) as T
             }
             else -> throw IllegalArgumentException("Unknown ViewModel: ${modelClass.name}")
