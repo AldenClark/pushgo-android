@@ -39,9 +39,48 @@
         "releaseNotesUrl": "https://github.com/AldenClark/pushgo-android/releases/tag/v1.2.0-beta.15",
         "versionCode": 1020015,
         "versionName": "v1.2.0-beta.15"
+      },
+      {
+        "apkSha256": "c1e7c305ac0fc9905779573874755dd921f97b5672cdc2b9f4d739345f00687e",
+        "apkUrl": "https://update.pushgo.cn/android/stable/v1.2.0/pushgo-android-v1.2.0-universal-release.apk",
+        "channel": "stable",
+        "critical": false,
+        "notes": "PushGo 1.2.0 improves Android in-app update reliability.\n- Immediate in-app alert when installation is blocked by system policy\n- One-tap fallback to continue with Android system installer",
+        "notesI18n": {
+          "de": "PushGo 1.2.0 verbessert die Zuverlassigkeit von Android In-App-Updates.\n- Sofortiger In-App-Hinweis, wenn die Installation durch Systemrichtlinien blockiert wird\n- Ein-Klick-Fallback zum Fortsetzen mit dem Android-Systeminstaller",
+          "en": "PushGo 1.2.0 improves Android in-app update reliability.\n- Immediate in-app alert when installation is blocked by system policy\n- One-tap fallback to continue with Android system installer",
+          "es": "PushGo 1.2.0 mejora la fiabilidad de actualizacion in-app en Android.\n- Alerta inmediata dentro de la app cuando la instalacion es bloqueada por politicas del sistema\n- Acceso directo con un toque para continuar con el instalador del sistema Android",
+          "fr": "PushGo 1.2.0 ameliore la fiabilite des mises a jour integrees Android.\n- Alerte immediate dans l'application lorsque l'installation est bloquee par la politique systeme\n- Raccourci en un geste pour continuer avec l'installateur systeme Android",
+          "ja": "PushGo 1.2.0 では Android アプリ内更新の信頼性を改善しました。\n- システムポリシーでインストールが阻止された際にアプリ内で即時警告\n- Android システムインストーラーで続行するワンタップのフォールバック",
+          "ko": "PushGo 1.2.0은 Android 앱 내 업데이트 신뢰성을 개선했습니다.\n- 시스템 정책으로 설치가 차단되면 앱 내에서 즉시 경고를 표시\n- Android 시스템 설치 프로그램으로 계속 진행하는 원탭 대체 경로 제공",
+          "zh-CN": "PushGo 1.2.0 提升了 Android 应用内更新的可靠性。\n- 当系统策略拦截安装时，应用内会立即弹出提示\n- 支持一键回退到 Android 系统安装器继续安装",
+          "zh-TW": "PushGo 1.2.0 提升了 Android 應用內更新的可靠性。\n- 當系統策略攔截安裝時，應用內會立即彈出提示\n- 支援一鍵回退至 Android 系統安裝器繼續安裝"
+        },
+        "packages": {
+          "arm64-v8a": {
+            "apkSha256": "be93aef313c87753f664759b762a9001af90f6c96e65a304ba4bbc5780fbcb7d",
+            "apkUrl": "https://update.pushgo.cn/android/stable/v1.2.0/pushgo-android-v1.2.0-arm64-v8a-release.apk"
+          },
+          "armeabi-v7a": {
+            "apkSha256": "ff09285da3697a98a0946502f72abaa6b59273a4afa35bd07b98cf343b15ec1b",
+            "apkUrl": "https://update.pushgo.cn/android/stable/v1.2.0/pushgo-android-v1.2.0-armeabi-v7a-release.apk"
+          },
+          "universal": {
+            "apkSha256": "c1e7c305ac0fc9905779573874755dd921f97b5672cdc2b9f4d739345f00687e",
+            "apkUrl": "https://update.pushgo.cn/android/stable/v1.2.0/pushgo-android-v1.2.0-universal-release.apk"
+          },
+          "x86_64": {
+            "apkSha256": "232525ec1c3c8e741959fcd3ef7c7938c3a8f9aa503a54c7a657a1cab0d694b8",
+            "apkUrl": "https://update.pushgo.cn/android/stable/v1.2.0/pushgo-android-v1.2.0-x86_64-release.apk"
+          }
+        },
+        "publishedAtEpochMs": 1776664753000,
+        "releaseNotesUrl": "https://github.com/AldenClark/pushgo-android/releases/tag/v1.2.0",
+        "versionCode": 1020099,
+        "versionName": "v1.2.0"
       }
     ],
-    "generatedAtEpochMs": 1776570343000,
+    "generatedAtEpochMs": 1776664753000,
     "policy": {
       "impatientReminderIntervalSeconds": 604800,
       "scheduledCheckIntervalSeconds": 21600
@@ -49,6 +88,6 @@
     "schemaVersion": 1
   },
   "signatures": {
-    "ecdsa-p256-sha256": "MEUCIQCAK2zXSwz249OaiNpmpsasFeGpbxZHGR0kY/YzWo/G3QIgNbtW9hO/JCyrbwE0sJigoYTELmMlntvH7CuMFi7pVEU="
+    "ecdsa-p256-sha256": "MEUCIQCPgxarvXYJk/jTFB5PZ4mfq0iLGXwNrUrEOjiv9/ufiwIgVKk74D3c+2ktwjkjyl4TXcbTinJI6fU6OY5pckI+tcQ="
   }
 }
