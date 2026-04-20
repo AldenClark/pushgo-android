@@ -20,15 +20,14 @@ PushGo Android policy:
 
 ## [Unreleased]
 
+## [v1.2.0] - 2026-04-20
+
 ### Added
-- Added in-app install-blocked dialog state bridge from installer receiver to settings UI.
-- Added versioned update notes source: `release/update-notes/v1.2.0-beta.15.json`.
-- Added shared manual install launcher used by both UI actions and receiver fallback.
+- Added versioned stable update notes source: `release/update-notes/v1.2.0.json`.
 
 ### Changed
-- Bumped default `appVersionName` to `v1.2.0-beta.15`.
-- Marked this beta line as the publication baseline for all Android changes accumulated since the previous Android tag.
+- Finalized Android app version to `v1.2.0` for release builds.
+- `versionCode` now resolves to stable code `1020099` from `versionName=v1.2.0`.
 
 ### Fixed
-- Fixed update blocked-install handling so app now surfaces a visible in-app error prompt.
-- Fixed blocked-install recovery flow to retry via system package installer when possible.
+- Improved blocked-install handling to show immediate in-app alerting and continue with one-tap system-installer fallback.
