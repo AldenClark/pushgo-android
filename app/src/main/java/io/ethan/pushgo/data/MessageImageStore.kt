@@ -115,21 +115,27 @@ class MessageImageStore(context: Context) {
     }
 
     suspend fun ensureCached(imageUrl: String): CachedImagePaths? = withContext(Dispatchers.IO) {
+        val originalPath = ensureOriginalCached(imageUrl) ?: return@withContext null
+        val original = File(originalPath)
         val normalized = UrlValidators.normalizeHttpsUrl(imageUrl) ?: return@withContext null
         val key = sha256(normalized)
-
-        val original = findExistingOriginal(key) ?: downloadOriginal(normalized, key) ?: return@withContext null
         val thumbnail = findThumbnail(key)
             ?: generateListThumbnail(original, key)
-            ?: return@withContext null
 
-        enforceDiskLimitIfNeeded(originalDir, ORIGINAL_DISK_LIMIT_BYTES)
         enforceDiskLimitIfNeeded(thumbnailDir, THUMBNAIL_DISK_LIMIT_BYTES)
 
         return@withContext CachedImagePaths(
             originalPath = original.absolutePath,
-            thumbnailPath = thumbnail.absolutePath,
+            thumbnailPath = thumbnail?.absolutePath ?: original.absolutePath,
         )
+    }
+
+    suspend fun ensureOriginalCached(imageUrl: String): String? = withContext(Dispatchers.IO) {
+        val normalized = UrlValidators.normalizeHttpsUrl(imageUrl) ?: return@withContext null
+        val key = sha256(normalized)
+        val original = findExistingOriginal(key) ?: downloadOriginal(normalized, key) ?: return@withContext null
+        enforceDiskLimitIfNeeded(originalDir, ORIGINAL_DISK_LIMIT_BYTES)
+        return@withContext original.absolutePath
     }
 
     private fun resolveRemoteImageUrls(payload: JSONObject?): List<String> {

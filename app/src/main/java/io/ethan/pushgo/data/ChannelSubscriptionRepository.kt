@@ -1,20 +1,18 @@
 package io.ethan.pushgo.data
 
-import com.google.firebase.messaging.FirebaseMessaging
 import io.ethan.pushgo.data.model.ChannelSubscription
 import io.ethan.pushgo.notifications.MessageStateCoordinator
 import io.ethan.pushgo.util.UrlValidators
 import kotlinx.coroutines.withTimeout
-import kotlinx.coroutines.suspendCancellableCoroutine
 import org.json.JSONObject
 import java.net.URLEncoder
-import kotlin.coroutines.resume
-import kotlin.coroutines.resumeWithException
 
 class ChannelSubscriptionRepository(
     private val store: ChannelSubscriptionStore,
     private val settingsRepository: SettingsRepository,
     private val messageStateCoordinator: MessageStateCoordinator,
+    private val pushTokenProvider: PushTokenProvider,
+    service: ChannelSubscriptionService? = null,
 ) {
     companion object {
         private const val TAG = "ChannelSubscriptionRepo"
@@ -22,7 +20,7 @@ class ChannelSubscriptionRepository(
         private const val FCM_TOKEN_BOOTSTRAP_TIMEOUT_MS = 10_000L
     }
 
-    private val service = ChannelSubscriptionService()
+    private val service = service ?: ChannelSubscriptionService()
 
     suspend fun loadSubscriptions(): List<ChannelSubscription> {
         val config = resolveServerConfig()
@@ -340,26 +338,7 @@ class ChannelSubscriptionRepository(
     private suspend fun fetchFcmTokenForIngress(): String? {
         return runCatching {
             withTimeout(FCM_TOKEN_BOOTSTRAP_TIMEOUT_MS) {
-                suspendCancellableCoroutine { cont ->
-                    FirebaseMessaging.getInstance().token
-                        .addOnSuccessListener { token ->
-                            if (cont.isActive) {
-                                cont.resume(token)
-                            }
-                        }
-                        .addOnFailureListener { error ->
-                            if (cont.isActive) {
-                                cont.resumeWithException(error)
-                            }
-                        }
-                        .addOnCanceledListener {
-                            if (cont.isActive) {
-                                cont.resumeWithException(
-                                    IllegalStateException("FCM token task cancelled")
-                                )
-                            }
-                        }
-                }
+                pushTokenProvider.fetchToken(FCM_TOKEN_BOOTSTRAP_TIMEOUT_MS)
             }
         }.getOrNull()
             ?.trim()
