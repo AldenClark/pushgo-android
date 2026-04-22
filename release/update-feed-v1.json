@@ -41,46 +41,46 @@
         "versionName": "v1.2.0-beta.15"
       },
       {
-        "apkSha256": "c1e7c305ac0fc9905779573874755dd921f97b5672cdc2b9f4d739345f00687e",
-        "apkUrl": "https://update.pushgo.cn/android/stable/v1.2.0/pushgo-android-v1.2.0-universal-release.apk",
+        "apkSha256": "82d00f9c71a2056f0e488533e260fa591f93d5379e6cd35c6aabc4d51936ee36",
+        "apkUrl": "https://update.pushgo.cn/android/stable/v1.2.1/pushgo-android-v1.2.1-universal-release.apk",
         "channel": "stable",
         "critical": false,
-        "notes": "PushGo 1.2.0 improves Android in-app update reliability.\n- Immediate in-app alert when installation is blocked by system policy\n- One-tap fallback to continue with Android system installer",
+        "notes": "PushGo 1.2.1 is a temporary stable hotfix release for Android reliability.\n- Startup-window inbound messages now follow a worker retry path instead of being dropped\n- Better provider/direct ingress routing with safer duplicate suppression\n- More stable settings and message detail state updates\n- Event and object pages now provide smoother detail sync, pagination, and close/delete interactions",
         "notesI18n": {
-          "de": "PushGo 1.2.0 verbessert die Zuverlassigkeit von Android In-App-Updates.\n- Sofortiger In-App-Hinweis, wenn die Installation durch Systemrichtlinien blockiert wird\n- Ein-Klick-Fallback zum Fortsetzen mit dem Android-Systeminstaller",
-          "en": "PushGo 1.2.0 improves Android in-app update reliability.\n- Immediate in-app alert when installation is blocked by system policy\n- One-tap fallback to continue with Android system installer",
-          "es": "PushGo 1.2.0 mejora la fiabilidad de actualizacion in-app en Android.\n- Alerta inmediata dentro de la app cuando la instalacion es bloqueada por politicas del sistema\n- Acceso directo con un toque para continuar con el instalador del sistema Android",
-          "fr": "PushGo 1.2.0 ameliore la fiabilite des mises a jour integrees Android.\n- Alerte immediate dans l'application lorsque l'installation est bloquee par la politique systeme\n- Raccourci en un geste pour continuer avec l'installateur systeme Android",
-          "ja": "PushGo 1.2.0 では Android アプリ内更新の信頼性を改善しました。\n- システムポリシーでインストールが阻止された際にアプリ内で即時警告\n- Android システムインストーラーで続行するワンタップのフォールバック",
-          "ko": "PushGo 1.2.0은 Android 앱 내 업데이트 신뢰성을 개선했습니다.\n- 시스템 정책으로 설치가 차단되면 앱 내에서 즉시 경고를 표시\n- Android 시스템 설치 프로그램으로 계속 진행하는 원탭 대체 경로 제공",
-          "zh-CN": "PushGo 1.2.0 提升了 Android 应用内更新的可靠性。\n- 当系统策略拦截安装时，应用内会立即弹出提示\n- 支持一键回退到 Android 系统安装器继续安装",
-          "zh-TW": "PushGo 1.2.0 提升了 Android 應用內更新的可靠性。\n- 當系統策略攔截安裝時，應用內會立即彈出提示\n- 支援一鍵回退至 Android 系統安裝器繼續安裝"
+          "de": "PushGo 1.2.1 ist ein temporarer stabiler Hotfix fur die Android-Zuverlassigkeit.\n- Eingehende Nachrichten im Startfenster folgen nun einem Worker-Retry-Pfad statt verworfen zu werden\n- Besseres Routing fur Provider/Direct-Ingress mit sichererer Duplikatunterdruckung\n- Stabilere Statusaktualisierungen in Einstellungen und Nachrichtendetails\n- Ereignis- und Objektseiten bieten nun stabilere Detail-Synchronisierung, Pagination und Close/Delete-Interaktionen",
+          "en": "PushGo 1.2.1 is a temporary stable hotfix release for Android reliability.\n- Startup-window inbound messages now follow a worker retry path instead of being dropped\n- Better provider/direct ingress routing with safer duplicate suppression\n- More stable settings and message detail state updates\n- Event and object pages now provide smoother detail sync, pagination, and close/delete interactions",
+          "es": "PushGo 1.2.1 es una version estable temporal de hotfix para la fiabilidad en Android.\n- Los mensajes entrantes durante el inicio ahora usan reintentos por worker en lugar de descartarse\n- Mejor enrutamiento de ingreso provider/direct con supresion de duplicados mas segura\n- Actualizaciones de estado mas estables en ajustes y detalle de mensajes\n- Las paginas de eventos y objetos ahora tienen mejor sincronizacion de detalle, paginacion y acciones de cerrar/eliminar",
+          "fr": "PushGo 1.2.1 est une version stable temporaire de correctif pour la fiabilite Android.\n- Les messages entrants pendant la phase de demarrage suivent maintenant un chemin de retry worker au lieu d'etre ignores\n- Meilleur routage provider/direct avec une suppression des doublons plus sure\n- Mises a jour d'etat plus stables dans les reglages et les details de message\n- Les pages evenement/objet offrent desormais une synchronisation detail plus stable, une pagination plus fluide et des actions fermer/supprimer plus claires",
+          "ja": "PushGo 1.2.1 は Android 安定性向上のための一時的な正式ホットフィックスです。\n- 起動直後の受信メッセージは破棄せず、Worker の再試行経路で処理\n- provider/direct の受信ルーティングを改善し、重複抑止を強化\n- 設定画面とメッセージ詳細画面の状態更新をより安定化\n- イベント/オブジェクト画面で詳細同期・ページング・クローズ/削除操作の安定性を改善",
+          "ko": "PushGo 1.2.1은 Android 안정성 개선을 위한 임시 정식 핫픽스 릴리스입니다.\n- 시작 구간 수신 메시지가 폐기되지 않고 Worker 재시도 경로로 처리됩니다\n- provider/direct 수신 라우팅을 개선하고 중복 억제를 강화했습니다\n- 설정 및 메시지 상세 화면의 상태 업데이트 안정성을 높였습니다\n- 이벤트/객체 화면의 상세 동기화, 페이징, 닫기/삭제 상호작용 안정성을 개선했습니다",
+          "zh-CN": "PushGo 1.2.1 是面向 Android 稳定性的临时正式热修复版本。\n- 冷启动窗口期的入站消息不再被丢弃，改为走 Worker 重试链路\n- 优化 provider/direct 入站路由，并增强重复消息抑制\n- 提升设置页与消息详情页状态更新的稳定性\n- 事件页与对象页补齐了详情同步、分页加载与关闭/删除交互优化",
+          "zh-TW": "PushGo 1.2.1 是面向 Android 穩定性的臨時正式熱修復版本。\n- 冷啟動窗口期的入站訊息不再被丟棄，改為走 Worker 重試鏈路\n- 優化 provider/direct 入站路由，並強化重複訊息抑制\n- 提升設定頁與訊息詳情頁狀態更新的穩定性\n- 事件頁與物件頁補齊了詳情同步、分頁載入與關閉/刪除互動優化"
         },
         "packages": {
           "arm64-v8a": {
-            "apkSha256": "be93aef313c87753f664759b762a9001af90f6c96e65a304ba4bbc5780fbcb7d",
-            "apkUrl": "https://update.pushgo.cn/android/stable/v1.2.0/pushgo-android-v1.2.0-arm64-v8a-release.apk"
+            "apkSha256": "f497690df46bb094e1f0daead49875d656759a071ded62dd59984cfe4c92a5fb",
+            "apkUrl": "https://update.pushgo.cn/android/stable/v1.2.1/pushgo-android-v1.2.1-arm64-v8a-release.apk"
           },
           "armeabi-v7a": {
-            "apkSha256": "ff09285da3697a98a0946502f72abaa6b59273a4afa35bd07b98cf343b15ec1b",
-            "apkUrl": "https://update.pushgo.cn/android/stable/v1.2.0/pushgo-android-v1.2.0-armeabi-v7a-release.apk"
+            "apkSha256": "248c19c7cb0683750a70b936f195a1fa4e159e8d262deed5e58d93339dcd1688",
+            "apkUrl": "https://update.pushgo.cn/android/stable/v1.2.1/pushgo-android-v1.2.1-armeabi-v7a-release.apk"
           },
           "universal": {
-            "apkSha256": "c1e7c305ac0fc9905779573874755dd921f97b5672cdc2b9f4d739345f00687e",
-            "apkUrl": "https://update.pushgo.cn/android/stable/v1.2.0/pushgo-android-v1.2.0-universal-release.apk"
+            "apkSha256": "82d00f9c71a2056f0e488533e260fa591f93d5379e6cd35c6aabc4d51936ee36",
+            "apkUrl": "https://update.pushgo.cn/android/stable/v1.2.1/pushgo-android-v1.2.1-universal-release.apk"
           },
           "x86_64": {
-            "apkSha256": "232525ec1c3c8e741959fcd3ef7c7938c3a8f9aa503a54c7a657a1cab0d694b8",
-            "apkUrl": "https://update.pushgo.cn/android/stable/v1.2.0/pushgo-android-v1.2.0-x86_64-release.apk"
+            "apkSha256": "265d474f602890414ca2f3fc83d07dcd9ae697afdb6a2f2d49fb7f50fa315fa9",
+            "apkUrl": "https://update.pushgo.cn/android/stable/v1.2.1/pushgo-android-v1.2.1-x86_64-release.apk"
           }
         },
-        "publishedAtEpochMs": 1776664753000,
-        "releaseNotesUrl": "https://github.com/AldenClark/pushgo-android/releases/tag/v1.2.0",
-        "versionCode": 1020099,
-        "versionName": "v1.2.0"
+        "publishedAtEpochMs": 1776856615000,
+        "releaseNotesUrl": "https://github.com/AldenClark/pushgo-android/releases/tag/v1.2.1",
+        "versionCode": 1020199,
+        "versionName": "v1.2.1"
       }
     ],
-    "generatedAtEpochMs": 1776664753000,
+    "generatedAtEpochMs": 1776856615000,
     "policy": {
       "impatientReminderIntervalSeconds": 604800,
       "scheduledCheckIntervalSeconds": 21600
@@ -88,6 +88,6 @@
     "schemaVersion": 1
   },
   "signatures": {
-    "ecdsa-p256-sha256": "MEUCIQCPgxarvXYJk/jTFB5PZ4mfq0iLGXwNrUrEOjiv9/ufiwIgVKk74D3c+2ktwjkjyl4TXcbTinJI6fU6OY5pckI+tcQ="
+    "ecdsa-p256-sha256": "MEUCIDi9gsBgcVwg+LQGhS4/miwGv2dEpPRqjVDCd13eGvdaAiEA8ZYWzNhiuPWbl/velaxCcWdN4Y8Yakx+kCKsadJ5sUo="
   }
 }
