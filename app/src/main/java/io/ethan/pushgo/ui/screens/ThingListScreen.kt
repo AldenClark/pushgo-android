@@ -11,6 +11,7 @@ import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -52,6 +53,7 @@ import io.ethan.pushgo.data.AppContainer
 import io.ethan.pushgo.data.EntityProjectionCursor
 import io.ethan.pushgo.data.model.*
 import io.ethan.pushgo.data.parseThingProfile
+import io.ethan.pushgo.data.parseEventProfile
 import io.ethan.pushgo.notifications.ForegroundNotificationPresentationState
 import io.ethan.pushgo.notifications.ForegroundNotificationTopMetrics
 import io.ethan.pushgo.notifications.ProviderIngressCoordinator
@@ -74,7 +76,6 @@ import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.*
-import coil.compose.AsyncImage
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.ui.graphics.toArgb
 import kotlinx.serialization.Serializable
@@ -103,6 +104,7 @@ data class ThingCardModel(
     val title: String,
     val summary: String?,
     val state: String?,
+    val channelId: String?,
     val imageUrl: String?,
     val tags: List<String>,
     @Serializable(with = ThingInstantSerializer::class)
@@ -150,12 +152,13 @@ enum class ThingLifecycleState(val raw: String) {
     }
 }
 
-data class ThingDisplayAttribute(val label: String, val value: String)
-
-private fun parseThingDisplayAttributes(json: String?): List<ThingDisplayAttribute> {
-    if (json.isNullOrBlank()) return emptyList()
-    val obj = runCatching { JSONObject(json) }.getOrNull() ?: return emptyList()
-    return obj.keys().asSequence().map { key -> ThingDisplayAttribute(key, obj.optString(key)) }.toList()
+private data class ThingDisplayAttribute(
+    val key: String,
+    val label: String,
+    val value: String,
+) {
+    val displayLabel: String
+        get() = label.trim().ifEmpty { key }
 }
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
@@ -190,8 +193,14 @@ fun ThingListScreen(
     var searchQuery by remember { mutableStateOf("") }
     var channelFilter by remember { mutableStateOf<String?>(null) }
     var showOnlyActive by remember { mutableStateOf(false) }
+    var pendingDeleteThingId by remember { mutableStateOf<String?>(null) }
     
     val context = LocalContext.current
+    val singleDeleteToast = stringResource(R.string.message_deleted_selected_count, 1)
+    val closeEventFailedMessage = stringResource(R.string.error_event_close_failed)
+    val closeEventStatusDefault = stringResource(R.string.event_status_closed_default)
+    val closeEventBodyDefault = stringResource(R.string.event_message_closed_default)
+    val closeEventSuccessMessage = stringResource(R.string.message_event_closed)
     val haptic = LocalHapticFeedback.current
     val scope = rememberCoroutineScope()
     val listState = rememberLazyListState()
@@ -215,6 +224,10 @@ fun ThingListScreen(
             selectedThingIds + thingId
         }
         haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+    }
+
+    fun showToast(message: String) {
+        Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
     }
 
     fun updateSelectionAtRailY(railLocalY: Float, targetState: Boolean, filteredThings: List<ThingCardModel>) {
@@ -278,6 +291,8 @@ fun ThingListScreen(
             thingCursor = null
             val firstPage = container.entityRepository.getThingProjectionMessagesPage(before = null, limit = THING_PAGE_SIZE)
             allThings = withContext(Dispatchers.Default) { buildThingCardsInternal(firstPage) }
+            val last = firstPage.lastOrNull()
+            thingCursor = last?.let { EntityProjectionCursor(receivedAt = it.receivedAt.toEpochMilli(), id = it.id) }
             hasMoreThings = firstPage.size >= THING_PAGE_SIZE
             hasLoadedOnce = true
         } finally { isLoadingMoreThings = false }
@@ -314,6 +329,38 @@ fun ThingListScreen(
         }
     }
 
+    suspend fun loadMoreThingsInternal() {
+        if (isLoadingMoreThings || !hasMoreThings) return
+        isLoadingMoreThings = true
+        try {
+            val page = container.entityRepository.getThingProjectionMessagesPage(before = thingCursor, limit = THING_PAGE_SIZE)
+            if (page.isNotEmpty()) {
+                val merged = withContext(Dispatchers.Default) { mergeThingCardsInternal(allThings, buildThingCardsInternal(page)) }
+                allThings = merged
+                val last = page.last()
+                thingCursor = EntityProjectionCursor(receivedAt = last.receivedAt.toEpochMilli(), id = last.id)
+            }
+            hasMoreThings = page.size >= THING_PAGE_SIZE
+        } finally { isLoadingMoreThings = false }
+    }
+
+    fun loadMoreThingsIfNeeded() {
+        if (isLoadingMoreThings || !hasMoreThings) return
+        scope.launch { loadMoreThingsInternal() }
+    }
+
+    suspend fun deleteThing(thingId: String) {
+        val deleted = container.entityRepository.deleteThing(thingId)
+        if (selectedThing?.thingId == thingId) {
+            selectedThing = null
+            onThingDetailClosed()
+        }
+        if (deleted > 0) {
+            showToast(singleDeleteToast)
+        }
+        reloadThingsInternal()
+    }
+
     LaunchedEffect(refreshToken) { reloadThings() }
     LaunchedEffect(Unit) { channelNameMap = container.channelRepository.loadSubscriptionLookup(includeDeleted = true) }
 
@@ -326,20 +373,64 @@ fun ThingListScreen(
         val query = searchQuery.trim().lowercase()
         allThings.filter { thing ->
             (searchQuery.isBlank() || thing.title.lowercase().contains(query)) &&
-            (channelFilter == null || thing.relatedMessages.any { it.message.channel == channelFilter }) &&
+            (channelFilter == null || thing.channelId == channelFilter) &&
             (!showOnlyActive || (thing.state != "archived" && thing.state != "deleted"))
         }
     }
 
     val channelOptions = remember(allThings) {
-        allThings.flatMap { it.relatedMessages.mapNotNull { m -> m.message.channel } }
-            .distinct()
-            .sorted()
+        allThings.mapNotNull { it.channelId?.trim()?.takeIf { v -> v.isNotEmpty() } }.distinct().sorted()
+    }
+
+    LaunchedEffect(listState, filteredThings.size, hasMoreThings) {
+        snapshotFlow {
+            val lastVisibleIndex = listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: -1
+            val totalItems = listState.layoutInfo.totalItemsCount
+            lastVisibleIndex to totalItems
+        }
+            .distinctUntilChanged()
+            .collect { (lastVisibleIndex, totalItems) ->
+                if (!hasMoreThings || isLoadingMoreThings || totalItems <= 0) return@collect
+                if (lastVisibleIndex >= totalItems - 7) {
+                    loadMoreThingsIfNeeded()
+                }
+            }
+    }
+
+    LaunchedEffect(openThingId, allThings, hasMoreThings, isLoadingMoreThings) {
+        val target = openThingId?.trim()?.takeIf { it.isNotEmpty() } ?: return@LaunchedEffect
+        val matched = allThings.firstOrNull { it.thingId == target }
+        if (matched != null) {
+            selectedThing = matched
+            onThingDetailOpened(matched.thingId)
+            onOpenThingHandled()
+            return@LaunchedEffect
+        }
+        if (hasMoreThings && !isLoadingMoreThings) {
+            loadMoreThingsIfNeeded()
+        }
+    }
+
+    LaunchedEffect(allThings, selectedThing?.thingId) {
+        val selectedId = selectedThing?.thingId ?: return@LaunchedEffect
+        val latest = allThings.firstOrNull { it.thingId == selectedId }
+        if (latest == null) {
+            selectedThing = null
+            onThingDetailClosed()
+        } else if (latest != selectedThing) {
+            selectedThing = latest
+        }
     }
 
     if (selectedThing != null && !isSelectionMode) {
         PushGoModalBottomSheet(
-            onDismissRequest = { selectedThing = null; onThingDetailClosed() },
+            onDismissRequest = {
+                selectedThing = null
+                selectedRelatedMessage = null
+                selectedRelatedEvent = null
+                selectedRelatedUpdate = null
+                onThingDetailClosed()
+            },
         ) {
             ThingDetailSheet(
                 thing = selectedThing!!,
@@ -348,7 +439,7 @@ fun ThingListScreen(
                 onOpenRelatedEvent = { selectedRelatedEvent = it },
                 onOpenRelatedMessage = { selectedRelatedMessage = it },
                 onOpenRelatedUpdate = { selectedRelatedUpdate = it },
-                onDelete = { /* TODO */ }
+                onDelete = { pendingDeleteThingId = selectedThing?.thingId },
             )
         }
     }
@@ -357,10 +448,43 @@ fun ThingListScreen(
         PushGoModalBottomSheet(
             onDismissRequest = { selectedRelatedEvent = null },
         ) {
-            Text(
-                modifier = Modifier.padding(start = 24.dp, top = 24.dp, end = 24.dp, bottom = bottomGestureInset + 24.dp),
-                text = selectedRelatedEvent!!.title,
-                style = MaterialTheme.typography.headlineSmall,
+            EventDetailSheet(
+                event = selectedRelatedEvent!!,
+                bottomGestureInset = bottomGestureInset,
+                onCloseEvent = {
+                    val event = selectedRelatedEvent ?: return@EventDetailSheet
+                    scope.launch {
+                        val channelId = event.channelId.orEmpty().trim()
+                        if (channelId.isEmpty()) {
+                            showToast("$closeEventFailedMessage: missing channel_id")
+                            return@launch
+                        }
+                        runCatching {
+                            container.channelRepository.closeEvent(
+                                rawEventId = event.eventId,
+                                rawThingId = event.thingId,
+                                rawChannelId = channelId,
+                                rawStatus = closeEventStatusDefault,
+                                rawMessage = closeEventBodyDefault,
+                                rawSeverity = event.severity?.wireValue,
+                            )
+                        }.onSuccess {
+                            showToast(closeEventSuccessMessage)
+                            selectedRelatedEvent = null
+                            reloadThingsInternal()
+                        }.onFailure { error ->
+                            showToast("$closeEventFailedMessage: ${error.message.orEmpty()}")
+                        }
+                    }
+                },
+                onDeleteEvent = {
+                    val eventId = selectedRelatedEvent?.eventId ?: return@EventDetailSheet
+                    scope.launch {
+                        container.entityRepository.deleteEvent(eventId)
+                        selectedRelatedEvent = null
+                        reloadThingsInternal()
+                    }
+                },
             )
         }
     }
@@ -392,7 +516,7 @@ fun ThingListScreen(
                     .nestedScroll(bottomBarNestedScrollConnection)
                     .onGloballyPositioned { listTopInWindow = it.positionInWindow().y },
                 state = listState,
-                verticalArrangement = Arrangement.spacedBy(10.dp),
+                verticalArrangement = Arrangement.Top,
                 contentPadding = PaddingValues(bottom = bottomGestureInset + 24.dp),
             ) {
             item {
@@ -464,81 +588,412 @@ fun ThingListScreen(
                     )
                 }
             } else {
-                items(items = filteredThings, key = { it.thingId }) { thing ->
-                    ThingRow(thing = thing, onClick = { if (isSelectionMode) toggleSelection(thing.thingId) else { selectedThing = thing; onThingDetailOpened(thing.thingId) } }, selectionMode = isSelectionMode, selected = selectedThingIds.contains(thing.thingId), onToggleSelection = { toggleSelection(thing.thingId) })
+                itemsIndexed(filteredThings, key = { _, item -> item.thingId }) { _, thing ->
+                    ThingRow(
+                        thing = thing,
+                        onClick = {
+                            if (isSelectionMode) {
+                                toggleSelection(thing.thingId)
+                            } else {
+                                selectedThing = thing
+                                onThingDetailOpened(thing.thingId)
+                            }
+                        },
+                        selectionMode = isSelectionMode,
+                        selected = selectedThingIds.contains(thing.thingId),
+                        onToggleSelection = { toggleSelection(thing.thingId) },
+                    )
                 }
             }
             }
         }
     }
-}
 
-@Composable
-private fun ThingRow(thing: ThingCardModel, onClick: () -> Unit, selectionMode: Boolean, selected: Boolean, onToggleSelection: () -> Unit) {
-    val haptic = LocalHapticFeedback.current
-    val context = LocalContext.current
-    val uiColors = PushGoThemeExtras.colors
-    Row(modifier = Modifier.fillMaxWidth().combinedClickable(onClick = onClick, onLongClick = { if (!selectionMode) { haptic.performHapticFeedback(HapticFeedbackType.LongPress); onToggleSelection() } }).background(if (selected) uiColors.selectedRowFill else uiColors.surfaceBase).padding(horizontal = 16.dp, vertical = 12.dp), verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-        if (selectionMode) { PushGoSelectionIndicator(selected = selected, onClick = onToggleSelection) }
-        ThingImageThumb(url = thing.imageUrl, size = 52.dp)
-        Column(modifier = Modifier.weight(1f)) {
-            Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
-                Text(text = thing.title, style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold), maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
-                Text(text = formatLocalRelativeTimeV2(context, thing.updatedAt), style = MaterialTheme.typography.labelSmall, color = uiColors.textSecondary)
-            }
-            if (!thing.summary.isNullOrBlank()) Text(text = thing.summary, style = MaterialTheme.typography.bodySmall, color = uiColors.textSecondary, maxLines = 2, overflow = TextOverflow.Ellipsis)
-        }
+    if (showBatchDeleteConfirmation) {
+        val batchDeleteToast = stringResource(R.string.message_deleted_selected_count, selectedThingIds.size)
+        AlertDialog(
+            onDismissRequest = { showBatchDeleteConfirmation = false },
+            title = { Text(text = stringResource(R.string.action_delete)) },
+            text = { Text(text = stringResource(R.string.confirm_delete_selected_things, selectedThingIds.size)) },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showBatchDeleteConfirmation = false
+                        val targets = selectedThingIds.toList()
+                        scope.launch {
+                            targets.forEach { thingId ->
+                                container.entityRepository.deleteThing(thingId)
+                            }
+                            showToast(batchDeleteToast)
+                            reloadThingsInternal()
+                            exitSelectionMode()
+                        }
+                    },
+                ) {
+                    Text(text = stringResource(R.string.label_confirm))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showBatchDeleteConfirmation = false }) {
+                    Text(text = stringResource(R.string.label_cancel))
+                }
+            },
+        )
     }
-}
 
-@Composable
-private fun ThingImageThumb(url: String?, size: androidx.compose.ui.unit.Dp, onClick: ((String) -> Unit)? = null) {
-    val uiColors = PushGoThemeExtras.colors
-    val m = Modifier.size(size).clip(RoundedCornerShape(8.dp)).background(uiColors.fieldContainer).then(if (url != null && onClick != null) Modifier.clickable { onClick(url) } else Modifier)
-    if (url != null) AsyncImage(model = url, contentDescription = null, contentScale = ContentScale.Crop, modifier = m)
-    else Box(modifier = m, contentAlignment = Alignment.Center) { Icon(Icons.Outlined.Memory, null, tint = uiColors.iconMuted, modifier = Modifier.size(size * 0.5f)) }
-}
-
-private fun formatLocalRelativeTimeV2(context: Context, instant: Instant): String {
-    return DateUtils.getRelativeTimeSpanString(instant.toEpochMilli(), System.currentTimeMillis(), DateUtils.MINUTE_IN_MILLIS, DateUtils.FORMAT_ABBREV_ALL).toString()
-}
-
-private fun buildThingCardsInternal(messages: List<PushMessage>): List<ThingCardModel> {
-    return messages.filter { it.entityType == "thing" }.map { m ->
-        val profile = io.ethan.pushgo.data.parseThingProfile(m.rawPayloadJson)
-        ThingCardModel(
-            thingId = m.thingId ?: m.id,
-            title = profile?.title ?: m.title,
-            summary = profile?.description ?: m.bodyPreview,
-            state = profile?.state ?: m.eventState,
-            imageUrl = profile?.imageUrl ?: m.imageUrl,
-            tags = profile?.tags ?: m.tags,
-            createdAt = profile?.createdAt?.let { Instant.ofEpochMilli(it) },
-            updatedAt = m.receivedAt,
-            imageUrls = profile?.imageUrls ?: m.imageUrls,
-            attrsJson = m.rawPayloadJson,
-            metadataJson = null,
-            relatedEvents = emptyList(),
-            relatedMessages = emptyList(),
-            relatedUpdates = emptyList()
+    pendingDeleteThingId?.let { targetThingId ->
+        AlertDialog(
+            onDismissRequest = { pendingDeleteThingId = null },
+            title = { Text(text = stringResource(R.string.action_delete)) },
+            text = { Text(text = stringResource(R.string.confirm_delete_selected_things, 1)) },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        pendingDeleteThingId = null
+                        scope.launch { deleteThing(targetThingId) }
+                    },
+                ) {
+                    Text(text = stringResource(R.string.label_confirm))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingDeleteThingId = null }) {
+                    Text(text = stringResource(R.string.label_cancel))
+                }
+            },
         )
     }
 }
 
 @Composable
-private fun EntityKeyValueRows(entries: List<ThingDisplayAttribute>) {
+private fun ThingRow(
+    thing: ThingCardModel,
+    onClick: () -> Unit,
+    selectionMode: Boolean,
+    selected: Boolean,
+    onToggleSelection: () -> Unit,
+) {
+    val haptic = LocalHapticFeedback.current
+    val context = LocalContext.current
     val uiColors = PushGoThemeExtras.colors
-    Surface(modifier = Modifier.fillMaxWidth(), color = uiColors.surfaceSunken, shape = RoundedCornerShape(12.dp), border = BorderStroke(0.5.dp, uiColors.dividerStrong)) {
-        Column {
-            entries.forEachIndexed { index, entry ->
-                Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp), horizontalArrangement = Arrangement.spacedBy(16.dp), verticalAlignment = Alignment.Top) {
-                    Text(text = entry.label, style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold, letterSpacing = 0.2.sp), color = uiColors.stateInfo.foreground, modifier = Modifier.width(100.dp))
-                    Text(text = entry.value, style = MaterialTheme.typography.bodyMedium, color = uiColors.textPrimary, modifier = Modifier.weight(1f))
+    val metaSummary = remember(thing.attrsJson, thing.summary, thing.thingId) {
+        val attrs = parseThingDisplayAttributes(thing.attrsJson)
+        when {
+            attrs.isNotEmpty() -> {
+                val preview = attrs.take(3).joinToString(" · ") { "${it.displayLabel}: ${it.value}" }
+                val overflow = attrs.size - 3
+                if (overflow > 0) "$preview · +$overflow" else preview
+            }
+            !thing.summary.isNullOrBlank() -> thing.summary
+            else -> thing.thingId
+        }
+    }
+    val attachmentPreviewUrls = remember(thing.imageUrl, thing.imageUrls) {
+        val primary = thing.imageUrl?.trim().orEmpty()
+        thing.imageUrls
+            .asSequence()
+            .map { it.trim() }
+            .filter { it.isNotEmpty() && isThingImageAttachmentUrl(it) }
+            .filter { url -> primary.isEmpty() || url != primary }
+            .distinct()
+            .toList()
+    }
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(uiColors.fieldContainer),
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(if (selected) uiColors.selectedRowFill else uiColors.surfaceBase)
+                .combinedClickable(
+                    onClick = {
+                        if (selectionMode) {
+                            onToggleSelection()
+                        } else {
+                            onClick()
+                        }
+                    },
+                    onLongClick = {
+                        if (!selectionMode) {
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            onToggleSelection()
+                        }
+                    },
+                )
+                .padding(horizontal = 12.dp, vertical = 10.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Row(
+                verticalAlignment = Alignment.Top,
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                if (selectionMode) {
+                    PushGoSelectionIndicator(selected = selected, onClick = onToggleSelection)
                 }
-                if (index < entries.lastIndex) PushGoDividerSubtle(modifier = Modifier.padding(horizontal = 12.dp), thickness = 0.5.dp)
+                ThingImageThumb(url = thing.imageUrl)
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(5.dp),
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        Text(
+                            text = thing.title,
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.SemiBold,
+                            modifier = Modifier.weight(1f),
+                            maxLines = 1,
+                        )
+                        Text(
+                            text = formatLocalRelativeTimeV2(context, thing.updatedAt),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = uiColors.textSecondary,
+                        )
+                    }
+                    Text(
+                        text = metaSummary,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = uiColors.textSecondary,
+                        maxLines = 2,
+                    )
+                }
+            }
+            if (thing.tags.isNotEmpty()) {
+                Text(
+                    text = thing.tags.joinToString(" · "),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = uiColors.textSecondary,
+                    maxLines = 1,
+                )
+            }
+            if (attachmentPreviewUrls.isNotEmpty()) {
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    attachmentPreviewUrls.take(4).forEach { url ->
+                        ThingImageThumb(url = url, size = 42.dp)
+                    }
+                    val overflow = attachmentPreviewUrls.size - 4
+                    if (overflow > 0) {
+                        Text(
+                            text = "+$overflow",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = uiColors.textSecondary,
+                            modifier = Modifier.padding(start = 2.dp, top = 12.dp),
+                        )
+                    }
+                }
             }
         }
     }
+    PushGoDividerSubtle(
+        thickness = 0.5.dp,
+        color = uiColors.dividerSubtle.copy(alpha = 0.55f),
+    )
+}
+
+@Composable
+private fun ThingImageThumb(
+    url: String?,
+    size: androidx.compose.ui.unit.Dp = 44.dp,
+    onClick: ((String) -> Unit)? = null,
+) {
+    val uiColors = PushGoThemeExtras.colors
+    val normalized = url?.trim().takeUnless { it.isNullOrEmpty() }?.takeIf(::isThingImageAttachmentUrl)
+    if (normalized.isNullOrEmpty()) {
+        Surface(
+            shape = MaterialTheme.shapes.small,
+            color = uiColors.fieldContainer,
+            modifier = Modifier
+                .height(size)
+                .width(size),
+        ) {
+            Box(contentAlignment = Alignment.Center) {
+                Icon(
+                    imageVector = Icons.Outlined.Memory,
+                    contentDescription = null,
+                    tint = uiColors.iconMuted,
+                    modifier = Modifier.size(size * 0.45f),
+                )
+            }
+        }
+        return
+    }
+    PushGoAsyncImage(
+        model = normalized,
+        contentDescription = null,
+        contentScale = ContentScale.Crop,
+        modifier = Modifier
+            .height(size)
+            .width(size)
+            .clip(MaterialTheme.shapes.small)
+            .then(
+                if (onClick != null) {
+                    Modifier.clickable { onClick(normalized) }
+                } else {
+                    Modifier
+                },
+            ),
+    )
+}
+
+private fun formatLocalRelativeTimeV2(context: Context, instant: Instant): String {
+    return DateUtils.getRelativeTimeSpanString(
+        instant.toEpochMilli(),
+        System.currentTimeMillis(),
+        DateUtils.MINUTE_IN_MILLIS,
+        DateUtils.FORMAT_ABBREV_ALL,
+    ).toString()
+}
+
+private fun buildThingCardsInternal(messages: List<PushMessage>): List<ThingCardModel> {
+    val grouped = messages
+        .asSequence()
+        .mapNotNull { message ->
+            val thingId = message.thingId?.trim().takeIf { !it.isNullOrBlank() } ?: return@mapNotNull null
+            thingId to message
+        }
+        .groupBy(keySelector = { it.first }, valueTransform = { it.second })
+
+    return grouped.map { (thingId, thingMessagesRaw) ->
+        val thingMessages = thingMessagesRaw.sortedBy { message ->
+            happenedAtFromPayload(
+                payload = runCatching { JSONObject(message.rawPayloadJson) }.getOrNull(),
+                fallback = message.receivedAt,
+            )
+        }
+        val latestThingMessage = thingMessages.lastOrNull { it.entityType == "thing" } ?: thingMessages.last()
+        val latestPayload = runCatching { JSONObject(latestThingMessage.rawPayloadJson) }.getOrNull()
+        val profile = parseThingProfile(latestPayload?.optString("thing_profile_json"))
+        val title = profile?.title ?: latestThingMessage.title.ifBlank { thingId }
+        val summary = profile?.description ?: latestThingMessage.bodyPreview
+        val state = profile?.state
+            ?: profile?.status
+            ?: latestPayload?.optString("thing_state")?.trim()?.takeIf { it.isNotEmpty() }
+            ?: latestPayload?.optString("state")?.trim()?.takeIf { it.isNotEmpty() }
+            ?: latestThingMessage.eventState
+        val createdAt = profile?.createdAt?.takeIf { it > 0L }?.let(::epochToInstant)
+        val imageUrl = profile?.imageUrl ?: latestThingMessage.imageUrl
+        val imageUrls = linkedSetOf<String>().apply {
+            if (!imageUrl.isNullOrBlank()) add(imageUrl)
+            profile?.imageUrls?.forEach { if (it.isNotBlank()) add(it) }
+            latestThingMessage.imageUrls.forEach { if (it.isNotBlank()) add(it) }
+        }.toList()
+        val tags = if (profile?.tags?.isNotEmpty() == true) profile.tags else latestThingMessage.tags
+
+        val attrs = linkedMapOf<String, Any?>()
+        thingMessages.forEach { message ->
+            val payload = runCatching { JSONObject(message.rawPayloadJson) }.getOrNull() ?: return@forEach
+            payload.optString("thing_attrs_json")
+                .trim()
+                .takeIf { it.isNotEmpty() }
+                ?.let { raw ->
+                    val parsed = parseJsonObjectOrNull(raw)
+                    if (parsed != null) {
+                        attrs.clear()
+                        parsed.forEach { (key, value) ->
+                            if (value != null) attrs[key] = value
+                        }
+                    }
+                }
+            payload.optString("event_attrs_json")
+                .trim()
+                .takeIf { it.isNotEmpty() }
+                ?.let { raw ->
+                    parseJsonObjectOrNull(raw)?.forEach { (key, value) ->
+                        if (value == null) {
+                            attrs.remove(key)
+                        } else {
+                            attrs[key] = value
+                        }
+                    }
+                }
+        }
+        val attrsJson = if (attrs.isEmpty()) null else JSONObject(attrs as Map<*, *>).toString(2)
+
+        val metadata = linkedMapOf<String, String>()
+        thingMessages.forEach { message ->
+            message.metadata.forEach { (key, value) ->
+                val normalizedKey = key.trim()
+                val normalizedValue = value.trim()
+                if (normalizedKey.isNotEmpty() && normalizedValue.isNotEmpty()) {
+                    metadata[normalizedKey] = normalizedValue
+                }
+            }
+        }
+        val metadataJson = if (metadata.isEmpty()) null else JSONObject(metadata as Map<*, *>).toString(2)
+
+        var channelId: String? = null
+        thingMessages.forEach { message ->
+            val value = message.channel?.trim()?.takeIf { it.isNotEmpty() }
+            if (value != null) channelId = value
+        }
+        val updatedAt = thingMessages.lastOrNull()?.receivedAt ?: Instant.EPOCH
+
+        ThingCardModel(
+            thingId = thingId,
+            title = title,
+            summary = summary,
+            state = state,
+            channelId = channelId,
+            imageUrl = imageUrl,
+            tags = tags,
+            createdAt = createdAt,
+            updatedAt = updatedAt,
+            imageUrls = imageUrls,
+            attrsJson = attrsJson,
+            metadataJson = metadataJson,
+            relatedEvents = buildThingRelatedEventCards(thingMessages, thingId),
+            relatedMessages = thingMessages
+                .asSequence()
+                .filter { it.entityType == "message" }
+                .map { message ->
+                    ThingRelatedMessage(
+                        message = message,
+                        happenedAt = happenedAtFromPayload(
+                            payload = runCatching { JSONObject(message.rawPayloadJson) }.getOrNull(),
+                            fallback = message.receivedAt,
+                        ),
+                    )
+                }
+                .distinctBy { it.message.messageId ?: it.message.id }
+                .sortedByDescending { it.happenedAt }
+                .toList(),
+            relatedUpdates = thingMessages
+                .asSequence()
+                .filter { it.entityType == "thing" }
+                .map { message ->
+                    val payload = runCatching { JSONObject(message.rawPayloadJson) }.getOrNull()
+                    ThingRelatedUpdate(
+                        updateId = message.id.trim().ifEmpty { "${thingId}:${message.receivedAt.toEpochMilli()}" },
+                        title = message.title.ifBlank { thingId },
+                        summary = message.body.trim().takeIf { it.isNotEmpty() },
+                        state = payload?.optString("thing_state")
+                            ?.trim()
+                            ?.takeIf { it.isNotEmpty() }
+                            ?: payload?.optString("state")?.trim()?.takeIf { it.isNotEmpty() },
+                        happenedAt = happenedAtFromPayload(payload = payload, fallback = message.receivedAt),
+                        attrsJson = payload?.optString("thing_attrs_json")
+                            ?.trim()
+                            ?.takeIf { it.isNotEmpty() }
+                            ?: payload?.optString("event_attrs_json")
+                                ?.trim()
+                                ?.takeIf { it.isNotEmpty() },
+                    )
+                }
+                .distinctBy { it.updateId }
+                .sortedByDescending { it.happenedAt }
+                .toList(),
+        )
+    }.sortedByDescending { it.updatedAt }
+}
+
+private fun mergeThingCardsInternal(existing: List<ThingCardModel>, incoming: List<ThingCardModel>): List<ThingCardModel> {
+    val map = existing.associateBy { it.thingId }.toMutableMap()
+    incoming.forEach { map[it.thingId] = it }
+    return map.values.sortedByDescending { it.updatedAt }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -552,26 +1007,495 @@ private fun ThingDetailSheet(
     onOpenRelatedUpdate: (ThingRelatedUpdate) -> Unit,
     onDelete: () -> Unit,
 ) {
+    var previewImageUrl by remember { mutableStateOf<String?>(null) }
+    var showMetadataSheet by remember { mutableStateOf(false) }
+    var selectedTab by remember { mutableStateOf(ThingDetailTab.Events) }
+    val uiColors = PushGoThemeExtras.colors
+    val attrsEntries = remember(thing.attrsJson) { parseThingDisplayAttributes(thing.attrsJson) }
+    val metadataEntries = remember(thing.metadataJson) { parseThingDisplayAttributes(thing.metadataJson) }
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = 16.dp)
+            .padding(bottom = bottomGestureInset + 24.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp),
+    ) {
+        Surface(
+            modifier = Modifier.fillMaxWidth(),
+            color = uiColors.surfaceBase,
+            shape = RoundedCornerShape(14.dp),
+            border = BorderStroke(0.8.dp, uiColors.dividerStrong.copy(alpha = 0.42f)),
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 14.dp, vertical = 12.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.Top,
+                ) {
+                    ThingImageThumb(
+                        url = thing.imageUrl,
+                        size = 84.dp,
+                        onClick = { url -> previewImageUrl = url },
+                    )
+                    IconButton(
+                        modifier = Modifier.size(32.dp),
+                        onClick = onDelete,
+                    ) {
+                        Icon(
+                            imageVector = Icons.Outlined.Delete,
+                            contentDescription = stringResource(R.string.action_delete),
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.9f),
+                            modifier = Modifier.size(20.dp),
+                        )
+                    }
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        text = thing.title,
+                        style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.SemiBold),
+                        modifier = Modifier.weight(1f),
+                    )
+                    val lifecycleState = ThingLifecycleState.fromRaw(thing.state)
+                    if (lifecycleState == ThingLifecycleState.Archived || lifecycleState == ThingLifecycleState.Deleted) {
+                        ThingStateBadge(state = thing.state)
+                    }
+                }
+
+                thing.channelId?.let { channelId ->
+                    val displayName = channelNameMap[channelId] ?: channelId
+                    Text(
+                        text = displayName,
+                        style = MaterialTheme.typography.labelMedium,
+                        color = uiColors.textSecondary,
+                    )
+                }
+
+                Text(
+                    text = stringResource(
+                        R.string.thing_detail_created_updated,
+                        thing.createdAt?.let(ThingTimeFormatter::format) ?: "-",
+                        ThingTimeFormatter.format(thing.updatedAt),
+                    ),
+                    style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
+                    color = uiColors.textSecondary,
+                )
+
+                if (thing.tags.isNotEmpty()) {
+                    Text(
+                        text = thing.tags.joinToString(" · "),
+                        style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
+                        color = uiColors.textSecondary,
+                    )
+                }
+
+                if (!thing.summary.isNullOrBlank()) {
+                    Text(
+                        text = thing.summary,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        lineHeight = 20.sp,
+                    )
+                }
+
+                if (metadataEntries.isNotEmpty()) {
+                    TextButton(
+                        onClick = { showMetadataSheet = true },
+                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                        colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.primary),
+                        modifier = Modifier
+                            .height(32.dp)
+                            .background(
+                                color = uiColors.fieldContainer.copy(alpha = 0.9f),
+                                shape = RoundedCornerShape(18.dp),
+                            ),
+                    ) {
+                        Icon(
+                            imageVector = Icons.Outlined.Info,
+                            contentDescription = null,
+                            modifier = Modifier.size(14.dp),
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = stringResource(R.string.thing_detail_metadata_button),
+                            style = MaterialTheme.typography.labelMedium,
+                        )
+                    }
+                }
+
+                if (attrsEntries.isNotEmpty()) {
+                    Text(
+                        text = stringResource(R.string.thing_detail_attributes),
+                        style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.SemiBold),
+                        color = uiColors.textSecondary,
+                    )
+                    EntityKeyValueRows(entries = attrsEntries)
+                }
+            }
+        }
+
+        if (thing.imageUrls.size > 1) {
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.horizontalScroll(rememberScrollState()),
+            ) {
+                thing.imageUrls.drop(1).forEach { url ->
+                    ThingImageThumb(url = url, size = 88.dp, onClick = { previewImageUrl = it })
+                }
+            }
+        }
+
+        SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
+            SegmentedButton(
+                selected = selectedTab == ThingDetailTab.Events,
+                onClick = { selectedTab = ThingDetailTab.Events },
+                shape = SegmentedButtonDefaults.itemShape(index = 0, count = 3),
+                modifier = Modifier.weight(1f),
+                icon = {},
+            ) {
+                Text(stringResource(R.string.thing_detail_tab_events))
+            }
+            SegmentedButton(
+                selected = selectedTab == ThingDetailTab.Messages,
+                onClick = { selectedTab = ThingDetailTab.Messages },
+                shape = SegmentedButtonDefaults.itemShape(index = 1, count = 3),
+                modifier = Modifier.weight(1f),
+                icon = {},
+            ) {
+                Text(stringResource(R.string.thing_detail_tab_messages))
+            }
+            SegmentedButton(
+                selected = selectedTab == ThingDetailTab.Updates,
+                onClick = { selectedTab = ThingDetailTab.Updates },
+                shape = SegmentedButtonDefaults.itemShape(index = 2, count = 3),
+                modifier = Modifier.weight(1f),
+                icon = {},
+            ) {
+                Text(stringResource(R.string.thing_detail_tab_updates))
+            }
+        }
+
+        Surface(
+            modifier = Modifier.fillMaxWidth(),
+            color = uiColors.surfaceBase,
+            shape = RoundedCornerShape(14.dp),
+            border = BorderStroke(0.8.dp, uiColors.dividerStrong.copy(alpha = 0.35f)),
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 12.dp, vertical = 10.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                when (selectedTab) {
+                    ThingDetailTab.Events -> {
+                        if (thing.relatedEvents.isEmpty()) {
+                            AppEmptyState(
+                                icon = Icons.Outlined.Info,
+                                title = stringResource(R.string.thing_detail_no_related_events),
+                                description = stringResource(R.string.label_no_events_hint),
+                                topPadding = 12.dp,
+                                horizontalPadding = 0.dp,
+                                iconSize = 44.dp,
+                            )
+                        } else {
+                            thing.relatedEvents.sortedByDescending { it.updatedAt }.forEach { event ->
+                                EventListRowItem(
+                                    event = event,
+                                    onClick = { onOpenRelatedEvent(event) },
+                                    selectionMode = false,
+                                    selected = false,
+                                    onToggleSelection = {},
+                                    showDivider = true,
+                                )
+                            }
+                        }
+                    }
+
+                    ThingDetailTab.Messages -> {
+                        if (thing.relatedMessages.isEmpty()) {
+                            AppEmptyState(
+                                icon = Icons.Outlined.Info,
+                                title = stringResource(R.string.thing_detail_no_related_messages),
+                                description = stringResource(R.string.message_list_empty_hint),
+                                topPadding = 12.dp,
+                                horizontalPadding = 0.dp,
+                                iconSize = 44.dp,
+                            )
+                        } else {
+                            thing.relatedMessages
+                                .sortedByDescending { it.happenedAt }
+                                .forEach { related ->
+                                    val rowMessage = related.message
+                                    val nowInstant = Instant.now()
+                                    Column(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clickable { onOpenRelatedMessage(related) }
+                                            .padding(vertical = 10.dp),
+                                    ) {
+                                        MessageRowContent(
+                                            message = rowMessage,
+                                            imageModels = rowMessage.imageUrls.take(3).map { it as Any },
+                                            appName = stringResource(R.string.app_name),
+                                            timeText = formatMessageTime(
+                                                context = LocalContext.current,
+                                                receivedAt = rowMessage.receivedAt,
+                                                zoneId = ZoneId.systemDefault(),
+                                                nowInstant = nowInstant,
+                                            ),
+                                            bodyPreview = rowMessage.bodyPreview.orEmpty(),
+                                        )
+                                        PushGoDividerSubtle(
+                                            modifier = Modifier.padding(top = 10.dp),
+                                            thickness = 0.5.dp,
+                                            color = uiColors.dividerSubtle.copy(alpha = 0.7f),
+                                        )
+                                    }
+                                }
+                        }
+                    }
+
+                    ThingDetailTab.Updates -> {
+                        if (thing.relatedUpdates.isEmpty()) {
+                            AppEmptyState(
+                                icon = Icons.Outlined.Info,
+                                title = stringResource(R.string.thing_detail_no_related_updates),
+                                description = stringResource(R.string.label_no_things_hint),
+                                topPadding = 12.dp,
+                                horizontalPadding = 0.dp,
+                                iconSize = 44.dp,
+                            )
+                        } else {
+                            thing.relatedUpdates.sortedByDescending { it.happenedAt }.forEach { update ->
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clickable { onOpenRelatedUpdate(update) }
+                                        .padding(vertical = 8.dp),
+                                    verticalArrangement = Arrangement.spacedBy(5.dp),
+                                ) {
+                                    Text(
+                                        text = update.title,
+                                        style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.SemiBold),
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
+                                    if (!update.summary.isNullOrBlank()) {
+                                        Text(
+                                            text = update.summary,
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            maxLines = 2,
+                                            overflow = TextOverflow.Ellipsis,
+                                        )
+                                    }
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically,
+                                    ) {
+                                        Text(
+                                            text = ThingTimeFormatter.format(update.happenedAt),
+                                            style = MaterialTheme.typography.labelSmall.copy(fontFamily = FontFamily.Monospace),
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        )
+                                        if (!update.state.isNullOrBlank()) {
+                                            ThingStateBadge(state = update.state)
+                                        }
+                                    }
+                                    PushGoDividerSubtle(
+                                        modifier = Modifier.padding(top = 8.dp),
+                                        thickness = 0.5.dp,
+                                        color = uiColors.dividerSubtle.copy(alpha = 0.7f),
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if (previewImageUrl != null) {
+        ZoomableImagePreviewDialog(
+            model = previewImageUrl,
+            onDismiss = { previewImageUrl = null },
+        )
+    }
+    if (showMetadataSheet) {
+        PushGoModalBottomSheet(onDismissRequest = { showMetadataSheet = false }) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 24.dp)
+                    .padding(bottom = bottomGestureInset + 24.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp),
+            ) {
+                Text(
+                    text = stringResource(R.string.thing_detail_metadata_button),
+                    style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
+                )
+                if (metadataEntries.isEmpty()) {
+                    Text(
+                        text = stringResource(R.string.thing_detail_no_metadata),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                    )
+                } else {
+                    EntityKeyValueRows(entries = metadataEntries)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ThingRelatedMessageDetailSheet(message: ThingRelatedMessage) {
+    val current = message.message
+    val context = LocalContext.current
+    val copiedMessage = stringResource(R.string.message_text_copied)
+    val bottomGestureInset = rememberBottomGestureInset()
+    val timeText = remember(current.receivedAt) {
+        ThingTimeFormatter.format(current.receivedAt)
+    }
+    val resolvedBody = remember(current.rawPayloadJson, current.body) {
+        io.ethan.pushgo.markdown.MessageBodyResolver.resolve(current.rawPayloadJson, current.body)
+    }
+    var previewImageUrl by remember { mutableStateOf<String?>(null) }
+    MessageDetailCoreContent(
+        message = current,
+        timeText = timeText,
+        imageModels = current.imageUrls.map { it as Any },
+        resolvedBodyText = resolvedBody.rawText,
+        bottomGestureInset = bottomGestureInset,
+        onDelete = null,
+        onCopyText = { text ->
+            val clipboardManager = context.getSystemService(Context.CLIPBOARD_SERVICE) as? android.content.ClipboardManager
+            clipboardManager?.setPrimaryClip(android.content.ClipData.newPlainText("message", text))
+            Toast.makeText(context, copiedMessage, Toast.LENGTH_SHORT).show()
+        },
+        onOpenImage = { model ->
+            val raw = model as? String ?: return@MessageDetailCoreContent
+            val safeImage = normalizeExternalImageUrl(raw) ?: return@MessageDetailCoreContent
+            previewImageUrl = safeImage
+        },
+        onOpenUrl = { url -> context.openExternalUrl(url) },
+    )
+    if (previewImageUrl != null) {
+        ZoomableImagePreviewDialog(
+            model = previewImageUrl,
+            onDismiss = { previewImageUrl = null },
+        )
+    }
+}
+
+@Composable
+private fun ThingUpdateDetailSheet(update: ThingRelatedUpdate) {
+    val attrsEntries = remember(update.attrsJson) { parseThingDisplayAttributes(update.attrsJson) }
+    val timeText = remember(update.happenedAt) { ThingTimeFormatter.format(update.happenedAt) }
     Column(
         modifier = Modifier
             .fillMaxWidth()
             .verticalScroll(rememberScrollState())
             .padding(horizontal = 24.dp)
-            .padding(bottom = bottomGestureInset + 24.dp),
+            .padding(bottom = 32.dp),
         verticalArrangement = Arrangement.spacedBy(20.dp),
     ) {
-        val uiColors = PushGoThemeExtras.colors
-        Text(text = thing.title, style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Bold))
-        val attrs = remember(thing.attrsJson) { parseThingDisplayAttributes(thing.attrsJson) }
-        if (attrs.isNotEmpty()) EntityKeyValueRows(entries = attrs)
-        Text(text = "Updated: ${ThingTimeFormatter.format(thing.updatedAt)}", style = MaterialTheme.typography.bodySmall, color = uiColors.textSecondary)
+        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Text(
+                text = update.title,
+                style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Bold),
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = timeText,
+                    style = MaterialTheme.typography.labelMedium.copy(fontFamily = FontFamily.Monospace),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
+                )
+                if (!update.state.isNullOrBlank()) {
+                    ThingStateBadge(state = update.state)
+                }
+            }
+        }
+
+        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+
+        if (!update.summary.isNullOrBlank()) {
+            Text(
+                text = update.summary,
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.onSurface,
+                lineHeight = 22.sp,
+            )
+        }
+
+        if (attrsEntries.isNotEmpty()) {
+            EntityKeyValueRows(entries = attrsEntries)
+        }
     }
 }
 
 @Composable
-private fun ThingRelatedMessageDetailSheet(message: ThingRelatedMessage) { /* detail */ }
-@Composable
-private fun ThingUpdateDetailSheet(update: ThingRelatedUpdate) { /* detail */ }
+private fun EntityKeyValueRows(entries: List<ThingDisplayAttribute>) {
+    val uiColors = PushGoThemeExtras.colors
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        color = uiColors.fieldContainer.copy(alpha = 0.95f),
+        shape = RoundedCornerShape(12.dp),
+        border = BorderStroke(0.8.dp, uiColors.dividerSubtle.copy(alpha = 0.9f)),
+    ) {
+        Column {
+            entries.forEachIndexed { index, entry ->
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 10.dp),
+                    horizontalArrangement = Arrangement.spacedBy(16.dp),
+                    verticalAlignment = Alignment.Top,
+                ) {
+                    Text(
+                        text = entry.displayLabel,
+                        style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold, letterSpacing = 0.2.sp),
+                        color = uiColors.textSecondary,
+                        modifier = Modifier.width(100.dp),
+                    )
+                    Text(
+                        text = entry.value,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+                if (index < entries.lastIndex) {
+                    HorizontalDivider(
+                        modifier = Modifier.padding(horizontal = 12.dp),
+                        color = uiColors.dividerSubtle.copy(alpha = 0.72f),
+                        thickness = 0.5.dp,
+                    )
+                }
+            }
+        }
+    }
+}
 
 private enum class ThingDetailTab(val labelRes: Int) {
     Events(R.string.thing_detail_tab_events),
@@ -580,4 +1504,137 @@ private enum class ThingDetailTab(val labelRes: Int) {
 }
 
 @Composable
-private fun ThingStateBadge(state: String?) { /* badge */ }
+private fun ThingStateBadge(state: String?) {
+    val tint = thingStateTint(state)
+    Surface(
+        color = tint.copy(alpha = 0.16f),
+        shape = MaterialTheme.shapes.small,
+    ) {
+        Text(
+            text = normalizedThingState(state),
+            style = MaterialTheme.typography.labelSmall,
+            fontWeight = FontWeight.SemiBold,
+            color = tint,
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+        )
+    }
+}
+
+private fun normalizedThingState(raw: String?): String {
+    val normalized = raw?.trim().orEmpty()
+    if (normalized.isEmpty()) return "unknown"
+    return normalized.lowercase(Locale.ROOT).replaceFirstChar { it.uppercase() }
+}
+
+private fun thingStateTint(raw: String?): Color {
+    return when (ThingLifecycleState.fromRaw(raw)) {
+        ThingLifecycleState.Active -> Color(0xFF2563EB)
+        ThingLifecycleState.Archived -> Color(0xFF6B7280)
+        ThingLifecycleState.Deleted -> Color(0xFFB91C1C)
+        ThingLifecycleState.Unknown -> Color(0xFF6B7280)
+    }
+}
+
+private fun buildThingRelatedEventCards(
+    messages: List<PushMessage>,
+    thingId: String,
+): List<EventCardModel> {
+    return messages
+        .asSequence()
+        .filter { message ->
+            message.thingId?.trim() == thingId &&
+                (message.entityType == "event" || !message.eventId.isNullOrBlank())
+        }
+        .mapNotNull { message ->
+            val eventId = message.eventId?.trim().orEmpty()
+            if (eventId.isEmpty()) return@mapNotNull null
+            val payload = runCatching { JSONObject(message.rawPayloadJson) }.getOrNull()
+            val profile = parseEventProfile(payload?.optString("event_profile_json"))
+            val happenedAt = happenedAtFromPayload(payload, message.receivedAt)
+            EventCardModel(
+                eventId = eventId,
+                title = profile?.title ?: message.title.ifBlank { eventId },
+                summary = profile?.description ?: message.bodyPreview,
+                status = profile?.status ?: message.eventState,
+                message = profile?.message ?: message.body.takeIf { it.isNotBlank() },
+                imageUrl = profile?.imageUrl ?: message.imageUrl,
+                severity = EventSeverity.fromRaw(profile?.severity ?: message.severity?.name),
+                tags = if (profile?.tags?.isNotEmpty() == true) profile.tags else message.tags,
+                state = EventLifecycleState.fromRaw(message.eventState),
+                thingId = message.thingId,
+                channelId = message.channel,
+                attachmentUrls = linkedSetOf<String>().apply {
+                    profile?.imageUrls?.forEach { if (it.isNotBlank()) add(it) }
+                    message.imageUrls.forEach { if (it.isNotBlank()) add(it) }
+                }.toList(),
+                attrsJson = payload?.optString("event_attrs_json")?.trim()?.takeIf { it.isNotEmpty() },
+                updatedAt = happenedAt,
+                timeline = emptyList(),
+            )
+        }
+        .groupBy { it.eventId }
+        .mapNotNull { (_, versions) -> versions.maxByOrNull { it.updatedAt } }
+        .sortedByDescending { it.updatedAt }
+        .toList()
+}
+
+private fun parseJsonObjectOrNull(raw: String): Map<String, Any?>? {
+    val objectValue = runCatching { JSONObject(raw) }.getOrNull() ?: return null
+    val result = linkedMapOf<String, Any?>()
+    val iterator = objectValue.keys()
+    while (iterator.hasNext()) {
+        val key = iterator.next()
+        val value = objectValue.opt(key)
+        result[key] = if (value == JSONObject.NULL) null else value
+    }
+    return result
+}
+
+private fun parseThingDisplayAttributes(attrsJson: String?): List<ThingDisplayAttribute> {
+    if (attrsJson.isNullOrBlank()) return emptyList()
+    val parsed = runCatching { JSONObject(attrsJson) }.getOrNull() ?: return emptyList()
+    val entries = mutableListOf<ThingDisplayAttribute>()
+    val keys = parsed.keys().asSequence().toList().sorted()
+    for (key in keys) {
+        val normalizedKey = key.trim()
+        if (normalizedKey.isEmpty()) continue
+        val rawValue = parsed.opt(key)
+        if (rawValue == null || rawValue == JSONObject.NULL) continue
+        val value = rawValue.toString().trim()
+        if (value.isEmpty()) continue
+        entries += ThingDisplayAttribute(
+            key = normalizedKey,
+            label = normalizedKey,
+            value = value,
+        )
+    }
+    return entries
+}
+
+private fun isThingImageAttachmentUrl(raw: String): Boolean {
+    val value = raw.trim().lowercase()
+    return value.endsWith(".png")
+        || value.endsWith(".jpg")
+        || value.endsWith(".jpeg")
+        || value.endsWith(".webp")
+        || value.endsWith(".gif")
+        || value.endsWith(".bmp")
+        || value.endsWith(".heic")
+        || value.contains("format=png")
+        || value.contains("format=jpg")
+        || value.contains("format=jpeg")
+        || value.contains("format=webp")
+}
+
+private fun happenedAtFromPayload(payload: JSONObject?, fallback: Instant): Instant {
+    val epochSeconds = payload?.optLong("observed_at")?.takeIf { it > 0L }
+    return epochSeconds?.let { Instant.ofEpochSecond(it) } ?: fallback
+}
+
+private fun epochToInstant(raw: Long): Instant {
+    return if (raw > 10_000_000_000L) {
+        Instant.ofEpochMilli(raw)
+    } else {
+        Instant.ofEpochSecond(raw)
+    }
+}

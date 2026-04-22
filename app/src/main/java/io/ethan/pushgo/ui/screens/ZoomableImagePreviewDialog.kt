@@ -36,7 +36,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
-import coil.compose.AsyncImage
 import io.ethan.pushgo.R
 import io.ethan.pushgo.ui.theme.PushGoThemeExtras
 
@@ -46,11 +45,13 @@ fun ZoomableImagePreviewDialog(
     onDismiss: () -> Unit,
     onSaveImage: (() -> Unit)? = null,
     onShareImage: (() -> Unit)? = null,
+    autoPlayAnimated: Boolean = true,
 ) {
     if (model == null) return
     val uiColors = PushGoThemeExtras.colors
     var scale by remember(model) { mutableFloatStateOf(1f) }
     var offset by remember(model) { mutableStateOf(Offset.Zero) }
+    var isPlaying by remember(model, autoPlayAnimated) { mutableStateOf(autoPlayAnimated) }
 
     Dialog(
         onDismissRequest = onDismiss,
@@ -65,10 +66,13 @@ fun ZoomableImagePreviewDialog(
                 .background(uiColors.overlayScrim)
                 .testTag("dialog.image.preview")
         ) {
-            AsyncImage(
+            PushGoPlayableImage(
                 model = model,
                 contentDescription = stringResource(R.string.label_image_attachment),
                 contentScale = ContentScale.Fit,
+                shouldPlayAnimated = isPlaying,
+                onPlayClick = { isPlaying = true },
+                onPlaybackFinished = { isPlaying = false },
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(24.dp)

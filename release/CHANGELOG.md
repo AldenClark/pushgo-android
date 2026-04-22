@@ -20,6 +20,11 @@ PushGo Android policy:
 
 ## [Unreleased]
 
+### Changed
+- Placeholder for next development cycle.
+
+## [v1.2.1] - 2026-04-22
+
 ### Added
 - Added `SettingsUiState` read-model consolidation for `SettingsScreen`.
 - Added injectable runtime/hooks pipeline for inbound processing:
@@ -32,9 +37,11 @@ PushGo Android policy:
   - `InboundMessageProcessorTest`
 - Added `PushTokenProvider` abstraction and default `FirebasePushTokenProvider`.
 - Added `AppCoroutineDispatchers` for centralized dispatcher wiring.
+- Added versioned stable update notes source: `release/update-notes/v1.2.1.json`.
 
 ### Changed
-- Bumped Android app `versionName` default to `v1.3.0-beta.1`.
+- Finalized Android app version to `v1.2.1` for release builds.
+- `versionCode` now resolves to stable code `1020199` from `versionName=v1.2.1`.
 - Refactored `InboundMessageWorker` to:
   - use unique work enqueue (`KEEP`) for dedupe,
   - use exponential backoff and bounded retries,
@@ -44,11 +51,14 @@ PushGo Android policy:
 - Updated `SettingsRepository` setting flows with `distinctUntilChanged()` to reduce redundant emissions.
 - Updated `ChannelSubscriptionService` IO usage to injected dispatcher path.
 - Updated `MessageDetailScreen` and `MessageSearchScreen` to lifecycle-aware flow collection.
+- Updated `EventListScreen` and `ThingListScreen` detail flows to keep selection synchronized with latest list snapshots and deep-link target resolution.
+- Updated event/object list pagination to list-driven incremental loading for more stable long-list behavior.
 
 ### Fixed
 - Fixed a startup-window ingress risk where messages could be ignored when runtime storage was not yet ready; now handled through worker retry semantics.
 - Fixed event-list incremental load trigger to list-level snapshot observation.
 - Fixed message-detail load failure surfacing with explicit error state handling.
+- Fixed event/object detail actions by adding explicit close/delete confirmation flows and post-action data refresh.
 
 ## [v1.2.0] - 2026-04-20
 

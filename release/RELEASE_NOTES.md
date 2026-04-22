@@ -10,13 +10,19 @@ Policy:
 
 ## [Unreleased]
 
+### Changed
+- Placeholder for next beta cycle.
+
+## [v1.2.1]
+
 ### Improved
 - Improved inbound message reliability during app startup by queueing and retrying delivery processing instead of dropping early-runtime messages.
 - Improved private/provider ingress handling consistency with stricter routing and safer duplicate suppression.
 - Improved settings and message detail state behavior for more stable screen updates and clearer load-failure feedback.
+- Improved event and object pages with more stable detail synchronization, smoother pagination, and clearer close/delete interactions.
 
-### Added
-- Added targeted Android beta quality hardening around inbound processing, lifecycle-aware state collection, and transport token/runtime wiring.
+### Fixed
+- Fixed startup-window ingress instability by promoting retries and lifecycle-aware processing in the inbound pipeline.
 
 ## [v1.2.0]
 

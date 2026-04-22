@@ -41,6 +41,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -67,7 +68,6 @@ import androidx.compose.foundation.layout.width
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.core.content.FileProvider
-import coil.compose.AsyncImage
 import io.ethan.pushgo.R
 import io.ethan.pushgo.data.ChannelSubscriptionRepository
 import io.ethan.pushgo.data.MessageImageStore
@@ -79,6 +79,7 @@ import io.ethan.pushgo.notifications.MessageStateCoordinator
 import io.ethan.pushgo.ui.MessageDetailViewModelFactory
 import io.ethan.pushgo.ui.announceForAccessibility
 import io.ethan.pushgo.ui.markdown.FullMarkdownRenderer
+import io.ethan.pushgo.ui.markdown.MarkdownAnimatedImagePlaybackRegistry
 import io.ethan.pushgo.ui.markdown.SelectablePlainTextRenderer
 import io.ethan.pushgo.ui.rememberBottomGestureInset
 import io.ethan.pushgo.ui.theme.PushGoSheetContainerColor
@@ -308,9 +309,24 @@ internal fun MessageDetailCoreContent(
     onOpenUrl: (String) -> Unit,
 ) {
     val uiColors = PushGoThemeExtras.colors
+    val detailScrollState = rememberScrollState()
+    var activeAnimatedImageKey by remember(message.id) { mutableStateOf<String?>(null) }
+
+    LaunchedEffect(detailScrollState.isScrollInProgress) {
+        if (detailScrollState.isScrollInProgress) {
+            activeAnimatedImageKey = null
+            MarkdownAnimatedImagePlaybackRegistry.stopAll()
+        }
+    }
+    DisposableEffect(message.id) {
+        onDispose {
+            MarkdownAnimatedImagePlaybackRegistry.stopAll()
+        }
+    }
+
     Column(
         modifier = Modifier
-            .verticalScroll(rememberScrollState())
+            .verticalScroll(detailScrollState)
             .padding(horizontal = 12.dp)
             .padding(top = 12.dp)
             .padding(bottom = bottomGestureInset + 24.dp),
@@ -383,28 +399,58 @@ internal fun MessageDetailCoreContent(
         if (imageModels.isNotEmpty()) {
             if (imageModels.size == 1) {
                 val model = imageModels.first()
-                AsyncImage(
+                val playbackKey = remember(model) { "detail:0:${pushGoImageModelIdentity(model)}" }
+                PushGoPlayableImage(
                     model = model,
                     contentDescription = stringResource(R.string.label_image_attachment),
+                    shouldPlayAnimated = activeAnimatedImageKey == playbackKey,
+                    onPlayClick = {
+                        MarkdownAnimatedImagePlaybackRegistry.stopAll()
+                        activeAnimatedImageKey = playbackKey
+                    },
+                    onPlaybackFinished = {
+                        if (activeAnimatedImageKey == playbackKey) {
+                            activeAnimatedImageKey = null
+                        }
+                    },
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(240.dp)
                         .clip(RoundedCornerShape(12.dp))
-                        .clickable { onOpenImage(model) },
+                        .clickable {
+                            activeAnimatedImageKey = null
+                            MarkdownAnimatedImagePlaybackRegistry.stopAll()
+                            onOpenImage(model)
+                        },
                 )
             } else {
                 Row(
                     horizontalArrangement = Arrangement.spacedBy(10.dp),
                     modifier = Modifier.horizontalScroll(rememberScrollState())
                 ) {
-                    imageModels.forEach { model ->
-                        AsyncImage(
+                    imageModels.forEachIndexed { index, model ->
+                        val playbackKey = remember(model, index) { "detail:$index:${pushGoImageModelIdentity(model)}" }
+                        PushGoPlayableImage(
                             model = model,
                             contentDescription = stringResource(R.string.label_image_attachment),
+                            shouldPlayAnimated = activeAnimatedImageKey == playbackKey,
+                            onPlayClick = {
+                                MarkdownAnimatedImagePlaybackRegistry.stopAll()
+                                activeAnimatedImageKey = playbackKey
+                            },
+                            onPlaybackFinished = {
+                                if (activeAnimatedImageKey == playbackKey) {
+                                    activeAnimatedImageKey = null
+                                }
+                            },
                             modifier = Modifier
                                 .size(100.dp)
                                 .clip(RoundedCornerShape(10.dp))
-                                .clickable { onOpenImage(model) },
+                                .clickable {
+                                    activeAnimatedImageKey = null
+                                    MarkdownAnimatedImagePlaybackRegistry.stopAll()
+                                    onOpenImage(model)
+                                },
                         )
                     }
                 }
@@ -426,7 +472,14 @@ internal fun MessageDetailCoreContent(
             text = resolvedBodyText,
             modifier = Modifier.fillMaxWidth(),
             onOpenLink = onOpenUrl,
-            onOpenImage = { imageUrl -> onOpenImage(imageUrl) },
+            onOpenImage = { imageUrl ->
+                activeAnimatedImageKey = null
+                MarkdownAnimatedImagePlaybackRegistry.stopAll()
+                onOpenImage(imageUrl)
+            },
+            onAnimatedImagePlay = {
+                activeAnimatedImageKey = null
+            },
         )
 
         if (!message.url.isNullOrBlank()) {

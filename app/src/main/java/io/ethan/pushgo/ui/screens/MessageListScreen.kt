@@ -68,7 +68,6 @@ import androidx.paging.LoadState
 import androidx.paging.compose.collectAsLazyPagingItems
 import androidx.paging.compose.itemKey
 import androidx.paging.compose.itemContentType
-import coil.compose.AsyncImage
 import io.ethan.pushgo.R
 import io.ethan.pushgo.automation.PushGoAutomation
 import io.ethan.pushgo.data.AppContainer
@@ -561,7 +560,10 @@ private fun MessageRow(
             }
         }
     }
-    PushGoDividerSubtle(thickness = 1.dp)
+    PushGoDividerSubtle(
+        thickness = 0.5.dp,
+        color = uiColors.dividerSubtle.copy(alpha = 0.55f),
+    )
 }
 
 @Composable
@@ -581,7 +583,7 @@ fun MessageRowContent(message: PushMessage, imageModels: List<Any>, appName: Str
         Column(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 6.dp)) {
             if (bodyPreview.isNotBlank()) Text(text = bodyPreview, style = MaterialTheme.typography.bodyMedium, maxLines = 3, overflow = TextOverflow.Ellipsis, color = uiColors.textSecondary)
             if (message.tags.isNotEmpty()) Text(text = message.tags.joinToString(" · "), style = MaterialTheme.typography.labelSmall.copy(fontFamily = FontFamily.Monospace), color = PushGoThemeExtras.colors.stateInfo.foreground)
-            if (imageModels.isNotEmpty()) Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { imageModels.forEach { AsyncImage(model = it, contentDescription = null, modifier = Modifier.size(56.dp).clip(RoundedCornerShape(8.dp)), contentScale = ContentScale.Crop) } }
+            if (imageModels.isNotEmpty()) Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { imageModels.forEach { PushGoAsyncImage(model = it, contentDescription = null, modifier = Modifier.size(56.dp).clip(RoundedCornerShape(8.dp)), contentScale = ContentScale.Crop) } }
         }
     }
 }

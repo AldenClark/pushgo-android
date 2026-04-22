@@ -22,11 +22,12 @@ import io.ethan.pushgo.ui.theme.PushGoThemeExtras
 internal fun PushGoDividerSubtle(
     modifier: Modifier = Modifier,
     thickness: androidx.compose.ui.unit.Dp = 1.dp,
+    color: Color = PushGoThemeExtras.colors.dividerSubtle,
 ) {
     HorizontalDivider(
         modifier = modifier,
         thickness = thickness,
-        color = PushGoThemeExtras.colors.dividerSubtle,
+        color = color,
     )
 }
 

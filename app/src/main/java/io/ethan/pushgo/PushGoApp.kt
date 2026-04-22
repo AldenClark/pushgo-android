@@ -2,13 +2,19 @@ package io.ethan.pushgo
 
 import android.app.Application
 import android.os.Bundle
-import coil.ImageLoader
-import coil.ImageLoaderFactory
-import coil.disk.DiskCache
-import coil.memory.MemoryCache
+import android.os.Build
+import coil3.ImageLoader
+import coil3.SingletonImageLoader
+import coil3.disk.DiskCache
+import coil3.gif.AnimatedImageDecoder
+import coil3.gif.GifDecoder
+import coil3.memory.MemoryCache
+import coil3.request.crossfade
 import com.google.firebase.messaging.FirebaseMessaging
 import io.ethan.pushgo.data.AppContainer
 import io.ethan.pushgo.automation.PushGoAutomation
+import io.ethan.pushgo.data.MessageImageStore
+import io.ethan.pushgo.data.MessageImageStoreFetcher
 import io.ethan.pushgo.notifications.KeepaliveState
 import io.ethan.pushgo.notifications.AlertPlaybackController
 import io.ethan.pushgo.notifications.NotificationHelper
@@ -24,10 +30,11 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.suspendCancellableCoroutine
+import okio.Path.Companion.toOkioPath
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 
-class PushGoApp : Application(), ImageLoaderFactory {
+class PushGoApp : Application(), SingletonImageLoader.Factory {
     companion object {
         private const val TAG = "PushGoApp"
         private const val FCM_TOKEN_MAX_ATTEMPTS = 3
@@ -65,6 +72,7 @@ class PushGoApp : Application(), ImageLoaderFactory {
     }
 
     private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val imageStoreForCoil by lazy { MessageImageStore(this) }
     private var startedActivities: Int = 0
 
     override fun onCreate() {
@@ -267,16 +275,24 @@ class PushGoApp : Application(), ImageLoaderFactory {
         }
     }
 
-    override fun newImageLoader(): ImageLoader {
-        return ImageLoader.Builder(this)
+    override fun newImageLoader(context: coil3.PlatformContext): ImageLoader {
+        return ImageLoader.Builder(context)
+            .components {
+                add(MessageImageStoreFetcher.Factory(imageStoreForCoil))
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                    add(AnimatedImageDecoder.Factory())
+                } else {
+                    add(GifDecoder.Factory())
+                }
+            }
             .memoryCache {
-                MemoryCache.Builder(this)
-                    .maxSizePercent(0.25)
+                MemoryCache.Builder()
+                    .maxSizePercent(context, 0.25)
                     .build()
             }
             .diskCache {
                 DiskCache.Builder()
-                    .directory(cacheDir.resolve("image_cache"))
+                    .directory(cacheDir.resolve("image_cache").toOkioPath())
                     .maxSizeBytes(512L * 1024 * 1024)
                     .build()
             }
