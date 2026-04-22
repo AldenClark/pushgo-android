@@ -656,6 +656,30 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
+          # Keep versioned update notes stable even after switching to default branch.
+          update_notes_tmp="$(mktemp)"
+          if ! git show "${GITHUB_REF_NAME}:${PUSHGO_UPDATE_NOTES_FILE}" > "${update_notes_tmp}"; then
+            echo "Failed to load update notes from tag ${GITHUB_REF_NAME}: ${PUSHGO_UPDATE_NOTES_FILE}" >&2
+            exit 1
+          fi
+          jq -e '
+            if type != "object" then
+              error("update notes must be a JSON object")
+            else
+              with_entries(
+                select(
+                  (.key | type == "string")
+                  and (.value | type == "string" and (gsub("\\s+"; "") | length > 0))
+                )
+              )
+              | if length == 0 then
+                  error("update notes has no non-empty locale entries")
+                else
+                  .
+                end
+            end
+          ' "${update_notes_tmp}" >/dev/null
+
           for attempt in 1 2 3; do
             branch_name="persist-update-feed-${GITHUB_RUN_ID}-${attempt}"
             git fetch origin "${default_branch}"
@@ -669,7 +693,7 @@ jobs:
               --repo "${GITHUB_REPOSITORY}"
               --base-url "${PUSHGO_UPDATE_BASE_URL}"
               --repo-feed-path "release/update-feed-v1.json"
-              --update-notes-file "${PUSHGO_UPDATE_NOTES_FILE}"
+              --update-notes-file "${update_notes_tmp}"
               --ecdsa-private-key-file "${PUSHGO_UPDATE_FEED_ECDSA_SIGNING_KEY_FILE}"
             )
             "${cmd[@]}"
