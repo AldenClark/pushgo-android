@@ -63,6 +63,7 @@ import io.ethan.pushgo.ui.rememberBottomGestureInset
 import io.ethan.pushgo.ui.theme.PushGoSheetContainerColor
 import io.ethan.pushgo.ui.theme.PushGoThemeExtras
 import io.ethan.pushgo.ui.markdown.FullMarkdownRenderer
+import io.ethan.pushgo.util.PayloadTimeNormalizer
 import io.ethan.pushgo.util.normalizeExternalImageUrl
 import io.ethan.pushgo.util.openExternalUrl
 import io.ethan.pushgo.ui.viewmodel.SettingsViewModel
@@ -874,7 +875,10 @@ private fun buildThingCardsInternal(messages: List<PushMessage>): List<ThingCard
             ?: latestPayload?.optString("thing_state")?.trim()?.takeIf { it.isNotEmpty() }
             ?: latestPayload?.optString("state")?.trim()?.takeIf { it.isNotEmpty() }
             ?: latestThingMessage.eventState
-        val createdAt = profile?.createdAt?.takeIf { it > 0L }?.let(::epochToInstant)
+        val createdAt = profile?.createdAt
+            ?.let { PayloadTimeNormalizer.epochMillis(it) }
+            ?.takeIf { it > 0L }
+            ?.let(Instant::ofEpochMilli)
         val imageUrl = profile?.imageUrl ?: latestThingMessage.imageUrl
         val imageUrls = linkedSetOf<String>().apply {
             if (!imageUrl.isNullOrBlank()) add(imageUrl)
@@ -1627,14 +1631,6 @@ private fun isThingImageAttachmentUrl(raw: String): Boolean {
 }
 
 private fun happenedAtFromPayload(payload: JSONObject?, fallback: Instant): Instant {
-    val epochSeconds = payload?.optLong("observed_at")?.takeIf { it > 0L }
-    return epochSeconds?.let { Instant.ofEpochSecond(it) } ?: fallback
-}
-
-private fun epochToInstant(raw: Long): Instant {
-    return if (raw > 10_000_000_000L) {
-        Instant.ofEpochMilli(raw)
-    } else {
-        Instant.ofEpochSecond(raw)
-    }
+    val epochMillis = PayloadTimeNormalizer.epochMillisFromJson(payload, "observed_at")
+    return epochMillis?.let { Instant.ofEpochMilli(it) } ?: fallback
 }

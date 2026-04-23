@@ -182,6 +182,29 @@ class NotificationIngressParserTest {
     }
 
     @Test
+    fun parseEntity_normalizesMillisecondTimestamps() {
+        val payload = mapOf(
+            "entity_type" to "event",
+            "event_id" to "evt-1",
+            "entity_id" to "evt-1",
+            "title" to "alarm",
+            "body" to "opened",
+            "event_time" to "1710000000123",
+        )
+
+        val parsed = NotificationIngressParser.parse(
+            data = payload,
+            transportMessageId = null,
+            keyBytes = null,
+            now = Instant.ofEpochSecond(1_710_000_100),
+        )
+        val entity = parsed as? InboundPersistenceRequest.Entity
+        assertNotNull(entity)
+        entity ?: return
+        assertEquals(1_710_000_000_123L, entity.record.eventTimeEpoch)
+    }
+
+    @Test
     fun providerWakeupPullDeliveryId_requiresWakeupMarkers() {
         assertEquals(
             "delivery-1",

@@ -13,6 +13,7 @@ import io.ethan.pushgo.util.normalizeExternalImageUrl
 import io.ethan.pushgo.util.normalizeExternalOpenUrl
 import io.ethan.pushgo.util.rewriteVisibleUrlsInText
 import io.ethan.pushgo.util.JsonCompat
+import io.ethan.pushgo.util.PayloadTimeNormalizer
 import java.time.Instant
 import java.util.UUID
 
@@ -112,10 +113,10 @@ object NotificationIngressParser {
         )
         sanitized["title"] = sanitizedTitleBody.first
         sanitized["body"] = sanitizedTitleBody.second
-        val sentAt = parseEpochSeconds(sanitized["sent_at"])
+        val sentAtMillis = parseEpochMillis(sanitized["sent_at"])
         val ttl = parseEpochSeconds(sanitized["ttl"])
         val occurredAtEpoch = parseEpochMillis(sanitized["occurred_at"])
-        val receivedAt = sentAt?.let { Instant.ofEpochSecond(it) } ?: now
+        val receivedAt = sentAtMillis?.let { Instant.ofEpochMilli(it) } ?: now
         val isExpired = ttl?.let { now.epochSecond > it } ?: false
 
         val imageUrls = resolveImageUrls(sanitized, normalizedDecryptResult)
@@ -476,12 +477,11 @@ object NotificationIngressParser {
     }
 
     private fun parseEpochSeconds(value: String?): Long? {
-        val trimmed = value?.trim()?.takeIf { it.isNotEmpty() } ?: return null
-        return trimmed.toLongOrNull()
+        return PayloadTimeNormalizer.epochSeconds(value)
     }
 
     private fun parseEpochMillis(value: String?): Long? {
-        return parseEpochSeconds(value)?.times(1000)
+        return PayloadTimeNormalizer.epochMillis(value)
     }
 
     private fun parseThingAttributeSnapshot(raw: String?): ThingAttributeSnapshot? {

@@ -75,4 +75,16 @@ class PushMessageSemanticsTest {
         assertTrue(message.metadata.isEmpty())
         assertTrue(message.tags.isEmpty())
     }
+
+    @Test
+    fun pushMessage_occurredAtMillis_normalizesToEpochMillis() {
+        val payload = """
+            {
+              "entity_type":"message",
+              "occurred_at":"1710000000789"
+            }
+        """.trimIndent()
+        val message = messageWithPayload(payload)
+        assertEquals(1_710_000_000_789L, message.occurredAtEpoch)
+    }
 }

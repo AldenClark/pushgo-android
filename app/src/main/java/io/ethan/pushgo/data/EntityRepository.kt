@@ -19,6 +19,7 @@ import io.ethan.pushgo.data.db.ThingSubMessageEntity
 import io.ethan.pushgo.data.db.TopLevelEventHeadDao
 import io.ethan.pushgo.data.db.TopLevelEventHeadEntity
 import io.ethan.pushgo.data.model.PushMessage
+import io.ethan.pushgo.util.PayloadTimeNormalizer
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -430,17 +431,17 @@ class EntityRepository(
 
     private fun eventProjectionTimeEpochMillis(message: PushMessage): Long {
         val payload = runCatching { JSONObject(message.rawPayloadJson) }.getOrNull()
-        val eventTimeSec = payload?.optLong("event_time")?.takeIf { it > 0L }
-        return eventTimeSec?.times(1000) ?: message.receivedAt.toEpochMilli()
+        val eventTimeEpoch = PayloadTimeNormalizer.epochMillisFromJson(payload, "event_time")
+        return eventTimeEpoch ?: message.receivedAt.toEpochMilli()
     }
 
     private fun thingProjectionTimeEpochMillis(message: PushMessage): Long {
         val payload = runCatching { JSONObject(message.rawPayloadJson) }.getOrNull()
-        val observedSec = payload?.optLong("observed_at")?.takeIf { it > 0L }
-        if (observedSec != null) {
-            return observedSec * 1000
+        val observedEpoch = PayloadTimeNormalizer.epochMillisFromJson(payload, "observed_at")
+        if (observedEpoch != null) {
+            return observedEpoch
         }
-        val eventSec = payload?.optLong("event_time")?.takeIf { it > 0L }
-        return eventSec?.times(1000) ?: message.receivedAt.toEpochMilli()
+        val eventEpoch = PayloadTimeNormalizer.epochMillisFromJson(payload, "event_time")
+        return eventEpoch ?: message.receivedAt.toEpochMilli()
     }
 }

@@ -1,6 +1,7 @@
 package io.ethan.pushgo.data.model
 
 import io.ethan.pushgo.util.JsonCompat
+import io.ethan.pushgo.util.PayloadTimeNormalizer
 import io.ethan.pushgo.util.UrlValidators
 import java.time.Instant
 import kotlinx.serialization.KSerializer
@@ -111,7 +112,7 @@ data class PushMessage(
     val occurredAtEpoch: Long?
         get() {
             val raw = rawPayloadString("occurred_at") ?: return null
-            return raw.toLongOrNull()?.takeIf { it > 0L }?.times(1000)
+            return PayloadTimeNormalizer.epochMillis(raw)?.takeIf { it > 0L }
         }
 
     val severity: MessageSeverity?

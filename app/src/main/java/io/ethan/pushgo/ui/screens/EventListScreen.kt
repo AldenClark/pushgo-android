@@ -58,6 +58,7 @@ import io.ethan.pushgo.ui.rememberBottomBarNestedScrollConnection
 import io.ethan.pushgo.ui.rememberBottomGestureInset
 import io.ethan.pushgo.ui.theme.PushGoStateColors
 import io.ethan.pushgo.ui.theme.PushGoThemeExtras
+import io.ethan.pushgo.util.PayloadTimeNormalizer
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -1148,10 +1149,9 @@ private fun buildEventCardsInternal(messages: List<PushMessage>): List<EventCard
             val eventId = message.eventId?.trim().orEmpty()
             if (eventId.isEmpty()) return@mapNotNull null
             val payload = runCatching { org.json.JSONObject(message.rawPayloadJson) }.getOrNull()
-            val eventTime = payload
-                ?.optLong("event_time")
-                ?.takeIf { it > 0 }
-                ?.let(Instant::ofEpochSecond)
+            val eventTime = PayloadTimeNormalizer
+                .epochMillisFromJson(payload, "event_time")
+                ?.let(Instant::ofEpochMilli)
                 ?: message.receivedAt
             val profileRaw = payload?.optString("event_profile_json")
             val profile = io.ethan.pushgo.data.parseEventProfile(profileRaw)

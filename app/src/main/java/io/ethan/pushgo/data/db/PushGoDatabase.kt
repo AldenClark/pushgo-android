@@ -31,7 +31,7 @@ import java.io.File
         ChannelSubscriptionEntity::class,
         AppSettingsEntity::class,
     ],
-    version = 22,
+    version = 23,
     exportSchema = false,
 )
 abstract class PushGoDatabase : RoomDatabase() {
@@ -55,6 +55,8 @@ abstract class PushGoDatabase : RoomDatabase() {
     companion object {
         private const val TAG = "PushGoDatabase"
         private const val DATABASE_NAME = "pushgo.db"
+        private const val EPOCH_MILLIS_THRESHOLD = 1_000_000_000_000L
+        private const val EPOCH_NORMALIZATION_FLAG_KEY = "epoch_millis_normalized_v1"
         private val LEGACY_DATABASE_NAMES = listOf("pushgo-v22.db", "pushgo-v21.db")
 
         private val MIGRATION_21_22 = object : Migration(21, 22) {
@@ -104,6 +106,12 @@ abstract class PushGoDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_22_23 = object : Migration(22, 23) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                normalizeEpochColumnsToMillisOnce(db)
+            }
+        }
+
         fun build(context: Context): PushGoDatabase {
             return runCatching { newBuilder(context).build() }.getOrElse { error ->
                 PushGoAutomation.recordRuntimeError(
@@ -118,11 +126,12 @@ abstract class PushGoDatabase : RoomDatabase() {
         private fun newBuilder(context: Context): RoomDatabase.Builder<PushGoDatabase> {
             prepareDatabaseFile(context)
             return Room.databaseBuilder(context, PushGoDatabase::class.java, DATABASE_NAME)
-                .addMigrations(MIGRATION_21_22)
+                .addMigrations(MIGRATION_21_22, MIGRATION_22_23)
                 .setJournalMode(RoomDatabase.JournalMode.WRITE_AHEAD_LOGGING)
                 .addCallback(object : RoomDatabase.Callback() {
                     override fun onOpen(db: SupportSQLiteDatabase) {
                         super.onOpen(db)
+                        normalizeEpochColumnsToMillisOnce(db)
                         // Enforce messageId as a required business key at DB boundary.
                         db.execSQL(
                             """
@@ -193,6 +202,94 @@ abstract class PushGoDatabase : RoomDatabase() {
             }
             val source = selectLegacyDatabase(context) ?: return
             copyDatabaseFamily(source, target)
+        }
+
+        private fun normalizeEpochColumnsToMillis(db: SupportSQLiteDatabase) {
+            val targets = listOf(
+                "messages" to listOf("received_at", "event_time_epoch", "occurred_at_epoch"),
+                "message_metadata_index" to listOf("received_at"),
+                "event_change_logs" to listOf("received_at", "event_time_epoch"),
+                "thing_change_logs" to listOf("received_at", "event_time_epoch", "observed_time_epoch"),
+                "thing_sub_events" to listOf("received_at", "event_time_epoch"),
+                "thing_sub_messages" to listOf("received_at", "event_time_epoch", "occurred_at_epoch"),
+                "top_level_event_heads" to listOf("received_at", "event_time", "updated_at"),
+                "thing_heads" to listOf("received_at", "event_time", "observed_time_epoch", "updated_at"),
+                "pending_thing_messages" to listOf("received_at", "event_time_epoch", "occurred_at_epoch"),
+                "pending_thing_events" to listOf("received_at", "event_time_epoch"),
+                "inbound_delivery_ledger" to listOf("applied_at", "acked_at"),
+                "inbound_delivery_ack_outbox" to listOf("enqueued_at", "updated_at"),
+                "operation_ledger" to listOf("applied_at"),
+                "channel_subscriptions" to listOf("updated_at", "last_synced_at", "deleted_at"),
+                "app_settings" to listOf("notification_key_updated_at", "update_prompt_cooldown_until", "update_last_check_at"),
+                "message_channel_counts" to listOf("latest_received_at"),
+            )
+            targets.forEach { (table, columns) ->
+                columns.forEach { column ->
+                    db.execSQL(
+                        """
+                        UPDATE $table
+                        SET $column = $column * 1000
+                        WHERE $column IS NOT NULL
+                          AND ABS($column) < $EPOCH_MILLIS_THRESHOLD
+                        """.trimIndent()
+                    )
+                }
+            }
+        }
+
+        private fun normalizeEpochColumnsToMillisOnce(db: SupportSQLiteDatabase) {
+            ensureEpochNormalizationFlagTable(db)
+            db.beginTransaction()
+            try {
+                if (hasEpochNormalizationFlag(db)) {
+                    db.setTransactionSuccessful()
+                    return
+                }
+                normalizeEpochColumnsToMillis(db)
+                markEpochNormalizationDone(db)
+                db.setTransactionSuccessful()
+            } finally {
+                db.endTransaction()
+            }
+        }
+
+        private fun ensureEpochNormalizationFlagTable(db: SupportSQLiteDatabase) {
+            db.execSQL(
+                """
+                CREATE TABLE IF NOT EXISTS db_maintenance_flags (
+                    flag_key TEXT PRIMARY KEY,
+                    flag_value TEXT NOT NULL,
+                    updated_at INTEGER NOT NULL
+                )
+                """.trimIndent()
+            )
+        }
+
+        private fun hasEpochNormalizationFlag(db: SupportSQLiteDatabase): Boolean {
+            db.query(
+                """
+                SELECT 1
+                FROM db_maintenance_flags
+                WHERE flag_key = ?
+                LIMIT 1
+                """.trimIndent(),
+                arrayOf(EPOCH_NORMALIZATION_FLAG_KEY),
+            ).use { cursor ->
+                return cursor.moveToFirst()
+            }
+        }
+
+        private fun markEpochNormalizationDone(db: SupportSQLiteDatabase) {
+            db.execSQL(
+                """
+                INSERT INTO db_maintenance_flags(flag_key, flag_value, updated_at)
+                VALUES (?, '1', CAST(strftime('%s','now') AS INTEGER) * 1000)
+                ON CONFLICT(flag_key) DO UPDATE SET
+                    flag_value = excluded.flag_value,
+                    updated_at = excluded.updated_at
+                """.trimIndent(),
+                arrayOf(EPOCH_NORMALIZATION_FLAG_KEY),
+            )
         }
 
         private fun selectLegacyDatabase(context: Context): File? {

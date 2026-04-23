@@ -8,6 +8,7 @@ import io.ethan.pushgo.data.IncomingEntityRecord
 import io.ethan.pushgo.data.model.MessageStatus
 import io.ethan.pushgo.data.model.PushMessage
 import io.ethan.pushgo.markdown.MessagePreviewExtractor
+import io.ethan.pushgo.util.PayloadTimeNormalizer
 import java.time.Instant
 import org.json.JSONObject
 
@@ -436,8 +437,8 @@ data class ThingSubMessageEntity(
     companion object {
         fun fromModel(message: PushMessage): ThingSubMessageEntity {
             val payload = runCatching { JSONObject(message.rawPayloadJson) }.getOrNull()
-            val eventTimeEpoch = payload?.optLong("event_time")?.takeIf { it > 0L }?.times(1000)
-            val occurredAtEpoch = payload?.optLong("occurred_at")?.takeIf { it > 0L }?.times(1000)
+            val eventTimeEpoch = PayloadTimeNormalizer.epochMillisFromJson(payload, "event_time")
+            val occurredAtEpoch = PayloadTimeNormalizer.epochMillisFromJson(payload, "occurred_at")
             val stableMessageId = message.messageId
                 ?.trim()
                 ?.takeIf { it.isNotEmpty() }

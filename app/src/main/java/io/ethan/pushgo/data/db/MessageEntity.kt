@@ -8,6 +8,7 @@ import io.ethan.pushgo.data.model.DecryptionState
 import io.ethan.pushgo.data.model.MessageStatus
 import io.ethan.pushgo.data.model.PushMessage
 import io.ethan.pushgo.markdown.MessagePreviewExtractor
+import io.ethan.pushgo.util.PayloadTimeNormalizer
 import org.json.JSONObject
 import java.time.Instant
 
@@ -159,12 +160,8 @@ data class MessageEntity(
             val thingId = text("thing_id")
             val entityId = text("entity_id")
             val eventState = text("event_state")
-            val eventTimeEpoch = payload?.optLong("event_time")
-                ?.takeIf { it > 0L }
-                ?.times(1000)
-            val occurredAtEpoch = payload?.optLong("occurred_at")
-                ?.takeIf { it > 0L }
-                ?.times(1000)
+            val eventTimeEpoch = PayloadTimeNormalizer.epochMillisFromJson(payload, "event_time")
+            val occurredAtEpoch = PayloadTimeNormalizer.epochMillisFromJson(payload, "occurred_at")
 
             return EntityProjection(
                 entityType = entityType,
