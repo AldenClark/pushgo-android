@@ -13,6 +13,7 @@ import java.io.FileOutputStream
 import java.net.HttpURLConnection
 import java.net.URL
 import java.security.MessageDigest
+import java.util.Locale
 import kotlin.math.max
 
 class MessageImageStore(context: Context) {
@@ -30,6 +31,7 @@ class MessageImageStore(context: Context) {
     private val appContext = context.applicationContext
     private val originalDir = File(appContext.cacheDir, "message_images/original")
     private val thumbnailDir = File(appContext.cacheDir, "message_images/thumbnail")
+    private val metadataStore = ImageAssetMetadataStore.get(appContext)
 
     init {
         originalDir.mkdirs()
@@ -133,9 +135,37 @@ class MessageImageStore(context: Context) {
     suspend fun ensureOriginalCached(imageUrl: String): String? = withContext(Dispatchers.IO) {
         val normalized = UrlValidators.normalizeHttpsUrl(imageUrl) ?: return@withContext null
         val key = sha256(normalized)
-        val original = findExistingOriginal(key) ?: downloadOriginal(normalized, key) ?: return@withContext null
+        val existing = findExistingOriginal(key)
+        val original = existing ?: downloadOriginal(normalized, key)?.file ?: return@withContext null
+        ensureImageMetadata(
+            imageUrl = normalized,
+            file = original,
+            responseContentType = null,
+            responseEtag = null,
+            responseLastModified = null,
+        )
         enforceDiskLimitIfNeeded(originalDir, ORIGINAL_DISK_LIMIT_BYTES)
         return@withContext original.absolutePath
+    }
+
+    suspend fun imageAspectRatioFromMetadata(imageUrl: String): Float? = withContext(Dispatchers.IO) {
+        val normalized = UrlValidators.normalizeHttpsUrl(imageUrl) ?: return@withContext null
+        val metadata = metadataStore.findByUrl(normalized) ?: return@withContext null
+        val width = metadata.pixelWidth
+        val height = metadata.pixelHeight
+        if (width <= 0 || height <= 0) return@withContext null
+        return@withContext (width.toFloat() / height.toFloat()).coerceAtLeast(0.1f)
+    }
+
+    suspend fun preheatDetailAssets(rawPayloadJson: String, bodyText: String) = withContext(Dispatchers.IO) {
+        val urls = LinkedHashSet<String>()
+        resolveRemoteImageUrls(rawPayloadJson).forEach { urls += it }
+        extractMarkdownImageUrls(bodyText).forEach { urls += it }
+        urls.forEach { url ->
+            if (metadataStore.findByUrl(url) == null) {
+                ensureOriginalCached(url)
+            }
+        }
     }
 
     private fun resolveRemoteImageUrls(payload: JSONObject?): List<String> {
@@ -165,9 +195,40 @@ class MessageImageStore(context: Context) {
                     for (index in 0 until parsed.length()) {
                         UrlValidators.normalizeHttpsUrl(parsed.optString(index, ""))?.let { urls += it }
                     }
+                } else {
+                    UrlValidators.normalizeHttpsUrl(trimmed)?.let { urls += it }
                 }
             }
         }
+    }
+
+    private fun extractMarkdownImageUrls(markdown: String): List<String> {
+        if (markdown.isBlank()) return emptyList()
+        val urls = LinkedHashSet<String>()
+        val patterns = listOf(
+            Regex("!\\[[^\\]]*\\]\\(([^)]+)\\)", setOf(RegexOption.IGNORE_CASE)),
+            Regex("<img[^>]+src\\s*=\\s*['\\\"]([^'\\\"]+)['\\\"][^>]*>", setOf(RegexOption.IGNORE_CASE)),
+            Regex("\\[[^\\]]+\\]:\\s*(https?://\\S+)", setOf(RegexOption.IGNORE_CASE)),
+            Regex("(https?://\\S+\\.(?:png|jpe?g|gif|webp|avif|heic|heif|bmp)(?:\\?\\S*)?)", setOf(RegexOption.IGNORE_CASE)),
+        )
+        patterns.forEach { regex ->
+            regex.findAll(markdown).forEach { match ->
+                val raw = match.groupValues.getOrNull(1)?.trim().orEmpty()
+                if (raw.isEmpty()) return@forEach
+                val normalized = normalizeExternalMarkdownImageUrl(raw) ?: return@forEach
+                urls += normalized
+            }
+        }
+        return urls.toList()
+    }
+
+    private fun normalizeExternalMarkdownImageUrl(raw: String): String? {
+        return UrlValidators.normalizeHttpsUrl(
+            raw
+                .trim()
+                .trim('<', '>', '"', '\'')
+                .trimEnd(')', ']', '}', '.', ',', ';')
+        )
     }
 
     private fun findExistingOriginal(hash: String): File? {
@@ -182,7 +243,14 @@ class MessageImageStore(context: Context) {
         return if (file.exists()) file else null
     }
 
-    private fun downloadOriginal(url: String, hash: String): File? {
+    private data class DownloadedOriginal(
+        val file: File,
+        val contentType: String?,
+        val etag: String?,
+        val lastModified: String?,
+    )
+
+    private fun downloadOriginal(url: String, hash: String): DownloadedOriginal? {
         val connection = openHttpsConnection(url) ?: return null
         var outputFile: File? = null
         var completed = false
@@ -208,7 +276,19 @@ class MessageImageStore(context: Context) {
                 }
             }
             completed = true
-            file
+            val metadata = ensureImageMetadata(
+                imageUrl = url,
+                file = file,
+                responseContentType = connection.contentType,
+                responseEtag = connection.getHeaderField("ETag"),
+                responseLastModified = connection.getHeaderField("Last-Modified"),
+            )
+            DownloadedOriginal(
+                file = file,
+                contentType = metadata?.mimeType ?: connection.contentType,
+                etag = connection.getHeaderField("ETag"),
+                lastModified = connection.getHeaderField("Last-Modified"),
+            )
         } catch (_: Exception) {
             null
         } finally {
@@ -219,6 +299,89 @@ class MessageImageStore(context: Context) {
             connection.disconnect()
         }
         return result
+    }
+
+    private fun ensureImageMetadata(
+        imageUrl: String,
+        file: File,
+        responseContentType: String?,
+        responseEtag: String?,
+        responseLastModified: String?,
+    ): ImageAssetMetadataStore.Metadata? {
+        val normalized = UrlValidators.normalizeHttpsUrl(imageUrl) ?: return null
+        val existing = metadataStore.findByUrl(normalized)
+        if (existing != null && existing.byteSize == file.length()) {
+            return existing
+        }
+        val imageInfo = extractImageInfo(file, responseContentType) ?: return null
+        val metadata = ImageAssetMetadataStore.Metadata(
+            url = normalized,
+            pixelWidth = imageInfo.width,
+            pixelHeight = imageInfo.height,
+            aspectRatio = imageInfo.width.toDouble() / imageInfo.height.toDouble(),
+            mimeType = imageInfo.mimeType,
+            isAnimated = imageInfo.isAnimated,
+            frameCount = imageInfo.frameCount,
+            byteSize = file.length(),
+            etag = responseEtag,
+            lastModified = responseLastModified,
+            updatedAtEpochMillis = System.currentTimeMillis(),
+        )
+        metadataStore.upsert(metadata)
+        return metadata
+    }
+
+    private data class ImageInfo(
+        val width: Int,
+        val height: Int,
+        val mimeType: String?,
+        val isAnimated: Boolean,
+        val frameCount: Int?,
+    )
+
+    private fun extractImageInfo(file: File, fallbackContentType: String?): ImageInfo? {
+        val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeFile(file.absolutePath, options)
+        val width = options.outWidth
+        val height = options.outHeight
+        if (width <= 0 || height <= 0) {
+            return null
+        }
+        val mimeType = options.outMimeType ?: fallbackContentType?.substringBefore(';')?.trim()
+        val animationProbe = probeAnimation(file, mimeType)
+        return ImageInfo(
+            width = width,
+            height = height,
+            mimeType = mimeType,
+            isAnimated = animationProbe.first,
+            frameCount = animationProbe.second,
+        )
+    }
+
+    private fun probeAnimation(file: File, mimeType: String?): Pair<Boolean, Int?> {
+        val mime = mimeType?.lowercase(Locale.US).orEmpty()
+        if (mime.contains("gif")) {
+            return true to null
+        }
+        val header = runCatching {
+            file.inputStream().use { input ->
+                val bytes = ByteArray(128)
+                val read = input.read(bytes)
+                if (read <= 0) ByteArray(0) else bytes.copyOf(read)
+            }
+        }.getOrDefault(ByteArray(0))
+        if (header.size >= 6) {
+            val signature = String(header.copyOfRange(0, 6))
+            if (signature == "GIF87a" || signature == "GIF89a") {
+                return true to null
+            }
+        }
+        val isAnimatedWebp = mime.contains("webp") &&
+            String(header, Charsets.ISO_8859_1).contains("ANIM")
+        if (isAnimatedWebp) {
+            return true to null
+        }
+        return false to null
     }
 
     private fun generateListThumbnail(original: File, hash: String): File? {

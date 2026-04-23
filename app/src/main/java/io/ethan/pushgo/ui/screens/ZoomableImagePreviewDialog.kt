@@ -71,6 +71,7 @@ fun ZoomableImagePreviewDialog(
                 contentDescription = stringResource(R.string.label_image_attachment),
                 contentScale = ContentScale.Fit,
                 shouldPlayAnimated = isPlaying,
+                enableCrossfade = false,
                 onPlayClick = { isPlaying = true },
                 onPlaybackFinished = { isPlaying = false },
                 modifier = Modifier

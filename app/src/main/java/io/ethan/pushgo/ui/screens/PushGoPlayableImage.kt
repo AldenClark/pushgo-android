@@ -13,6 +13,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -31,9 +32,12 @@ import coil3.gif.onAnimationEnd
 import coil3.gif.repeatCount
 import coil3.request.ImageRequest
 import coil3.request.crossfade
+import io.ethan.pushgo.data.ImageAssetMetadataStore
 import io.ethan.pushgo.ui.theme.PushGoThemeExtras
 import java.io.File
 import java.util.Locale
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 @Composable
 fun PushGoPlayableImage(
@@ -44,28 +48,32 @@ fun PushGoPlayableImage(
     alignment: Alignment = Alignment.Center,
     clipToBounds: Boolean = true,
     shouldPlayAnimated: Boolean = false,
+    knownAnimated: Boolean? = null,
     showPlayOverlayWhenIdle: Boolean = true,
+    enableCrossfade: Boolean = true,
     onPlayClick: (() -> Unit)? = null,
     onPlaybackFinished: (() -> Unit)? = null,
     onClick: (() -> Unit)? = null,
 ) {
     val context = LocalContext.current
     val uiColors = PushGoThemeExtras.colors
+    val metadataAnimatedHint = rememberAnimatedHint(model)
     var detectedAnimated by remember(model) { mutableStateOf<Boolean?>(null) }
     var hidePlayOverlayUntilPlaybackEnds by remember(model) { mutableStateOf(false) }
     val playbackFinishedState by rememberUpdatedState(onPlaybackFinished)
-    val shouldAnimate = shouldPlayAnimated && (detectedAnimated != false)
+    val resolvedAnimatedHint = knownAnimated ?: metadataAnimatedHint ?: detectedAnimated
+    val shouldAnimate = shouldPlayAnimated && (resolvedAnimatedHint != false)
     LaunchedEffect(shouldAnimate) {
         if (!shouldAnimate) {
             hidePlayOverlayUntilPlaybackEnds = false
         }
     }
-    val request = remember(context, model, shouldAnimate) {
+    val request = remember(context, model, shouldAnimate, enableCrossfade) {
         val builder = when (model) {
             is ImageRequest -> model.newBuilder(context)
             else -> ImageRequest.Builder(context).data(model)
         }
-            .crossfade(true)
+            .crossfade(enableCrossfade)
         builder.repeatCount(0)
         if (shouldAnimate) {
             builder.onAnimationEnd {
@@ -103,7 +111,7 @@ fun PushGoPlayableImage(
         )
 
         if (
-            detectedAnimated == true &&
+            resolvedAnimatedHint == true &&
             showPlayOverlayWhenIdle &&
             !shouldAnimate &&
             !hidePlayOverlayUntilPlaybackEnds &&
@@ -128,6 +136,22 @@ fun PushGoPlayableImage(
             }
         }
     }
+}
+
+@Composable
+private fun rememberAnimatedHint(model: Any?): Boolean? {
+    val context = LocalContext.current
+    val identity = remember(model) { pushGoImageModelIdentity(model) }
+    val metadataHint by produceState<Boolean?>(initialValue = null, identity) {
+        if (identity.isBlank()) {
+            value = null
+            return@produceState
+        }
+        value = withContext(Dispatchers.IO) {
+            ImageAssetMetadataStore.get(context.applicationContext).findByUrl(identity)?.isAnimated
+        }
+    }
+    return metadataHint ?: if (pushGoIsAnimatedModel(model)) true else null
 }
 
 internal fun pushGoImageModelIdentity(model: Any?): String {

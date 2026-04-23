@@ -12,6 +12,7 @@ import coil3.gif.repeatCount
 import coil3.request.Disposable
 import coil3.request.ImageRequest
 import coil3.target.Target
+import io.ethan.pushgo.data.ImageAssetMetadataStore
 import io.noties.markwon.AbstractMarkwonPlugin
 import io.noties.markwon.MarkwonConfiguration
 import io.noties.markwon.MarkwonSpansFactory
@@ -28,6 +29,7 @@ class Coil3ImagesPlugin private constructor(
     private val coilStore: CoilStore,
     private val imageLoader: ImageLoader,
     private val resources: Resources,
+    private val metadataStore: ImageAssetMetadataStore,
 ) : AbstractMarkwonPlugin() {
 
     interface CoilStore {
@@ -40,7 +42,7 @@ class Coil3ImagesPlugin private constructor(
     }
 
     override fun configureConfiguration(builder: MarkwonConfiguration.Builder) {
-        builder.asyncDrawableLoader(CoilAsyncDrawableLoader(coilStore, imageLoader, resources))
+        builder.asyncDrawableLoader(CoilAsyncDrawableLoader(coilStore, imageLoader, resources, metadataStore))
     }
 
     override fun beforeSetText(textView: TextView, markdown: Spanned) {
@@ -55,6 +57,7 @@ class Coil3ImagesPlugin private constructor(
         private val coilStore: CoilStore,
         private val imageLoader: ImageLoader,
         private val resources: Resources,
+        private val metadataStore: ImageAssetMetadataStore,
     ) : AsyncDrawableLoader() {
         private val cache = ConcurrentHashMap<AsyncDrawable, Disposable>(2)
 
@@ -79,7 +82,10 @@ class Coil3ImagesPlugin private constructor(
         }
 
         override fun placeholder(drawable: AsyncDrawable): Drawable? {
-            return null
+            val metadata = metadataStore.findByUrl(drawable.destination) ?: return null
+            val width = metadata.pixelWidth.coerceAtLeast(1)
+            val height = metadata.pixelHeight.coerceAtLeast(1)
+            return MetadataPlaceholderDrawable(width, height)
         }
     }
 
@@ -125,6 +131,7 @@ class Coil3ImagesPlugin private constructor(
     companion object {
         fun create(context: Context): Coil3ImagesPlugin {
             val appContext = context.applicationContext
+            val metadataStore = ImageAssetMetadataStore.get(appContext)
             return create(
                 coilStore = object : CoilStore {
                     override fun load(drawable: AsyncDrawable): ImageRequest {
@@ -139,11 +146,13 @@ class Coil3ImagesPlugin private constructor(
                 },
                 imageLoader = coil3.SingletonImageLoader.get(appContext),
                 resources = appContext.resources,
+                metadataStore = metadataStore,
             )
         }
 
         fun create(context: Context, imageLoader: ImageLoader): Coil3ImagesPlugin {
             val appContext = context.applicationContext
+            val metadataStore = ImageAssetMetadataStore.get(appContext)
             return create(
                 coilStore = object : CoilStore {
                     override fun load(drawable: AsyncDrawable): ImageRequest {
@@ -158,11 +167,37 @@ class Coil3ImagesPlugin private constructor(
                 },
                 imageLoader = imageLoader,
                 resources = appContext.resources,
+                metadataStore = metadataStore,
             )
         }
 
-        fun create(coilStore: CoilStore, imageLoader: ImageLoader, resources: Resources): Coil3ImagesPlugin {
-            return Coil3ImagesPlugin(coilStore, imageLoader, resources)
+        fun create(
+            coilStore: CoilStore,
+            imageLoader: ImageLoader,
+            resources: Resources,
+            metadataStore: ImageAssetMetadataStore,
+        ): Coil3ImagesPlugin {
+            return Coil3ImagesPlugin(coilStore, imageLoader, resources, metadataStore)
         }
     }
+}
+
+private class MetadataPlaceholderDrawable(
+    private val intrinsicWidthPx: Int,
+    private val intrinsicHeightPx: Int,
+) : Drawable() {
+    override fun draw(canvas: android.graphics.Canvas) {
+        // Keep placeholder transparent while still reserving layout size.
+    }
+
+    override fun setAlpha(alpha: Int) {}
+
+    override fun setColorFilter(colorFilter: android.graphics.ColorFilter?) {}
+
+    @Suppress("DEPRECATION", "OVERRIDE_DEPRECATION")
+    override fun getOpacity(): Int = android.graphics.PixelFormat.TRANSLUCENT
+
+    override fun getIntrinsicWidth(): Int = intrinsicWidthPx
+
+    override fun getIntrinsicHeight(): Int = intrinsicHeightPx
 }

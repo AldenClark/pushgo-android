@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -117,7 +118,7 @@ fun MessageDetailScreen(
     val scope = rememberCoroutineScope()
     val viewModel: MessageDetailViewModel = viewModel(
         key = messageId,
-        factory = MessageDetailViewModelFactory(repository, stateCoordinator, messageId),
+        factory = MessageDetailViewModelFactory(repository, imageStore, stateCoordinator, messageId),
     )
     val message by viewModel.message.collectAsStateWithLifecycle()
     val isLoading by viewModel.isLoading.collectAsStateWithLifecycle()
@@ -404,6 +405,7 @@ internal fun MessageDetailCoreContent(
                     model = model,
                     contentDescription = stringResource(R.string.label_image_attachment),
                     shouldPlayAnimated = activeAnimatedImageKey == playbackKey,
+                    enableCrossfade = false,
                     onPlayClick = {
                         MarkdownAnimatedImagePlaybackRegistry.stopAll()
                         activeAnimatedImageKey = playbackKey
@@ -434,6 +436,7 @@ internal fun MessageDetailCoreContent(
                             model = model,
                             contentDescription = stringResource(R.string.label_image_attachment),
                             shouldPlayAnimated = activeAnimatedImageKey == playbackKey,
+                            enableCrossfade = false,
                             onPlayClick = {
                                 MarkdownAnimatedImagePlaybackRegistry.stopAll()
                                 activeAnimatedImageKey = playbackKey

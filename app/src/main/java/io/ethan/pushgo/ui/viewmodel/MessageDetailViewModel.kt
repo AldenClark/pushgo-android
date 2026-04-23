@@ -3,8 +3,10 @@ package io.ethan.pushgo.ui.viewmodel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import android.os.SystemClock
+import io.ethan.pushgo.data.MessageImageStore
 import io.ethan.pushgo.data.MessageRepository
 import io.ethan.pushgo.data.model.PushMessage
+import io.ethan.pushgo.markdown.MessageBodyResolver
 import io.ethan.pushgo.notifications.MessageStateCoordinator
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Job
@@ -16,6 +18,7 @@ import kotlinx.coroutines.launch
 
 class MessageDetailViewModel(
     private val repository: MessageRepository,
+    private val imageStore: MessageImageStore,
     private val stateCoordinator: MessageStateCoordinator,
     private val messageId: String,
 ) : ViewModel() {
@@ -137,6 +140,8 @@ class MessageDetailViewModel(
             val loadedAtMs = SystemClock.elapsedRealtime()
             val loaded = loadResult.message
             if (loaded != null) {
+                val resolvedBodyText = MessageBodyResolver.resolve(loaded.rawPayloadJson, loaded.body).rawText
+                imageStore.preheatDetailAssets(loaded.rawPayloadJson, resolvedBodyText)
                 stateCoordinator.markRead(messageId)
                 val resolved = if (loaded.isRead) loaded else loaded.copy(isRead = true)
                 _message.value = resolved
