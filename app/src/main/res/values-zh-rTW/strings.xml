@@ -78,6 +78,10 @@
     <string name="label_decryption_not_configured">解密未設定</string>
     <string name="label_decryption_hint">僅支援 AES-GCM；IV 必須包含在密文中。</string>
     <string name="label_decryption_subtitle">金鑰與編碼</string>
+    <string name="label_decryption_state_ok_short">已解密</string>
+    <string name="label_decryption_state_failed_short">解密失敗</string>
+    <string name="label_decryption_state_not_configured_short">無金鑰</string>
+    <string name="label_decryption_state_alg_mismatch_short">演算法不匹配</string>
     <string name="label_close">關閉</string>
     <string name="label_cancel">取消</string>
     <string name="label_urgent_attention">緊急提醒</string>

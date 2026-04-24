@@ -54,11 +54,15 @@ fun PushGoPlayableImage(
     onPlayClick: (() -> Unit)? = null,
     onPlaybackFinished: (() -> Unit)? = null,
     onClick: (() -> Unit)? = null,
+    onImageLoadStateChanged: ((PushGoImageLoadState) -> Unit)? = null,
 ) {
     val context = LocalContext.current
     val uiColors = PushGoThemeExtras.colors
     val metadataAnimatedHint = rememberAnimatedHint(model)
     var detectedAnimated by remember(model) { mutableStateOf<Boolean?>(null) }
+    var imageLoadState by remember(model) {
+        mutableStateOf(if (model == null) PushGoImageLoadState.Empty else PushGoImageLoadState.Loading)
+    }
     var hidePlayOverlayUntilPlaybackEnds by remember(model) { mutableStateOf(false) }
     val playbackFinishedState by rememberUpdatedState(onPlaybackFinished)
     val resolvedAnimatedHint = knownAnimated ?: metadataAnimatedHint ?: detectedAnimated
@@ -67,6 +71,9 @@ fun PushGoPlayableImage(
         if (!shouldAnimate) {
             hidePlayOverlayUntilPlaybackEnds = false
         }
+    }
+    LaunchedEffect(imageLoadState) {
+        onImageLoadStateChanged?.invoke(imageLoadState)
     }
     val request = remember(context, model, shouldAnimate, enableCrossfade) {
         val builder = when (model) {
@@ -83,7 +90,11 @@ fun PushGoPlayableImage(
         builder.build()
     }
 
-    val imageClickModifier = if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier
+    val imageClickModifier = if (onClick != null && imageLoadState.isLoaded) {
+        Modifier.clickable(onClick = onClick)
+    } else {
+        Modifier
+    }
 
     Box(
         modifier = modifier.then(imageClickModifier),
@@ -95,7 +106,11 @@ fun PushGoPlayableImage(
             contentScale = contentScale,
             alignment = alignment,
             clipToBounds = clipToBounds,
+            onLoading = {
+                imageLoadState = PushGoImageLoadState.Loading
+            },
             onSuccess = { success ->
+                imageLoadState = PushGoImageLoadState.Loaded
                 val animatable = success.result.image.isAnimationCapable()
                 if (detectedAnimated != animatable) {
                     detectedAnimated = animatable
@@ -108,7 +123,16 @@ fun PushGoPlayableImage(
                     }
                 }
             },
+            onError = {
+                imageLoadState = PushGoImageLoadState.Error
+            },
         )
+        if (!imageLoadState.isLoaded) {
+            PushGoImagePlaceholder(
+                modifier = Modifier.fillMaxSize(),
+                isError = imageLoadState == PushGoImageLoadState.Error,
+            )
+        }
 
         if (
             resolvedAnimatedHint == true &&

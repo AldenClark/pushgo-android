@@ -7,7 +7,6 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
@@ -50,6 +49,7 @@ import androidx.compose.ui.unit.sp
 import io.ethan.pushgo.R
 import io.ethan.pushgo.data.AppContainer
 import io.ethan.pushgo.data.EntityProjectionCursor
+import io.ethan.pushgo.data.model.DecryptionState
 import io.ethan.pushgo.data.model.PushMessage
 import io.ethan.pushgo.notifications.ForegroundNotificationPresentationState
 import io.ethan.pushgo.notifications.ForegroundNotificationTopMetrics
@@ -94,6 +94,7 @@ data class EventTimelineRow(
     val state: EventLifecycleState,
     val thingId: String?,
     val channelId: String?,
+    val decryptionState: DecryptionState?,
     val imageUrl: String?,
     val attachmentUrls: List<String>,
     val attrsJson: String?,
@@ -114,6 +115,7 @@ data class EventCardModel(
     val state: EventLifecycleState,
     val thingId: String?,
     val channelId: String?,
+    val decryptionState: DecryptionState?,
     val attachmentUrls: List<String>,
     val attrsJson: String?,
     @Serializable(with = InstantSerializer::class)
@@ -189,6 +191,7 @@ fun EventListScreen(
     var searchQuery by remember { mutableStateOf("") }
     var channelFilter by remember { mutableStateOf<String?>(null) }
     var showOnlyOpen by remember { mutableStateOf(false) }
+    var channelNameMap by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
     var pendingCloseEvent by remember { mutableStateOf<EventCardModel?>(null) }
     var pendingDeleteEventId by remember { mutableStateOf<String?>(null) }
     val context = LocalContext.current
@@ -331,6 +334,9 @@ fun EventListScreen(
     }
 
     LaunchedEffect(refreshToken) { reloadEvents() }
+    LaunchedEffect(Unit) {
+        channelNameMap = container.channelRepository.loadSubscriptionLookup(includeDeleted = true)
+    }
     LaunchedEffect(isSelectionMode) { onBatchModeChanged(isSelectionMode) }
     DisposableEffect(Unit) {
         onDispose {
@@ -430,6 +436,7 @@ fun EventListScreen(
         ) {
             EventDetailSheet(
                 event = selectedEvent!!,
+                channelDisplayName = selectedEvent?.channelId?.let { channelNameMap[it] ?: it },
                 bottomGestureInset = bottomGestureInset,
                 onCloseEvent = { pendingCloseEvent = selectedEvent },
                 onDeleteEvent = { pendingDeleteEventId = selectedEvent?.eventId },
@@ -523,6 +530,7 @@ fun EventListScreen(
                     EventListRowItem(
                         modifier = Modifier.animateItem(),
                         event = event,
+                        channelDisplayName = event.channelId?.let { channelNameMap[it] ?: it },
                         onClick = {
                             if (isSelectionMode) {
                                 toggleSelection(event.eventId)
@@ -632,6 +640,7 @@ private data class EventDisplayAttribute(
 @Composable
 fun EventListRowItem(
     event: EventCardModel,
+    channelDisplayName: String? = null,
     onClick: () -> Unit,
     selectionMode: Boolean,
     selected: Boolean,
@@ -702,6 +711,16 @@ fun EventListRowItem(
                         state = event.state,
                         severity = event.severity,
                     )
+                    if (!channelDisplayName.isNullOrBlank() || event.decryptionState != null) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            channelDisplayName?.trim()?.takeIf { it.isNotEmpty() }?.let { displayName ->
+                                PushGoChannelMetaChip(channelDisplayName = displayName)
+                            }
+                            event.decryptionState?.let { state ->
+                                PushGoDecryptionMetaChip(decryptionState = state)
+                            }
+                        }
+                    }
                     if (!event.summary.isNullOrBlank()) {
                         Text(
                             text = event.summary,
@@ -754,6 +773,7 @@ fun EventListRowItem(
 @Composable
 fun EventDetailSheet(
     event: EventCardModel,
+    channelDisplayName: String?,
     bottomGestureInset: Dp,
     onCloseEvent: () -> Unit,
     onDeleteEvent: () -> Unit,
@@ -844,6 +864,20 @@ fun EventDetailSheet(
                         )
                     }
                 }
+                if (!channelDisplayName.isNullOrBlank() || event.decryptionState != null) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        channelDisplayName?.trim()?.takeIf { it.isNotEmpty() }?.let { displayName ->
+                            PushGoChannelMetaChip(channelDisplayName = displayName)
+                        }
+                        event.decryptionState?.let { state ->
+                            PushGoDecryptionMetaChip(decryptionState = state)
+                        }
+                    }
+                }
 
                 if (hasOverviewContent) {
                     HorizontalDivider(
@@ -907,10 +941,10 @@ fun EventDetailSheet(
                                 model = url,
                                 contentDescription = null,
                                 contentScale = ContentScale.Crop,
+                                onClickWhenLoaded = { previewImageUrl = url },
                                 modifier = Modifier
                                     .size(92.dp)
-                                    .clip(RoundedCornerShape(10.dp))
-                                    .clickable { previewImageUrl = url },
+                                    .clip(RoundedCornerShape(10.dp)),
                             )
                         }
                     }
@@ -988,6 +1022,14 @@ fun EventDetailSheet(
                                     modifier = Modifier.fillMaxWidth(),
                                     color = MaterialTheme.colorScheme.onSurface,
                                 )
+                            }
+                            if (row.decryptionState != null) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                ) {
+                                    PushGoDecryptionMetaChip(decryptionState = row.decryptionState)
+                                }
                             }
                         }
                     }
@@ -1195,6 +1237,7 @@ private fun buildEventCardsInternal(messages: List<PushMessage>): List<EventCard
                 state = EventLifecycleState.fromRaw(message.eventState),
                 thingId = message.thingId,
                 channelId = message.channel?.trim()?.ifEmpty { null },
+                decryptionState = message.decryptionState,
                 imageUrl = imageUrl,
                 attachmentUrls = attachmentUrls,
                 attrsJson = payload
@@ -1225,6 +1268,7 @@ private fun buildEventCardsInternal(messages: List<PushMessage>): List<EventCard
                 state = latest.state,
                 thingId = latest.thingId,
                 channelId = latest.channelId,
+                decryptionState = latest.decryptionState,
                 attachmentUrls = attachmentUrls,
                 attrsJson = mergedEventAttrsJson(orderedTimeline),
                 updatedAt = latest.happenedAt,
@@ -1271,6 +1315,7 @@ private fun mergeEventCardInternal(current: EventCardModel, incoming: EventCardM
         state = latest.state,
         thingId = latest.thingId,
         channelId = latest.channelId,
+        decryptionState = latest.decryptionState,
         attachmentUrls = attachmentUrls,
         attrsJson = mergedEventAttrsJson(mergedTimeline),
         updatedAt = latest.happenedAt,

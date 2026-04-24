@@ -106,6 +106,7 @@ data class ThingCardModel(
     val summary: String?,
     val state: String?,
     val channelId: String?,
+    val decryptionState: DecryptionState?,
     val imageUrl: String?,
     val tags: List<String>,
     @Serializable(with = ThingInstantSerializer::class)
@@ -451,6 +452,7 @@ fun ThingListScreen(
         ) {
             EventDetailSheet(
                 event = selectedRelatedEvent!!,
+                channelDisplayName = selectedRelatedEvent?.channelId?.let { channelNameMap[it] ?: it },
                 bottomGestureInset = bottomGestureInset,
                 onCloseEvent = {
                     val event = selectedRelatedEvent ?: return@EventDetailSheet
@@ -592,6 +594,7 @@ fun ThingListScreen(
                 itemsIndexed(filteredThings, key = { _, item -> item.thingId }) { _, thing ->
                     ThingRow(
                         thing = thing,
+                        channelDisplayName = thing.channelId?.let { channelNameMap[it] ?: it },
                         onClick = {
                             if (isSelectionMode) {
                                 toggleSelection(thing.thingId)
@@ -669,6 +672,7 @@ fun ThingListScreen(
 @Composable
 private fun ThingRow(
     thing: ThingCardModel,
+    channelDisplayName: String? = null,
     onClick: () -> Unit,
     selectionMode: Boolean,
     selected: Boolean,
@@ -761,6 +765,16 @@ private fun ThingRow(
                         color = uiColors.textSecondary,
                         maxLines = 2,
                     )
+                    if (!channelDisplayName.isNullOrBlank() || thing.decryptionState != null) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            channelDisplayName?.trim()?.takeIf { it.isNotEmpty() }?.let { displayName ->
+                                PushGoChannelMetaChip(channelDisplayName = displayName)
+                            }
+                            thing.decryptionState?.let { state ->
+                                PushGoDecryptionMetaChip(decryptionState = state)
+                            }
+                        }
+                    }
                 }
             }
             if (thing.tags.isNotEmpty()) {
@@ -826,17 +840,15 @@ private fun ThingImageThumb(
         model = normalized,
         contentDescription = null,
         contentScale = ContentScale.Crop,
+        onClickWhenLoaded = if (onClick != null) {
+            { onClick(normalized) }
+        } else {
+            null
+        },
         modifier = Modifier
             .height(size)
             .width(size)
-            .clip(MaterialTheme.shapes.small)
-            .then(
-                if (onClick != null) {
-                    Modifier.clickable { onClick(normalized) }
-                } else {
-                    Modifier
-                },
-            ),
+            .clip(MaterialTheme.shapes.small),
     )
 }
 
@@ -935,6 +947,7 @@ private fun buildThingCardsInternal(messages: List<PushMessage>): List<ThingCard
             if (value != null) channelId = value
         }
         val updatedAt = thingMessages.lastOrNull()?.receivedAt ?: Instant.EPOCH
+        val decryptionState = thingMessages.lastOrNull()?.decryptionState
 
         ThingCardModel(
             thingId = thingId,
@@ -942,6 +955,7 @@ private fun buildThingCardsInternal(messages: List<PushMessage>): List<ThingCard
             summary = summary,
             state = state,
             channelId = channelId,
+            decryptionState = decryptionState,
             imageUrl = imageUrl,
             tags = tags,
             createdAt = createdAt,
@@ -1077,13 +1091,19 @@ private fun ThingDetailSheet(
                     }
                 }
 
-                thing.channelId?.let { channelId ->
-                    val displayName = channelNameMap[channelId] ?: channelId
-                    Text(
-                        text = displayName,
-                        style = MaterialTheme.typography.labelMedium,
-                        color = uiColors.textSecondary,
-                    )
+                if (!thing.channelId.isNullOrBlank() || thing.decryptionState != null) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        thing.channelId?.trim()?.takeIf { it.isNotEmpty() }?.let { channelId ->
+                            val displayName = channelNameMap[channelId] ?: channelId
+                            PushGoChannelMetaChip(channelDisplayName = displayName)
+                        }
+                        thing.decryptionState?.let { state ->
+                            PushGoDecryptionMetaChip(decryptionState = state)
+                        }
+                    }
                 }
 
                 Text(
@@ -1217,6 +1237,7 @@ private fun ThingDetailSheet(
                             thing.relatedEvents.sortedByDescending { it.updatedAt }.forEach { event ->
                                 EventListRowItem(
                                     event = event,
+                                    channelDisplayName = event.channelId?.let { channelNameMap[it] ?: it },
                                     onClick = { onOpenRelatedEvent(event) },
                                     selectionMode = false,
                                     selected = false,
@@ -1383,6 +1404,7 @@ private fun ThingRelatedMessageDetailSheet(message: ThingRelatedMessage) {
         message = current,
         timeText = timeText,
         imageModels = current.imageUrls.map { it as Any },
+        channelDisplayName = current.channel?.trim()?.takeIf { it.isNotEmpty() },
         resolvedBodyText = resolvedBody.rawText,
         bottomGestureInset = bottomGestureInset,
         onDelete = null,
@@ -1567,6 +1589,7 @@ private fun buildThingRelatedEventCards(
                 state = EventLifecycleState.fromRaw(message.eventState),
                 thingId = message.thingId,
                 channelId = message.channel,
+                decryptionState = message.decryptionState,
                 attachmentUrls = linkedSetOf<String>().apply {
                     profile?.imageUrls?.forEach { if (it.isNotBlank()) add(it) }
                     message.imageUrls.forEach { if (it.isNotBlank()) add(it) }

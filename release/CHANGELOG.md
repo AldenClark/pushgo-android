@@ -23,6 +23,24 @@ PushGo Android policy:
 ### Changed
 - Placeholder for next development cycle.
 
+## [v1.2.2] - 2026-04-24
+
+### Added
+- Added `DecryptionState` and channel metadata chips to shared message/event/object row/detail rendering surfaces.
+- Added image loading state callbacks/placeholders in `PushGoAsyncImage` and `PushGoPlayableImage` to keep media interactions deterministic.
+- Added versioned stable update notes source: `release/update-notes/v1.2.2.json`.
+
+### Changed
+- Finalized Android app version to `v1.2.2` for release builds.
+- `versionCode` now resolves to stable code `1020299` from `versionName=v1.2.2`.
+- Updated notification decrypt/ingress flow so decrypted payload overrides are written back into normalized ingress fields (`title/body/url/images/event/thing metadata`).
+- Updated message/event/object list/detail UI to surface channel display name mapping and decryption status consistently.
+- Updated detail-page media interaction to open previews only after image load completes.
+
+### Fixed
+- Fixed encrypted payload metadata drop risk where decrypted `url` and event/object profile/attrs fields could be lost before persistence/rendering.
+- Fixed detail-page image tap race that could trigger preview interactions before media load was complete.
+
 ## [v1.2.1] - 2026-04-22
 
 ### Added

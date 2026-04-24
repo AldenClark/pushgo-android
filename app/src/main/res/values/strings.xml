@@ -157,6 +157,10 @@
     <string name="label_decryption_not_configured">Decryption not configured</string>
     <string name="label_decryption_hint">Only AES-GCM is supported; IV must be included in ciphertext.</string>
     <string name="label_decryption_subtitle">Keys and encoding</string>
+    <string name="label_decryption_state_ok_short">Decrypted</string>
+    <string name="label_decryption_state_failed_short">Decrypt failed</string>
+    <string name="label_decryption_state_not_configured_short">No key</string>
+    <string name="label_decryption_state_alg_mismatch_short">Alg mismatch</string>
     <string name="label_close">Close</string>
     <string name="label_cancel">Cancel</string>
     <string name="label_got_it">Got it</string>

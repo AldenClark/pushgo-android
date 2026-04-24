@@ -406,6 +406,10 @@ fun MessageListScreen(
                                     modifier = Modifier.animateItem().testTag("message.row.${message.id}"),
                                     message = message,
                                     imageModels = listImageModels,
+                                    channelDisplayName = resolveChannelDisplayName(
+                                        rawChannelId = message.channel,
+                                        channelNameMap = channelNameMap,
+                                    ),
                                     onClick = { if (isSelectionMode) toggleSelection(message.id) else onMessageClick(message.id) },
                                     onMarkRead = { viewModel.markRead(message.id) },
                                     onDelete = { viewModel.deleteMessage(message.id) },
@@ -428,6 +432,10 @@ fun MessageListScreen(
                                 modifier = Modifier.animateItem().testTag("message.row.${message.id}"),
                                 message = message,
                                 imageModels = listImageModels,
+                                channelDisplayName = resolveChannelDisplayName(
+                                    rawChannelId = message.channel,
+                                    channelNameMap = channelNameMap,
+                                ),
                                 onClick = { if (isSelectionMode) toggleSelection(message.id) else onMessageClick(message.id) },
                                 onMarkRead = { viewModel.markRead(message.id) },
                                 onDelete = { viewModel.deleteMessage(message.id) },
@@ -493,6 +501,7 @@ private fun MessageRow(
     modifier: Modifier = Modifier,
     message: PushMessage,
     imageModels: List<Any>,
+    channelDisplayName: String?,
     onClick: () -> Unit,
     onMarkRead: () -> Unit,
     onDelete: () -> Unit,
@@ -555,7 +564,14 @@ private fun MessageRow(
                     PushGoSelectionIndicator(selected = selected, onClick = onToggleSelection)
                 }
                 Column(modifier = Modifier.weight(1f)) {
-                    MessageRowContent(message, imageModels, stringResource(R.string.app_name), timeText, bodyPreview)
+                    MessageRowContent(
+                        message = message,
+                        imageModels = imageModels,
+                        appName = stringResource(R.string.app_name),
+                        timeText = timeText,
+                        bodyPreview = bodyPreview,
+                        channelDisplayName = channelDisplayName,
+                    )
                 }
             }
         }
@@ -567,7 +583,14 @@ private fun MessageRow(
 }
 
 @Composable
-fun MessageRowContent(message: PushMessage, imageModels: List<Any>, appName: String, timeText: String, bodyPreview: String) {
+fun MessageRowContent(
+    message: PushMessage,
+    imageModels: List<Any>,
+    appName: String,
+    timeText: String,
+    bodyPreview: String,
+    channelDisplayName: String? = null,
+) {
     val uiColors = PushGoThemeExtras.colors
     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
         Column(modifier = Modifier.weight(1f)) {
@@ -579,8 +602,19 @@ fun MessageRowContent(message: PushMessage, imageModels: List<Any>, appName: Str
         if (!message.isRead) { PushGoStatusDot(color = uiColors.accentPrimary); Spacer(modifier = Modifier.width(6.dp)) }
         Text(text = timeText, style = MaterialTheme.typography.labelSmall, color = uiColors.textSecondary)
     }
-    if (bodyPreview.isNotBlank() || imageModels.isNotEmpty() || message.tags.isNotEmpty()) {
+    val hasMetaChips = !channelDisplayName.isNullOrBlank() || message.decryptionState != null
+    if (hasMetaChips || bodyPreview.isNotBlank() || imageModels.isNotEmpty() || message.tags.isNotEmpty()) {
         Column(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 6.dp)) {
+            if (hasMetaChips) {
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    channelDisplayName?.trim()?.takeIf { it.isNotEmpty() }?.let { displayName ->
+                        PushGoChannelMetaChip(channelDisplayName = displayName)
+                    }
+                    message.decryptionState?.let { state ->
+                        PushGoDecryptionMetaChip(decryptionState = state)
+                    }
+                }
+            }
             if (bodyPreview.isNotBlank()) Text(text = bodyPreview, style = MaterialTheme.typography.bodyMedium, maxLines = 3, overflow = TextOverflow.Ellipsis, color = uiColors.textSecondary)
             if (message.tags.isNotEmpty()) Text(text = message.tags.joinToString(" · "), style = MaterialTheme.typography.labelSmall.copy(fontFamily = FontFamily.Monospace), color = PushGoThemeExtras.colors.stateInfo.foreground)
             if (imageModels.isNotEmpty()) Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { imageModels.forEach { PushGoAsyncImage(model = it, contentDescription = null, modifier = Modifier.size(56.dp).clip(RoundedCornerShape(8.dp)), contentScale = ContentScale.Crop) } }
@@ -599,6 +633,17 @@ private fun MessageSeverityListBadge(severity: MessageSeverity?) {
     Box(modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(palette.background).padding(horizontal = 8.dp, vertical = 2.dp)) {
         Text(text = label, style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold), color = palette.foreground)
     }
+}
+
+private fun resolveChannelDisplayName(
+    rawChannelId: String?,
+    channelNameMap: Map<String, String>,
+): String? {
+    val channelId = rawChannelId?.trim().orEmpty()
+    if (channelId.isEmpty()) {
+        return null
+    }
+    return channelNameMap[channelId] ?: channelId
 }
 
 internal fun formatMessageTime(context: Context, receivedAt: Instant, zoneId: ZoneId, nowInstant: Instant = Instant.now()): String {

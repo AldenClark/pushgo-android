@@ -8,7 +8,6 @@ import android.provider.MediaStore
 import android.widget.Toast
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -151,10 +150,23 @@ fun MessageDetailScreen(
     val imageModels = remember(current?.rawPayloadJson) {
         current?.let { imageStore.resolveDetailImageModels(it.rawPayloadJson) }.orEmpty()
     }
+    var channelNameMap by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
     var previewImageModel by remember(current?.id) { mutableStateOf<Any?>(null) }
     var showDeleteConfirmation by remember { mutableStateOf(false) }
     val resolvedBodyText = remember(current?.rawPayloadJson, current?.body) {
         current?.let { MessageBodyResolver.resolve(it.rawPayloadJson, it.body).rawText }.orEmpty()
+    }
+    val channelDisplayName = remember(current?.channel, channelNameMap) {
+        val channelId = current?.channel?.trim().orEmpty()
+        if (channelId.isEmpty()) {
+            null
+        } else {
+            channelNameMap[channelId] ?: channelId
+        }
+    }
+
+    LaunchedEffect(Unit) {
+        channelNameMap = channelRepository.loadSubscriptionLookup(includeDeleted = true)
     }
 
     PushGoModalBottomSheet(
@@ -207,6 +219,7 @@ fun MessageDetailScreen(
                     message = current,
                     timeText = timeText,
                     imageModels = imageModels,
+                    channelDisplayName = channelDisplayName,
                     resolvedBodyText = resolvedBodyText,
                     bottomGestureInset = bottomGestureInset,
                     onDelete = {
@@ -302,6 +315,7 @@ internal fun MessageDetailCoreContent(
     message: PushMessage,
     timeText: String,
     imageModels: List<Any>,
+    channelDisplayName: String?,
     resolvedBodyText: String,
     bottomGestureInset: Dp,
     onDelete: (() -> Unit)?,
@@ -380,6 +394,19 @@ internal fun MessageDetailCoreContent(
                         ),
                         color = uiColors.placeholderText
                     )
+                    if (!channelDisplayName.isNullOrBlank() || message.decryptionState != null) {
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            channelDisplayName?.trim()?.takeIf { it.isNotEmpty() }?.let { displayName ->
+                                PushGoChannelMetaChip(channelDisplayName = displayName)
+                            }
+                            message.decryptionState?.let { state ->
+                                PushGoDecryptionMetaChip(decryptionState = state)
+                            }
+                        }
+                    }
                     if (message.tags.isNotEmpty()) {
                         Text(
                             text = message.tags.joinToString(separator = " · "),
@@ -415,15 +442,15 @@ internal fun MessageDetailCoreContent(
                             activeAnimatedImageKey = null
                         }
                     },
+                    onClick = {
+                        activeAnimatedImageKey = null
+                        MarkdownAnimatedImagePlaybackRegistry.stopAll()
+                        onOpenImage(model)
+                    },
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(240.dp)
-                        .clip(RoundedCornerShape(12.dp))
-                        .clickable {
-                            activeAnimatedImageKey = null
-                            MarkdownAnimatedImagePlaybackRegistry.stopAll()
-                            onOpenImage(model)
-                        },
+                        .clip(RoundedCornerShape(12.dp)),
                 )
             } else {
                 Row(
@@ -446,14 +473,14 @@ internal fun MessageDetailCoreContent(
                                     activeAnimatedImageKey = null
                                 }
                             },
+                            onClick = {
+                                activeAnimatedImageKey = null
+                                MarkdownAnimatedImagePlaybackRegistry.stopAll()
+                                onOpenImage(model)
+                            },
                             modifier = Modifier
                                 .size(100.dp)
-                                .clip(RoundedCornerShape(10.dp))
-                                .clickable {
-                                    activeAnimatedImageKey = null
-                                    MarkdownAnimatedImagePlaybackRegistry.stopAll()
-                                    onOpenImage(model)
-                                },
+                                .clip(RoundedCornerShape(10.dp)),
                         )
                     }
                 }

@@ -74,6 +74,10 @@
     <string name="label_decryption_not_configured">복호화 설정 안 됨</string>
     <string name="label_decryption_hint">AES-GCM만 지원됩니다. IV는 암호문에 포함되어야 합니다.</string>
     <string name="label_decryption_subtitle">키 및 인코딩</string>
+    <string name="label_decryption_state_ok_short">복호화됨</string>
+    <string name="label_decryption_state_failed_short">복호화 실패</string>
+    <string name="label_decryption_state_not_configured_short">키 없음</string>
+    <string name="label_decryption_state_alg_mismatch_short">알고리즘 불일치</string>
     <string name="label_close">닫기</string>
     <string name="label_cancel">취소</string>
     <string name="label_urgent_attention">긴급</string>

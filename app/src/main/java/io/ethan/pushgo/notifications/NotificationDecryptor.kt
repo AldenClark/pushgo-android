@@ -15,6 +15,11 @@ object NotificationDecryptor {
         val title: String,
         val body: String,
         val images: List<String>,
+        val url: String?,
+        val eventProfileJson: String?,
+        val eventAttrsJson: String?,
+        val thingProfileJson: String?,
+        val thingAttrsJson: String?,
         val decryptionState: DecryptionState?,
     ) {
         val image: String?
@@ -33,26 +38,57 @@ object NotificationDecryptor {
             || InlineCipherEnvelope.looksLikeCiphertext(body)
 
         if (likelyEncrypted && (keyBytes == null || keyBytes.isEmpty())) {
-            return Result(title, body, emptyList(), DecryptionState.NOT_CONFIGURED)
+            return Result(
+                title = title,
+                body = body,
+                images = emptyList(),
+                url = null,
+                eventProfileJson = null,
+                eventAttrsJson = null,
+                thingProfileJson = null,
+                thingAttrsJson = null,
+                decryptionState = DecryptionState.NOT_CONFIGURED,
+            )
         }
 
         if (keyBytes != null && keyBytes.isNotEmpty() && keyBytes.size !in VALID_KEY_LENGTHS) {
             return Result(
-                title,
-                body,
-                emptyList(),
-                if (likelyEncrypted) DecryptionState.DECRYPT_FAILED else null,
+                title = title,
+                body = body,
+                images = emptyList(),
+                url = null,
+                eventProfileJson = null,
+                eventAttrsJson = null,
+                thingProfileJson = null,
+                thingAttrsJson = null,
+                decryptionState = if (likelyEncrypted) DecryptionState.DECRYPT_FAILED else null,
             )
         }
         if (keyBytes == null || keyBytes.isEmpty()) {
-            return Result(title, body, emptyList(), null)
+            return Result(
+                title = title,
+                body = body,
+                images = emptyList(),
+                url = null,
+                eventProfileJson = null,
+                eventAttrsJson = null,
+                thingProfileJson = null,
+                thingAttrsJson = null,
+                decryptionState = null,
+            )
         }
 
         var resolvedTitle = title
         var resolvedBody = body
         var images: List<String> = emptyList()
+        var resolvedUrl: String? = null
+        var eventProfileJson: String? = null
+        var eventAttrsJson: String? = null
+        var thingProfileJson: String? = null
+        var thingAttrsJson: String? = null
         var inlineStatus: DecryptStatus = DecryptStatus.NONE
         var cipherStatus: DecryptStatus = DecryptStatus.NONE
+        var payloadOverridesApplied = false
 
         val inlineTitle = decryptInlineField(title, keyBytes)
         when (inlineTitle.status) {
@@ -83,17 +119,33 @@ object NotificationDecryptor {
                     resolvedBody = it
                 }
                 images = cipherResult.images
+                resolvedUrl = cipherResult.url
+                eventProfileJson = cipherResult.eventProfileJson
+                eventAttrsJson = cipherResult.eventAttrsJson
+                thingProfileJson = cipherResult.thingProfileJson
+                thingAttrsJson = cipherResult.thingAttrsJson
+                payloadOverridesApplied = cipherResult.hasPayloadOverrides
             }
         }
 
         val state = when {
             inlineStatus == DecryptStatus.FAILURE || cipherStatus == DecryptStatus.FAILURE -> DecryptionState.DECRYPT_FAILED
-            inlineStatus == DecryptStatus.SUCCESS || cipherStatus == DecryptStatus.SUCCESS -> DecryptionState.DECRYPT_OK
+            inlineStatus == DecryptStatus.SUCCESS || cipherStatus == DecryptStatus.SUCCESS || payloadOverridesApplied -> DecryptionState.DECRYPT_OK
             likelyEncrypted -> DecryptionState.DECRYPT_FAILED
             else -> null
         }
 
-        return Result(resolvedTitle, resolvedBody, images, state)
+        return Result(
+            title = resolvedTitle,
+            body = resolvedBody,
+            images = images,
+            url = resolvedUrl,
+            eventProfileJson = eventProfileJson,
+            eventAttrsJson = eventAttrsJson,
+            thingProfileJson = thingProfileJson,
+            thingAttrsJson = thingAttrsJson,
+            decryptionState = state,
+        )
     }
 
     private fun decryptInlineField(value: String, key: ByteArray): InlineDecryptResult {
@@ -116,6 +168,11 @@ object NotificationDecryptor {
                 title = json.stringValue("title"),
                 body = json.stringValue("body"),
                 images = decodeImages(json),
+                url = json.stringValue("url"),
+                eventProfileJson = decodeObjectJsonValue(json["event_profile_json"]),
+                eventAttrsJson = decodeObjectJsonValue(json["event_attrs_json"]),
+                thingProfileJson = decodeObjectJsonValue(json["thing_profile_json"]),
+                thingAttrsJson = decodeObjectJsonValue(json["thing_attrs_json"]),
             )
         } catch (ex: Exception) {
             CipherDecryptResult(DecryptStatus.FAILURE)
@@ -167,7 +224,24 @@ object NotificationDecryptor {
         val title: String? = null,
         val body: String? = null,
         val images: List<String> = emptyList(),
+        val url: String? = null,
+        val eventProfileJson: String? = null,
+        val eventAttrsJson: String? = null,
+        val thingProfileJson: String? = null,
+        val thingAttrsJson: String? = null,
     )
+
+    private val CipherDecryptResult.hasPayloadOverrides: Boolean
+        get() {
+            return !url.isNullOrBlank()
+                || !eventProfileJson.isNullOrBlank()
+                || !eventAttrsJson.isNullOrBlank()
+                || !thingProfileJson.isNullOrBlank()
+                || !thingAttrsJson.isNullOrBlank()
+                || images.isNotEmpty()
+                || !title.isNullOrBlank()
+                || !body.isNullOrBlank()
+        }
 
     private enum class DecryptStatus {
         NONE,
@@ -209,6 +283,23 @@ object NotificationDecryptor {
             }
         }
         return results.toList()
+    }
+
+    private fun decodeObjectJsonValue(raw: Any?): String? {
+        return when (raw) {
+            null -> null
+            is String -> {
+                val text = raw.trim()
+                if (text.isEmpty()) {
+                    null
+                } else {
+                    val parsed = JsonCompat.parseObject(text) ?: return null
+                    JsonCompat.stringify(parsed)
+                }
+            }
+            is Map<*, *> -> JsonCompat.stringify(raw)
+            else -> null
+        }
     }
 
     private fun Map<String, Any?>.stringValue(key: String): String? {

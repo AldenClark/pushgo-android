@@ -94,16 +94,18 @@ object NotificationIngressParser {
         sanitizeIngressPayload(sanitized)
         val rawTitle = sanitized["title"] ?: ""
         val rawBody = sanitized["body"] ?: ""
-        val channel = sanitized["channel_id"]?.trim()?.takeIf { it.isNotEmpty() }
-        val url = sanitized["url"]?.let(::normalizeExternalOpenUrl)
-        val serverId = sanitized["server_id"]
-        val deliveryId = sanitized["delivery_id"]?.trim()?.takeIf { it.isNotEmpty() }
-        val messageId = extractMessageId(sanitized)
         val decryptResult = NotificationDecryptor.decryptIfNeeded(sanitized, rawTitle, rawBody, keyBytes)
         val normalizedDecryptResult = decryptResult.copy(
             body = rewriteVisibleUrlsInText(decryptResult.body),
             images = sanitizeImageCandidates(decryptResult.images),
         )
+        applyDecryptionOverrides(sanitized, normalizedDecryptResult)
+        sanitizeIngressPayload(sanitized)
+        val channel = sanitized["channel_id"]?.trim()?.takeIf { it.isNotEmpty() }
+        val url = sanitized["url"]?.let(::normalizeExternalOpenUrl)
+        val serverId = sanitized["server_id"]
+        val deliveryId = sanitized["delivery_id"]?.trim()?.takeIf { it.isNotEmpty() }
+        val messageId = extractMessageId(sanitized)
         val level = resolveNotificationLevel(sanitized)
         val entityType = normalizeEntityType(sanitized["entity_type"]) ?: return null
         val sanitizedTitleBody = sanitizeGatewayPlaceholderText(
@@ -394,6 +396,22 @@ object NotificationIngressParser {
             }
         }
         return urls.toList()
+    }
+
+    private fun applyDecryptionOverrides(
+        payload: MutableMap<String, String>,
+        decryptResult: NotificationDecryptor.Result,
+    ) {
+        payload["title"] = decryptResult.title
+        payload["body"] = decryptResult.body
+        decryptResult.url?.let { payload["url"] = it }
+        if (decryptResult.images.isNotEmpty()) {
+            payload["images"] = JsonCompat.stringify(decryptResult.images)
+        }
+        decryptResult.eventProfileJson?.let { payload["event_profile_json"] = it }
+        decryptResult.eventAttrsJson?.let { payload["event_attrs_json"] = it }
+        decryptResult.thingProfileJson?.let { payload["thing_profile_json"] = it }
+        decryptResult.thingAttrsJson?.let { payload["thing_attrs_json"] = it }
     }
 
     private fun sanitizeIngressPayload(payload: MutableMap<String, String>) {

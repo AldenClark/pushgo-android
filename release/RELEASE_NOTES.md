@@ -13,6 +13,13 @@ Policy:
 ### Changed
 - Placeholder for next beta cycle.
 
+## [v1.2.2]
+
+### Improved
+- Improved encrypted notification payload handling so decrypted message, URL, image, and event/object metadata stay consistent across message/event/object views.
+- Improved message, event, and object surfaces with clearer channel and decryption status chips in both list and detail screens.
+- Improved image loading and tap behavior in detail pages with explicit loading/error placeholders and safer click timing after media is ready.
+
 ## [v1.2.1]
 
 ### Improved

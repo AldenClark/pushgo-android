@@ -57,7 +57,7 @@ abstract class PushGoDatabase : RoomDatabase() {
         private const val DATABASE_NAME = "pushgo.db"
         private const val EPOCH_MILLIS_THRESHOLD = 1_000_000_000_000L
         private const val EPOCH_NORMALIZATION_FLAG_KEY = "epoch_millis_normalized_v1"
-        private val LEGACY_DATABASE_NAMES = listOf("pushgo-v22.db", "pushgo-v21.db")
+        private val LEGACY_DATABASE_NAME_REGEX = Regex("""^pushgo-v(\d+)\.db$""")
 
         private val MIGRATION_21_22 = object : Migration(21, 22) {
             override fun migrate(db: SupportSQLiteDatabase) {
@@ -212,8 +212,8 @@ abstract class PushGoDatabase : RoomDatabase() {
                 "thing_change_logs" to listOf("received_at", "event_time_epoch", "observed_time_epoch"),
                 "thing_sub_events" to listOf("received_at", "event_time_epoch"),
                 "thing_sub_messages" to listOf("received_at", "event_time_epoch", "occurred_at_epoch"),
-                "top_level_event_heads" to listOf("received_at", "event_time", "updated_at"),
-                "thing_heads" to listOf("received_at", "event_time", "observed_time_epoch", "updated_at"),
+                "top_level_event_heads" to listOf("received_at", "event_time_epoch", "updated_at"),
+                "thing_heads" to listOf("received_at", "event_time_epoch", "observed_time_epoch", "updated_at"),
                 "pending_thing_messages" to listOf("received_at", "event_time_epoch", "occurred_at_epoch"),
                 "pending_thing_events" to listOf("received_at", "event_time_epoch"),
                 "inbound_delivery_ledger" to listOf("applied_at", "acked_at"),
@@ -224,7 +224,11 @@ abstract class PushGoDatabase : RoomDatabase() {
                 "message_channel_counts" to listOf("latest_received_at"),
             )
             targets.forEach { (table, columns) ->
+                val existingColumns = loadTableColumns(db, table)
                 columns.forEach { column ->
+                    if (!existingColumns.contains(column)) {
+                        return@forEach
+                    }
                     db.execSQL(
                         """
                         UPDATE $table
@@ -233,6 +237,20 @@ abstract class PushGoDatabase : RoomDatabase() {
                           AND ABS($column) < $EPOCH_MILLIS_THRESHOLD
                         """.trimIndent()
                     )
+                }
+            }
+        }
+
+        private fun loadTableColumns(db: SupportSQLiteDatabase, table: String): Set<String> {
+            return db.query("PRAGMA table_info($table)").use { cursor ->
+                val nameIndex = cursor.getColumnIndex("name")
+                if (nameIndex == -1) {
+                    return@use emptySet()
+                }
+                buildSet {
+                    while (cursor.moveToNext()) {
+                        add(cursor.getString(nameIndex))
+                    }
                 }
             }
         }
@@ -293,9 +311,13 @@ abstract class PushGoDatabase : RoomDatabase() {
         }
 
         private fun selectLegacyDatabase(context: Context): File? {
-            val candidates = LEGACY_DATABASE_NAMES
+            val candidates = context
+                .databaseList()
+                .asSequence()
+                .filter { it != DATABASE_NAME && LEGACY_DATABASE_NAME_REGEX.matches(it) }
                 .map(context::getDatabasePath)
                 .filter(File::exists)
+                .toList()
             if (candidates.isEmpty()) {
                 return null
             }
@@ -315,7 +337,8 @@ abstract class PushGoDatabase : RoomDatabase() {
         }
 
         private fun legacyPriority(name: String): Int {
-            return LEGACY_DATABASE_NAMES.size - LEGACY_DATABASE_NAMES.indexOf(name)
+            val match = LEGACY_DATABASE_NAME_REGEX.matchEntire(name) ?: return 0
+            return match.groupValues[1].toIntOrNull() ?: 0
         }
 
         private fun databaseContentScore(file: File): Int {

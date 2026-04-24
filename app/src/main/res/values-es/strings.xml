@@ -74,6 +74,10 @@
     <string name="label_decryption_not_configured">Descifrado no configurado</string>
     <string name="label_decryption_hint">Solo se admite AES-GCM; el IV debe incluirse en el texto cifrado.</string>
     <string name="label_decryption_subtitle">Claves y codificación</string>
+    <string name="label_decryption_state_ok_short">Descifrado</string>
+    <string name="label_decryption_state_failed_short">Fallo de descifrado</string>
+    <string name="label_decryption_state_not_configured_short">Sin clave</string>
+    <string name="label_decryption_state_alg_mismatch_short">Algoritmo no coincide</string>
     <string name="label_close">Cerrar</string>
     <string name="label_cancel">Cancelar</string>
     <string name="label_urgent_attention">Urgente</string>

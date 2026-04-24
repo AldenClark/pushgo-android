@@ -74,6 +74,10 @@
     <string name="label_decryption_not_configured">Non configuré</string>
     <string name="label_decryption_hint">Seul AES-GCM est supporté ; l’IV doit être inclus dans le texte chiffré.</string>
     <string name="label_decryption_subtitle">Clés et encodage</string>
+    <string name="label_decryption_state_ok_short">Déchiffré</string>
+    <string name="label_decryption_state_failed_short">Échec du déchiffrement</string>
+    <string name="label_decryption_state_not_configured_short">Aucune clé</string>
+    <string name="label_decryption_state_alg_mismatch_short">Algorithme incompatible</string>
     <string name="label_close">Fermer</string>
     <string name="label_cancel">Annuler</string>
     <string name="label_urgent_attention">Urgent</string>

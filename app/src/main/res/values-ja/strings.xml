@@ -74,6 +74,10 @@
     <string name="label_decryption_not_configured">復号未設定</string>
     <string name="label_decryption_hint">AES-GCM のみサポートされています。IV は暗号文に含まれている必要があります。</string>
     <string name="label_decryption_subtitle">キーとエンコーディング</string>
+    <string name="label_decryption_state_ok_short">復号済み</string>
+    <string name="label_decryption_state_failed_short">復号失敗</string>
+    <string name="label_decryption_state_not_configured_short">鍵なし</string>
+    <string name="label_decryption_state_alg_mismatch_short">アルゴリズム不一致</string>
     <string name="label_close">閉じる</string>
     <string name="label_cancel">キャンセル</string>
     <string name="label_urgent_attention">緊急</string>
