@@ -15,21 +15,31 @@ class InboundDeliveryAckWorker(
     params: WorkerParameters,
 ) : CoroutineWorker(appContext, params) {
     override suspend fun doWork(): Result {
-        val deliveryId = inputData.getString(KEY_DELIVERY_ID)
-            ?.trim()
-            ?.takeIf { it.isNotEmpty() }
-            ?: return Result.success()
-        val app = applicationContext as? PushGoApp ?: return Result.success()
-        val container = app.containerOrNull() ?: return Result.success()
+        val app = applicationContext as? PushGoApp ?: return Result.retry()
+        val container = app.containerOrNull() ?: return Result.retry()
 
-        runCatching {
-            container.channelRepository.ackMessage(deliveryId)
+        val result = runCatching {
+            ProviderAckDrainCoordinator.drainPendingAcks(
+                loadPendingAckIds = container.inboundDeliveryLedgerRepository::loadPendingAckIds,
+                ackMessage = container.channelRepository::ackMessage,
+                markAcked = container.inboundDeliveryLedgerRepository::markAcked,
+            )
         }.onFailure { error ->
             io.ethan.pushgo.util.SilentSink.w(
                 TAG,
-                "provider direct ack failed deliveryId=$deliveryId",
+                "provider ack drain failed",
                 error,
             )
+        }.getOrElse {
+            return Result.retry()
+        }
+
+        if (result.hasFailures) {
+            io.ethan.pushgo.util.SilentSink.w(
+                TAG,
+                "provider ack drain retained ${result.failedIds.size} pending deliveries",
+            )
+            return Result.retry()
         }
         return Result.success()
     }
@@ -37,22 +47,31 @@ class InboundDeliveryAckWorker(
     companion object {
         const val KEY_DELIVERY_ID = "delivery_id"
         private const val TAG = "InboundDeliveryAck"
-        private const val UNIQUE_WORK_PREFIX = "pushgo-provider-direct-ack-"
+        private const val UNIQUE_WORK_NAME = "pushgo-provider-ack-drain"
 
         fun enqueue(context: Context, deliveryId: String) {
             val normalized = deliveryId.trim()
             if (normalized.isEmpty()) {
                 return
             }
-            val input = workDataOf(KEY_DELIVERY_ID to normalized)
+            enqueueDrain(context, normalized)
+        }
+
+        fun enqueueDrain(context: Context, deliveryId: String? = null) {
+            val normalized = deliveryId?.trim()?.takeIf { it.isNotEmpty() }
+            val input = if (normalized == null) {
+                workDataOf()
+            } else {
+                workDataOf(KEY_DELIVERY_ID to normalized)
+            }
             val request = OneTimeWorkRequestBuilder<InboundDeliveryAckWorker>()
                 .setInputData(input)
                 .setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)
                 .build()
             WorkManager.getInstance(context.applicationContext)
                 .enqueueUniqueWork(
-                    "$UNIQUE_WORK_PREFIX$normalized",
-                    ExistingWorkPolicy.REPLACE,
+                    UNIQUE_WORK_NAME,
+                    ExistingWorkPolicy.APPEND_OR_REPLACE,
                     request,
                 )
         }

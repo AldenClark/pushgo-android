@@ -19,17 +19,23 @@ object ProviderIngressCoordinator {
         deliveryId: String? = null,
         beforeMessageNotify: suspend (PushMessage, String?) -> Unit = { _, _ -> },
     ): Int {
-        val persisted = pullAndPersist(
-            context = context,
-            channelRepository = channelRepository,
-            messageRepository = messageRepository,
-            entityRepository = entityRepository,
-            inboundDeliveryLedgerRepository = inboundDeliveryLedgerRepository,
-            settingsRepository = settingsRepository,
-            deliveryId = deliveryId,
-            beforeMessageNotify = beforeMessageNotify,
-        )
-        return persisted
+        return try {
+            pullAndPersist(
+                context = context,
+                channelRepository = channelRepository,
+                messageRepository = messageRepository,
+                entityRepository = entityRepository,
+                inboundDeliveryLedgerRepository = inboundDeliveryLedgerRepository,
+                settingsRepository = settingsRepository,
+                deliveryId = deliveryId,
+                beforeMessageNotify = beforeMessageNotify,
+            )
+        } finally {
+            enqueueAckDrainIfNeeded(
+                context = context,
+                inboundDeliveryLedgerRepository = inboundDeliveryLedgerRepository,
+            )
+        }
     }
 
     suspend fun pullAndPersist(
@@ -106,9 +112,23 @@ object ProviderIngressCoordinator {
     ) {
         if (!outcome.shouldAck) return
         val deliveryId = inboundDeliveryId(inbound) ?: return
-        // Direct ACK is best effort: do not block ingress, do not retry.
-        inboundDeliveryLedgerRepository.markAcked(listOf(deliveryId))
+        inboundDeliveryLedgerRepository.enqueueAcks(
+            deliveryIds = listOf(deliveryId),
+            source = "provider_direct",
+        )
         InboundDeliveryAckWorker.enqueue(context, deliveryId)
+    }
+
+    private suspend fun enqueueAckDrainIfNeeded(
+        context: Context,
+        inboundDeliveryLedgerRepository: InboundDeliveryLedgerRepository,
+    ) {
+        val hasPendingAcks = runCatching {
+            inboundDeliveryLedgerRepository.loadPendingAckIds(limit = 1).isNotEmpty()
+        }.getOrDefault(false)
+        if (hasPendingAcks) {
+            InboundDeliveryAckWorker.enqueueDrain(context)
+        }
     }
 
     fun inboundDeliveryId(inbound: InboundPersistenceRequest): String? {

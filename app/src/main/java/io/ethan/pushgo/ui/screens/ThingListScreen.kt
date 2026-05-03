@@ -52,8 +52,8 @@ import io.ethan.pushgo.R
 import io.ethan.pushgo.data.AppContainer
 import io.ethan.pushgo.data.EntityProjectionCursor
 import io.ethan.pushgo.data.model.*
-import io.ethan.pushgo.data.parseThingProfile
-import io.ethan.pushgo.data.parseEventProfile
+import io.ethan.pushgo.data.parseThingProfileFromPayload
+import io.ethan.pushgo.data.parseEventProfileFromPayload
 import io.ethan.pushgo.notifications.ForegroundNotificationPresentationState
 import io.ethan.pushgo.notifications.ForegroundNotificationTopMetrics
 import io.ethan.pushgo.notifications.ProviderIngressCoordinator
@@ -879,7 +879,7 @@ private fun buildThingCardsInternal(messages: List<PushMessage>): List<ThingCard
         }
         val latestThingMessage = thingMessages.lastOrNull { it.entityType == "thing" } ?: thingMessages.last()
         val latestPayload = runCatching { JSONObject(latestThingMessage.rawPayloadJson) }.getOrNull()
-        val profile = parseThingProfile(latestPayload?.optString("thing_profile_json"))
+        val profile = parseThingProfileFromPayload(latestPayload)
         val title = profile?.title ?: latestThingMessage.title.ifBlank { thingId }
         val summary = profile?.description ?: latestThingMessage.bodyPreview
         val state = profile?.state
@@ -902,7 +902,7 @@ private fun buildThingCardsInternal(messages: List<PushMessage>): List<ThingCard
         val attrs = linkedMapOf<String, Any?>()
         thingMessages.forEach { message ->
             val payload = runCatching { JSONObject(message.rawPayloadJson) }.getOrNull() ?: return@forEach
-            payload.optString("thing_attrs_json")
+            payload.optString("attrs")
                 .trim()
                 .takeIf { it.isNotEmpty() }
                 ?.let { raw ->
@@ -911,18 +911,6 @@ private fun buildThingCardsInternal(messages: List<PushMessage>): List<ThingCard
                         attrs.clear()
                         parsed.forEach { (key, value) ->
                             if (value != null) attrs[key] = value
-                        }
-                    }
-                }
-            payload.optString("event_attrs_json")
-                .trim()
-                .takeIf { it.isNotEmpty() }
-                ?.let { raw ->
-                    parseJsonObjectOrNull(raw)?.forEach { (key, value) ->
-                        if (value == null) {
-                            attrs.remove(key)
-                        } else {
-                            attrs[key] = value
                         }
                     }
                 }
@@ -993,10 +981,7 @@ private fun buildThingCardsInternal(messages: List<PushMessage>): List<ThingCard
                             ?.takeIf { it.isNotEmpty() }
                             ?: payload?.optString("state")?.trim()?.takeIf { it.isNotEmpty() },
                         happenedAt = happenedAtFromPayload(payload = payload, fallback = message.receivedAt),
-                        attrsJson = payload?.optString("thing_attrs_json")
-                            ?.trim()
-                            ?.takeIf { it.isNotEmpty() }
-                            ?: payload?.optString("event_attrs_json")
+                        attrsJson = payload?.optString("attrs")
                                 ?.trim()
                                 ?.takeIf { it.isNotEmpty() },
                     )
@@ -1575,7 +1560,7 @@ private fun buildThingRelatedEventCards(
             val eventId = message.eventId?.trim().orEmpty()
             if (eventId.isEmpty()) return@mapNotNull null
             val payload = runCatching { JSONObject(message.rawPayloadJson) }.getOrNull()
-            val profile = parseEventProfile(payload?.optString("event_profile_json"))
+            val profile = parseEventProfileFromPayload(payload)
             val happenedAt = happenedAtFromPayload(payload, message.receivedAt)
             EventCardModel(
                 eventId = eventId,
@@ -1594,7 +1579,7 @@ private fun buildThingRelatedEventCards(
                     profile?.imageUrls?.forEach { if (it.isNotBlank()) add(it) }
                     message.imageUrls.forEach { if (it.isNotBlank()) add(it) }
                 }.toList(),
-                attrsJson = payload?.optString("event_attrs_json")?.trim()?.takeIf { it.isNotEmpty() },
+                attrsJson = payload?.optString("attrs")?.trim()?.takeIf { it.isNotEmpty() },
                 updatedAt = happenedAt,
                 timeline = emptyList(),
             )

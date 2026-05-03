@@ -151,12 +151,12 @@
     <string name="label_event_description">Event Description</string>
     <string name="label_event_tags">Event Tags (comma)</string>
     <string name="label_event_impact">Event Severity</string>
-    <string name="label_event_attrs_json">Event Attrs JSON</string>
+    <string name="label_event_attrs">Event Attrs</string>
     <string name="label_thing_id">Object ID</string>
     <string name="label_thing_name">Object Name</string>
     <string name="label_thing_description">Object Description</string>
     <string name="label_thing_tags">Object Tags (comma)</string>
-    <string name="label_thing_attrs_json">Object Attrs JSON</string>
+    <string name="label_thing_attrs">Object Attrs</string>
     <string name="label_channel_all">All channels</string>
     <string name="label_search_entities">Search</string>
     <string name="label_no_events_title">No events yet</string>

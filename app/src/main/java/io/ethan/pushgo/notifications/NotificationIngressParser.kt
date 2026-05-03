@@ -4,8 +4,6 @@ import android.content.Context
 import io.ethan.pushgo.R
 import io.ethan.pushgo.data.IncomingEntityRecord
 import io.ethan.pushgo.data.ParsedEntityProfile
-import io.ethan.pushgo.data.parseEventProfile
-import io.ethan.pushgo.data.parseThingProfile
 import io.ethan.pushgo.data.model.MessageStatus
 import io.ethan.pushgo.data.model.PushMessage
 import io.ethan.pushgo.markdown.MessagePreviewExtractor
@@ -189,11 +187,7 @@ object NotificationIngressParser {
             return null
         }
 
-        val profile = when (entityType) {
-            "event" -> parseEventProfile(sanitized["event_profile_json"])
-            "thing" -> parseThingProfile(sanitized["thing_profile_json"])
-            else -> null
-        }
+        val profile = profileFromCanonicalPayload(entityType, sanitized)
 
         val explicitTitle = sanitizedTitleBody.first
         val explicitBody = sanitizedTitleBody.second
@@ -257,7 +251,7 @@ object NotificationIngressParser {
     ): EntityNotificationText {
         val messageText = profile?.message?.trim()?.takeIf { it.isNotEmpty() }
         val attrsSnapshot = if (entityType == "thing") {
-            parseThingAttributeSnapshot(payload["thing_attrs_json"])
+            parseThingAttributeSnapshot(payload["attrs"])
         } else {
             null
         }
@@ -408,10 +402,22 @@ object NotificationIngressParser {
         if (decryptResult.images.isNotEmpty()) {
             payload["images"] = JsonCompat.stringify(decryptResult.images)
         }
-        decryptResult.eventProfileJson?.let { payload["event_profile_json"] = it }
-        decryptResult.eventAttrsJson?.let { payload["event_attrs_json"] = it }
-        decryptResult.thingProfileJson?.let { payload["thing_profile_json"] = it }
-        decryptResult.thingAttrsJson?.let { payload["thing_attrs_json"] = it }
+        decryptResult.tagsJson?.let { payload["tags"] = it }
+        decryptResult.metadataJson?.let { payload["metadata"] = it }
+        decryptResult.description?.let { payload["description"] = it }
+        decryptResult.statusText?.let { payload["status"] = it }
+        decryptResult.messageText?.let { payload["message"] = it }
+        decryptResult.attrsJson?.let { payload["attrs"] = it }
+        decryptResult.startedAt?.let { payload["started_at"] = it }
+        decryptResult.endedAt?.let { payload["ended_at"] = it }
+        decryptResult.primaryImage?.let { payload["primary_image"] = it }
+        decryptResult.stateText?.let { payload["state"] = it }
+        decryptResult.createdAt?.let { payload["created_at"] = it }
+        decryptResult.deletedAt?.let { payload["deleted_at"] = it }
+        decryptResult.externalIdsJson?.let { payload["external_ids"] = it }
+        decryptResult.locationType?.let { payload["location_type"] = it }
+        decryptResult.locationValue?.let { payload["location_value"] = it }
+        decryptResult.locationJson?.let { payload["location"] = it }
     }
 
     private fun sanitizeIngressPayload(payload: MutableMap<String, String>) {
@@ -531,6 +537,59 @@ object NotificationIngressParser {
             pairs = pairs.take(6),
             thingName = thingName,
         )
+    }
+
+    private fun profileFromCanonicalPayload(
+        entityType: String,
+        payload: Map<String, String>,
+    ): ParsedEntityProfile? {
+        val title = payload["title"]?.trim()?.takeIf { it.isNotEmpty() }
+        val description = payload["description"]?.trim()?.takeIf { it.isNotEmpty() }
+        val state = payload["state"]?.trim()?.takeIf { it.isNotEmpty() }
+        val status = payload["status"]?.trim()?.takeIf { it.isNotEmpty() }
+        val message = payload["message"]?.trim()?.takeIf { it.isNotEmpty() }
+        val severity = payload["severity"]?.trim()?.takeIf { it.isNotEmpty() }
+        val createdAt = parseEpochMillis(payload["created_at"])
+        val tags = parseStringList(payload["tags"])
+        val images = linkedSetOf<String>().apply {
+            if (entityType == "thing") {
+                payload["primary_image"]?.trim()?.takeIf { it.isNotEmpty() }?.let { add(it) }
+            }
+            parseStringList(payload["images"]).forEach { add(it) }
+        }.toList()
+        if (title == null && description == null && state == null && status == null &&
+            message == null && severity == null && tags.isEmpty() && images.isEmpty() && createdAt == null
+        ) {
+            return null
+        }
+        return ParsedEntityProfile(
+            title = title,
+            description = description,
+            state = state,
+            status = status,
+            message = message,
+            severity = severity,
+            tags = tags,
+            imageUrl = images.firstOrNull(),
+            imageUrls = images,
+            createdAt = createdAt,
+        )
+    }
+
+    private fun parseStringList(raw: String?): List<String> {
+        val text = raw?.trim().orEmpty()
+        if (text.isEmpty()) return emptyList()
+        val parsed = JsonCompat.parseArray(text)
+        val values = linkedSetOf<String>()
+        if (parsed != null) {
+            parsed.forEach { entry ->
+                val value = entry?.toString()?.trim().orEmpty()
+                if (value.isNotEmpty()) values += value
+            }
+            return values.toList()
+        }
+        values += text
+        return values.toList()
     }
 
     private fun attributeSortPriority(key: String): Int {

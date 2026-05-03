@@ -1195,10 +1195,9 @@ private fun buildEventCardsInternal(messages: List<PushMessage>): List<EventCard
                 .epochMillisFromJson(payload, "event_time")
                 ?.let(Instant::ofEpochMilli)
                 ?: message.receivedAt
-            val profileRaw = payload?.optString("event_profile_json")
-            val profile = io.ethan.pushgo.data.parseEventProfile(profileRaw)
+            val profile = io.ethan.pushgo.data.parseEventProfileFromPayload(payload)
             val attachmentUrls = linkedSetOf<String>().apply {
-                addAll(parseImageUrls(profileRaw))
+                addAll(parseImageUrls(payload?.optString("images")))
                 addAll(message.imageUrls)
             }.toList()
             val imageUrl = profile?.imageUrl ?: message.imageUrl
@@ -1241,7 +1240,7 @@ private fun buildEventCardsInternal(messages: List<PushMessage>): List<EventCard
                 imageUrl = imageUrl,
                 attachmentUrls = attachmentUrls,
                 attrsJson = payload
-                    ?.optString("event_attrs_json")
+                    ?.optString("attrs")
                     ?.trim()
                     ?.takeIf { it.isNotEmpty() },
                 happenedAt = eventTime,

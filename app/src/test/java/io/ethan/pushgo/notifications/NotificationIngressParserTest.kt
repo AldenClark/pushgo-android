@@ -46,16 +46,17 @@ class NotificationIngressParserTest {
     }
 
     @Test
-    fun parseThing_keepsProfileJsonUntouchedByIngressFilter() {
+    fun parseThing_keepsCanonicalThingFieldsUntouchedByIngressFilter() {
         val payload = mapOf(
             "entity_type" to "thing",
             "thing_id" to "thing-1",
             "entity_id" to "thing-1",
             "title" to "Object",
             "body" to "updated",
-            "thing_profile_json" to """
-                {"title":"Object","description":"[bad](javascript:alert(1))","message":"[ok](https://safe.example/x)","primary_image":"http://127.0.0.1/a.png","images":["https://cdn.example.com/a.png","http://localhost/b.png"]}
-            """.trimIndent(),
+            "description" to "[bad](javascript:alert(1))",
+            "message" to "[ok](https://safe.example/x)",
+            "primary_image" to "http://127.0.0.1/a.png",
+            "images" to "[\"https://cdn.example.com/a.png\",\"http://localhost/b.png\"]",
         )
 
         val parsed = NotificationIngressParser.parse(
@@ -68,16 +69,12 @@ class NotificationIngressParserTest {
         assertNotNull(entity)
         entity ?: return
         val raw = JsonCompat.parseObject(entity.record.rawPayloadJson) ?: emptyMap()
-        val profileRaw = raw["thing_profile_json"]?.toString()
-        assertNotNull(profileRaw)
-        val profile = JsonCompat.parseObject(profileRaw) ?: emptyMap()
-
-        assertEquals("[bad](javascript:alert(1))", profile["description"])
-        assertEquals("[ok](https://safe.example/x)", profile["message"])
-        assertEquals("http://127.0.0.1/a.png", profile["primary_image"])
-        val images = (profile["images"] as? List<*>)?.mapNotNull { it?.toString() } ?: emptyList()
+        assertEquals("[bad](javascript:alert(1))", raw["description"])
+        assertEquals("[ok](https://safe.example/x)", raw["message"])
+        assertEquals("http://127.0.0.1/a.png", raw["primary_image"])
+        val images = JsonCompat.parseArray(raw["images"]?.toString())?.mapNotNull { it?.toString() } ?: emptyList()
         assertEquals(
-            listOf("https://cdn.example.com/a.png", "http://localhost/b.png"),
+            listOf("https://cdn.example.com/a.png"),
             images,
         )
     }

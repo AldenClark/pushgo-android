@@ -35,6 +35,24 @@ fun parseThingProfile(raw: String?): ParsedEntityProfile? {
     )
 }
 
+fun parseEventProfileFromPayload(payload: JSONObject?): ParsedEntityProfile? {
+    val map = payload?.let(::jsonObjectToMap) ?: return null
+    return parseProfile(
+        json = map,
+        primaryImageKey = null,
+        imageKeys = listOf("images"),
+    )
+}
+
+fun parseThingProfileFromPayload(payload: JSONObject?): ParsedEntityProfile? {
+    val map = payload?.let(::jsonObjectToMap) ?: return null
+    return parseProfile(
+        json = map,
+        primaryImageKey = "primary_image",
+        imageKeys = listOf("images"),
+    )
+}
+
 private fun parseProfile(
     json: Map<String, Any?>,
     primaryImageKey: String?,

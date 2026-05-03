@@ -16,10 +16,22 @@ object NotificationDecryptor {
         val body: String,
         val images: List<String>,
         val url: String?,
-        val eventProfileJson: String?,
-        val eventAttrsJson: String?,
-        val thingProfileJson: String?,
-        val thingAttrsJson: String?,
+        val tagsJson: String?,
+        val metadataJson: String?,
+        val description: String?,
+        val statusText: String?,
+        val messageText: String?,
+        val attrsJson: String?,
+        val startedAt: String?,
+        val endedAt: String?,
+        val primaryImage: String?,
+        val stateText: String?,
+        val createdAt: String?,
+        val deletedAt: String?,
+        val externalIdsJson: String?,
+        val locationType: String?,
+        val locationValue: String?,
+        val locationJson: String?,
         val decryptionState: DecryptionState?,
     ) {
         val image: String?
@@ -43,10 +55,22 @@ object NotificationDecryptor {
                 body = body,
                 images = emptyList(),
                 url = null,
-                eventProfileJson = null,
-                eventAttrsJson = null,
-                thingProfileJson = null,
-                thingAttrsJson = null,
+                tagsJson = null,
+                metadataJson = null,
+                description = null,
+                statusText = null,
+                messageText = null,
+                attrsJson = null,
+                startedAt = null,
+                endedAt = null,
+                primaryImage = null,
+                stateText = null,
+                createdAt = null,
+                deletedAt = null,
+                externalIdsJson = null,
+                locationType = null,
+                locationValue = null,
+                locationJson = null,
                 decryptionState = DecryptionState.NOT_CONFIGURED,
             )
         }
@@ -57,10 +81,22 @@ object NotificationDecryptor {
                 body = body,
                 images = emptyList(),
                 url = null,
-                eventProfileJson = null,
-                eventAttrsJson = null,
-                thingProfileJson = null,
-                thingAttrsJson = null,
+                tagsJson = null,
+                metadataJson = null,
+                description = null,
+                statusText = null,
+                messageText = null,
+                attrsJson = null,
+                startedAt = null,
+                endedAt = null,
+                primaryImage = null,
+                stateText = null,
+                createdAt = null,
+                deletedAt = null,
+                externalIdsJson = null,
+                locationType = null,
+                locationValue = null,
+                locationJson = null,
                 decryptionState = if (likelyEncrypted) DecryptionState.DECRYPT_FAILED else null,
             )
         }
@@ -70,10 +106,22 @@ object NotificationDecryptor {
                 body = body,
                 images = emptyList(),
                 url = null,
-                eventProfileJson = null,
-                eventAttrsJson = null,
-                thingProfileJson = null,
-                thingAttrsJson = null,
+                tagsJson = null,
+                metadataJson = null,
+                description = null,
+                statusText = null,
+                messageText = null,
+                attrsJson = null,
+                startedAt = null,
+                endedAt = null,
+                primaryImage = null,
+                stateText = null,
+                createdAt = null,
+                deletedAt = null,
+                externalIdsJson = null,
+                locationType = null,
+                locationValue = null,
+                locationJson = null,
                 decryptionState = null,
             )
         }
@@ -82,10 +130,22 @@ object NotificationDecryptor {
         var resolvedBody = body
         var images: List<String> = emptyList()
         var resolvedUrl: String? = null
-        var eventProfileJson: String? = null
-        var eventAttrsJson: String? = null
-        var thingProfileJson: String? = null
-        var thingAttrsJson: String? = null
+        var tagsJson: String? = null
+        var metadataJson: String? = null
+        var description: String? = null
+        var statusText: String? = null
+        var messageText: String? = null
+        var attrsJson: String? = null
+        var startedAt: String? = null
+        var endedAt: String? = null
+        var primaryImage: String? = null
+        var stateText: String? = null
+        var createdAt: String? = null
+        var deletedAt: String? = null
+        var externalIdsJson: String? = null
+        var locationType: String? = null
+        var locationValue: String? = null
+        var locationJson: String? = null
         var inlineStatus: DecryptStatus = DecryptStatus.NONE
         var cipherStatus: DecryptStatus = DecryptStatus.NONE
         var payloadOverridesApplied = false
@@ -120,10 +180,22 @@ object NotificationDecryptor {
                 }
                 images = cipherResult.images
                 resolvedUrl = cipherResult.url
-                eventProfileJson = cipherResult.eventProfileJson
-                eventAttrsJson = cipherResult.eventAttrsJson
-                thingProfileJson = cipherResult.thingProfileJson
-                thingAttrsJson = cipherResult.thingAttrsJson
+                tagsJson = cipherResult.tagsJson
+                metadataJson = cipherResult.metadataJson
+                description = cipherResult.description
+                statusText = cipherResult.statusText
+                messageText = cipherResult.messageText
+                attrsJson = cipherResult.attrsJson
+                startedAt = cipherResult.startedAt
+                endedAt = cipherResult.endedAt
+                primaryImage = cipherResult.primaryImage
+                stateText = cipherResult.stateText
+                createdAt = cipherResult.createdAt
+                deletedAt = cipherResult.deletedAt
+                externalIdsJson = cipherResult.externalIdsJson
+                locationType = cipherResult.locationType
+                locationValue = cipherResult.locationValue
+                locationJson = cipherResult.locationJson
                 payloadOverridesApplied = cipherResult.hasPayloadOverrides
             }
         }
@@ -140,10 +212,22 @@ object NotificationDecryptor {
             body = resolvedBody,
             images = images,
             url = resolvedUrl,
-            eventProfileJson = eventProfileJson,
-            eventAttrsJson = eventAttrsJson,
-            thingProfileJson = thingProfileJson,
-            thingAttrsJson = thingAttrsJson,
+            tagsJson = tagsJson,
+            metadataJson = metadataJson,
+            description = description,
+            statusText = statusText,
+            messageText = messageText,
+            attrsJson = attrsJson,
+            startedAt = startedAt,
+            endedAt = endedAt,
+            primaryImage = primaryImage,
+            stateText = stateText,
+            createdAt = createdAt,
+            deletedAt = deletedAt,
+            externalIdsJson = externalIdsJson,
+            locationType = locationType,
+            locationValue = locationValue,
+            locationJson = locationJson,
             decryptionState = state,
         )
     }
@@ -158,7 +242,10 @@ object NotificationDecryptor {
         }
     }
 
-    private fun decryptCiphertextPayload(ciphertext: String, key: ByteArray): CipherDecryptResult {
+    private fun decryptCiphertextPayload(
+        ciphertext: String,
+        key: ByteArray,
+    ): CipherDecryptResult {
         val envelope = InlineCipherEnvelope.from(ciphertext) ?: return CipherDecryptResult(DecryptStatus.NONE)
         return try {
             val plaintext = aesGcmDecrypt(envelope.ciphertextAndTag, key, envelope.iv)
@@ -169,10 +256,22 @@ object NotificationDecryptor {
                 body = json.stringValue("body"),
                 images = decodeImages(json),
                 url = json.stringValue("url"),
-                eventProfileJson = decodeObjectJsonValue(json["event_profile_json"]),
-                eventAttrsJson = decodeObjectJsonValue(json["event_attrs_json"]),
-                thingProfileJson = decodeObjectJsonValue(json["thing_profile_json"]),
-                thingAttrsJson = decodeObjectJsonValue(json["thing_attrs_json"]),
+                tagsJson = decodeStringArrayJsonValue(json["tags"]),
+                metadataJson = decodeObjectJsonValue(json["metadata"]),
+                description = json.stringValue("description"),
+                statusText = json.stringValue("status"),
+                messageText = json.stringValue("message"),
+                attrsJson = decodeObjectJsonValue(json["attrs"]),
+                startedAt = numberAsLong(json["started_at"])?.toString(),
+                endedAt = numberAsLong(json["ended_at"])?.toString(),
+                primaryImage = json.stringValue("primary_image"),
+                stateText = json.stringValue("state"),
+                createdAt = numberAsLong(json["created_at"])?.toString(),
+                deletedAt = numberAsLong(json["deleted_at"])?.toString(),
+                externalIdsJson = decodeObjectJsonValue(json["external_ids"]),
+                locationType = json.stringValue("location_type"),
+                locationValue = json.stringValue("location_value"),
+                locationJson = decodeObjectJsonValue(json["location"]),
             )
         } catch (ex: Exception) {
             CipherDecryptResult(DecryptStatus.FAILURE)
@@ -225,19 +324,43 @@ object NotificationDecryptor {
         val body: String? = null,
         val images: List<String> = emptyList(),
         val url: String? = null,
-        val eventProfileJson: String? = null,
-        val eventAttrsJson: String? = null,
-        val thingProfileJson: String? = null,
-        val thingAttrsJson: String? = null,
+        val tagsJson: String? = null,
+        val metadataJson: String? = null,
+        val description: String? = null,
+        val statusText: String? = null,
+        val messageText: String? = null,
+        val attrsJson: String? = null,
+        val startedAt: String? = null,
+        val endedAt: String? = null,
+        val primaryImage: String? = null,
+        val stateText: String? = null,
+        val createdAt: String? = null,
+        val deletedAt: String? = null,
+        val externalIdsJson: String? = null,
+        val locationType: String? = null,
+        val locationValue: String? = null,
+        val locationJson: String? = null,
     )
 
     private val CipherDecryptResult.hasPayloadOverrides: Boolean
         get() {
             return !url.isNullOrBlank()
-                || !eventProfileJson.isNullOrBlank()
-                || !eventAttrsJson.isNullOrBlank()
-                || !thingProfileJson.isNullOrBlank()
-                || !thingAttrsJson.isNullOrBlank()
+                || !tagsJson.isNullOrBlank()
+                || !metadataJson.isNullOrBlank()
+                || !description.isNullOrBlank()
+                || !statusText.isNullOrBlank()
+                || !messageText.isNullOrBlank()
+                || !attrsJson.isNullOrBlank()
+                || !startedAt.isNullOrBlank()
+                || !endedAt.isNullOrBlank()
+                || !primaryImage.isNullOrBlank()
+                || !stateText.isNullOrBlank()
+                || !createdAt.isNullOrBlank()
+                || !deletedAt.isNullOrBlank()
+                || !externalIdsJson.isNullOrBlank()
+                || !locationType.isNullOrBlank()
+                || !locationValue.isNullOrBlank()
+                || !locationJson.isNullOrBlank()
                 || images.isNotEmpty()
                 || !title.isNullOrBlank()
                 || !body.isNullOrBlank()
@@ -298,6 +421,47 @@ object NotificationDecryptor {
                 }
             }
             is Map<*, *> -> JsonCompat.stringify(raw)
+            else -> null
+        }
+    }
+
+    private fun decodeStringArrayJsonValue(raw: Any?): String? {
+        val values = linkedSetOf<String>()
+        when (raw) {
+            null -> return null
+            is List<*> -> {
+                for (entry in raw) {
+                    val value = entry?.toString()?.trim().orEmpty()
+                    if (value.isNotEmpty()) {
+                        values += value
+                    }
+                }
+            }
+            is String -> {
+                val text = raw.trim()
+                if (text.isEmpty()) return null
+                val parsed = JsonCompat.parseArray(text)
+                if (parsed != null) {
+                    for (entry in parsed) {
+                        val value = entry?.toString()?.trim().orEmpty()
+                        if (value.isNotEmpty()) {
+                            values += value
+                        }
+                    }
+                } else {
+                    values += text
+                }
+            }
+            else -> return null
+        }
+        if (values.isEmpty()) return null
+        return JsonCompat.stringify(values.toList())
+    }
+
+    private fun numberAsLong(raw: Any?): Long? {
+        return when (raw) {
+            is Number -> raw.toLong()
+            is String -> raw.trim().toLongOrNull()
             else -> null
         }
     }

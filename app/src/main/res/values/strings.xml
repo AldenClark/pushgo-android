@@ -202,7 +202,7 @@
     <string name="label_event_impact">Event Severity</string>
     <string name="label_event_started_at">Event Start Time (optional)</string>
     <string name="label_event_ended_at">Event End Time (optional)</string>
-    <string name="label_event_attrs_json">Event Attrs JSON</string>
+    <string name="label_event_attrs">Event Attrs</string>
     <string name="label_thing_id">Object ID</string>
     <string name="label_thing_name">Object Title</string>
     <string name="label_thing_description">Object Description</string>
@@ -212,7 +212,7 @@
     <string name="label_select_date_time">Select Date &amp; Time</string>
     <string name="label_set_now">Set Now</string>
     <string name="label_clear">Clear</string>
-    <string name="label_thing_attrs_json">Object Attrs JSON</string>
+    <string name="label_thing_attrs">Object Attrs</string>
     <string name="message_json_exported_successfully">Messages exported</string>
     <string name="no_messages_available_to_export">No messages to export</string>
     <string name="export_messages">Export messages</string>

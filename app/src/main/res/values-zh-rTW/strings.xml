@@ -153,13 +153,13 @@
     <string name="label_event_description">事件描述</string>
     <string name="label_event_tags">事件標籤（逗號分隔）</string>
     <string name="label_event_impact">緊急程度</string>
-    <string name="label_event_attrs_json">事件 attrs JSON</string>
+    <string name="label_event_attrs">事件 attrs</string>
     <string name="label_thing_id">對象 ID</string>
     <string name="label_thing_name">對象標題</string>
     <string name="label_thing_description">對象描述</string>
     <string name="label_thing_tags">對象標籤（逗號分隔）</string>
     <string name="label_thing_created_at">對象建立時間（可選）</string>
-    <string name="label_thing_attrs_json">對象 attrs JSON</string>
+    <string name="label_thing_attrs">對象 attrs</string>
     <string name="label_channel_all">All channels</string>
     <string name="label_no_events_title">No events yet</string>
     <string name="label_no_events_hint">Event entries will appear after event payloads are received.</string>

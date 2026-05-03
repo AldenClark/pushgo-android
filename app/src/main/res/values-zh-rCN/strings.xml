@@ -144,13 +144,13 @@
     <string name="label_event_tags">事件标签（逗号分隔）</string>
     <string name="label_message_tags">消息标签（逗号分隔）</string>
     <string name="label_event_impact">紧急程度</string>
-    <string name="label_event_attrs_json">事件 attrs JSON</string>
+    <string name="label_event_attrs">事件 attrs</string>
     <string name="label_thing_id">对象 ID</string>
     <string name="label_thing_name">对象标题</string>
     <string name="label_thing_description">对象描述</string>
     <string name="label_thing_tags">对象标签（逗号分隔）</string>
     <string name="label_thing_created_at">对象创建时间（可选）</string>
-    <string name="label_thing_attrs_json">对象 attrs JSON</string>
+    <string name="label_thing_attrs">对象 attrs</string>
     <string name="message_json_exported_successfully">消息已导出</string>
     <string name="no_messages_available_to_export">没有可导出的消息</string>
     <string name="export_messages">导出消息</string>
