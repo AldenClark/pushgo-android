@@ -160,10 +160,14 @@ class MessageDetailViewModel(
         }
     }
 
+    suspend fun deleteMessage() {
+        stateCoordinator.deleteMessage(messageId)
+        removeCachedMessage(messageId)
+    }
+
     fun delete(): Job {
         return viewModelScope.launch {
-            stateCoordinator.deleteMessage(messageId)
-            removeCachedMessage(messageId)
+            deleteMessage()
         }
     }
 

@@ -116,6 +116,7 @@ fun PushGoAppRoot(
     val eventRefreshToken by container.entityRepository.observeEventRefreshToken().collectAsStateWithLifecycle(initialValue = 0L)
     val thingCount by container.entityRepository.observeThingCount().collectAsStateWithLifecycle(initialValue = 0)
     val thingRefreshToken by container.entityRepository.observeThingRefreshToken().collectAsStateWithLifecycle(initialValue = 0L)
+    val pendingLocalDeletion by container.pendingLocalDeletionCoordinator.pendingDeletion.collectAsStateWithLifecycle()
 
     val isMessagePageEnabled by container.settingsRepository.messagePageEnabledFlow
         .collectAsStateWithLifecycle(initialValue = container.settingsRepository.getCachedMessagePageEnabled())
@@ -246,6 +247,14 @@ fun PushGoAppRoot(
         }
     }
 
+    LaunchedEffect(selectedMessageId, pendingLocalDeletion?.id) {
+        val currentMessageId = selectedMessageId ?: return@LaunchedEffect
+        val pendingScope = pendingLocalDeletion?.scope ?: return@LaunchedEffect
+        if (pendingScope.suppressesMessageId(currentMessageId)) {
+            selectedMessageId = null
+        }
+    }
+
     Scaffold(
         modifier = Modifier.fillMaxSize(),
         bottomBar = {
@@ -339,31 +348,51 @@ fun PushGoAppRoot(
             }
         },
     ) { padding ->
-        PushGoNavHost(
-            navController = navController, container = container, factory = factory, settingsViewModel = settingsViewModel,
-            initialRoute = initialRoute, padding = padding,
-            onMessageClick = { selectedMessageId = it }, onMessageBatchModeChanged = { messageBatchMode = it },
-            onMessageBottomBarVisibilityChanged = { bottomBarVisible = it },
-            messageDetailVisible = selectedMessageId != null,
-            messageScrollToUnreadToken = messageScrollToUnreadToken,
-            messageScrollToTopToken = messageScrollToTopToken,
-            eventCount = eventCount, eventRefreshToken = eventRefreshToken, onEventBatchModeChanged = { eventBatchMode = it },
-            onEventBottomBarVisibilityChanged = { bottomBarVisible = it },
-            eventScrollToTopToken = eventScrollToTopToken,
-            thingCount = thingCount, thingRefreshToken = thingRefreshToken, onThingBatchModeChanged = { thingBatchMode = it },
-            onThingBottomBarVisibilityChanged = { bottomBarVisible = it },
-            thingScrollToTopToken = thingScrollToTopToken,
-            onChannelBottomBarVisibilityChanged = { bottomBarVisible = it },
-            pendingEventIdToOpen = pendingEventIdToOpen, onPendingEventOpened = { pendingEventIdToOpen = null },
-            onEventDetailOpened = { openedEntityType = "event"; openedEntityId = it }, onEventDetailClosed = { openedEntityType = null; openedEntityId = null },
-            pendingThingIdToOpen = pendingThingIdToOpen, onPendingThingOpened = { pendingThingIdToOpen = null },
-            onThingDetailOpened = { openedEntityType = "thing"; openedEntityId = it }, onThingDetailClosed = { openedEntityType = null; openedEntityId = null }
-        )
-        if (selectedMessageId != null) {
-            MessageDetailScreen(
-                messageId = selectedMessageId!!, repository = container.messageRepository,
-                stateCoordinator = container.messageStateCoordinator, channelRepository = container.channelRepository,
-                imageStore = container.messageImageStore, onDismiss = { selectedMessageId = null }
+        Box(modifier = Modifier.fillMaxSize()) {
+            PushGoNavHost(
+                navController = navController, container = container, factory = factory, settingsViewModel = settingsViewModel,
+                initialRoute = initialRoute, padding = padding,
+                onMessageClick = { selectedMessageId = it }, onMessageBatchModeChanged = { messageBatchMode = it },
+                onMessageBottomBarVisibilityChanged = { bottomBarVisible = it },
+                messageDetailVisible = selectedMessageId != null,
+                messageScrollToUnreadToken = messageScrollToUnreadToken,
+                messageScrollToTopToken = messageScrollToTopToken,
+                eventCount = eventCount, eventRefreshToken = eventRefreshToken, onEventBatchModeChanged = { eventBatchMode = it },
+                onEventBottomBarVisibilityChanged = { bottomBarVisible = it },
+                eventScrollToTopToken = eventScrollToTopToken,
+                thingCount = thingCount, thingRefreshToken = thingRefreshToken, onThingBatchModeChanged = { thingBatchMode = it },
+                onThingBottomBarVisibilityChanged = { bottomBarVisible = it },
+                thingScrollToTopToken = thingScrollToTopToken,
+                onChannelBottomBarVisibilityChanged = { bottomBarVisible = it },
+                pendingEventIdToOpen = pendingEventIdToOpen, onPendingEventOpened = { pendingEventIdToOpen = null },
+                onEventDetailOpened = { openedEntityType = "event"; openedEntityId = it }, onEventDetailClosed = { openedEntityType = null; openedEntityId = null },
+                pendingThingIdToOpen = pendingThingIdToOpen, onPendingThingOpened = { pendingThingIdToOpen = null },
+                onThingDetailOpened = { openedEntityType = "thing"; openedEntityId = it }, onThingDetailClosed = { openedEntityType = null; openedEntityId = null }
+            )
+            if (selectedMessageId != null) {
+                MessageDetailScreen(
+                    messageId = selectedMessageId!!, repository = container.messageRepository,
+                    stateCoordinator = container.messageStateCoordinator,
+                    pendingLocalDeletionCoordinator = container.pendingLocalDeletionCoordinator,
+                    channelRepository = container.channelRepository,
+                    imageStore = container.messageImageStore, onDismiss = { selectedMessageId = null }
+                )
+            }
+            PendingLocalDeletionBar(
+                pendingDeletion = pendingLocalDeletion,
+                onUndo = {
+                    appScope.launch {
+                        container.pendingLocalDeletionCoordinator.undoCurrent()
+                    }
+                },
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(
+                        start = 12.dp,
+                        end = 12.dp,
+                        top = 12.dp,
+                        bottom = padding.calculateBottomPadding() + 6.dp,
+                    ),
             )
         }
     }
@@ -559,7 +588,7 @@ private fun PushGoNavHost(
                 messageScrollToTopToken
             )
         }
-        composable<ChannelsRoute> { ChannelListScreen(navController, settingsViewModel, onChannelBottomBarVisibilityChanged) }
+        composable<ChannelsRoute> { ChannelListScreen(navController, container, settingsViewModel, onChannelBottomBarVisibilityChanged) }
         composable<EventsRoute> {
             EventListScreen(
                 container,

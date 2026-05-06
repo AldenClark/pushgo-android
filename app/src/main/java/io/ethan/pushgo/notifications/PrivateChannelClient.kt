@@ -2062,10 +2062,7 @@ class PrivateChannelClient(
         val invalidChannels = (staleChannels + passwordMismatchChannels).distinct()
         invalidChannels.forEach { channelId ->
             runCatching {
-                channelRepository.softDeleteLocalSubscription(
-                    rawChannelId = channelId,
-                    deleteLocalMessages = false,
-                )
+                channelRepository.softDeleteLocalSubscription(rawChannelId = channelId)
             }.onFailure { error ->
                 io.ethan.pushgo.util.SilentSink.w(TAG, "soft delete invalid subscription failed channelId=$channelId error=${error.message}")
             }

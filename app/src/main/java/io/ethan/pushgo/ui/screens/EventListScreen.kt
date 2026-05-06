@@ -46,6 +46,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.ethan.pushgo.R
 import io.ethan.pushgo.data.AppContainer
 import io.ethan.pushgo.data.EntityProjectionCursor
@@ -54,6 +55,7 @@ import io.ethan.pushgo.data.model.PushMessage
 import io.ethan.pushgo.notifications.ForegroundNotificationPresentationState
 import io.ethan.pushgo.notifications.ForegroundNotificationTopMetrics
 import io.ethan.pushgo.notifications.ProviderIngressCoordinator
+import io.ethan.pushgo.ui.PendingLocalDeletionCoordinator
 import io.ethan.pushgo.ui.rememberBottomBarNestedScrollConnection
 import io.ethan.pushgo.ui.rememberBottomGestureInset
 import io.ethan.pushgo.ui.theme.PushGoStateColors
@@ -186,20 +188,19 @@ fun EventListScreen(
     var selectedEvent by remember { mutableStateOf<EventCardModel?>(null) }
     var isSelectionMode by remember { mutableStateOf(false) }
     var selectedEventIds by remember { mutableStateOf<Set<String>>(emptySet()) }
-    var showBatchDeleteConfirmation by remember { mutableStateOf(false) }
     var isPullRefreshing by remember { mutableStateOf(false) }
     var searchQuery by remember { mutableStateOf("") }
     var channelFilter by remember { mutableStateOf<String?>(null) }
     var showOnlyOpen by remember { mutableStateOf(false) }
     var channelNameMap by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
     var pendingCloseEvent by remember { mutableStateOf<EventCardModel?>(null) }
-    var pendingDeleteEventId by remember { mutableStateOf<String?>(null) }
     val context = LocalContext.current
+    val pendingLocalDeletion by container.pendingLocalDeletionCoordinator.pendingDeletion.collectAsStateWithLifecycle()
     val closeEventFailedMessage = stringResource(R.string.error_event_close_failed)
     val closeEventStatusDefault = stringResource(R.string.event_status_closed_default)
     val closeEventBodyDefault = stringResource(R.string.event_message_closed_default)
     val closeEventSuccessMessage = stringResource(R.string.message_event_closed)
-    val singleDeleteToast = stringResource(R.string.message_deleted_selected_count, 1)
+    val eventsLabel = stringResource(R.string.label_send_type_event)
     val haptic = LocalHapticFeedback.current
     val scope = rememberCoroutineScope()
     val listState = rememberLazyListState()
@@ -223,6 +224,14 @@ fun EventListScreen(
 
     fun showToast(message: String) {
         Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
+    }
+
+    fun isPendingLocalDeletion(event: EventCardModel): Boolean {
+        val pendingScope = pendingLocalDeletion?.scope ?: return false
+        return pendingScope.suppressesEvent(
+            id = event.eventId,
+            channelId = event.channelId,
+        )
     }
 
     suspend fun reloadEventsInternal() {
@@ -276,16 +285,41 @@ fun EventListScreen(
         }
     }
 
-    suspend fun deleteEvent(eventId: String) {
-        val deleted = container.entityRepository.deleteEvent(eventId)
-        if (selectedEvent?.eventId == eventId) {
+    suspend fun scheduleDeletion(targetEvents: List<EventCardModel>) {
+        val uniqueEvents = targetEvents
+            .associateBy { it.eventId }
+            .values
+            .toList()
+        if (uniqueEvents.isEmpty()) return
+
+        val eventIds = uniqueEvents.map { it.eventId }.toSet()
+        val summary = if (uniqueEvents.size == 1) {
+            uniqueEvents.first().title.trim().ifEmpty { eventsLabel }
+        } else {
+            "${uniqueEvents.size} × $eventsLabel"
+        }
+
+        container.pendingLocalDeletionCoordinator.schedule(
+            summary = summary,
+            scope = PendingLocalDeletionCoordinator.Scope(eventIds = eventIds),
+            onCommit = {
+                uniqueEvents.forEach { event ->
+                    container.entityRepository.deleteEvent(event.eventId)
+                }
+            },
+            onCompletion = { result ->
+                val error = result.exceptionOrNull()
+                if (error != null) {
+                    showToast(error.message ?: context.getString(R.string.error_request_failed))
+                }
+            },
+        )
+
+        if (selectedEvent?.eventId in eventIds) {
             selectedEvent = null
             onEventDetailClosed()
         }
-        if (deleted > 0) {
-            showToast(singleDeleteToast)
-        }
-        reloadEventsInternal()
+        selectedEventIds = selectedEventIds - eventIds
     }
 
     fun refreshProviderIngressFromPullDown() {
@@ -377,12 +411,13 @@ fun EventListScreen(
         listState.animateScrollToItem(0)
     }
 
-    val filteredEvents = remember(allEvents, searchQuery, channelFilter, showOnlyOpen) {
+    val filteredEvents = remember(allEvents, searchQuery, channelFilter, showOnlyOpen, pendingLocalDeletion?.id) {
         val query = searchQuery.trim().lowercase()
         allEvents.filter { event ->
             (channelFilter == null || event.channelId == channelFilter) &&
             (!showOnlyOpen || event.state == EventLifecycleState.Ongoing) &&
-            (query.isEmpty() || event.title.lowercase().contains(query) || event.summary?.lowercase()?.contains(query) == true)
+            (query.isEmpty() || event.title.lowercase().contains(query) || event.summary?.lowercase()?.contains(query) == true) &&
+            !isPendingLocalDeletion(event)
         }
     }
 
@@ -430,16 +465,34 @@ fun EventListScreen(
         }
     }
 
+    LaunchedEffect(pendingLocalDeletion?.id) {
+        val pendingScope = pendingLocalDeletion?.scope ?: return@LaunchedEffect
+        selectedEventIds = selectedEventIds.filterNot(pendingScope.eventIds::contains).toSet()
+        val currentEvent = selectedEvent
+        if (currentEvent != null && pendingScope.suppressesEvent(currentEvent.eventId, currentEvent.channelId)) {
+            selectedEvent = null
+            onEventDetailClosed()
+        }
+        if (isSelectionMode && selectedEventIds.isEmpty()) {
+            exitSelectionMode()
+        }
+    }
+
     if (selectedEvent != null && !isSelectionMode) {
         PushGoModalBottomSheet(
-            onDismissRequest = { selectedEvent = null; onEventDetailClosed() },
+                onDismissRequest = { selectedEvent = null; onEventDetailClosed() },
         ) {
             EventDetailSheet(
                 event = selectedEvent!!,
                 channelDisplayName = selectedEvent?.channelId?.let { channelNameMap[it] ?: it },
                 bottomGestureInset = bottomGestureInset,
                 onCloseEvent = { pendingCloseEvent = selectedEvent },
-                onDeleteEvent = { pendingDeleteEventId = selectedEvent?.eventId },
+                onDeleteEvent = {
+                    val event = selectedEvent ?: return@EventDetailSheet
+                    scope.launch {
+                        scheduleDeletion(listOf(event))
+                    }
+                },
             )
         }
     }
@@ -464,7 +517,15 @@ fun EventListScreen(
                         if (isSelectionMode) {
                             Row(modifier = Modifier.fillMaxWidth().padding(horizontal = ScreenHorizontalPadding), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                 Text(text = stringResource(R.string.label_selected_count, selectedEventIds.size), style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
-                                IconButton(onClick = { showBatchDeleteConfirmation = true }) { Icon(Icons.Outlined.Delete, stringResource(R.string.action_delete)) }
+                                IconButton(
+                                    onClick = {
+                                        val targets = filteredEvents.filter { selectedEventIds.contains(it.eventId) }
+                                        scope.launch {
+                                            scheduleDeletion(targets)
+                                            exitSelectionMode()
+                                        }
+                                    }
+                                ) { Icon(Icons.Outlined.Delete, stringResource(R.string.action_delete)) }
                                 TextButton(onClick = { exitSelectionMode() }) { Text(stringResource(R.string.label_cancel)) }
                             }
                         } else {
@@ -549,38 +610,6 @@ fun EventListScreen(
         }
     }
 
-    if (showBatchDeleteConfirmation) {
-        val batchDeleteToast = stringResource(R.string.message_deleted_selected_count, selectedEventIds.size)
-        AlertDialog(
-            onDismissRequest = { showBatchDeleteConfirmation = false },
-            title = { Text(text = stringResource(R.string.action_delete)) },
-            text = { Text(text = stringResource(R.string.confirm_delete_selected_events, selectedEventIds.size)) },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        showBatchDeleteConfirmation = false
-                        val targets = selectedEventIds.toList()
-                        scope.launch {
-                            targets.forEach { eventId ->
-                                container.entityRepository.deleteEvent(eventId)
-                            }
-                            showToast(batchDeleteToast)
-                            reloadEventsInternal()
-                            exitSelectionMode()
-                        }
-                    },
-                ) {
-                    Text(text = stringResource(R.string.label_confirm))
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showBatchDeleteConfirmation = false }) {
-                    Text(text = stringResource(R.string.label_cancel))
-                }
-            },
-        )
-    }
-
     pendingCloseEvent?.let { targetEvent ->
         AlertDialog(
             onDismissRequest = { pendingCloseEvent = null },
@@ -598,29 +627,6 @@ fun EventListScreen(
             },
             dismissButton = {
                 TextButton(onClick = { pendingCloseEvent = null }) {
-                    Text(text = stringResource(R.string.label_cancel))
-                }
-            },
-        )
-    }
-
-    pendingDeleteEventId?.let { targetEventId ->
-        AlertDialog(
-            onDismissRequest = { pendingDeleteEventId = null },
-            title = { Text(text = stringResource(R.string.action_delete)) },
-            text = { Text(text = stringResource(R.string.confirm_delete_selected_events, 1)) },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        pendingDeleteEventId = null
-                        scope.launch { deleteEvent(targetEventId) }
-                    },
-                ) {
-                    Text(text = stringResource(R.string.label_confirm))
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { pendingDeleteEventId = null }) {
                     Text(text = stringResource(R.string.label_cancel))
                 }
             },

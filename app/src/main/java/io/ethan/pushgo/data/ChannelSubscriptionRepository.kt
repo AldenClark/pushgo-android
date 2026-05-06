@@ -11,6 +11,7 @@ class ChannelSubscriptionRepository(
     private val store: ChannelSubscriptionStore,
     private val settingsRepository: SettingsRepository,
     private val messageStateCoordinator: MessageStateCoordinator,
+    private val entityRepository: EntityRepository,
     private val pushTokenProvider: PushTokenProvider,
     service: ChannelSubscriptionService? = null,
 ) {
@@ -145,8 +146,7 @@ class ChannelSubscriptionRepository(
     suspend fun unsubscribeChannel(
         rawChannelId: String,
         deviceToken: String?,
-        deleteLocalMessages: Boolean,
-    ): Int {
+    ) {
         val channelId = ChannelIdValidator.normalize(rawChannelId)
         val config = resolveServerConfig()
         val token = deviceToken?.trim()?.takeIf { it.isNotEmpty() }
@@ -172,11 +172,6 @@ class ChannelSubscriptionRepository(
             )
         }
         store.softDeleteSubscription(config.address, channelId)
-        return if (deleteLocalMessages) {
-            messageStateCoordinator.deleteMessagesByChannel(channelId)
-        } else {
-            0
-        }
     }
 
     suspend fun handleTokenUpdate(deviceToken: String) {
@@ -422,15 +417,19 @@ class ChannelSubscriptionRepository(
         )
     }
 
-    suspend fun softDeleteLocalSubscription(rawChannelId: String, deleteLocalMessages: Boolean): Int {
+    suspend fun softDeleteLocalSubscription(rawChannelId: String) {
         val channelId = ChannelIdValidator.normalize(rawChannelId)
         val config = resolveServerConfig()
         store.softDeleteSubscription(config.address, channelId)
-        return if (deleteLocalMessages) {
-            messageStateCoordinator.deleteMessagesByChannel(channelId)
-        } else {
-            0
-        }
+    }
+
+    suspend fun deleteLocalHistoryForChannel(rawChannelId: String): Int {
+        val channelId = ChannelIdValidator.normalize(rawChannelId)
+        var deleted = 0
+        deleted += messageStateCoordinator.deleteMessagesByChannel(channelId)
+        deleted += entityRepository.deleteEvents(channelId)
+        deleted += entityRepository.deleteThings(channelId)
+        return deleted
     }
 
     suspend fun closeEvent(

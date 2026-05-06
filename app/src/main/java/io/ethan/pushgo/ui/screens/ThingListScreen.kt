@@ -48,6 +48,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.ethan.pushgo.R
 import io.ethan.pushgo.data.AppContainer
 import io.ethan.pushgo.data.EntityProjectionCursor
@@ -57,6 +58,7 @@ import io.ethan.pushgo.data.parseEventProfileFromPayload
 import io.ethan.pushgo.notifications.ForegroundNotificationPresentationState
 import io.ethan.pushgo.notifications.ForegroundNotificationTopMetrics
 import io.ethan.pushgo.notifications.ProviderIngressCoordinator
+import io.ethan.pushgo.ui.PendingLocalDeletionCoordinator
 import io.ethan.pushgo.ui.PushGoViewModelFactory
 import io.ethan.pushgo.ui.rememberBottomBarNestedScrollConnection
 import io.ethan.pushgo.ui.rememberBottomGestureInset
@@ -190,15 +192,15 @@ fun ThingListScreen(
     var isSelectionMode by remember { mutableStateOf(false) }
     var selectedThingIds by remember { mutableStateOf<Set<String>>(emptySet()) }
     var initialSelectionStateForDrag by remember { mutableStateOf<Boolean?>(null) }
-    var showBatchDeleteConfirmation by remember { mutableStateOf(false) }
     var isPullRefreshing by remember { mutableStateOf(false) }
     var searchQuery by remember { mutableStateOf("") }
     var channelFilter by remember { mutableStateOf<String?>(null) }
     var showOnlyActive by remember { mutableStateOf(false) }
-    var pendingDeleteThingId by remember { mutableStateOf<String?>(null) }
     
     val context = LocalContext.current
-    val singleDeleteToast = stringResource(R.string.message_deleted_selected_count, 1)
+    val pendingLocalDeletion by container.pendingLocalDeletionCoordinator.pendingDeletion.collectAsStateWithLifecycle()
+    val thingsLabel = stringResource(R.string.label_send_type_thing)
+    val eventsLabel = stringResource(R.string.label_send_type_event)
     val closeEventFailedMessage = stringResource(R.string.error_event_close_failed)
     val closeEventStatusDefault = stringResource(R.string.event_status_closed_default)
     val closeEventBodyDefault = stringResource(R.string.event_message_closed_default)
@@ -226,6 +228,14 @@ fun ThingListScreen(
             selectedThingIds + thingId
         }
         haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+    }
+
+    fun isPendingThingDeletion(thing: ThingCardModel): Boolean {
+        val pendingScope = pendingLocalDeletion?.scope ?: return false
+        return pendingScope.suppressesThing(
+            id = thing.thingId,
+            channelId = thing.channelId,
+        )
     }
 
     fun showToast(message: String) {
@@ -351,16 +361,57 @@ fun ThingListScreen(
         scope.launch { loadMoreThingsInternal() }
     }
 
-    suspend fun deleteThing(thingId: String) {
-        val deleted = container.entityRepository.deleteThing(thingId)
-        if (selectedThing?.thingId == thingId) {
+    suspend fun scheduleThingDeletion(targetThings: List<ThingCardModel>) {
+        val uniqueThings = targetThings
+            .associateBy { it.thingId }
+            .values
+            .toList()
+        if (uniqueThings.isEmpty()) return
+
+        val thingIds = uniqueThings.map { it.thingId }.toSet()
+        val summary = if (uniqueThings.size == 1) {
+            uniqueThings.first().title.trim().ifEmpty { thingsLabel }
+        } else {
+            "${uniqueThings.size} × $thingsLabel"
+        }
+
+        container.pendingLocalDeletionCoordinator.schedule(
+            summary = summary,
+            scope = PendingLocalDeletionCoordinator.Scope(thingIds = thingIds),
+            onCommit = {
+                uniqueThings.forEach { thing ->
+                    container.entityRepository.deleteThing(thing.thingId)
+                }
+            },
+            onCompletion = { result ->
+                val error = result.exceptionOrNull()
+                if (error != null) {
+                    showToast(error.message ?: context.getString(R.string.error_request_failed))
+                }
+            },
+        )
+
+        if (selectedThing?.thingId in thingIds) {
             selectedThing = null
             onThingDetailClosed()
         }
-        if (deleted > 0) {
-            showToast(singleDeleteToast)
-        }
-        reloadThingsInternal()
+        selectedThingIds = selectedThingIds - thingIds
+    }
+
+    suspend fun scheduleRelatedEventDeletion(event: EventCardModel) {
+        container.pendingLocalDeletionCoordinator.schedule(
+            summary = event.title.trim().ifEmpty { eventsLabel },
+            scope = PendingLocalDeletionCoordinator.Scope(eventIds = setOf(event.eventId)),
+            onCommit = {
+                container.entityRepository.deleteEvent(event.eventId)
+            },
+            onCompletion = { result ->
+                val error = result.exceptionOrNull()
+                if (error != null) {
+                    showToast(error.message ?: context.getString(R.string.error_request_failed))
+                }
+            },
+        )
     }
 
     LaunchedEffect(refreshToken) { reloadThings() }
@@ -371,12 +422,13 @@ fun ThingListScreen(
         listState.animateScrollToItem(0)
     }
 
-    val filteredThings = remember(allThings, searchQuery, channelFilter, showOnlyActive) {
+    val filteredThings = remember(allThings, searchQuery, channelFilter, showOnlyActive, pendingLocalDeletion?.id) {
         val query = searchQuery.trim().lowercase()
         allThings.filter { thing ->
             (searchQuery.isBlank() || thing.title.lowercase().contains(query)) &&
             (channelFilter == null || thing.channelId == channelFilter) &&
-            (!showOnlyActive || (thing.state != "archived" && thing.state != "deleted"))
+            (!showOnlyActive || (thing.state != "archived" && thing.state != "deleted")) &&
+            !isPendingThingDeletion(thing)
         }
     }
 
@@ -424,6 +476,23 @@ fun ThingListScreen(
         }
     }
 
+    LaunchedEffect(pendingLocalDeletion?.id) {
+        val pendingScope = pendingLocalDeletion?.scope ?: return@LaunchedEffect
+        selectedThingIds = selectedThingIds.filterNot(pendingScope.thingIds::contains).toSet()
+        val currentThing = selectedThing
+        if (currentThing != null && pendingScope.suppressesThing(currentThing.thingId, currentThing.channelId)) {
+            selectedThing = null
+            onThingDetailClosed()
+        }
+        val currentRelatedEvent = selectedRelatedEvent
+        if (currentRelatedEvent != null && pendingScope.suppressesEvent(currentRelatedEvent.eventId, currentRelatedEvent.channelId)) {
+            selectedRelatedEvent = null
+        }
+        if (isSelectionMode && selectedThingIds.isEmpty()) {
+            exitSelectionMode()
+        }
+    }
+
     if (selectedThing != null && !isSelectionMode) {
         PushGoModalBottomSheet(
             onDismissRequest = {
@@ -441,7 +510,12 @@ fun ThingListScreen(
                 onOpenRelatedEvent = { selectedRelatedEvent = it },
                 onOpenRelatedMessage = { selectedRelatedMessage = it },
                 onOpenRelatedUpdate = { selectedRelatedUpdate = it },
-                onDelete = { pendingDeleteThingId = selectedThing?.thingId },
+                onDelete = {
+                    val thing = selectedThing ?: return@ThingDetailSheet
+                    scope.launch {
+                        scheduleThingDeletion(listOf(thing))
+                    }
+                },
             )
         }
     }
@@ -481,11 +555,10 @@ fun ThingListScreen(
                     }
                 },
                 onDeleteEvent = {
-                    val eventId = selectedRelatedEvent?.eventId ?: return@EventDetailSheet
+                    val event = selectedRelatedEvent ?: return@EventDetailSheet
                     scope.launch {
-                        container.entityRepository.deleteEvent(eventId)
+                        scheduleRelatedEventDeletion(event)
                         selectedRelatedEvent = null
-                        reloadThingsInternal()
                     }
                 },
             )
@@ -528,7 +601,15 @@ fun ThingListScreen(
                         if (isSelectionMode) {
                             Row(modifier = Modifier.fillMaxWidth().padding(horizontal = ScreenHorizontalPadding), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                 Text(text = stringResource(R.string.label_selected_count, selectedThingIds.size), style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
-                                IconButton(onClick = { showBatchDeleteConfirmation = true }) { Icon(Icons.Outlined.Delete, stringResource(R.string.action_delete)) }
+                                IconButton(
+                                    onClick = {
+                                        val targets = filteredThings.filter { selectedThingIds.contains(it.thingId) }
+                                        scope.launch {
+                                            scheduleThingDeletion(targets)
+                                            exitSelectionMode()
+                                        }
+                                    }
+                                ) { Icon(Icons.Outlined.Delete, stringResource(R.string.action_delete)) }
                                 TextButton(onClick = { exitSelectionMode() }) { Text(stringResource(R.string.label_cancel)) }
                             }
                         } else {
@@ -613,60 +694,6 @@ fun ThingListScreen(
         }
     }
 
-    if (showBatchDeleteConfirmation) {
-        val batchDeleteToast = stringResource(R.string.message_deleted_selected_count, selectedThingIds.size)
-        AlertDialog(
-            onDismissRequest = { showBatchDeleteConfirmation = false },
-            title = { Text(text = stringResource(R.string.action_delete)) },
-            text = { Text(text = stringResource(R.string.confirm_delete_selected_things, selectedThingIds.size)) },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        showBatchDeleteConfirmation = false
-                        val targets = selectedThingIds.toList()
-                        scope.launch {
-                            targets.forEach { thingId ->
-                                container.entityRepository.deleteThing(thingId)
-                            }
-                            showToast(batchDeleteToast)
-                            reloadThingsInternal()
-                            exitSelectionMode()
-                        }
-                    },
-                ) {
-                    Text(text = stringResource(R.string.label_confirm))
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showBatchDeleteConfirmation = false }) {
-                    Text(text = stringResource(R.string.label_cancel))
-                }
-            },
-        )
-    }
-
-    pendingDeleteThingId?.let { targetThingId ->
-        AlertDialog(
-            onDismissRequest = { pendingDeleteThingId = null },
-            title = { Text(text = stringResource(R.string.action_delete)) },
-            text = { Text(text = stringResource(R.string.confirm_delete_selected_things, 1)) },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        pendingDeleteThingId = null
-                        scope.launch { deleteThing(targetThingId) }
-                    },
-                ) {
-                    Text(text = stringResource(R.string.label_confirm))
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { pendingDeleteThingId = null }) {
-                    Text(text = stringResource(R.string.label_cancel))
-                }
-            },
-        )
-    }
 }
 
 @Composable

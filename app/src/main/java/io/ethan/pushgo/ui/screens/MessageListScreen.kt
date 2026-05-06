@@ -7,6 +7,7 @@ import android.text.format.DateFormat
 import android.text.format.DateUtils
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
+import androidx.core.content.ContextCompat
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -77,6 +78,7 @@ import io.ethan.pushgo.data.model.MessageSeverity
 import io.ethan.pushgo.notifications.ForegroundNotificationPresentationState
 import io.ethan.pushgo.notifications.ForegroundNotificationTopMetrics
 import io.ethan.pushgo.notifications.ProviderIngressCoordinator
+import io.ethan.pushgo.ui.PendingLocalDeletionCoordinator
 import io.ethan.pushgo.ui.PushGoViewModelFactory
 import io.ethan.pushgo.ui.announceForAccessibility
 import io.ethan.pushgo.ui.rememberBottomBarNestedScrollConnection
@@ -120,6 +122,7 @@ fun MessageListScreen(
     val channelCounts by viewModel.channelCounts.collectAsStateWithLifecycle()
     val query by searchViewModel.queryState.collectAsStateWithLifecycle()
     val searchResults by searchViewModel.results.collectAsStateWithLifecycle()
+    val pendingLocalDeletion by container.pendingLocalDeletionCoordinator.pendingDeletion.collectAsStateWithLifecycle()
     
     val context = LocalContext.current
     val haptic = LocalHapticFeedback.current
@@ -133,10 +136,22 @@ fun MessageListScreen(
     var isSelectionMode by remember { mutableStateOf(false) }
     var selectedMessageIds by remember { mutableStateOf(emptySet<String>()) }
     var initialSelectionStateForDrag by remember { mutableStateOf<Boolean?>(null) }
-    var showBatchDeleteConfirmation by remember { mutableStateOf(false) }
     var isPullRefreshing by remember { mutableStateOf(false) }
     var listTopInWindow by remember { mutableFloatStateOf(0f) }
     var selectionRailTopInWindow by remember { mutableFloatStateOf(0f) }
+    val messagesTabLabel = stringResource(R.string.tab_messages)
+
+    fun isPendingLocalDeletion(message: PushMessage): Boolean {
+        val pendingScope = pendingLocalDeletion?.scope ?: return false
+        return pendingScope.suppressesMessage(
+            id = message.id,
+            channelId = message.channel,
+        )
+    }
+
+    val visibleSearchResults = remember(searchResults, pendingLocalDeletion?.id) {
+        searchResults.filterNot(::isPendingLocalDeletion)
+    }
 
     fun exitSelectionMode() {
         isSelectionMode = false
@@ -159,7 +174,7 @@ fun MessageListScreen(
         return if (query.isBlank()) {
             if (rowIndex < messages.itemCount) messages.peek(rowIndex)?.id else null
         } else {
-            searchResults.getOrNull(rowIndex)?.id
+            visibleSearchResults.getOrNull(rowIndex)?.id
         }
     }
 
@@ -178,10 +193,53 @@ fun MessageListScreen(
         }
     }
 
+    suspend fun scheduleDeletion(targetMessages: List<PushMessage>) {
+        val uniqueMessages = targetMessages
+            .associateBy { it.id }
+            .values
+            .toList()
+        if (uniqueMessages.isEmpty()) return
+
+        val summary = if (uniqueMessages.size == 1) {
+            uniqueMessages.first().title.trim().ifEmpty { messagesTabLabel }
+        } else {
+            "${uniqueMessages.size} × $messagesTabLabel"
+        }
+        val messageIds = uniqueMessages.map { it.id }.toSet()
+
+        container.pendingLocalDeletionCoordinator.schedule(
+            summary = summary,
+            scope = PendingLocalDeletionCoordinator.Scope(messageIds = messageIds),
+            onCommit = {
+                uniqueMessages.forEach { message ->
+                    container.messageStateCoordinator.deleteMessage(message.id)
+                }
+            },
+            onCompletion = { result ->
+                val error = result.exceptionOrNull()
+                if (error != null) {
+                    val appContext = context.applicationContext
+                    ContextCompat.getMainExecutor(appContext).execute {
+                        Toast.makeText(
+                            appContext,
+                            error.message ?: context.getString(R.string.error_request_failed),
+                            Toast.LENGTH_SHORT,
+                        ).show()
+                    }
+                }
+            },
+        )
+
+        selectedMessageIds = selectedMessageIds - messageIds
+    }
+
     suspend fun deleteSelectedMessages() {
-        val ids = selectedMessageIds.toList()
-        if (ids.isEmpty()) return
-        ids.forEach { container.messageStateCoordinator.deleteMessage(it) }
+        val selectedMessages = if (query.isBlank()) {
+            messages.itemSnapshotList.items.filter { selectedMessageIds.contains(it.id) }
+        } else {
+            visibleSearchResults.filter { selectedMessageIds.contains(it.id) }
+        }
+        scheduleDeletion(selectedMessages)
         exitSelectionMode()
     }
 
@@ -190,7 +248,7 @@ fun MessageListScreen(
             val msg = if (query.isBlank()) {
                 messages.itemSnapshotList.items.firstOrNull { it.id == id }
             } else {
-                searchResults.firstOrNull { it.id == id }
+                visibleSearchResults.firstOrNull { it.id == id }
             }
             msg?.isRead == false
         }
@@ -291,6 +349,14 @@ fun MessageListScreen(
         listState.animateScrollToItem(0)
     }
 
+    LaunchedEffect(pendingLocalDeletion?.id) {
+        val pendingScope = pendingLocalDeletion?.scope ?: return@LaunchedEffect
+        selectedMessageIds = selectedMessageIds.filterNot(pendingScope::suppressesMessageId).toSet()
+        if (isSelectionMode && selectedMessageIds.isEmpty()) {
+            exitSelectionMode()
+        }
+    }
+
     val channelOptions = remember(channelCounts) { channelCounts.map { it.channel.trim() }.distinct() }
 
     Box(modifier = Modifier.fillMaxSize()) {
@@ -318,7 +384,7 @@ fun MessageListScreen(
                                     IconButton(onClick = { scope.launch { markSelectedMessagesRead() } }) {
                                         Icon(Icons.Outlined.MarkEmailRead, stringResource(R.string.action_mark_read))
                                     }
-                                    IconButton(onClick = { showBatchDeleteConfirmation = true }) {
+                                    IconButton(onClick = { scope.launch { deleteSelectedMessages() } }) {
                                         Icon(Icons.Outlined.Delete, stringResource(R.string.action_delete))
                                     }
                                     TextButton(onClick = { exitSelectionMode() }) { Text(stringResource(R.string.label_cancel)) }
@@ -398,7 +464,7 @@ fun MessageListScreen(
                             contentType = messages.itemContentType { "message" }
                         ) { index ->
                             val message = messages[index]
-                            if (message != null) {
+                            if (message != null && !isPendingLocalDeletion(message)) {
                                 val listImageModels = remember(message.rawPayloadJson) {
                                     container.messageImageStore.resolveListImageModels(message.rawPayloadJson, MessageListImagePreviewMaxItems)
                                 }
@@ -412,7 +478,7 @@ fun MessageListScreen(
                                     ),
                                     onClick = { if (isSelectionMode) toggleSelection(message.id) else onMessageClick(message.id) },
                                     onMarkRead = { viewModel.markRead(message.id) },
-                                    onDelete = { viewModel.deleteMessage(message.id) },
+                                    onDelete = { scope.launch { scheduleDeletion(listOf(message)) } },
                                     selectionMode = isSelectionMode,
                                     selected = selectedMessageIds.contains(message.id),
                                     onToggleSelection = { toggleSelection(message.id) },
@@ -421,10 +487,10 @@ fun MessageListScreen(
                         }
                     }
                 } else {
-                    if (searchResults.isEmpty()) {
+                    if (visibleSearchResults.isEmpty()) {
                         item { AppEmptyState(icon = Icons.Default.Search, title = stringResource(R.string.label_no_search_results), description = stringResource(R.string.message_list_empty_hint)) }
                     } else {
-                        items(items = searchResults, key = { it.id }) { message ->
+                        items(items = visibleSearchResults, key = { it.id }) { message ->
                             val listImageModels = remember(message.rawPayloadJson) {
                                 container.messageImageStore.resolveListImageModels(message.rawPayloadJson, MessageListImagePreviewMaxItems)
                             }
@@ -438,7 +504,7 @@ fun MessageListScreen(
                                 ),
                                 onClick = { if (isSelectionMode) toggleSelection(message.id) else onMessageClick(message.id) },
                                 onMarkRead = { viewModel.markRead(message.id) },
-                                onDelete = { viewModel.deleteMessage(message.id) },
+                                onDelete = { scope.launch { scheduleDeletion(listOf(message)) } },
                                 selectionMode = isSelectionMode,
                                 selected = selectedMessageIds.contains(message.id),
                                 onToggleSelection = { toggleSelection(message.id) },
@@ -452,7 +518,7 @@ fun MessageListScreen(
                     Box(
                         modifier = Modifier.align(Alignment.TopStart).fillMaxHeight().width(72.dp)
                             .onGloballyPositioned { selectionRailTopInWindow = it.positionInWindow().y }
-                            .pointerInput(query, searchResults.size, messages.itemCount, listTopInWindow, selectionRailTopInWindow) {
+                            .pointerInput(query, visibleSearchResults.size, messages.itemCount, listTopInWindow, selectionRailTopInWindow) {
                                 detectDragGestures(
                                     onDragStart = { point ->
                                         val listLocalY = point.y + (selectionRailTopInWindow - listTopInWindow)
@@ -475,24 +541,7 @@ fun MessageListScreen(
             }
         }
 
-        if (showBatchDeleteConfirmation) {
-            PushGoAlertDialog(
-                onDismissRequest = { showBatchDeleteConfirmation = false },
-                title = { Text(text = stringResource(R.string.action_delete)) },
-                text = { Text(text = stringResource(R.string.confirm_delete_selected_messages, selectedMessageIds.size)) },
-                confirmButton = {
-                    PushGoDestructiveTextButton(
-                        text = stringResource(R.string.label_confirm),
-                        onClick = {
-                            showBatchDeleteConfirmation = false
-                            scope.launch { deleteSelectedMessages() }
-                        },
-                    )
-                },
-                dismissButton = { TextButton(onClick = { showBatchDeleteConfirmation = false }) { Text(stringResource(R.string.label_cancel)) } },
-            )
-        }
-    }
+}
 
 
 @OptIn(ExperimentalFoundationApi::class)

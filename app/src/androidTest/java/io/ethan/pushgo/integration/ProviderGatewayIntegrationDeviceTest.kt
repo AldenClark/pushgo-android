@@ -6,7 +6,10 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import io.ethan.pushgo.data.AppContainer
 import io.ethan.pushgo.notifications.ProviderIngressCoordinator
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.SupervisorJob
 import org.json.JSONArray
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
@@ -30,11 +33,12 @@ class ProviderGatewayIntegrationDeviceTest {
     private lateinit var container: AppContainer
     private lateinit var baseUrl: String
     private lateinit var token: String
+    private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     @Before
     fun setUp() {
         context = ApplicationProvider.getApplicationContext()
-        container = AppContainer(context)
+        container = AppContainer(context, appScope)
         val args = InstrumentationRegistry.getArguments()
         baseUrl = args.getString("pushgoGatewayBaseUrl")?.trim()?.takeIf { it.isNotEmpty() }
             ?: "http://127.0.0.1:7780"

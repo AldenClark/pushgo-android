@@ -4,9 +4,14 @@ import android.content.Context
 import io.ethan.pushgo.data.db.PushGoDatabase
 import io.ethan.pushgo.notifications.MessageStateCoordinator
 import io.ethan.pushgo.notifications.PrivateChannelClient
+import io.ethan.pushgo.ui.PendingLocalDeletionCoordinator
 import io.ethan.pushgo.update.UpdateManager
+import kotlinx.coroutines.CoroutineScope
 
-class AppContainer(context: Context) {
+class AppContainer(
+    context: Context,
+    appScope: CoroutineScope,
+) {
     val appContext = context.applicationContext
     val coroutineDispatchers = AppCoroutineDispatchers()
     val pushTokenProvider: PushTokenProvider = FirebasePushTokenProvider()
@@ -54,10 +59,12 @@ class AppContainer(context: Context) {
         context = appContext,
         repository = messageRepository,
     )
+    val pendingLocalDeletionCoordinator = PendingLocalDeletionCoordinator(appScope = appScope)
     val channelRepository = ChannelSubscriptionRepository(
         store = channelStore,
         settingsRepository = settingsRepository,
         messageStateCoordinator = messageStateCoordinator,
+        entityRepository = entityRepository,
         pushTokenProvider = pushTokenProvider,
         service = ChannelSubscriptionService(ioDispatcher = coroutineDispatchers.io),
     )

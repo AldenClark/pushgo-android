@@ -80,6 +80,7 @@
     <string name="label_decryption_state_alg_mismatch_short">Algorithmus-Konflikt</string>
     <string name="label_close">Schließen</string>
     <string name="label_cancel">Abbrechen</string>
+    <string name="label_undo">Rückgängig</string>
     <string name="label_urgent_attention">Dringend</string>
     <string name="label_enable_notifications">Benachrichtigungen sind deaktiviert</string>
     <string name="label_enable_notifications_hint">Du hast Benachrichtigungen für PushGo deaktiviert. Neue Nachrichten, Ereignisse und Objekt-Updates werden daher nicht rechtzeitig angezeigt. Öffne die Systemeinstellungen, aktiviere PushGo-Benachrichtigungen und kehre dann zur App zurück.</string>

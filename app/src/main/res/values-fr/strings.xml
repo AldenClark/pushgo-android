@@ -80,6 +80,7 @@
     <string name="label_decryption_state_alg_mismatch_short">Algorithme incompatible</string>
     <string name="label_close">Fermer</string>
     <string name="label_cancel">Annuler</string>
+    <string name="label_undo">Rétablir</string>
     <string name="label_urgent_attention">Urgent</string>
     <string name="label_enable_notifications">Notifications désactivées</string>
     <string name="label_enable_notifications_hint">Vous avez désactivé les notifications PushGo. Les alertes de nouveaux messages, événements et mises à jour des objets ne pourront donc pas arriver à temps. Ouvrez les réglages système, activez les notifications PushGo puis revenez dans application.</string>

@@ -12,7 +12,10 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import io.ethan.pushgo.data.AppContainer
 import io.ethan.pushgo.data.model.KeyEncoding
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.SupervisorJob
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -22,6 +25,8 @@ import org.junit.runner.RunWith
 
 @RunWith(AndroidJUnit4::class)
 class PushGoDatabaseMigrationDeviceTest {
+    private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
     private val context: Context
         get() = InstrumentationRegistry.getInstrumentation().targetContext
 
@@ -43,7 +48,7 @@ class PushGoDatabaseMigrationDeviceTest {
     fun appContainer_bootstrapsFromLegacyV21AndPreservesBusinessData() = runBlocking {
         seedLegacyV21Database()
 
-        val container = AppContainer(context)
+        val container = AppContainer(context, appScope)
         val subscriptions = container.channelStore.loadSubscriptions(GATEWAY_URL)
         val messages = container.messageRepository.getAll()
 
@@ -54,7 +59,7 @@ class PushGoDatabaseMigrationDeviceTest {
         assertEquals(CHANNEL_ID, subscriptions.single().channelId)
         assertEquals(1, messages.size)
         assertEquals(MESSAGE_ID, messages.single().messageId)
-        assertEquals(22, readUserVersion(context.getDatabasePath("pushgo.db")))
+        assertEquals(23, readUserVersion(context.getDatabasePath("pushgo.db")))
         assertTrue(context.getDatabasePath("pushgo.db").exists())
         assertTrue(context.getDatabasePath("pushgo-v21.db").exists())
 
@@ -66,7 +71,7 @@ class PushGoDatabaseMigrationDeviceTest {
         seedLegacyV21Database()
         seedEmptyLegacyV22Database()
 
-        val container = AppContainer(context)
+        val container = AppContainer(context, appScope)
         val messages = container.messageRepository.getAll()
 
         assertEquals(1, messages.size)

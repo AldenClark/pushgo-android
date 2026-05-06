@@ -940,38 +940,28 @@ class SettingsViewModel(
         }
     }
 
-    suspend fun unsubscribeChannel(context: Context, channelId: String, deleteLocalMessages: Boolean) {
-        if (isRemovingChannel) return
+    suspend fun unsubscribeChannel(context: Context, channelId: String): Boolean {
+        if (isRemovingChannel) return false
         isRemovingChannel = true
         try {
-            val removedCount = if (shouldUseFcm(context)) {
+            if (shouldUseFcm(context)) {
                 val token = settingsRepository.getFcmToken()?.trim().takeUnless { it.isNullOrEmpty() }
                     ?: requireFcmToken(context)
-                    ?: return
+                    ?: return false
                 channelRepository.syncProviderDeviceToken(token)
-                channelRepository.unsubscribeChannel(channelId, token, deleteLocalMessages)
+                channelRepository.unsubscribeChannel(channelId, token)
             } else {
                 val normalizedChannelId = ChannelIdValidator.normalize(channelId)
                 val unsubscribed = privateChannelClient.privateUnsubscribeChannel(normalizedChannelId)
                 if (!unsubscribed) {
                     errorMessage = ResMessage(R.string.error_private_channel_unsubscribe_failed)
-                    return
+                    return false
                 }
-                channelRepository.softDeleteLocalSubscription(
-                    rawChannelId = normalizedChannelId,
-                    deleteLocalMessages = deleteLocalMessages,
-                )
+                channelRepository.softDeleteLocalSubscription(rawChannelId = normalizedChannelId)
             }
             refreshChannelSubscriptions()
-            successMessage = if (deleteLocalMessages) {
-                PluralResMessage(
-                    R.plurals.message_channel_unsubscribed_deleted,
-                    removedCount,
-                    listOf(removedCount),
-                )
-            } else {
-                ResMessage(R.string.message_channel_unsubscribed)
-            }
+            successMessage = ResMessage(R.string.message_channel_unsubscribed)
+            return true
         } catch (ex: ChannelIdException) {
             errorMessage = ResMessage(ex.resId)
         } catch (ex: ChannelSubscriptionException) {
@@ -981,6 +971,7 @@ class SettingsViewModel(
         } finally {
             isRemovingChannel = false
         }
+        return false
     }
 
     fun saveDecryptionConfig() {

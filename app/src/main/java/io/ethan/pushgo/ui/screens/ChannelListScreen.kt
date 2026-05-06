@@ -58,8 +58,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
 import io.ethan.pushgo.R
+import io.ethan.pushgo.data.AppContainer
 import io.ethan.pushgo.data.ChannelPasswordValidator
 import io.ethan.pushgo.data.model.ChannelSubscription
+import io.ethan.pushgo.ui.PendingLocalDeletionCoordinator
 import io.ethan.pushgo.ui.rememberBottomBarNestedScrollConnection
 import io.ethan.pushgo.ui.rememberBottomGestureInset
 import io.ethan.pushgo.ui.viewmodel.SettingsViewModel
@@ -74,6 +76,7 @@ import kotlinx.coroutines.launch
 @OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 fun ChannelListScreen(
     navController: NavController,
+    container: AppContainer,
     viewModel: SettingsViewModel,
     onBottomBarVisibilityChanged: (Boolean) -> Unit,
 ) {
@@ -247,7 +250,19 @@ fun ChannelListScreen(
                         onClick = {
                             target?.channelId?.let { channelId ->
                                 scope.launch {
-                                    viewModel.unsubscribeChannel(context, channelId, deleteLocalMessages = true)
+                                    val unsubscribed = viewModel.unsubscribeChannel(context, channelId)
+                                    if (unsubscribed) {
+                                        val summary = target.displayName.ifBlank { target.channelId }
+                                        container.pendingLocalDeletionCoordinator.schedule(
+                                            summary = summary,
+                                            scope = PendingLocalDeletionCoordinator.Scope(
+                                                channelIds = setOf(channelId.trim())
+                                            ),
+                                            onCommit = {
+                                                container.channelRepository.deleteLocalHistoryForChannel(channelId)
+                                            }
+                                        )
+                                    }
                                     pendingChannelRemoval = null
                                 }
                             }
@@ -258,7 +273,7 @@ fun ChannelListScreen(
                         onClick = {
                             val channelId = target?.channelId ?: return@TextButton
                             scope.launch {
-                                viewModel.unsubscribeChannel(context, channelId, deleteLocalMessages = false)
+                                viewModel.unsubscribeChannel(context, channelId)
                                 pendingChannelRemoval = null
                             }
                         },

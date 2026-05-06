@@ -68,6 +68,7 @@ import androidx.compose.foundation.layout.width
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.core.content.FileProvider
+import androidx.core.content.ContextCompat
 import io.ethan.pushgo.R
 import io.ethan.pushgo.data.ChannelSubscriptionRepository
 import io.ethan.pushgo.data.MessageImageStore
@@ -77,6 +78,7 @@ import io.ethan.pushgo.data.model.MessageSeverity
 import io.ethan.pushgo.markdown.MessageBodyResolver
 import io.ethan.pushgo.notifications.MessageStateCoordinator
 import io.ethan.pushgo.ui.MessageDetailViewModelFactory
+import io.ethan.pushgo.ui.PendingLocalDeletionCoordinator
 import io.ethan.pushgo.ui.announceForAccessibility
 import io.ethan.pushgo.ui.markdown.FullMarkdownRenderer
 import io.ethan.pushgo.ui.markdown.MarkdownAnimatedImagePlaybackRegistry
@@ -106,6 +108,7 @@ fun MessageDetailScreen(
     messageId: String,
     repository: MessageRepository,
     stateCoordinator: MessageStateCoordinator,
+    pendingLocalDeletionCoordinator: PendingLocalDeletionCoordinator,
     channelRepository: ChannelSubscriptionRepository,
     imageStore: MessageImageStore,
     onDismiss: () -> Unit,
@@ -152,7 +155,6 @@ fun MessageDetailScreen(
     }
     var channelNameMap by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
     var previewImageModel by remember(current?.id) { mutableStateOf<Any?>(null) }
-    var showDeleteConfirmation by remember { mutableStateOf(false) }
     val resolvedBodyText = remember(current?.rawPayloadJson, current?.body) {
         current?.let { MessageBodyResolver.resolve(it.rawPayloadJson, it.body).rawText }.orEmpty()
     }
@@ -223,7 +225,34 @@ fun MessageDetailScreen(
                     resolvedBodyText = resolvedBodyText,
                     bottomGestureInset = bottomGestureInset,
                     onDelete = {
-                        showDeleteConfirmation = true
+                        val targetMessage = current
+                        scope.launch {
+                            pendingLocalDeletionCoordinator.schedule(
+                                summary = targetMessage.title.trim().ifEmpty {
+                                    context.getString(R.string.tab_messages)
+                                },
+                                scope = PendingLocalDeletionCoordinator.Scope(
+                                    messageIds = setOf(targetMessage.id),
+                                ),
+                                onCommit = {
+                                    stateCoordinator.deleteMessage(targetMessage.id)
+                                },
+                                onCompletion = { result ->
+                                    val error = result.exceptionOrNull()
+                                    if (error != null) {
+                                        val appContext = context.applicationContext
+                                        ContextCompat.getMainExecutor(appContext).execute {
+                                            Toast.makeText(
+                                                appContext,
+                                                error.message ?: context.getString(R.string.error_request_failed),
+                                                Toast.LENGTH_SHORT,
+                                            ).show()
+                                        }
+                                    }
+                                },
+                            )
+                            onDismiss()
+                        }
                     },
                     onCopyText = { text ->
                         val trimmed = text.trim()
@@ -249,29 +278,6 @@ fun MessageDetailScreen(
                 )
             }
         }
-    }
-
-    if (showDeleteConfirmation) {
-        PushGoAlertDialog(
-            onDismissRequest = { showDeleteConfirmation = false },
-            title = { Text(text = stringResource(R.string.action_delete)) },
-            text = { Text(text = stringResource(R.string.confirm_delete_message)) },
-            confirmButton = {
-                PushGoDestructiveTextButton(
-                    text = stringResource(R.string.label_confirm),
-                    onClick = {
-                        showDeleteConfirmation = false
-                        viewModel.delete()
-                        onDismiss()
-                    },
-                )
-            },
-            dismissButton = {
-                TextButton(onClick = { showDeleteConfirmation = false }) {
-                    Text(text = stringResource(R.string.label_cancel))
-                }
-            }
-        )
     }
 
     if (previewImageModel != null) {

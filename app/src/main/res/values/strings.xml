@@ -163,6 +163,7 @@
     <string name="label_decryption_state_alg_mismatch_short">Alg mismatch</string>
     <string name="label_close">Close</string>
     <string name="label_cancel">Cancel</string>
+    <string name="label_undo">Undo</string>
     <string name="label_got_it">Got it</string>
     <string name="label_urgent_attention">Urgent</string>
     <string name="label_enable_notifications">Notifications are off</string>

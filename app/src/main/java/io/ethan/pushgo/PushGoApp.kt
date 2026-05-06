@@ -20,6 +20,7 @@ import io.ethan.pushgo.notifications.AlertPlaybackController
 import io.ethan.pushgo.notifications.NotificationHelper
 import io.ethan.pushgo.notifications.PrivateChannelServiceManager
 import io.ethan.pushgo.notifications.ProviderIngressCoordinator
+import io.ethan.pushgo.testing.InstrumentationRuntime
 import io.ethan.pushgo.update.UpdateCheckScheduler
 import io.ethan.pushgo.util.FcmSupport
 import kotlinx.coroutines.CoroutineScope
@@ -77,7 +78,7 @@ class PushGoApp : Application(), SingletonImageLoader.Factory {
 
     override fun onCreate() {
         super.onCreate()
-        val container = runCatching { AppContainer(this) }
+        val container = runCatching { AppContainer(this, appScope) }
             .onFailure { error ->
                 val reason = error.message.orEmpty().trim()
                 startupStorageError = "Local persistent storage init failed: $reason".trim()
@@ -91,6 +92,11 @@ class PushGoApp : Application(), SingletonImageLoader.Factory {
             .getOrNull()
         initializedContainer = container
         if (container == null) {
+            NotificationHelper.cleanupObsoleteChannels(this)
+            NotificationHelper.ensureManagedChannels(this)
+            return
+        }
+        if (InstrumentationRuntime.isUnderInstrumentationTest()) {
             NotificationHelper.cleanupObsoleteChannels(this)
             NotificationHelper.ensureManagedChannels(this)
             return
@@ -133,6 +139,11 @@ class PushGoApp : Application(), SingletonImageLoader.Factory {
                 startedActivities = (startedActivities - 1).coerceAtLeast(0)
                 container.privateChannelClient.setForeground(startedActivities > 0)
                 PrivateChannelServiceManager.refreshForMode(this@PushGoApp, isEffectiveFcmModeEnabled())
+                if (startedActivities == 0) {
+                    appScope.launch {
+                        container.pendingLocalDeletionCoordinator.commitCurrentIfNeeded()
+                    }
+                }
             }
 
             override fun onActivityCreated(activity: android.app.Activity, savedInstanceState: Bundle?) {}

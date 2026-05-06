@@ -80,6 +80,7 @@
     <string name="label_decryption_state_alg_mismatch_short">Algoritmo no coincide</string>
     <string name="label_close">Cerrar</string>
     <string name="label_cancel">Cancelar</string>
+    <string name="label_undo">Deshacer</string>
     <string name="label_urgent_attention">Urgente</string>
     <string name="label_enable_notifications">Notificaciones desactivadas</string>
     <string name="label_enable_notifications_hint">Has desactivado las notificaciones de PushGo. Por eso no podrás recibir a tiempo avisos de mensajes nuevos, eventos y actualizaciones de objetos. Abre Ajustes del sistema, activa las notificaciones de PushGo y vuelve a la app.</string>

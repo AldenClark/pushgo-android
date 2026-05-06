@@ -80,6 +80,7 @@
     <string name="label_decryption_state_alg_mismatch_short">알고리즘 불일치</string>
     <string name="label_close">닫기</string>
     <string name="label_cancel">취소</string>
+    <string name="label_undo">실행 취소</string>
     <string name="label_urgent_attention">긴급</string>
     <string name="label_enable_notifications">알림이 꺼져 있습니다</string>
     <string name="label_enable_notifications_hint">알림이 꺼져 있어 새 메시지, 이벤트, 객체 업데이트를 PushGo가 알려줄 수 없습니다. 시스템 설정에서 PushGo 알림을 켠 뒤 이 화면으로 돌아와 주세요.</string>
