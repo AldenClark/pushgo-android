@@ -2,9 +2,16 @@ package io.ethan.pushgo.update
 
 import android.content.Context
 import io.ethan.pushgo.BuildConfig
+import io.ethan.pushgo.R
 import io.ethan.pushgo.data.SettingsRepository
 import io.ethan.pushgo.util.SilentSink
+import java.io.InterruptedIOException
+import java.net.ConnectException
+import java.net.SocketException
+import java.net.SocketTimeoutException
+import java.net.UnknownHostException
 import java.time.Instant
+import javax.net.ssl.SSLException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -74,7 +81,7 @@ class UpdateManager(
                 visibleCandidate = null,
                 suppressedBySkip = false,
                 suppressedByCooldown = false,
-                failureMessage = error.message ?: "Unable to check updates",
+                failureMessage = appContext.resolveUpdateCheckFailureMessage(error),
             )
         }
     }
@@ -107,6 +114,26 @@ class UpdateManager(
 
     suspend fun clearSkippedVersion() {
         settingsRepository.setUpdateSkippedVersionCode(null)
+    }
+
+    private fun Context.resolveUpdateCheckFailureMessage(error: Throwable): String {
+        return when {
+            error.isNetworkFailure() -> getString(R.string.error_update_check_network_unavailable)
+            else -> getString(R.string.error_update_check_failed)
+        }
+    }
+
+    private fun Throwable.isNetworkFailure(): Boolean {
+        if (this is UnknownHostException ||
+            this is ConnectException ||
+            this is SocketTimeoutException ||
+            this is SocketException ||
+            this is SSLException ||
+            this is InterruptedIOException
+        ) {
+            return true
+        }
+        return cause?.let { it !== this && it.isNetworkFailure() } == true
     }
 
     suspend fun recordPromptDismissed(versionCode: Int): Instant {

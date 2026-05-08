@@ -1,7 +1,6 @@
 package io.ethan.pushgo.ui.viewmodel
 
 import android.content.Context
-import androidx.annotation.StringRes
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.snapshotFlow
@@ -1106,15 +1105,5 @@ class SettingsViewModel(
 
     fun consumeBlockedInstallApkPath() {
         blockedInstallApkPath = null
-    }
-
-    private fun Throwable.toUiErrorMessage(@StringRes fallbackResId: Int): UiMessage {
-        val detail = message?.trim().takeUnless { it.isNullOrEmpty() }
-            ?: localizedMessage?.trim().takeUnless { it.isNullOrEmpty() }
-        return if (detail.isNullOrEmpty()) {
-            ResMessage(fallbackResId)
-        } else {
-            TextMessage(detail)
-        }
     }
 }

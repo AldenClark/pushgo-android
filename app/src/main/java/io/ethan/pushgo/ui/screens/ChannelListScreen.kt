@@ -59,7 +59,6 @@ import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
 import io.ethan.pushgo.R
 import io.ethan.pushgo.data.AppContainer
-import io.ethan.pushgo.data.ChannelPasswordValidator
 import io.ethan.pushgo.data.model.ChannelSubscription
 import io.ethan.pushgo.ui.PendingLocalDeletionCoordinator
 import io.ethan.pushgo.ui.rememberBottomBarNestedScrollConnection
@@ -123,22 +122,7 @@ fun ChannelListScreen(
     var subscribeChannelPassword by remember { mutableStateOf("") }
     var renameAlias by remember { mutableStateOf("") }
 
-    val isCreatePasswordInvalid = createChannelPassword.trim().isNotEmpty() &&
-        runCatching { ChannelPasswordValidator.normalize(createChannelPassword) }.isFailure
-    val isSubscribePasswordInvalid = subscribeChannelPassword.trim().isNotEmpty() &&
-        runCatching { ChannelPasswordValidator.normalize(subscribeChannelPassword) }.isFailure
-    val canSubmitCreate = !viewModel.isSavingChannel &&
-        createChannelName.trim().isNotEmpty() &&
-        createChannelPassword.trim().isNotEmpty() &&
-        !isCreatePasswordInvalid
-    val canSubmitSubscribe = !viewModel.isSavingChannel &&
-        subscribeChannelId.trim().isNotEmpty() &&
-        subscribeChannelPassword.trim().isNotEmpty() &&
-        !isSubscribePasswordInvalid
-    val canSubmitChannelEntry = when (channelEntryMode) {
-        ChannelEntryMode.Create -> canSubmitCreate
-        ChannelEntryMode.Subscribe -> canSubmitSubscribe
-    }
+    val canSubmitChannelEntry = !viewModel.isSavingChannel
 
     val channelIdCopiedText = stringResource(R.string.label_channel_id_copied)
 
@@ -389,13 +373,7 @@ fun ChannelListScreen(
                             label = { Text(stringResource(R.string.label_channel_password)) },
                             modifier = Modifier.fillMaxWidth(),
                             singleLine = true,
-                            isError = isCreatePasswordInvalid,
                             colors = pushGoOutlinedTextFieldColors(),
-                            supportingText = {
-                                if (isCreatePasswordInvalid) {
-                                    Text(stringResource(R.string.error_channel_password_length))
-                                }
-                            },
                         )
                     }
 
@@ -414,13 +392,7 @@ fun ChannelListScreen(
                             label = { Text(stringResource(R.string.label_channel_password)) },
                             modifier = Modifier.fillMaxWidth(),
                             singleLine = true,
-                            isError = isSubscribePasswordInvalid,
                             colors = pushGoOutlinedTextFieldColors(),
-                            supportingText = {
-                                if (isSubscribePasswordInvalid) {
-                                    Text(stringResource(R.string.error_channel_password_length))
-                                }
-                            },
                         )
                     }
                 }

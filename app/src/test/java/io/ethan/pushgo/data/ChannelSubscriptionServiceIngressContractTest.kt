@@ -82,7 +82,8 @@ class ChannelSubscriptionServiceIngressContractTest {
                 )
                 fail("expected missing device_key response to throw")
             } catch (error: ChannelSubscriptionException) {
-                assertEquals("gateway response missing device_key", error.message)
+                assertEquals("Request failed", error.message)
+                assertEquals("gateway_response_missing_device_key", error.code)
             }
         }
     }
@@ -104,7 +105,48 @@ class ChannelSubscriptionServiceIngressContractTest {
                 )
                 fail("expected missing device_key response to throw")
             } catch (error: ChannelSubscriptionException) {
-                assertEquals("gateway response missing device_key", error.message)
+                assertEquals("Request failed", error.message)
+                assertEquals("gateway_response_missing_device_key", error.code)
+            }
+        }
+    }
+
+    @Test
+    fun registerDevice_preservesStructuredGatewayProblem() = runBlocking {
+        CapturingGatewayServer(
+            responseBody = """
+                {
+                  "success": false,
+                  "error": "device_key not found",
+                  "error_code": "device_key_not_found",
+                  "problem": {
+                    "code": "device_key_not_found",
+                    "category": "not_found",
+                    "status": 400,
+                    "title": "Resource not found",
+                    "detail": "device_key not found",
+                    "localized_message": "当前设备注册已失效，请重试。",
+                    "locale": "zh-CN",
+                    "retryable": false
+                  }
+                }
+            """.trimIndent(),
+            responseCode = 400,
+        ).use { server ->
+            val service = ChannelSubscriptionService()
+            try {
+                service.registerDevice(
+                    baseUrl = server.baseUrl,
+                    token = "token-001",
+                    platform = "android",
+                    deviceKey = "device-001",
+                )
+                fail("expected gateway problem to throw")
+            } catch (error: ChannelSubscriptionException) {
+                assertEquals("device_key_not_found", error.code)
+                assertEquals(GatewayErrorCategory.NOT_FOUND, error.category)
+                assertEquals("当前设备注册已失效，请重试。", error.message)
+                assertEquals(400, error.httpStatus)
             }
         }
     }
@@ -184,6 +226,7 @@ class ChannelSubscriptionServiceIngressContractTest {
 
 private class CapturingGatewayServer(
     private val responseBody: String,
+    private val responseCode: Int = 200,
 ) : Closeable {
     data class RecordedRequest(
         val method: String,
@@ -221,7 +264,7 @@ private class CapturingGatewayServer(
         )
         val bytes = responseBody.toByteArray(Charsets.UTF_8)
         exchange.responseHeaders.add("Content-Type", "application/json")
-        exchange.sendResponseHeaders(200, bytes.size.toLong())
+        exchange.sendResponseHeaders(responseCode, bytes.size.toLong())
         exchange.responseBody.use { output ->
             output.write(bytes)
         }

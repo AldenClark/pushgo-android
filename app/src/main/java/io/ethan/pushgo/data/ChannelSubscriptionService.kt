@@ -9,6 +9,7 @@ import java.io.InputStreamReader
 import java.net.HttpURLConnection
 import java.net.URL
 import java.net.URLEncoder
+import java.util.Locale
 
 data class ChannelSubscribeResult(
     val channelId: String,
@@ -38,7 +39,11 @@ data class ChannelSyncResult(
     val subscribed: Boolean,
     val errorCode: String?,
     val error: String?,
-)
+    val problem: GatewayProblem? = null,
+) {
+    val resolvedErrorCode: String?
+        get() = problem?.code?.trim()?.ifEmpty { null } ?: errorCode?.trim()?.ifEmpty { null }
+}
 
 data class ChannelSyncSummary(
     val success: Int,
@@ -57,6 +62,53 @@ data class DeviceRegisterResult(
 data class PullItem(
     val deliveryId: String,
     val payload: Map<String, String>,
+)
+
+enum class GatewayErrorCategory {
+    VALIDATION,
+    AUTH,
+    PERMISSION,
+    NOT_FOUND,
+    CONFLICT,
+    FEATURE_DISABLED,
+    RATE_LIMIT,
+    TOO_BUSY,
+    NETWORK,
+    UPSTREAM,
+    LOCAL,
+    INTERNAL;
+
+    companion object {
+        fun fromWireValue(raw: String?): GatewayErrorCategory? {
+            return when (raw?.trim()?.lowercase()) {
+                "validation" -> VALIDATION
+                "auth" -> AUTH
+                "permission" -> PERMISSION
+                "not_found" -> NOT_FOUND
+                "conflict" -> CONFLICT
+                "feature_disabled" -> FEATURE_DISABLED
+                "rate_limit" -> RATE_LIMIT
+                "too_busy" -> TOO_BUSY
+                "network" -> NETWORK
+                "upstream" -> UPSTREAM
+                "local" -> LOCAL
+                "internal" -> INTERNAL
+                else -> null
+            }
+        }
+    }
+}
+
+data class GatewayProblem(
+    val code: String?,
+    val category: GatewayErrorCategory,
+    val status: Int,
+    val title: String?,
+    val detail: String?,
+    val localizedMessage: String?,
+    val locale: String?,
+    val retryable: Boolean,
+    val requestId: String?,
 )
 
 class ChannelSubscriptionService(
@@ -89,7 +141,11 @@ class ChannelSubscriptionService(
             method = "GET",
             payload = null,
         )
-        val data = response.data ?: throw ChannelSubscriptionException("Invalid response")
+        val data = response.data ?: throw ChannelSubscriptionException.local(
+            message = "Request failed",
+            code = "gateway_invalid_response",
+            category = GatewayErrorCategory.INTERNAL,
+        )
         val resolvedName = data.optString("channel_name", "").trim().ifEmpty { null }
         return@withContext ChannelExistsResult(
             exists = data.optBoolean("exists", false),
@@ -117,7 +173,11 @@ class ChannelSubscriptionService(
             put("password", password)
         }
         val response = execute(endpoint, token, "POST", payload)
-        val data = response.data ?: throw ChannelSubscriptionException("Invalid response")
+        val data = response.data ?: throw ChannelSubscriptionException.local(
+            message = "Request failed",
+            code = "gateway_invalid_response",
+            category = GatewayErrorCategory.INTERNAL,
+        )
         val created = data.optBoolean("created", false)
         val subscribed = data.optBoolean("subscribed", false)
         val returnedId = data.optString("channel_id", channelId ?: "")
@@ -163,7 +223,11 @@ class ChannelSubscriptionService(
         val data = response.data
         val resolved = data?.optString("device_key", "")?.trim().orEmpty()
         if (resolved.isEmpty()) {
-            throw ChannelSubscriptionException("gateway response missing device_key")
+            throw ChannelSubscriptionException.local(
+                message = "Request failed",
+                code = "gateway_response_missing_device_key",
+                category = GatewayErrorCategory.INTERNAL,
+            )
         }
         DeviceRegisterResult(deviceKey = resolved)
     }
@@ -178,7 +242,11 @@ class ChannelSubscriptionService(
     ): DeviceChannelUpsertResult = withContext(ioDispatcher) {
         val normalizedDeviceKey = deviceKey?.trim().orEmpty()
         if (normalizedDeviceKey.isEmpty()) {
-            throw ChannelSubscriptionException("Missing device_key")
+            throw ChannelSubscriptionException.local(
+                message = "Request failed",
+                code = "missing_device_key",
+                category = GatewayErrorCategory.VALIDATION,
+            )
         }
         val endpoint = buildUrl(baseUrl, DEVICE_ROUTE_ENDPOINT)
         val payload = JSONObject().apply {
@@ -193,7 +261,11 @@ class ChannelSubscriptionService(
         val data = response.data
         val resolved = data?.optString("device_key", "")?.trim().orEmpty()
         if (resolved.isEmpty()) {
-            throw ChannelSubscriptionException("gateway response missing device_key")
+            throw ChannelSubscriptionException.local(
+                message = "Request failed",
+                code = "gateway_response_missing_device_key",
+                category = GatewayErrorCategory.INTERNAL,
+            )
         }
         DeviceChannelUpsertResult(deviceKey = resolved)
     }
@@ -240,7 +312,11 @@ class ChannelSubscriptionService(
     ): List<PullItem> = withContext(ioDispatcher) {
         val normalizedDeviceKey = deviceKey.trim()
         if (normalizedDeviceKey.isEmpty()) {
-            throw ChannelSubscriptionException("Missing device_key")
+            throw ChannelSubscriptionException.local(
+                message = "Request failed",
+                code = "missing_device_key",
+                category = GatewayErrorCategory.VALIDATION,
+            )
         }
         val normalizedDeliveryId = deliveryId?.trim()?.takeIf { it.isNotEmpty() }
         val endpoint = buildUrl(baseUrl, PULL_MESSAGE_ENDPOINT)
@@ -251,7 +327,11 @@ class ChannelSubscriptionService(
             }
         }
         val response = execute(endpoint, token, "POST", payload)
-        val data = response.data ?: throw ChannelSubscriptionException("Invalid response")
+        val data = response.data ?: throw ChannelSubscriptionException.local(
+            message = "Request failed",
+            code = "gateway_invalid_response",
+            category = GatewayErrorCategory.INTERNAL,
+        )
         val items = data.optJSONArray("items") ?: return@withContext emptyList()
         return@withContext buildList {
             for (index in 0 until items.length()) {
@@ -279,11 +359,19 @@ class ChannelSubscriptionService(
     ): Boolean = withContext(ioDispatcher) {
         val normalizedDeviceKey = deviceKey.trim()
         if (normalizedDeviceKey.isEmpty()) {
-            throw ChannelSubscriptionException("Missing device_key")
+            throw ChannelSubscriptionException.local(
+                message = "Request failed",
+                code = "missing_device_key",
+                category = GatewayErrorCategory.VALIDATION,
+            )
         }
         val normalizedDeliveryId = deliveryId.trim()
         if (normalizedDeliveryId.isEmpty()) {
-            throw ChannelSubscriptionException("Missing delivery_id")
+            throw ChannelSubscriptionException.local(
+                message = "Request failed",
+                code = "missing_delivery_id",
+                category = GatewayErrorCategory.VALIDATION,
+            )
         }
         val endpoint = buildUrl(baseUrl, ACK_MESSAGE_ENDPOINT)
         val payload = JSONObject().apply {
@@ -291,7 +379,11 @@ class ChannelSubscriptionService(
             put("delivery_id", normalizedDeliveryId)
         }
         val response = execute(endpoint, token, "POST", payload)
-        val data = response.data ?: throw ChannelSubscriptionException("Invalid response")
+        val data = response.data ?: throw ChannelSubscriptionException.local(
+            message = "Request failed",
+            code = "gateway_invalid_response",
+            category = GatewayErrorCategory.INTERNAL,
+        )
         return@withContext data.optBoolean("removed", false)
     }
 
@@ -309,7 +401,11 @@ class ChannelSubscriptionService(
             put("password", password)
         }
         val response = execute(endpoint, token, "POST", payload)
-        val data = response.data ?: throw ChannelSubscriptionException("Invalid response")
+        val data = response.data ?: throw ChannelSubscriptionException.local(
+            message = "Request failed",
+            code = "gateway_invalid_response",
+            category = GatewayErrorCategory.INTERNAL,
+        )
         val returnedId = data.optString("channel_id", channelId)
         val returnedName = data.optString("channel_name", channelName)
         return@withContext ChannelRenameResult(
@@ -339,7 +435,11 @@ class ChannelSubscriptionService(
             })
         }
         val response = execute(endpoint, token, "POST", payload)
-        val data = response.data ?: throw ChannelSubscriptionException("Invalid response")
+        val data = response.data ?: throw ChannelSubscriptionException.local(
+            message = "Request failed",
+            code = "gateway_invalid_response",
+            category = GatewayErrorCategory.INTERNAL,
+        )
         val channelArray = data.optJSONArray("channels")
         val parsedChannels = buildList {
             if (channelArray != null) {
@@ -354,6 +454,11 @@ class ChannelSubscriptionService(
                             subscribed = item.optBoolean("subscribed", false),
                             errorCode = item.optString("error_code", "").trim().ifEmpty { null },
                             error = item.optString("error", "").trim().ifEmpty { null },
+                            problem = item.optJSONObject("problem")?.toGatewayProblem(
+                                statusCode = 400,
+                                fallbackCode = item.optString("error_code", "").trim().ifEmpty { null },
+                                fallbackDetail = item.optString("error", "").trim().ifEmpty { null },
+                            ),
                         )
                     )
                 }
@@ -374,13 +479,25 @@ class ChannelSubscriptionService(
     ): EventSendResult = withContext(ioDispatcher) {
         val endpoint = buildUrl(baseUrl, endpointPath)
         val response = execute(endpoint, token, "POST", payload)
-        val data = response.data ?: throw ChannelSubscriptionException("Invalid response")
+        val data = response.data ?: throw ChannelSubscriptionException.local(
+            message = "Request failed",
+            code = "gateway_invalid_response",
+            category = GatewayErrorCategory.INTERNAL,
+        )
         val eventId = data.optString("event_id", "").trim()
         if (eventId.isEmpty()) {
-            throw ChannelSubscriptionException("gateway response missing event_id")
+            throw ChannelSubscriptionException.local(
+                message = "Request failed",
+                code = "gateway_response_missing_event_id",
+                category = GatewayErrorCategory.INTERNAL,
+            )
         }
         if (!data.optBoolean("accepted", false)) {
-            throw ChannelSubscriptionException("Request failed")
+            throw ChannelSubscriptionException.local(
+                message = "Request failed",
+                code = "event_request_rejected",
+                category = GatewayErrorCategory.INTERNAL,
+            )
         }
         val thingId = data.optString("thing_id", "").trim().ifEmpty { null }
         EventSendResult(eventId = eventId, thingId = thingId)
@@ -396,6 +513,7 @@ class ChannelSubscriptionService(
             requestMethod = method
             setRequestProperty("Content-Type", "application/json; charset=utf-8")
             setRequestProperty("Accept", "application/json")
+            setRequestProperty("Accept-Language", gatewayAcceptLanguageValue())
             if (!token.isNullOrBlank()) {
                 setRequestProperty("Authorization", "Bearer ${token.trim()}")
             }
@@ -420,38 +538,48 @@ class ChannelSubscriptionService(
             val body = stream?.use { reader ->
                 BufferedReader(InputStreamReader(reader, Charsets.UTF_8)).readText()
             } ?: ""
-            if (code == 401 || code == 403) {
-                throw ChannelSubscriptionException("Auth failed")
-            }
             val json = runCatching { JSONObject(body) }.getOrNull()
             if (json != null) {
                 val success = json.optBoolean("success", false)
                 val error = json.optString("error", "").trim()
                 val errorCode = json.optString("error_code", "").trim()
+                val problem = json.optJSONObject("problem")?.toGatewayProblem(
+                    statusCode = code,
+                    fallbackCode = errorCode,
+                    fallbackDetail = error,
+                )
                 val data = json.optJSONObject("data")
-                if (errorCode.isNotEmpty() || error.isNotEmpty()) {
-                    val message = when {
-                        errorCode.isNotEmpty() && error.isNotEmpty() -> "$errorCode: $error"
-                        errorCode.isNotEmpty() -> errorCode
-                        else -> error
-                    }
-                    throw ChannelSubscriptionException(message)
-                }
-                if (!success && code !in 200..299) {
-                    throw ChannelSubscriptionException("Server error: $code")
-                }
                 if (!success) {
-                    throw ChannelSubscriptionException("Request failed")
+                    throw ChannelSubscriptionException.fromGateway(
+                        httpStatus = code,
+                        errorCode = errorCode.ifEmpty { null },
+                        legacyDetail = error.ifEmpty { null },
+                        problem = problem,
+                    )
                 }
                 if (code !in 200..299) {
-                    throw ChannelSubscriptionException("Server error: $code")
+                    throw ChannelSubscriptionException.fromGateway(
+                        httpStatus = code,
+                        errorCode = errorCode.ifEmpty { null },
+                        legacyDetail = error.ifEmpty { null },
+                        problem = problem,
+                    )
                 }
                 return StatusResponse(success = success, data = data)
             }
             if (code !in 200..299) {
-                throw ChannelSubscriptionException("Server error: $code")
+                throw ChannelSubscriptionException.fromGateway(
+                    httpStatus = code,
+                    errorCode = null,
+                    legacyDetail = null,
+                    problem = null,
+                )
             }
-            throw ChannelSubscriptionException("Invalid response")
+            throw ChannelSubscriptionException.local(
+                message = "Request failed",
+                code = "gateway_invalid_response",
+                category = GatewayErrorCategory.INTERNAL,
+            )
         } finally {
             connection.disconnect()
         }
@@ -474,10 +602,196 @@ class ChannelSubscriptionService(
         return output
     }
 
+    private fun gatewayAcceptLanguageValue(): String {
+        val languageTag = Locale.getDefault().toLanguageTag().trim()
+        return if (languageTag.isEmpty()) "en" else languageTag
+    }
+
+    private fun JSONObject.toGatewayProblem(
+        statusCode: Int,
+        fallbackCode: String?,
+        fallbackDetail: String?,
+    ): GatewayProblem? {
+        val category = GatewayErrorCategory.fromWireValue(
+            opt("category")?.toString()?.trim()?.ifEmpty { null }
+        )
+            ?: return null
+        val code = optString("code", "").trim().ifEmpty { fallbackCode?.trim()?.ifEmpty { null } }
+        val status = optInt("status", statusCode).takeIf { it > 0 } ?: statusCode
+        val title = optString("title", "").trim().ifEmpty { null }
+        val detail = optString("detail", "").trim().ifEmpty { fallbackDetail?.trim()?.ifEmpty { null } }
+        val localizedMessage = optString("localized_message", "").trim().ifEmpty { null }
+        val locale = optString("locale", "").trim().ifEmpty { null }
+        val requestId = optString("request_id", "").trim().ifEmpty { null }
+        return GatewayProblem(
+            code = code,
+            category = category,
+            status = status,
+            title = title,
+            detail = detail,
+            localizedMessage = localizedMessage,
+            locale = locale,
+            retryable = optBoolean("retryable", false),
+            requestId = requestId,
+        )
+    }
+
     private data class StatusResponse(
         val success: Boolean,
         val data: JSONObject?,
     )
 }
 
-class ChannelSubscriptionException(message: String) : Exception(message)
+class ChannelSubscriptionException(
+    message: String,
+    val code: String? = null,
+    val category: GatewayErrorCategory? = null,
+    val localizedMessageText: String? = null,
+    val detail: String? = null,
+    val httpStatus: Int? = null,
+    val retryable: Boolean = false,
+    val requestId: String? = null,
+) : Exception(message) {
+    fun matchesCode(expected: String): Boolean {
+        return code?.equals(expected, ignoreCase = true) == true
+    }
+
+    fun containsLegacyText(expected: String): Boolean {
+        val normalized = expected.trim().lowercase()
+        if (normalized.isEmpty()) return false
+        val candidates = listOfNotNull(detail, message)
+        return candidates.any { value ->
+            value.trim().lowercase().contains(normalized)
+        }
+    }
+
+    companion object {
+        fun local(
+            message: String,
+            code: String? = null,
+            category: GatewayErrorCategory? = null,
+        ): ChannelSubscriptionException {
+            return ChannelSubscriptionException(
+                message = message,
+                code = code,
+                category = category,
+                localizedMessageText = null,
+                detail = message,
+                httpStatus = null,
+                retryable = false,
+                requestId = null,
+            )
+        }
+
+        fun fromGateway(
+            httpStatus: Int,
+            errorCode: String?,
+            legacyDetail: String?,
+            problem: GatewayProblem?,
+        ): ChannelSubscriptionException {
+            val normalizedCode = errorCode?.trim()?.ifEmpty { null } ?: problem?.code
+            val normalizedDetail = legacyDetail?.trim()?.ifEmpty { null } ?: problem?.detail
+            val resolved = problem ?: fallbackProblem(
+                httpStatus = httpStatus,
+                errorCode = normalizedCode,
+                detail = normalizedDetail,
+            )
+            val message = resolved?.localizedMessage?.takeIf { it.isNotBlank() }
+                ?: normalizedDetail
+                ?: normalizedCode
+                ?: if (httpStatus in 200..299) "Request failed" else "Server error: $httpStatus"
+            return ChannelSubscriptionException(
+                message = message,
+                code = resolved?.code ?: normalizedCode,
+                category = resolved?.category,
+                localizedMessageText = resolved?.localizedMessage,
+                detail = resolved?.detail ?: normalizedDetail,
+                httpStatus = httpStatus,
+                retryable = resolved?.retryable ?: (httpStatus == 429 || httpStatus >= 500),
+                requestId = resolved?.requestId,
+            )
+        }
+
+        private fun fallbackProblem(
+            httpStatus: Int,
+            errorCode: String?,
+            detail: String?,
+        ): GatewayProblem? {
+            val normalizedCode = errorCode?.lowercase()
+            val normalizedDetail = detail?.lowercase()
+            val inferred = when (normalizedCode) {
+                "authentication_failed" -> Triple("authentication_failed", GatewayErrorCategory.AUTH, false)
+                "device_key_not_found", "channel_not_found", "device_not_found" ->
+                    Triple(normalizedCode, GatewayErrorCategory.NOT_FOUND, false)
+                "invalid_channel_id", "invalid_password", "invalid_platform", "invalid_device_token", "provider_token_missing", "provider_token_required" ->
+                    Triple(normalizedCode, GatewayErrorCategory.VALIDATION, false)
+                "password_mismatch", "invalid_channel_password", "platform_mismatch", "channel_type_mismatch" ->
+                    Triple(normalizedCode, GatewayErrorCategory.CONFLICT, false)
+                "private_channel_disabled" ->
+                    Triple("private_channel_disabled", GatewayErrorCategory.FEATURE_DISABLED, false)
+                "server_busy", "private_channel_runtime_unavailable" ->
+                    Triple(normalizedCode, GatewayErrorCategory.TOO_BUSY, true)
+                "upstream_error" ->
+                    Triple("upstream_error", GatewayErrorCategory.UPSTREAM, true)
+                "internal_error", "store_error" ->
+                    Triple(normalizedCode, GatewayErrorCategory.INTERNAL, true)
+                else -> inferFallbackFromStatus(httpStatus, normalizedDetail)
+            } ?: return null
+            return GatewayProblem(
+                code = inferred.first,
+                category = inferred.second,
+                status = httpStatus,
+                title = null,
+                detail = detail,
+                localizedMessage = null,
+                locale = null,
+                retryable = inferred.third,
+                requestId = null,
+            )
+        }
+
+        private fun inferFallbackFromStatus(
+            httpStatus: Int,
+            detail: String?,
+        ): Triple<String?, GatewayErrorCategory, Boolean>? {
+            if (detail?.contains("private channel is disabled") == true) {
+                return Triple("private_channel_disabled", GatewayErrorCategory.FEATURE_DISABLED, false)
+            }
+            if (detail?.contains("device_key not found") == true || detail?.contains("device key not found") == true) {
+                return Triple("device_key_not_found", GatewayErrorCategory.NOT_FOUND, false)
+            }
+            if (detail?.contains("device_not_found") == true || detail?.contains("device not found") == true) {
+                return Triple("device_not_found", GatewayErrorCategory.NOT_FOUND, false)
+            }
+            if (detail?.contains("channel_not_found") == true || detail?.contains("channel not found") == true) {
+                return Triple("channel_not_found", GatewayErrorCategory.NOT_FOUND, false)
+            }
+            if (detail?.contains("password_mismatch") == true ||
+                detail?.contains("password mismatch") == true ||
+                detail?.contains("invalid channel password") == true
+            ) {
+                return Triple("password_mismatch", GatewayErrorCategory.CONFLICT, false)
+            }
+            if (detail?.contains("invalid_channel_id") == true || detail?.contains("invalid channel id") == true) {
+                return Triple("invalid_channel_id", GatewayErrorCategory.VALIDATION, false)
+            }
+            if (detail?.contains("channel_id_required") == true || detail?.contains("channel id required") == true) {
+                return Triple("channel_id_required", GatewayErrorCategory.VALIDATION, false)
+            }
+            if (detail?.contains("invalid_password") == true || detail?.contains("invalid password") == true) {
+                return Triple("invalid_password", GatewayErrorCategory.VALIDATION, false)
+            }
+            return when (httpStatus) {
+                400, 422 -> Triple(null, GatewayErrorCategory.VALIDATION, false)
+                401 -> Triple("authentication_failed", GatewayErrorCategory.AUTH, false)
+                403 -> Triple(null, GatewayErrorCategory.PERMISSION, false)
+                404 -> Triple(null, GatewayErrorCategory.NOT_FOUND, false)
+                429 -> Triple(null, GatewayErrorCategory.RATE_LIMIT, true)
+                502, 504 -> Triple("upstream_error", GatewayErrorCategory.UPSTREAM, true)
+                503 -> Triple("server_busy", GatewayErrorCategory.TOO_BUSY, true)
+                in 500..599 -> Triple("internal_error", GatewayErrorCategory.INTERNAL, true)
+                else -> null
+            }
+        }
+    }
+}

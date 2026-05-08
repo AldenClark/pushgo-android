@@ -57,7 +57,11 @@ class ChannelSubscriptionRepository(
     suspend fun ackMessage(deliveryId: String): Boolean {
         val normalizedDeliveryId = deliveryId.trim()
         if (normalizedDeliveryId.isEmpty()) {
-            throw ChannelSubscriptionException("Missing delivery_id")
+            throw ChannelSubscriptionException.local(
+                message = "Request failed",
+                code = "missing_delivery_id",
+                category = GatewayErrorCategory.VALIDATION,
+            )
         }
         val config = resolveServerConfig()
         val deviceKey = resolveProviderDeviceKeyForIngress(config)
@@ -130,7 +134,11 @@ class ChannelSubscriptionRepository(
         val alias = ChannelNameValidator.normalize(rawAlias)
         val config = resolveServerConfig()
         val password = store.passwordFor(config.address, channelId)
-            ?: throw ChannelSubscriptionException("Missing channel password")
+            ?: throw ChannelSubscriptionException.local(
+                message = "Channel password missing",
+                code = "channel_password_missing",
+                category = GatewayErrorCategory.VALIDATION,
+            )
         
         val result = service.renameChannel(
             baseUrl = config.address,
@@ -150,7 +158,11 @@ class ChannelSubscriptionRepository(
         val channelId = ChannelIdValidator.normalize(rawChannelId)
         val config = resolveServerConfig()
         val token = deviceToken?.trim()?.takeIf { it.isNotEmpty() }
-            ?: throw ChannelSubscriptionException("Missing system token for unsubscribe")
+            ?: throw ChannelSubscriptionException.local(
+                message = "Request failed",
+                code = "provider_token_missing",
+                category = GatewayErrorCategory.VALIDATION,
+            )
         var deviceKey = ensureProviderRoute(token, config)
         try {
             service.unsubscribe(
@@ -160,7 +172,7 @@ class ChannelSubscriptionRepository(
                 channelId = channelId,
             )
         } catch (error: ChannelSubscriptionException) {
-            if (!isDeviceKeyMissingError(error.message)) {
+            if (!isDeviceKeyMissingError(error)) {
                 throw error
             }
             deviceKey = ensureProviderRoute(token, config)
@@ -181,7 +193,11 @@ class ChannelSubscriptionRepository(
     suspend fun syncProviderDeviceToken(deviceToken: String): String {
         val normalized = deviceToken.trim()
         if (normalized.isEmpty()) {
-            throw ChannelSubscriptionException("Missing system token for provider route")
+            throw ChannelSubscriptionException.local(
+                message = "Request failed",
+                code = "provider_token_missing",
+                category = GatewayErrorCategory.VALIDATION,
+            )
         }
         val config = resolveServerConfig()
         return ensureProviderRoute(normalized, config)
@@ -230,7 +246,7 @@ class ChannelSubscriptionRepository(
                 channels = channels
             )
         } catch (error: ChannelSubscriptionException) {
-            if (!isDeviceKeyMissingError(error.message)) {
+            if (!isDeviceKeyMissingError(error)) {
                 throw error
             }
             deviceKey = ensureProviderRoute(normalizedToken, config)
@@ -251,7 +267,7 @@ class ChannelSubscriptionRepository(
                 store.updateLastSynced(config.address, result.channelId, now)
                 return@forEach
             }
-            when (result.errorCode?.trim()?.lowercase()) {
+            when (result.resolvedErrorCode?.lowercase()) {
                 "channel_not_found" -> staleChannels += result.channelId
                 "password_mismatch" -> passwordMismatchChannels += result.channelId
             }
@@ -269,7 +285,11 @@ class ChannelSubscriptionRepository(
     private suspend fun ensureProviderRoute(deviceToken: String, config: ServerConfig): String {
         val normalizedToken = deviceToken.trim()
         if (normalizedToken.isEmpty()) {
-            throw ChannelSubscriptionException("Missing system token for provider route")
+            throw ChannelSubscriptionException.local(
+                message = "Request failed",
+                code = "provider_token_missing",
+                category = GatewayErrorCategory.VALIDATION,
+            )
         }
         val deviceKey = ensureDeviceIdentity(config)
         val previousToken = settingsRepository.getFcmToken()?.trim()?.ifEmpty { null }
@@ -309,7 +329,11 @@ class ChannelSubscriptionRepository(
         )
         val resolvedDeviceKey = registered.deviceKey.trim()
         if (resolvedDeviceKey.isEmpty()) {
-            throw ChannelSubscriptionException("gateway response missing device_key")
+            throw ChannelSubscriptionException.local(
+                message = "Request failed",
+                code = "gateway_response_missing_device_key",
+                category = GatewayErrorCategory.INTERNAL,
+            )
         }
         settingsRepository.setDeviceKey(resolvedDeviceKey)
         return resolvedDeviceKey
@@ -326,7 +350,11 @@ class ChannelSubscriptionRepository(
             ?.trim()
             ?.ifEmpty { null }
             ?: fetchFcmTokenForIngress()
-            ?: throw ChannelSubscriptionException("Missing canonical device_key")
+            ?: throw ChannelSubscriptionException.local(
+                message = "Request failed",
+                code = "missing_device_key",
+                category = GatewayErrorCategory.INTERNAL,
+            )
         return ensureProviderRoute(token, config)
     }
 
@@ -350,7 +378,11 @@ class ChannelSubscriptionRepository(
         deviceToken: String?,
     ): ChannelSubscribeResult {
         val token = deviceToken?.trim()?.takeIf { it.isNotEmpty() }
-            ?: throw ChannelSubscriptionException("Missing system token for channel subscribe")
+            ?: throw ChannelSubscriptionException.local(
+                message = "Request failed",
+                code = "provider_token_missing",
+                category = GatewayErrorCategory.VALIDATION,
+            )
         val config = resolveServerConfig()
         suspend fun doSubscribe(activeDeviceKey: String): ChannelSubscribeResult {
             return service.subscribe(
@@ -367,18 +399,22 @@ class ChannelSubscriptionRepository(
         val result = try {
             doSubscribe(deviceKey)
         } catch (error: ChannelSubscriptionException) {
-            if (isDeviceKeyMissingError(error.message)) {
+            if (isDeviceKeyMissingError(error)) {
                 deviceKey = ensureProviderRoute(token, config)
                 doSubscribe(deviceKey)
             } else {
-                if (!channelId.isNullOrBlank() && shouldSoftDeleteForServerError(error.message)) {
+                if (!channelId.isNullOrBlank() && shouldSoftDeleteForServerError(error)) {
                     store.softDeleteSubscription(config.address, channelId)
                 }
                 throw error
             }
         }
         if (!result.subscribed) {
-            throw ChannelSubscriptionException("Request failed")
+            throw ChannelSubscriptionException.local(
+                message = "Request failed",
+                code = "channel_subscribe_failed",
+                category = GatewayErrorCategory.INTERNAL,
+            )
         }
         val now = System.currentTimeMillis()
         store.upsertSubscription(
@@ -391,12 +427,13 @@ class ChannelSubscriptionRepository(
         return result
     }
 
-    private fun isDeviceKeyMissingError(rawMessage: String?): Boolean {
-        val message = rawMessage?.trim()?.lowercase().orEmpty()
-        if (message.isEmpty()) return false
-        return message.contains("device_key_not_found")
-            || message.contains("device_key not found")
-            || message.contains("device key not found")
+    private fun isDeviceKeyMissingError(error: ChannelSubscriptionException): Boolean {
+        if (error.matchesCode("device_key_not_found")) {
+            return true
+        }
+        return error.containsLegacyText("device_key_not_found")
+            || error.containsLegacyText("device_key not found")
+            || error.containsLegacyText("device key not found")
     }
 
     suspend fun upsertLocalPrivateCredential(
@@ -441,14 +478,22 @@ class ChannelSubscriptionRepository(
         rawSeverity: String?,
     ) {
         val eventId = rawEventId.trim().ifEmpty {
-            throw ChannelSubscriptionException("Missing event id")
+            throw ChannelSubscriptionException.local(
+                message = "Request failed",
+                code = "event_id_required",
+                category = GatewayErrorCategory.VALIDATION,
+            )
         }
         val channelId = ChannelIdValidator.normalize(rawChannelId)
         val config = resolveServerConfig()
         val password = store.passwordFor(config.address, channelId)
             ?.trim()
             ?.ifEmpty { null }
-            ?: throw ChannelSubscriptionException("Missing channel password")
+            ?: throw ChannelSubscriptionException.local(
+                message = "Channel password missing",
+                code = "channel_password_missing",
+                category = GatewayErrorCategory.VALIDATION,
+            )
         val normalizedThingId = rawThingId?.trim()?.ifEmpty { null }
         val normalizedStatus = rawStatus
             ?.trim()
@@ -511,9 +556,11 @@ class ChannelSubscriptionRepository(
             get() = (staleChannels + passwordMismatchChannels).distinct()
     }
 
-    private fun shouldSoftDeleteForServerError(rawMessage: String?): Boolean {
-        val message = rawMessage?.trim()?.lowercase().orEmpty()
-        if (message.isEmpty()) return false
-        return message.contains("channel_not_found") || message.contains("password_mismatch")
+    private fun shouldSoftDeleteForServerError(error: ChannelSubscriptionException): Boolean {
+        if (error.matchesCode("channel_not_found") || error.matchesCode("password_mismatch")) {
+            return true
+        }
+        return error.containsLegacyText("channel_not_found")
+            || error.containsLegacyText("password_mismatch")
     }
 }

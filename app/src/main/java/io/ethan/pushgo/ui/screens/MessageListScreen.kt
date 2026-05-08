@@ -78,6 +78,7 @@ import io.ethan.pushgo.data.model.MessageSeverity
 import io.ethan.pushgo.notifications.ForegroundNotificationPresentationState
 import io.ethan.pushgo.notifications.ForegroundNotificationTopMetrics
 import io.ethan.pushgo.notifications.ProviderIngressCoordinator
+import io.ethan.pushgo.ui.viewmodel.toUserFacingText
 import io.ethan.pushgo.ui.PendingLocalDeletionCoordinator
 import io.ethan.pushgo.ui.PushGoViewModelFactory
 import io.ethan.pushgo.ui.announceForAccessibility
@@ -222,7 +223,7 @@ fun MessageListScreen(
                     ContextCompat.getMainExecutor(appContext).execute {
                         Toast.makeText(
                             appContext,
-                            error.message ?: context.getString(R.string.error_request_failed),
+                            error.toUserFacingText(appContext, R.string.error_request_failed),
                             Toast.LENGTH_SHORT,
                         ).show()
                     }

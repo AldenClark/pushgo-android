@@ -38,6 +38,7 @@ import java.io.InputStreamReader
 import java.net.HttpURLConnection
 import java.net.URL
 import java.security.MessageDigest
+import java.util.Locale
 import java.time.Instant
 import java.util.Collections
 import java.util.concurrent.ConcurrentHashMap
@@ -1140,13 +1141,11 @@ class PrivateChannelClient(
         } catch (_: CancellationException) {
             false
         } catch (error: Throwable) {
-            val authRouteRecoverable = isAuthRouteRecoverableError(
-                error.message?.lowercase().orEmpty()
-            )
+            val authRouteRecoverable = isAuthRouteRecoverableError(error)
             if (!welcomeReceived && !authRouteRecoverable) {
                 recordPinnedTransportFailure(
                     reason = "session_end_before_welcome",
-                    detail = error.message.orEmpty(),
+                    detail = errorDiagnosticDetail(error),
                 )
             }
             onFailure(
@@ -1998,6 +1997,11 @@ class PrivateChannelClient(
     }
 
     private fun isDeviceKeyMissing(error: Throwable): Boolean {
+        if (error is ChannelSubscriptionException) {
+            return error.matchesCode("device_key_not_found")
+                || error.containsLegacyText("device_key not found")
+                || error.containsLegacyText("device key not found")
+        }
         val message = error.message?.lowercase().orEmpty()
         return message.contains("device_key_not_found")
             || message.contains("device_key not found")
@@ -2005,9 +2009,10 @@ class PrivateChannelClient(
     }
 
     private fun isProviderRouteError(error: ChannelSubscriptionException): Boolean {
-        val message = error.message?.lowercase().orEmpty()
-        return message.contains("device route is provider")
-            || message.contains("provider_token required")
+        return error.matchesCode("provider_token_required")
+            || error.matchesCode("provider_token_missing")
+            || error.containsLegacyText("device route is provider")
+            || error.containsLegacyText("provider_token required")
     }
 
     private suspend fun subscribeAll(baseUrl: String, token: String?, state: DeviceState) {
@@ -2188,6 +2193,7 @@ class PrivateChannelClient(
             requestMethod = method
             setRequestProperty("Content-Type", "application/json; charset=utf-8")
             setRequestProperty("Accept", "application/json")
+            setRequestProperty("Accept-Language", gatewayAcceptLanguageValue())
             if (!token.isNullOrBlank()) {
                 setRequestProperty("Authorization", "Bearer ${token.trim()}")
             }
@@ -2215,15 +2221,32 @@ class PrivateChannelClient(
             if (!envelope.optBoolean("success", false)) {
                 val detail = envelope.opt("error")?.toString()?.trim().orEmpty()
                 val errorCode = envelope.optString("error_code", "").trim().lowercase()
-                val message = if (detail.isNotEmpty()) {
-                    detail
-                } else {
-                    "private request failed (http $code, endpoint=$endpoint)"
+                val problem = envelope.optJSONObject("problem")?.let { problemJson ->
+                    val category = io.ethan.pushgo.data.GatewayErrorCategory.fromWireValue(
+                        problemJson.opt("category")?.toString()?.trim()?.ifEmpty { null }
+                    ) ?: return@let null
+                    io.ethan.pushgo.data.GatewayProblem(
+                        code = problemJson.optString("code", "").trim().ifEmpty { errorCode.ifEmpty { null } },
+                        category = category,
+                        status = problemJson.optInt("status", code).takeIf { it > 0 } ?: code,
+                        title = problemJson.optString("title", "").trim().ifEmpty { null },
+                        detail = problemJson.optString("detail", "").trim().ifEmpty {
+                            detail.ifEmpty { null }
+                        },
+                        localizedMessage = problemJson.optString("localized_message", "").trim().ifEmpty { null },
+                        locale = problemJson.optString("locale", "").trim().ifEmpty { null },
+                        retryable = problemJson.optBoolean("retryable", false),
+                        requestId = problemJson.optString("request_id", "").trim().ifEmpty { null },
+                    )
                 }
-                if (errorCode.isEmpty()) {
-                    throw ChannelSubscriptionException(message)
-                }
-                throw ChannelSubscriptionException("$errorCode: $message")
+                throw ChannelSubscriptionException.fromGateway(
+                    httpStatus = code,
+                    errorCode = errorCode.ifEmpty { null },
+                    legacyDetail = detail.ifEmpty {
+                        "private request failed (http $code, endpoint=$endpoint)"
+                    },
+                    problem = problem,
+                )
             }
             envelope.optJSONObject("data") ?: JSONObject()
         } catch (error: Throwable) {
@@ -2367,7 +2390,15 @@ class PrivateChannelClient(
         return baseUrl.trim().removeSuffix("/")
     }
 
+    private fun gatewayAcceptLanguageValue(): String {
+        val languageTag = Locale.getDefault().toLanguageTag().trim()
+        return if (languageTag.isEmpty()) "en" else languageTag
+    }
+
     private fun isRetryablePrivateError(error: ChannelSubscriptionException): Boolean {
+        if (error.retryable) {
+            return true
+        }
         val message = error.message?.lowercase().orEmpty()
         if (message.isBlank()) return false
         return message.contains("timeout")
@@ -2378,11 +2409,12 @@ class PrivateChannelClient(
     }
 
     private fun isGatewayPrivateDisabledError(error: ChannelSubscriptionException): Boolean {
-        val message = error.message?.lowercase().orEmpty()
-        if (message.isBlank()) return false
-        return message.contains("private_channel_disabled")
-            || message.contains("private channel is disabled")
-            || message.contains("private_channel_enabled=false")
+        if (error.matchesCode("private_channel_disabled")) {
+            return true
+        }
+        return error.containsLegacyText("private_channel_disabled")
+            || error.containsLegacyText("private channel is disabled")
+            || error.containsLegacyText("private_channel_enabled=false")
     }
 
     private fun isAuthFailureError(message: String): Boolean {
@@ -2390,6 +2422,24 @@ class PrivateChannelClient(
             || message.contains("authentication failed")
             || message.contains("unauthorized")
             || message.contains("gateway token invalid")
+    }
+
+    private fun isAuthFailureError(error: Throwable): Boolean {
+        if (error is ChannelSubscriptionException) {
+            if (error.category == io.ethan.pushgo.data.GatewayErrorCategory.AUTH ||
+                error.category == io.ethan.pushgo.data.GatewayErrorCategory.PERMISSION
+            ) {
+                return true
+            }
+            if (error.matchesCode("authentication_failed")) {
+                return true
+            }
+            return error.containsLegacyText("auth failed")
+                || error.containsLegacyText("authentication failed")
+                || error.containsLegacyText("unauthorized")
+                || error.containsLegacyText("gateway token invalid")
+        }
+        return isAuthFailureError(error.message?.lowercase().orEmpty())
     }
 
     private fun isRouteRecoverableError(message: String): Boolean {
@@ -2400,13 +2450,33 @@ class PrivateChannelClient(
             || message.contains("provider_token required")
     }
 
+    private fun isRouteRecoverableError(error: Throwable): Boolean {
+        if (error is ChannelSubscriptionException) {
+            if (error.matchesCode("device_key_not_found")
+                || error.matchesCode("provider_token_required")
+                || error.matchesCode("provider_token_missing")
+            ) {
+                return true
+            }
+            return error.containsLegacyText("device_key not found")
+                || error.containsLegacyText("device key not found")
+                || error.containsLegacyText("device not on private channel")
+                || error.containsLegacyText("device route is provider")
+                || error.containsLegacyText("provider_token required")
+        }
+        return isRouteRecoverableError(error.message?.lowercase().orEmpty())
+    }
+
     private fun isAuthRouteRecoverableError(message: String): Boolean {
         return isAuthFailureError(message) || isRouteRecoverableError(message)
     }
 
+    private fun isAuthRouteRecoverableError(error: Throwable): Boolean {
+        return isAuthFailureError(error) || isRouteRecoverableError(error)
+    }
+
     private fun maybeScheduleAuthRouteSelfHeal(error: Throwable): Boolean {
-        val message = error.message?.lowercase().orEmpty()
-        if (!isAuthRouteRecoverableError(message)) {
+        if (!isAuthRouteRecoverableError(error)) {
             return false
         }
         val nowMs = System.currentTimeMillis()
@@ -2452,16 +2522,15 @@ class PrivateChannelClient(
     }
 
     private fun recordLocalFailureBucket(stage: String, error: Throwable) {
-        val message = error.message?.lowercase().orEmpty()
         val nowMs = System.currentTimeMillis()
         val next = when {
-            isRouteRecoverableError(message) -> {
+            isRouteRecoverableError(error) -> {
                 localFailureBucketStats.copy(
                     routeFailures = (localFailureBucketStats.routeFailures + 1).coerceAtMost(9_999),
                     updatedAtMs = nowMs,
                 )
             }
-            isAuthFailureError(message) -> {
+            isAuthFailureError(error) -> {
                 localFailureBucketStats.copy(
                     authFailures = (localFailureBucketStats.authFailures + 1).coerceAtMost(9_999),
                     updatedAtMs = nowMs,
@@ -2484,6 +2553,16 @@ class PrivateChannelClient(
                 TAG,
                 "failure_bucket stage=$stage transport=${next.transportFailures} auth=${next.authFailures} route=${next.routeFailures}",
             )
+        }
+    }
+
+    private fun errorDiagnosticDetail(error: Throwable): String {
+        return when (error) {
+            is ChannelSubscriptionException -> error.detail?.takeIf { it.isNotBlank() }
+                ?: error.localizedMessage?.takeIf { it.isNotBlank() }
+                ?: error::class.simpleName.orEmpty()
+            else -> error.localizedMessage?.takeIf { it.isNotBlank() }
+                ?: error::class.simpleName.orEmpty()
         }
     }
 
@@ -2611,12 +2690,11 @@ class PrivateChannelClient(
     private fun isQuickRecoverableFailure(stage: String, error: Throwable): Boolean {
         if (!networkAvailable) return false
         if (stage != "stream_session") return false
-        val message = error.message?.lowercase().orEmpty()
-        if (!message.contains("after welcome")) return false
-        if (message.contains("unauthorized")
-            || message.contains("authentication")
-            || message.contains("rate limited")
-            || message.contains("device not on private channel")
+        val detail = errorDiagnosticDetail(error).lowercase()
+        if (!detail.contains("after welcome")) return false
+        if (isAuthFailureError(error)
+            || isRouteRecoverableError(error)
+            || detail.contains("rate limited")
         ) {
             return false
         }

@@ -8,13 +8,20 @@ import android.content.pm.PackageInstaller
 import android.content.pm.PackageManager
 import android.os.Build
 import io.ethan.pushgo.BuildConfig
+import io.ethan.pushgo.R
 import io.ethan.pushgo.util.SilentSink
 import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
+import java.io.InterruptedIOException
+import java.net.ConnectException
 import java.net.HttpURLConnection
+import java.net.SocketException
+import java.net.SocketTimeoutException
 import java.net.URL
+import java.net.UnknownHostException
 import java.security.MessageDigest
+import javax.net.ssl.SSLException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -30,18 +37,26 @@ class UpdateInstaller(private val context: Context) {
         onProgress?.invoke(UpdateInstallProgressStage.DOWNLOADING_PACKAGE)
         val apkFile = runCatching { downloadAndVerify(candidate) }.getOrElse { error ->
             return@withContext UpdateInstallStartResult.Failed(
-                "Download failed: ${error.message.orEmpty()}".trim()
+                context.resolveUpdateInstallFailureMessage(
+                    error = error,
+                    fallbackResId = R.string.error_update_install_download_failed,
+                )
             )
         }
 
         onProgress?.invoke(UpdateInstallProgressStage.VERIFYING_PACKAGE)
         val archiveValidation = runCatching { verifyArchiveCompatibility(apkFile) }.getOrElse { error ->
             return@withContext UpdateInstallStartResult.Failed(
-                "Archive validation failed: ${error.message.orEmpty()}".trim()
+                context.resolveUpdateInstallFailureMessage(
+                    error = error,
+                    fallbackResId = R.string.error_update_install_validation_failed,
+                )
             )
         }
         if (!archiveValidation) {
-            return@withContext UpdateInstallStartResult.Failed("Update package is incompatible with this app")
+            return@withContext UpdateInstallStartResult.Failed(
+                context.getString(R.string.error_update_install_incompatible)
+            )
         }
 
         onProgress?.invoke(UpdateInstallProgressStage.PREPARING_INSTALL)
@@ -55,7 +70,10 @@ class UpdateInstaller(private val context: Context) {
             }
             SilentSink.w(TAG, "install preparation failed: ${error.message}", error)
             return@withContext UpdateInstallStartResult.Failed(
-                "Install preparation failed: ${error.message.orEmpty()}".trim()
+                context.resolveUpdateInstallFailureMessage(
+                    error = error,
+                    fallbackResId = R.string.error_update_install_preparation_failed,
+                )
             )
         }
 
@@ -154,6 +172,29 @@ class UpdateInstaller(private val context: Context) {
             error = error,
             canRequestPackageInstalls = context.packageManager.canRequestPackageInstalls(),
         )
+    }
+
+    private fun Context.resolveUpdateInstallFailureMessage(
+        error: Throwable,
+        fallbackResId: Int,
+    ): String {
+        return when {
+            error.isNetworkFailure() -> getString(R.string.error_update_check_network_unavailable)
+            else -> getString(fallbackResId)
+        }
+    }
+
+    private fun Throwable.isNetworkFailure(): Boolean {
+        if (this is UnknownHostException ||
+            this is ConnectException ||
+            this is SocketTimeoutException ||
+            this is SocketException ||
+            this is SSLException ||
+            this is InterruptedIOException
+        ) {
+            return true
+        }
+        return cause?.let { it !== this && it.isNetworkFailure() } == true
     }
 
     private fun startPackageInstallSession(candidate: UpdateCandidate, apkFile: File) {

@@ -38,6 +38,7 @@ import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInWindow
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
+import io.ethan.pushgo.ui.viewmodel.toUserFacingText
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
@@ -261,7 +262,7 @@ fun EventListScreen(
     suspend fun closeEvent(event: EventCardModel) {
         val channelId = event.channelId.orEmpty().trim()
         if (channelId.isEmpty()) {
-            showToast("$closeEventFailedMessage: missing channel_id")
+            showToast(context.getString(R.string.error_event_missing_channel))
             return
         }
         runCatching {
@@ -281,7 +282,7 @@ fun EventListScreen(
             }
             reloadEventsInternal()
         }.onFailure { error ->
-            showToast("$closeEventFailedMessage: ${error.message.orEmpty()}")
+            showToast(error.toUserFacingText(context, R.string.error_event_close_failed))
         }
     }
 
@@ -310,7 +311,7 @@ fun EventListScreen(
             onCompletion = { result ->
                 val error = result.exceptionOrNull()
                 if (error != null) {
-                    showToast(error.message ?: context.getString(R.string.error_request_failed))
+                    showToast(error.toUserFacingText(context, R.string.error_request_failed))
                 }
             },
         )

@@ -81,6 +81,8 @@ object ProviderIngressCoordinator {
                 persisted += 1
             }
             if (outcome.shouldAck) {
+                // /messages/pull already consumes the delivery on gateway side; this only
+                // clears any stale local direct-ack backlog for the same delivery.
                 inboundDeliveryId(parsed)?.let {
                     inboundDeliveryLedgerRepository.markAcked(listOf(it))
                 }

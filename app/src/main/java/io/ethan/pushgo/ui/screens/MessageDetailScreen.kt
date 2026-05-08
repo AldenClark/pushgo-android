@@ -78,6 +78,7 @@ import io.ethan.pushgo.data.model.MessageSeverity
 import io.ethan.pushgo.markdown.MessageBodyResolver
 import io.ethan.pushgo.notifications.MessageStateCoordinator
 import io.ethan.pushgo.ui.MessageDetailViewModelFactory
+import io.ethan.pushgo.ui.viewmodel.toUserFacingText
 import io.ethan.pushgo.ui.PendingLocalDeletionCoordinator
 import io.ethan.pushgo.ui.announceForAccessibility
 import io.ethan.pushgo.ui.markdown.FullMarkdownRenderer
@@ -244,7 +245,7 @@ fun MessageDetailScreen(
                                         ContextCompat.getMainExecutor(appContext).execute {
                                             Toast.makeText(
                                                 appContext,
-                                                error.message ?: context.getString(R.string.error_request_failed),
+                                                error.toUserFacingText(appContext, R.string.error_request_failed),
                                                 Toast.LENGTH_SHORT,
                                             ).show()
                                         }
