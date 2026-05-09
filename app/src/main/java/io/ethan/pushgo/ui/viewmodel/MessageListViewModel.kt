@@ -64,6 +64,11 @@ class MessageListViewModel(
         filter.value = filter.value.copy(channel = channel)
     }
 
+    fun setTag(tag: String?) {
+        val normalized = tag?.trim()?.lowercase()?.takeIf { it.isNotEmpty() }
+        filter.value = filter.value.copy(tag = normalized)
+    }
+
     fun setSortMode(sortMode: MessageListSortMode) {
         if (filter.value.sortMode == sortMode) return
         filter.value = filter.value.copy(sortMode = sortMode)

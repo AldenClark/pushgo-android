@@ -19,11 +19,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.EventNote
-import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.outlined.*
-import androidx.compose.material.icons.filled.FilterList as FilledFilterList
-import androidx.compose.material.icons.outlined.FilterList as OutlinedFilterList
 import androidx.compose.material3.*
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.*
@@ -167,7 +164,7 @@ private val EventTimeFormatter: DateTimeFormatter = DateTimeFormatter
 private val ScreenHorizontalPadding = 12.dp
 private const val EventProjectionPageSize = 240
 
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class, ExperimentalLayoutApi::class)
 @Composable
 fun EventListScreen(
     container: AppContainer,
@@ -192,6 +189,7 @@ fun EventListScreen(
     var isPullRefreshing by remember { mutableStateOf(false) }
     var searchQuery by remember { mutableStateOf("") }
     var channelFilter by remember { mutableStateOf<String?>(null) }
+    var selectedTag by remember { mutableStateOf<String?>(null) }
     var showOnlyOpen by remember { mutableStateOf(false) }
     var channelNameMap by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
     var pendingCloseEvent by remember { mutableStateOf<EventCardModel?>(null) }
@@ -212,6 +210,11 @@ fun EventListScreen(
     fun exitSelectionMode() {
         isSelectionMode = false
         selectedEventIds = emptySet()
+    }
+
+    suspend fun exitSelectionModeAfterFlushingPendingDeletion() {
+        container.pendingLocalDeletionCoordinator.commitCurrentIfNeeded()
+        exitSelectionMode()
     }
 
     fun toggleSelection(eventId: String) {
@@ -304,9 +307,7 @@ fun EventListScreen(
             summary = summary,
             scope = PendingLocalDeletionCoordinator.Scope(eventIds = eventIds),
             onCommit = {
-                uniqueEvents.forEach { event ->
-                    container.entityRepository.deleteEvent(event.eventId)
-                }
+                container.entityRepository.deleteEvents(uniqueEvents.map { it.eventId })
             },
             onCompletion = { result ->
                 val error = result.exceptionOrNull()
@@ -380,7 +381,9 @@ fun EventListScreen(
             ForegroundNotificationPresentationState.clearEvent()
         }
     }
-    BackHandler(enabled = isSelectionMode) { exitSelectionMode() }
+    BackHandler(enabled = isSelectionMode) {
+        scope.launch { exitSelectionModeAfterFlushingPendingDeletion() }
+    }
 
     val suppressForegroundNotificationAtTop = selectedEvent == null
 
@@ -412,15 +415,19 @@ fun EventListScreen(
         listState.animateScrollToItem(0)
     }
 
-    val filteredEvents = remember(allEvents, searchQuery, channelFilter, showOnlyOpen, pendingLocalDeletion?.id) {
+    val filteredEvents = remember(allEvents, searchQuery, channelFilter, selectedTag, showOnlyOpen, pendingLocalDeletion?.id) {
         val query = searchQuery.trim().lowercase()
         allEvents.filter { event ->
             (channelFilter == null || event.channelId == channelFilter) &&
+            (selectedTag == null || event.tags.any { it.trim().lowercase() == selectedTag }) &&
             (!showOnlyOpen || event.state == EventLifecycleState.Ongoing) &&
             (query.isEmpty() || event.title.lowercase().contains(query) || event.summary?.lowercase()?.contains(query) == true) &&
             !isPendingLocalDeletion(event)
         }
     }
+    val selectableEventIds = remember(filteredEvents) { filteredEvents.mapTo(mutableSetOf()) { it.eventId } }
+    val areAllSelectableEventsSelected = selectableEventIds.isNotEmpty() &&
+        selectedEventIds.containsAll(selectableEventIds)
 
     LaunchedEffect(listState, filteredEvents.size, hasMoreEvents) {
         snapshotFlow {
@@ -439,6 +446,16 @@ fun EventListScreen(
 
     val channelOptions = remember(allEvents) { 
         allEvents.mapNotNull { it.channelId?.trim()?.takeIf { v -> v.isNotEmpty() } }.distinct().sorted() 
+    }
+    val tagOptions = remember(allEvents) {
+        allEvents
+            .asSequence()
+            .flatMap { it.tags.asSequence() }
+            .map { it.trim().lowercase() }
+            .filter { it.isNotEmpty() }
+            .distinct()
+            .sorted()
+            .toList()
     }
 
     LaunchedEffect(openEventId, allEvents, hasMoreEvents, isLoadingMoreEvents) {
@@ -473,9 +490,6 @@ fun EventListScreen(
         if (currentEvent != null && pendingScope.suppressesEvent(currentEvent.eventId, currentEvent.channelId)) {
             selectedEvent = null
             onEventDetailClosed()
-        }
-        if (isSelectionMode && selectedEventIds.isEmpty()) {
-            exitSelectionMode()
         }
     }
 
@@ -517,17 +531,36 @@ fun EventListScreen(
                     Box(modifier = Modifier.fillMaxWidth().heightIn(min = 64.dp), contentAlignment = Alignment.Center) {
                         if (isSelectionMode) {
                             Row(modifier = Modifier.fillMaxWidth().padding(horizontal = ScreenHorizontalPadding), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                IconButton(
+                                    onClick = {
+                                        selectedEventIds = if (areAllSelectableEventsSelected) {
+                                            emptySet()
+                                        } else {
+                                            selectableEventIds
+                                        }
+                                    }
+                                ) {
+                                    Icon(
+                                        Icons.Outlined.Checklist,
+                                        stringResource(R.string.action_batch_select),
+                                        tint = if (areAllSelectableEventsSelected) uiColors.accentPrimary else uiColors.iconMuted,
+                                    )
+                                }
                                 Text(text = stringResource(R.string.label_selected_count, selectedEventIds.size), style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
                                 IconButton(
                                     onClick = {
                                         val targets = filteredEvents.filter { selectedEventIds.contains(it.eventId) }
                                         scope.launch {
                                             scheduleDeletion(targets)
-                                            exitSelectionMode()
                                         }
                                     }
                                 ) { Icon(Icons.Outlined.Delete, stringResource(R.string.action_delete)) }
-                                TextButton(onClick = { exitSelectionMode() }) { Text(stringResource(R.string.label_cancel)) }
+                                IconButton(onClick = { scope.launch { exitSelectionModeAfterFlushingPendingDeletion() } }) {
+                                    SelectionDoneIcon(
+                                        contentDescription = stringResource(R.string.label_confirm),
+                                        accentColor = uiColors.accentPrimary,
+                                    )
+                                }
                             }
                         } else {
                             Row(modifier = Modifier.fillMaxWidth().padding(horizontal = ScreenHorizontalPadding), verticalAlignment = Alignment.CenterVertically) {
@@ -540,14 +573,26 @@ fun EventListScreen(
                                     Box {
                                         var menuExpanded by remember { mutableStateOf(false) }
                                         IconButton(onClick = { menuExpanded = true }) {
-                                            val active = channelFilter != null || showOnlyOpen
-                                            Icon(
-                                                imageVector = if (active) Icons.Filled.FilledFilterList else Icons.Outlined.OutlinedFilterList,
-                                                contentDescription = null,
-                                                tint = if (active) uiColors.accentPrimary else uiColors.iconMuted
+                                            val active = channelFilter != null || selectedTag != null || showOnlyOpen
+                                            FilterMenuIcon(
+                                                active = active,
+                                                inactiveTint = uiColors.iconMuted,
+                                                contentDescription = stringResource(R.string.label_channel_id),
                                             )
                                         }
                                         DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
+                                            DropdownMenuItem(
+                                                text = { Text(text = "选择", style = MaterialTheme.typography.bodyLarge) },
+                                                leadingIcon = { Icon(Icons.Outlined.Checklist, contentDescription = null, modifier = Modifier.size(18.dp)) },
+                                                onClick = {
+                                                    isSelectionMode = true
+                                                    selectedEventIds = emptySet()
+                                                    menuExpanded = false
+                                                },
+                                            )
+
+                                            HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+
                                             DropdownMenuItem(
                                                 text = { Text(stringResource(R.string.filter_open_events)) },
                                                 onClick = { showOnlyOpen = !showOnlyOpen; menuExpanded = false },
@@ -555,6 +600,17 @@ fun EventListScreen(
                                             )
                                             if (channelOptions.isNotEmpty()) {
                                                 HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+                                                DropdownMenuItem(
+                                                    text = {
+                                                        Text(
+                                                            text = "Channels",
+                                                            style = MaterialTheme.typography.labelSmall,
+                                                            color = uiColors.textSecondary,
+                                                        )
+                                                    },
+                                                    onClick = {},
+                                                    enabled = false,
+                                                )
                                                 channelOptions.forEach { channel ->
                                                     DropdownMenuItem(
                                                         text = { Text(channel, maxLines = 1, overflow = TextOverflow.Ellipsis) },
@@ -569,9 +625,44 @@ fun EventListScreen(
                                                     enabled = false
                                                 )
                                             }
+                                            if (tagOptions.isNotEmpty()) {
+                                                HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+                                                Column(
+                                                    modifier = Modifier
+                                                        .widthIn(max = 320.dp)
+                                                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                                                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                                                ) {
+                                                    Text(
+                                                        text = "Tags",
+                                                        style = MaterialTheme.typography.labelSmall,
+                                                        color = uiColors.textSecondary,
+                                                    )
+                                                    FlowRow(
+                                                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                                                    ) {
+                                                        tagOptions.forEach { tag ->
+                                                            val selected = selectedTag == tag
+                                                            FilterChip(
+                                                                selected = selected,
+                                                                onClick = {
+                                                                    selectedTag = if (selected) null else tag
+                                                                    menuExpanded = false
+                                                                },
+                                                                label = { Text("#$tag") },
+                                                                leadingIcon = if (selected) {
+                                                                    { Icon(Icons.Outlined.Check, contentDescription = null, modifier = Modifier.size(16.dp)) }
+                                                                } else {
+                                                                    null
+                                                                },
+                                                            )
+                                                        }
+                                                    }
+                                                }
+                                            }
                                         }
                                     }
-                                    IconButton(onClick = { isSelectionMode = true; selectedEventIds = emptySet() }) { Icon(Icons.Outlined.Checklist, stringResource(R.string.action_batch_select), tint = uiColors.iconMuted) }
                                 }
                             }
                         }
@@ -582,9 +673,9 @@ fun EventListScreen(
             if (filteredEvents.isEmpty()) {
                 item {
                     AppEmptyState(
-                        icon = if (searchQuery.isNotEmpty() || channelFilter != null || showOnlyOpen) Icons.Default.Search else Icons.AutoMirrored.Outlined.EventNote,
-                        title = if (searchQuery.isNotEmpty() || channelFilter != null || showOnlyOpen) stringResource(R.string.label_no_search_results) else stringResource(R.string.label_no_events_title),
-                        description = if (searchQuery.isNotEmpty() || channelFilter != null || showOnlyOpen) stringResource(R.string.message_list_empty_hint) else stringResource(R.string.label_no_events_hint),
+                        icon = if (searchQuery.isNotEmpty() || channelFilter != null || selectedTag != null || showOnlyOpen) Icons.Default.Search else Icons.AutoMirrored.Outlined.EventNote,
+                        title = if (searchQuery.isNotEmpty() || channelFilter != null || selectedTag != null || showOnlyOpen) stringResource(R.string.label_no_search_results) else stringResource(R.string.label_no_events_title),
+                        description = if (searchQuery.isNotEmpty() || channelFilter != null || selectedTag != null || showOnlyOpen) stringResource(R.string.message_list_empty_hint) else stringResource(R.string.label_no_events_hint),
                     )
                 }
             } else {
@@ -631,6 +722,45 @@ fun EventListScreen(
                     Text(text = stringResource(R.string.label_cancel))
                 }
             },
+        )
+    }
+}
+
+@Composable
+private fun SelectionDoneIcon(contentDescription: String, accentColor: Color) {
+    Box(
+        modifier = Modifier
+            .size(24.dp)
+            .clip(CircleShape)
+            .background(accentColor),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(
+            imageVector = Icons.Outlined.Check,
+            contentDescription = contentDescription,
+            tint = Color.White,
+            modifier = Modifier.size(16.dp),
+        )
+    }
+}
+
+@Composable
+private fun FilterMenuIcon(
+    active: Boolean,
+    inactiveTint: Color,
+    contentDescription: String,
+) {
+    Box(
+        modifier = Modifier
+            .size(24.dp)
+            .clip(CircleShape)
+            .background(if (active) Color.Black else Color.Transparent),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(
+            imageVector = Icons.Outlined.FilterList,
+            contentDescription = contentDescription,
+            tint = if (active) Color.White else inactiveTint,
         )
     }
 }

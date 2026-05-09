@@ -17,6 +17,21 @@ class MessageStateCoordinator(
         refreshUnreadCount()
     }
 
+    suspend fun markRead(messageIds: Collection<String>): Int {
+        val normalizedIds = messageIds
+            .asSequence()
+            .map { it.trim() }
+            .filter { it.isNotEmpty() }
+            .distinct()
+            .toList()
+        if (normalizedIds.isEmpty()) return 0
+        val changed = repository.markRead(normalizedIds)
+        if (changed <= 0) return 0
+        NotificationHelper.cancelMessageNotifications(appContext, normalizedIds)
+        refreshUnreadCount()
+        return changed
+    }
+
     suspend fun markAllRead() {
         repository.markAllRead()
         refreshUnreadCount()
@@ -28,6 +43,21 @@ class MessageStateCoordinator(
         repository.deleteById(normalized)
         NotificationHelper.cancelMessageNotification(appContext, normalized)
         refreshUnreadCount()
+    }
+
+    suspend fun deleteMessages(messageIds: Collection<String>): Int {
+        val normalizedIds = messageIds
+            .asSequence()
+            .map { it.trim() }
+            .filter { it.isNotEmpty() }
+            .distinct()
+            .toList()
+        if (normalizedIds.isEmpty()) return 0
+        val deleted = repository.deleteByIds(normalizedIds)
+        if (deleted <= 0) return 0
+        NotificationHelper.cancelMessageNotifications(appContext, normalizedIds)
+        refreshUnreadCount()
+        return deleted
     }
 
     suspend fun deleteMessagesByChannel(channel: String): Int {

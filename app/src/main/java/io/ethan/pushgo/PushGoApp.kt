@@ -103,6 +103,17 @@ class PushGoApp : Application(), SingletonImageLoader.Factory {
         }
         cachedUseFcmChannel = container.settingsRepository.getCachedUseFcmChannel()
         appScope.launch {
+            runCatching {
+                container.messageRepository.backfillTagMetadataIndexIfNeeded(this@PushGoApp)
+            }.onFailure { error ->
+                PushGoAutomation.recordRuntimeError(
+                    source = "storage.message_tag_metadata_backfill",
+                    error = error,
+                    category = "storage",
+                )
+            }
+        }
+        appScope.launch {
             container.settingsRepository.useFcmChannelFlow.collect { useFcmChannel ->
                 cachedUseFcmChannel = useFcmChannel
                 PrivateChannelServiceManager.refreshForMode(

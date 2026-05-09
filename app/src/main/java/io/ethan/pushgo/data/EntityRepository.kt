@@ -269,6 +269,18 @@ class EntityRepository(
         }
     }
 
+    suspend fun deleteEvents(eventIds: Collection<String>): Int {
+        val normalizedIds = normalizeIds(eventIds)
+        if (normalizedIds.isEmpty()) return 0
+        return database.withTransaction {
+            var deleted = 0
+            deleted += eventChangeLogDao.deleteByEventIds(normalizedIds)
+            deleted += topLevelEventHeadDao.deleteByEventIds(normalizedIds)
+            deleted += thingSubEventDao.deleteByEventIds(normalizedIds)
+            deleted
+        }
+    }
+
     suspend fun deleteEvents(channelId: String?): Int {
         val normalizedChannel = channelId?.trim()?.takeIf { it.isNotEmpty() }
         return database.withTransaction {
@@ -299,6 +311,19 @@ class EntityRepository(
         }
     }
 
+    suspend fun deleteThings(thingIds: Collection<String>): Int {
+        val normalizedIds = normalizeIds(thingIds)
+        if (normalizedIds.isEmpty()) return 0
+        return database.withTransaction {
+            var deleted = 0
+            deleted += thingChangeLogDao.deleteByThingIds(normalizedIds)
+            deleted += thingHeadDao.deleteByThingIds(normalizedIds)
+            deleted += thingSubEventDao.deleteByThingIds(normalizedIds)
+            deleted += thingSubMessageDao.deleteByThingIds(normalizedIds)
+            deleted
+        }
+    }
+
     suspend fun deleteThings(channelId: String?): Int {
         val normalizedChannel = channelId?.trim()?.takeIf { it.isNotEmpty() }
         return database.withTransaction {
@@ -320,6 +345,15 @@ class EntityRepository(
             }
             deleted
         }
+    }
+
+    private fun normalizeIds(ids: Collection<String>): List<String> {
+        return ids
+            .asSequence()
+            .map { it.trim() }
+            .filter { it.isNotEmpty() }
+            .distinct()
+            .toList()
     }
 
     private suspend fun insertEventIncoming(entity: IncomingEntityRecord): Boolean {

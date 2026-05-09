@@ -1,5 +1,6 @@
 package io.ethan.pushgo.data
 
+import android.content.Context
 import androidx.paging.Pager
 import androidx.paging.PagingConfig
 import androidx.paging.PagingData
@@ -39,14 +40,31 @@ class MessageRepository(
     private val thingSubMessageDao: ThingSubMessageDao,
     private val pendingThingMessageDao: PendingThingMessageDao,
 ) {
+    private companion object {
+        private const val TAG_METADATA_BACKFILL_PREFS = "pushgo_message_search_maintenance"
+        private const val TAG_METADATA_BACKFILL_KEY = "tag_metadata_backfill_v1"
+        const val MAX_QUERY_TOKENS = 6
+        const val MAX_TOKEN_LENGTH = 32
+    }
+
     suspend fun wouldPersistAsPending(message: PushMessage): Boolean {
         val canonical = canonicalMessage(message)
         return isThingScopedMessage(canonical) && !hasThingHead(canonical.thingId)
     }
 
-    private companion object {
-        const val MAX_QUERY_TOKENS = 6
-        const val MAX_TOKEN_LENGTH = 32
+    private data class SearchQueryPlan(
+        val textTokens: List<String>,
+        val tags: List<String>,
+    ) {
+        val hasText: Boolean
+            get() = textTokens.isNotEmpty()
+        val hasTags: Boolean
+            get() = tags.isNotEmpty()
+        val isEmpty: Boolean
+            get() = !hasText && !hasTags
+
+        val ftsQuery: String
+            get() = textTokens.joinToString(" AND ") { "${it}*" }
     }
 
     fun observeMessages(filter: MessageFilter): Flow<PagingData<PushMessage>> {
@@ -62,6 +80,7 @@ class MessageRepository(
                     readState = null,
                     withUrl = if (filter.withUrlOnly) 1 else 0,
                     channel = filter.channel,
+                    tag = filter.tag,
                     serverId = filter.serverId,
                     prioritizeUnread = prioritizeUnread,
                 )
@@ -76,13 +95,34 @@ class MessageRepository(
         sortMode: MessageListSortMode,
         limit: Int = 200
     ): Flow<List<PushMessage>> {
-        val query = buildFtsQuery(rawQuery)
-        if (query.isEmpty()) {
+        val plan = parseSearchQuery(rawQuery)
+        if (plan.isEmpty) {
             return kotlinx.coroutines.flow.flowOf(emptyList())
         }
         val prioritizeUnread = if (sortMode == MessageListSortMode.UNREAD_FIRST) 1 else 0
-        return dao.searchMessages(query = query, prioritizeUnread = prioritizeUnread, limit = limit)
-            .map { list -> list.map(MessageEntity::asModel) }
+        val flow = when {
+            plan.hasText && plan.hasTags -> dao.searchMessagesByTextAndTags(
+                query = plan.ftsQuery,
+                tags = plan.tags,
+                tagCount = plan.tags.size,
+                prioritizeUnread = prioritizeUnread,
+                limit = limit,
+            )
+
+            plan.hasText -> dao.searchMessages(
+                query = plan.ftsQuery,
+                prioritizeUnread = prioritizeUnread,
+                limit = limit,
+            )
+
+            else -> dao.searchMessagesByTags(
+                tags = plan.tags,
+                tagCount = plan.tags.size,
+                prioritizeUnread = prioritizeUnread,
+                limit = limit,
+            )
+        }
+        return flow.map { list -> list.map(MessageEntity::asModel) }
     }
 
     fun observeChannelCounts(): Flow<List<MessageChannelCount>> = channelStatsDao.observeChannelCounts()
@@ -439,6 +479,37 @@ class MessageRepository(
         }
     }
 
+    suspend fun markRead(ids: Collection<String>): Int {
+        val normalizedIds = ids
+            .asSequence()
+            .map { it.trim() }
+            .filter { it.isNotEmpty() }
+            .distinct()
+            .toList()
+        if (normalizedIds.isEmpty()) {
+            return 0
+        }
+        return database.withTransaction {
+            val unreadAggregates = dao.getUnreadAggregatesByIds(normalizedIds)
+            if (unreadAggregates.isEmpty()) {
+                return@withTransaction 0
+            }
+            val changed = dao.markReadByIds(normalizedIds)
+            if (changed <= 0) {
+                return@withTransaction 0
+            }
+            unreadAggregates.forEach { aggregate ->
+                channelStatsDao.applyNegativeDelta(
+                    channel = aggregate.channel,
+                    totalCount = 0,
+                    unreadCount = aggregate.unreadCount,
+                )
+            }
+            channelStatsDao.deleteEmptyRows()
+            changed
+        }
+    }
+
     suspend fun markAllRead() {
         database.withTransaction {
             val unreadAggregates = dao.getUnreadAggregates()
@@ -475,6 +546,29 @@ class MessageRepository(
                     )
                 )
             )
+        }
+    }
+
+    suspend fun deleteByIds(ids: Collection<String>): Int {
+        val normalizedIds = ids
+            .asSequence()
+            .map { it.trim() }
+            .filter { it.isNotEmpty() }
+            .distinct()
+            .toList()
+        if (normalizedIds.isEmpty()) {
+            return 0
+        }
+        return database.withTransaction {
+            val aggregates = dao.getChannelAggregatesByIds(normalizedIds)
+            if (aggregates.isEmpty()) {
+                return@withTransaction 0
+            }
+            val deleted = dao.deleteByIds(normalizedIds)
+            if (deleted > 0) {
+                applyRemovalAggregates(aggregates)
+            }
+            deleted
         }
     }
 
@@ -587,18 +681,29 @@ class MessageRepository(
         return dao.countMessages(readState, cutoff)
     }
 
-    private fun buildFtsQuery(raw: String): String {
-        val tokens = raw.trim()
+    private fun parseSearchQuery(raw: String): SearchQueryPlan {
+        val textTokens = mutableListOf<String>()
+        val tags = linkedSetOf<String>()
+        raw.trim()
             .split("\\s+".toRegex())
             .asSequence()
             .map { it.trim() }
             .filter { it.isNotEmpty() }
-            .map(::sanitizeToken)
-            .filter { it.isNotEmpty() }
-            .take(MAX_QUERY_TOKENS)
-            .toList()
-        if (tokens.isEmpty()) return ""
-        return tokens.joinToString(" AND ") { "${it}*" }
+            .forEach { token ->
+                val tag = parseTagToken(token)
+                if (tag != null) {
+                    tags += tag
+                } else {
+                    val textToken = sanitizeToken(token)
+                    if (textToken.isNotEmpty()) {
+                        textTokens += textToken
+                    }
+                }
+            }
+        return SearchQueryPlan(
+            textTokens = textTokens.take(MAX_QUERY_TOKENS),
+            tags = tags.toList().take(MAX_QUERY_TOKENS),
+        )
     }
 
     private fun sanitizeToken(raw: String): String {
@@ -606,12 +711,24 @@ class MessageRepository(
         return if (cleaned.length > MAX_TOKEN_LENGTH) cleaned.substring(0, MAX_TOKEN_LENGTH) else cleaned
     }
 
+    private fun parseTagToken(raw: String): String? {
+        val trimmed = raw.trim()
+        if (trimmed.isEmpty()) return null
+        val value = when {
+            trimmed.startsWith("#") -> trimmed.drop(1)
+            trimmed.startsWith("tag:", ignoreCase = true) -> trimmed.drop(4)
+            else -> return null
+        }
+        val normalized = value.trim().lowercase()
+        return normalized.takeIf { it.isNotEmpty() }
+    }
+
     private suspend fun upsertMetadataIndex(message: PushMessage) {
         upsertMetadataIndex(message.id, message)
     }
 
     private suspend fun upsertMetadataIndex(messageId: String, message: PushMessage) {
-        val rows = message.metadata
+        val metadataRows = message.metadata
             .asSequence()
             .map { (key, value) ->
                 MessageMetadataIndexEntity(
@@ -624,11 +741,41 @@ class MessageRepository(
             }
             .filter { it.keyName.isNotEmpty() && it.valueNorm.isNotEmpty() }
             .toList()
+        val tagRows = message.tags
+            .asSequence()
+            .map { it.trim().lowercase() }
+            .filter { it.isNotEmpty() }
+            .map { tag ->
+                MessageMetadataIndexEntity(
+                    messageId = messageId,
+                    keyName = "tag",
+                    valueNorm = tag,
+                    label = null,
+                    receivedAt = message.receivedAt.toEpochMilli(),
+                )
+            }
+            .toList()
+        val rows = (metadataRows + tagRows)
+            .distinctBy { "${it.keyName}\u001F${it.valueNorm}" }
 
         metadataIndexDao.deleteByMessageId(messageId)
         if (rows.isNotEmpty()) {
             metadataIndexDao.insertAll(rows)
         }
+    }
+
+    suspend fun backfillTagMetadataIndexIfNeeded(context: Context) {
+        val prefs = context.getSharedPreferences(TAG_METADATA_BACKFILL_PREFS, Context.MODE_PRIVATE)
+        if (prefs.getBoolean(TAG_METADATA_BACKFILL_KEY, false)) {
+            return
+        }
+        database.withTransaction {
+            val messages = dao.getAll()
+            for (entity in messages) {
+                upsertMetadataIndex(entity.id, entity.asModel())
+            }
+        }
+        prefs.edit().putBoolean(TAG_METADATA_BACKFILL_KEY, true).apply()
     }
 
     private suspend fun pruneTopLevelMessageDuplicates(stableMessageIds: Set<String>) {

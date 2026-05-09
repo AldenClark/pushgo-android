@@ -14,6 +14,7 @@ enum class MessageListSortMode(val persistedValue: String) {
 data class MessageFilter(
     val withUrlOnly: Boolean = false,
     val channel: String? = null,
+    val tag: String? = null,
     val serverId: String? = null,
     val sortMode: MessageListSortMode = MessageListSortMode.TIME_DESC,
 )

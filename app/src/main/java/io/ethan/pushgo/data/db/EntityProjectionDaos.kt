@@ -50,6 +50,9 @@ interface EventChangeLogDao {
     @Query("DELETE FROM event_change_logs WHERE event_id = :eventId")
     suspend fun deleteByEventId(eventId: String): Int
 
+    @Query("DELETE FROM event_change_logs WHERE event_id IN (:eventIds)")
+    suspend fun deleteByEventIds(eventIds: List<String>): Int
+
     @Query("DELETE FROM event_change_logs WHERE channel = :channelId")
     suspend fun deleteByChannel(channelId: String): Int
 
@@ -114,6 +117,9 @@ interface ThingChangeLogDao {
     @Query("DELETE FROM thing_change_logs WHERE thing_id = :thingId")
     suspend fun deleteByThingId(thingId: String): Int
 
+    @Query("DELETE FROM thing_change_logs WHERE thing_id IN (:thingIds)")
+    suspend fun deleteByThingIds(thingIds: List<String>): Int
+
     @Query("DELETE FROM thing_change_logs WHERE channel = :channelId")
     suspend fun deleteByChannel(channelId: String): Int
 }
@@ -167,8 +173,14 @@ interface ThingSubEventDao {
     @Query("DELETE FROM thing_sub_events WHERE event_id = :eventId")
     suspend fun deleteByEventId(eventId: String): Int
 
+    @Query("DELETE FROM thing_sub_events WHERE event_id IN (:eventIds)")
+    suspend fun deleteByEventIds(eventIds: List<String>): Int
+
     @Query("DELETE FROM thing_sub_events WHERE thing_id = :thingId")
     suspend fun deleteByThingId(thingId: String): Int
+
+    @Query("DELETE FROM thing_sub_events WHERE thing_id IN (:thingIds)")
+    suspend fun deleteByThingIds(thingIds: List<String>): Int
 
     @Query("DELETE FROM thing_sub_events WHERE channel = :channelId")
     suspend fun deleteByChannel(channelId: String): Int
@@ -235,6 +247,9 @@ interface TopLevelEventHeadDao {
 
     @Query("DELETE FROM top_level_event_heads WHERE event_id = :eventId")
     suspend fun deleteByEventId(eventId: String): Int
+
+    @Query("DELETE FROM top_level_event_heads WHERE event_id IN (:eventIds)")
+    suspend fun deleteByEventIds(eventIds: List<String>): Int
 
     @Query("DELETE FROM top_level_event_heads WHERE channel = :channelId")
     suspend fun deleteByChannel(channelId: String): Int
@@ -304,6 +319,9 @@ interface ThingHeadDao {
     @Query("DELETE FROM thing_heads WHERE thing_id = :thingId")
     suspend fun deleteByThingId(thingId: String): Int
 
+    @Query("DELETE FROM thing_heads WHERE thing_id IN (:thingIds)")
+    suspend fun deleteByThingIds(thingIds: List<String>): Int
+
     @Query("DELETE FROM thing_heads WHERE channel = :channelId")
     suspend fun deleteByChannel(channelId: String): Int
 }
@@ -371,6 +389,9 @@ interface ThingSubMessageDao {
 
     @Query("DELETE FROM thing_sub_messages WHERE thing_id = :thingId")
     suspend fun deleteByThingId(thingId: String): Int
+
+    @Query("DELETE FROM thing_sub_messages WHERE thing_id IN (:thingIds)")
+    suspend fun deleteByThingIds(thingIds: List<String>): Int
 
     @Query("DELETE FROM thing_sub_messages WHERE channel = :channelId")
     suspend fun deleteByChannel(channelId: String): Int

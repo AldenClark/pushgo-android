@@ -27,11 +27,8 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.outlined.*
-import androidx.compose.material.icons.filled.FilterList as FilledFilterList
-import androidx.compose.material.icons.outlined.FilterList as OutlinedFilterList
 import androidx.compose.material3.*
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.*
@@ -102,7 +99,7 @@ import androidx.compose.foundation.lazy.items
 private val ScreenHorizontalPadding = 12.dp
 private const val MessageListImagePreviewMaxItems = 3
 
-@OptIn(ExperimentalFoundationApi::class, ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalFoundationApi::class, ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun MessageListScreen(
     navController: NavHostController,
@@ -160,6 +157,11 @@ fun MessageListScreen(
         initialSelectionStateForDrag = null
     }
 
+    suspend fun exitSelectionModeAfterFlushingPendingDeletion() {
+        container.pendingLocalDeletionCoordinator.commitCurrentIfNeeded()
+        exitSelectionMode()
+    }
+
     fun toggleSelection(messageId: String) {
         selectedMessageIds = if (selectedMessageIds.contains(messageId)) {
             selectedMessageIds - messageId
@@ -212,9 +214,7 @@ fun MessageListScreen(
             summary = summary,
             scope = PendingLocalDeletionCoordinator.Scope(messageIds = messageIds),
             onCommit = {
-                uniqueMessages.forEach { message ->
-                    container.messageStateCoordinator.deleteMessage(message.id)
-                }
+                container.messageStateCoordinator.deleteMessages(uniqueMessages.map { it.id })
             },
             onCompletion = { result ->
                 val error = result.exceptionOrNull()
@@ -241,7 +241,6 @@ fun MessageListScreen(
             visibleSearchResults.filter { selectedMessageIds.contains(it.id) }
         }
         scheduleDeletion(selectedMessages)
-        exitSelectionMode()
     }
 
     suspend fun markSelectedMessagesRead() {
@@ -254,8 +253,7 @@ fun MessageListScreen(
             msg?.isRead == false
         }
         if (unreadIds.isEmpty()) return
-        unreadIds.forEach { viewModel.markRead(it) }
-        exitSelectionMode()
+        container.messageStateCoordinator.markRead(unreadIds)
     }
 
     fun refreshProviderIngressFromPullDown() {
@@ -284,7 +282,9 @@ fun MessageListScreen(
         }
     }
 
-    BackHandler(enabled = isSelectionMode) { exitSelectionMode() }
+    BackHandler(enabled = isSelectionMode) {
+        scope.launch { exitSelectionModeAfterFlushingPendingDeletion() }
+    }
     LaunchedEffect(isSelectionMode) { onBatchModeChanged(isSelectionMode) }
     DisposableEffect(Unit) {
         onDispose {
@@ -353,12 +353,44 @@ fun MessageListScreen(
     LaunchedEffect(pendingLocalDeletion?.id) {
         val pendingScope = pendingLocalDeletion?.scope ?: return@LaunchedEffect
         selectedMessageIds = selectedMessageIds.filterNot(pendingScope::suppressesMessageId).toSet()
-        if (isSelectionMode && selectedMessageIds.isEmpty()) {
-            exitSelectionMode()
-        }
     }
 
     val channelOptions = remember(channelCounts) { channelCounts.map { it.channel.trim() }.distinct() }
+    val tagOptions = remember(
+        query,
+        messages.itemSnapshotList.items,
+        visibleSearchResults,
+        pendingLocalDeletion?.id,
+    ) {
+        val source = if (query.isBlank()) {
+            messages.itemSnapshotList.items
+        } else {
+            visibleSearchResults
+        }
+        source
+            .asSequence()
+            .flatMap { it.tags.asSequence() }
+            .map { it.trim().lowercase() }
+            .filter { it.isNotEmpty() }
+            .distinct()
+            .sorted()
+            .toList()
+    }
+    val selectableMessageIds = remember(
+        query,
+        messages.itemSnapshotList.items,
+        visibleSearchResults,
+        pendingLocalDeletion?.id,
+    ) {
+        val source = if (query.isBlank()) {
+            messages.itemSnapshotList.items.filterNot(::isPendingLocalDeletion)
+        } else {
+            visibleSearchResults
+        }
+        source.mapTo(mutableSetOf()) { it.id }
+    }
+    val areAllSelectableMessagesSelected = selectableMessageIds.isNotEmpty() &&
+        selectedMessageIds.containsAll(selectableMessageIds)
 
     Box(modifier = Modifier.fillMaxSize()) {
         PullToRefreshBox(
@@ -381,6 +413,21 @@ fun MessageListScreen(
                             if (isSelectionMode) {
                                 Row(modifier = Modifier.fillMaxWidth().padding(horizontal = ScreenHorizontalPadding), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                     val selectedCount = selectedMessageIds.size
+                                    IconButton(
+                                        onClick = {
+                                            selectedMessageIds = if (areAllSelectableMessagesSelected) {
+                                                emptySet()
+                                            } else {
+                                                selectableMessageIds
+                                            }
+                                        }
+                                    ) {
+                                        Icon(
+                                            Icons.Outlined.Checklist,
+                                            stringResource(R.string.action_batch_select),
+                                            tint = if (areAllSelectableMessagesSelected) uiColors.accentPrimary else uiColors.iconMuted,
+                                        )
+                                    }
                                     Text(text = stringResource(R.string.label_selected_count, selectedCount), style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
                                     IconButton(onClick = { scope.launch { markSelectedMessagesRead() } }) {
                                         Icon(Icons.Outlined.MarkEmailRead, stringResource(R.string.action_mark_read))
@@ -388,7 +435,9 @@ fun MessageListScreen(
                                     IconButton(onClick = { scope.launch { deleteSelectedMessages() } }) {
                                         Icon(Icons.Outlined.Delete, stringResource(R.string.action_delete))
                                     }
-                                    TextButton(onClick = { exitSelectionMode() }) { Text(stringResource(R.string.label_cancel)) }
+                                    IconButton(onClick = { scope.launch { exitSelectionModeAfterFlushingPendingDeletion() } }) {
+                                        SelectionDoneIcon(contentDescription = stringResource(R.string.label_confirm), accentColor = uiColors.accentPrimary)
+                                    }
                                 }
                             } else {
                                 Row(modifier = Modifier.fillMaxWidth().padding(horizontal = ScreenHorizontalPadding), verticalAlignment = Alignment.CenterVertically) {
@@ -400,34 +449,82 @@ fun MessageListScreen(
                                         modifier = Modifier.weight(1f).testTag("field.message.search")
                                     ) {
                                         Box {
-                                            IconButton(onClick = {
-                                                val nextSortMode =
-                                                    if (filterState.sortMode == MessageListSortMode.UNREAD_FIRST) {
-                                                        MessageListSortMode.TIME_DESC
-                                                    } else {
-                                                        MessageListSortMode.UNREAD_FIRST
-                                                    }
-                                                viewModel.setSortMode(nextSortMode)
-                                                searchViewModel.setSortMode(nextSortMode)
-                                            }) {
-                                                val unreadFirstEnabled = filterState.sortMode == MessageListSortMode.UNREAD_FIRST
-                                                Icon(
-                                                    imageVector = Icons.Outlined.SwapVert,
-                                                    contentDescription = stringResource(R.string.label_sort),
-                                                    tint = if (unreadFirstEnabled) uiColors.accentPrimary else uiColors.iconMuted,
-                                                )
-                                            }
-                                        }
-                                        Box {
                                             IconButton(onClick = { searchMenuExpanded = true }) {
                                                 val hasActiveFilter = filterState.channel != null
-                                                Icon(
-                                                    imageVector = if (!hasActiveFilter) Icons.Outlined.OutlinedFilterList else Icons.Filled.FilledFilterList,
+                                                    || filterState.tag != null
+                                                    || filterState.sortMode != MessageListSortMode.TIME_DESC
+                                                FilterMenuIcon(
+                                                    active = hasActiveFilter,
+                                                    inactiveTint = uiColors.iconMuted,
                                                     contentDescription = stringResource(R.string.label_channel_id),
-                                                    tint = if (hasActiveFilter) uiColors.accentPrimary else uiColors.iconMuted,
                                                 )
                                             }
                                             DropdownMenu(expanded = searchMenuExpanded, onDismissRequest = { searchMenuExpanded = false }) {
+                                                DropdownMenuItem(
+                                                    text = { Text(text = "选择", style = MaterialTheme.typography.bodyLarge) },
+                                                    leadingIcon = { Icon(Icons.Outlined.Checklist, contentDescription = null, modifier = Modifier.size(18.dp)) },
+                                                    onClick = {
+                                                        isSelectionMode = true
+                                                        selectedMessageIds = emptySet()
+                                                        searchMenuExpanded = false
+                                                    },
+                                                )
+
+                                                HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+
+                                                DropdownMenuItem(
+                                                    text = {
+                                                        Text(
+                                                            text = stringResource(R.string.label_sort),
+                                                            style = MaterialTheme.typography.labelSmall,
+                                                            color = uiColors.textSecondary,
+                                                        )
+                                                    },
+                                                    onClick = {},
+                                                    enabled = false,
+                                                )
+                                                DropdownMenuItem(
+                                                    text = { Text(stringResource(R.string.message_sort_time_desc)) },
+                                                    onClick = {
+                                                        viewModel.setSortMode(MessageListSortMode.TIME_DESC)
+                                                        searchViewModel.setSortMode(MessageListSortMode.TIME_DESC)
+                                                        searchMenuExpanded = false
+                                                    },
+                                                    trailingIcon = {
+                                                        if (filterState.sortMode == MessageListSortMode.TIME_DESC) {
+                                                            Icon(Icons.Outlined.Check, null, modifier = Modifier.size(18.dp))
+                                                        }
+                                                    }
+                                                )
+                                                DropdownMenuItem(
+                                                    text = { Text(stringResource(R.string.message_sort_unread_first)) },
+                                                    onClick = {
+                                                        viewModel.setSortMode(MessageListSortMode.UNREAD_FIRST)
+                                                        searchViewModel.setSortMode(MessageListSortMode.UNREAD_FIRST)
+                                                        searchMenuExpanded = false
+                                                    },
+                                                    trailingIcon = {
+                                                        if (filterState.sortMode == MessageListSortMode.UNREAD_FIRST) {
+                                                            Icon(Icons.Outlined.Check, null, modifier = Modifier.size(18.dp))
+                                                        }
+                                                    }
+                                                )
+
+                                                HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+
+                                                if (channelOptions.isNotEmpty()) {
+                                                    DropdownMenuItem(
+                                                        text = {
+                                                            Text(
+                                                                text = "Channels",
+                                                                style = MaterialTheme.typography.labelSmall,
+                                                                color = uiColors.textSecondary,
+                                                            )
+                                                        },
+                                                        onClick = {},
+                                                        enabled = false,
+                                                    )
+                                                }
                                                 if (channelOptions.isNotEmpty()) {
                                                     channelOptions.forEach { channel ->
                                                         DropdownMenuItem(
@@ -437,10 +534,43 @@ fun MessageListScreen(
                                                         )
                                                     }
                                                 }
+                                                if (tagOptions.isNotEmpty()) {
+                                                    HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+                                                    Column(
+                                                        modifier = Modifier
+                                                            .widthIn(max = 320.dp)
+                                                            .padding(horizontal = 12.dp, vertical = 8.dp),
+                                                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                                                    ) {
+                                                        Text(
+                                                            text = "Tags",
+                                                            style = MaterialTheme.typography.labelSmall,
+                                                            color = uiColors.textSecondary,
+                                                        )
+                                                        FlowRow(
+                                                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                                                    ) {
+                                                        tagOptions.forEach { tag ->
+                                                            val selected = filterState.tag == tag
+                                                            FilterChip(
+                                                                    selected = selected,
+                                                                    onClick = {
+                                                                        viewModel.setTag(if (selected) null else tag)
+                                                                        searchMenuExpanded = false
+                                                                    },
+                                                                    label = { Text("#$tag") },
+                                                                    leadingIcon = if (selected) {
+                                                                        { Icon(Icons.Outlined.Check, contentDescription = null, modifier = Modifier.size(16.dp)) }
+                                                                    } else {
+                                                                        null
+                                                                    },
+                                                                )
+                                                            }
+                                                        }
+                                                    }
+                                                }
                                             }
-                                        }
-                                        IconButton(onClick = { isSelectionMode = true; selectedMessageIds = emptySet() }) {
-                                            Icon(Icons.Outlined.Checklist, stringResource(R.string.action_batch_select), tint = uiColors.iconMuted)
                                         }
                                     }
                                 }
@@ -542,6 +672,45 @@ fun MessageListScreen(
             }
         }
 
+}
+
+@Composable
+private fun SelectionDoneIcon(contentDescription: String, accentColor: Color) {
+    Box(
+        modifier = Modifier
+            .size(24.dp)
+            .clip(CircleShape)
+            .background(accentColor),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(
+            imageVector = Icons.Outlined.Check,
+            contentDescription = contentDescription,
+            tint = Color.White,
+            modifier = Modifier.size(16.dp),
+        )
+    }
+}
+
+@Composable
+private fun FilterMenuIcon(
+    active: Boolean,
+    inactiveTint: Color,
+    contentDescription: String,
+) {
+    Box(
+        modifier = Modifier
+            .size(24.dp)
+            .clip(CircleShape)
+            .background(if (active) Color.Black else Color.Transparent),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(
+            imageVector = Icons.Outlined.FilterList,
+            contentDescription = contentDescription,
+            tint = if (active) Color.White else inactiveTint,
+        )
+    }
 }
 
 

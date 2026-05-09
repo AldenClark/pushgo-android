@@ -140,4 +140,42 @@ class PendingLocalDeletionCoordinatorTest {
             scope.cancel()
         }
     }
+
+    @Test
+    fun commitCurrentIfNeededCommitsImmediatelyBeforeCountdownExpiry() = runBlocking {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val commitLatch = CountDownLatch(1)
+        val completionLatch = CountDownLatch(1)
+        var committed = false
+        try {
+            val coordinator = PendingLocalDeletionCoordinator(
+                appScope = scope,
+                countdownMillis = 5_000L,
+                elapsedRealtimeMillis = { System.nanoTime() / 1_000_000L },
+            )
+
+            coordinator.schedule(
+                summary = "message",
+                scope = PendingLocalDeletionCoordinator.Scope(messageIds = setOf("m1")),
+                onCommit = {
+                    committed = true
+                    commitLatch.countDown()
+                },
+                onCompletion = {
+                    if (it.isSuccess) {
+                        completionLatch.countDown()
+                    }
+                },
+            )
+
+            coordinator.commitCurrentIfNeeded()
+
+            assertTrue(commitLatch.await(1, TimeUnit.SECONDS))
+            assertTrue(completionLatch.await(1, TimeUnit.SECONDS))
+            assertTrue(committed)
+            assertNull(coordinator.pendingDeletion.value)
+        } finally {
+            scope.cancel()
+        }
+    }
 }

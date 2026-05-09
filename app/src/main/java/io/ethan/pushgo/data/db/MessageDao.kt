@@ -29,6 +29,16 @@ interface MessageDao {
             OR (:channel = '' AND (channel IS NULL OR channel = ''))
             OR (:channel != '' AND channel = :channel)
           )
+          AND (
+            :tag IS NULL
+            OR EXISTS (
+              SELECT 1
+              FROM message_metadata_index mi
+              WHERE mi.message_id = messages.id
+                AND mi.key_name = 'tag'
+                AND mi.value_norm = :tag
+            )
+          )
           AND (:serverId IS NULL OR server_id = :serverId)
         ORDER BY
           CASE
@@ -44,6 +54,7 @@ interface MessageDao {
         readState: Boolean?,
         withUrl: Int,
         channel: String?,
+        tag: String?,
         serverId: String?,
         prioritizeUnread: Int,
     ): PagingSource<Int, MessageEntity>
@@ -65,6 +76,67 @@ interface MessageDao {
         """
     )
     fun searchMessages(query: String, prioritizeUnread: Int, limit: Int): Flow<List<MessageEntity>>
+
+    @Query(
+        """
+        SELECT m.* FROM messages m
+        WHERE m.id IN (
+            SELECT mi.message_id
+            FROM message_metadata_index mi
+            WHERE mi.key_name = 'tag'
+              AND mi.value_norm IN (:tags)
+            GROUP BY mi.message_id
+            HAVING COUNT(DISTINCT mi.value_norm) = :tagCount
+        )
+        ORDER BY
+          CASE
+            WHEN :prioritizeUnread = 1 AND m.is_read = 0 THEN 0
+            WHEN :prioritizeUnread = 1 THEN 1
+            ELSE 0
+          END ASC,
+          m.received_at DESC,
+          m.id DESC
+        LIMIT :limit
+        """
+    )
+    fun searchMessagesByTags(
+        tags: List<String>,
+        tagCount: Int,
+        prioritizeUnread: Int,
+        limit: Int,
+    ): Flow<List<MessageEntity>>
+
+    @Query(
+        """
+        SELECT m.* FROM messages m
+        JOIN message_fts f ON m.rowid = f.rowid
+        WHERE message_fts MATCH :query
+          AND m.id IN (
+            SELECT mi.message_id
+            FROM message_metadata_index mi
+            WHERE mi.key_name = 'tag'
+              AND mi.value_norm IN (:tags)
+            GROUP BY mi.message_id
+            HAVING COUNT(DISTINCT mi.value_norm) = :tagCount
+          )
+        ORDER BY
+          CASE
+            WHEN :prioritizeUnread = 1 AND m.is_read = 0 THEN 0
+            WHEN :prioritizeUnread = 1 THEN 1
+            ELSE 0
+          END ASC,
+          m.received_at DESC,
+          m.id DESC
+        LIMIT :limit
+        """
+    )
+    fun searchMessagesByTextAndTags(
+        query: String,
+        tags: List<String>,
+        tagCount: Int,
+        prioritizeUnread: Int,
+        limit: Int,
+    ): Flow<List<MessageEntity>>
 
     @Query("SELECT * FROM messages WHERE id = :id LIMIT 1")
     suspend fun getById(id: String): MessageEntity?
@@ -160,6 +232,9 @@ interface MessageDao {
 
     @Query("UPDATE messages SET is_read = 1 WHERE id = :id AND is_read = 0")
     suspend fun markRead(id: String)
+
+    @Query("UPDATE messages SET is_read = 1 WHERE id IN (:ids) AND is_read = 0")
+    suspend fun markReadByIds(ids: List<String>): Int
 
     @Query("UPDATE messages SET is_read = 1 WHERE is_read = 0")
     suspend fun markAllRead()
@@ -321,6 +396,35 @@ interface MessageDao {
         """
     )
     suspend fun getUnreadAggregates(): List<MessageChannelStatsAggregate>
+
+    @Query(
+        """
+        SELECT
+          COALESCE(NULLIF(TRIM(channel), ''), '') AS channel,
+          COUNT(*) AS total_count,
+          COUNT(*) AS unread_count,
+          COALESCE(MAX(received_at), 0) AS latest_received_at
+        FROM messages
+        WHERE is_read = 0
+          AND id IN (:ids)
+        GROUP BY COALESCE(NULLIF(TRIM(channel), ''), '')
+        """
+    )
+    suspend fun getUnreadAggregatesByIds(ids: List<String>): List<MessageChannelStatsAggregate>
+
+    @Query(
+        """
+        SELECT
+          COALESCE(NULLIF(TRIM(channel), ''), '') AS channel,
+          COUNT(*) AS total_count,
+          COALESCE(SUM(CASE WHEN is_read = 0 THEN 1 ELSE 0 END), 0) AS unread_count,
+          COALESCE(MAX(received_at), 0) AS latest_received_at
+        FROM messages
+        WHERE id IN (:ids)
+        GROUP BY COALESCE(NULLIF(TRIM(channel), ''), '')
+        """
+    )
+    suspend fun getChannelAggregatesByIds(ids: List<String>): List<MessageChannelStatsAggregate>
 
     @Query(
         """
