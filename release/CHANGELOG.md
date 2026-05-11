@@ -23,6 +23,29 @@ PushGo Android policy:
 ### Changed
 - Placeholder for next development cycle.
 
+## [v1.2.3] - 2026-05-11
+
+### Added
+- Added undoable local deletion flow with `PendingLocalDeletionCoordinator`/`PendingLocalDeletionBar` to support safer message/event/object deletion and recovery.
+- Added message list action to mark all currently displayed items as read.
+- Added facet-based multi-select message filters with facet count model (`MessageFacetValueCount` / `MessageFacetOptionCount`) and toolbar refinements.
+- Added ingress/decrypt test coverage updates for provider ACK draining, canonical ciphertext parsing, and local deletion coordination paths.
+- Added versioned stable update notes source: `release/update-notes/v1.2.3.json`.
+
+### Changed
+- Finalized Android app version to `v1.2.3` for release builds.
+- `versionCode` now resolves to stable code `1020399` from `versionName=v1.2.3`.
+- Refined gateway error mapping and wakeup pull handling across channel subscription and ingress coordination paths.
+- Updated provider ingress pipeline to drain provider ACKs and normalize canonical ciphertext fields before downstream rendering.
+- Updated message filtering behavior to align list facets, tag-search semantics, and batch read/delete execution paths.
+- Updated message/event/object screens and view models for improved filter UX and deletion flow consistency.
+- Updated device/instrumentation test runtime wiring for more stable Android migration and integration test execution.
+
+### Fixed
+- Fixed animated image detection/playback regressions in markdown/detail media rendering.
+- Fixed detail-page media loading to non-blocking behavior so page content remains responsive while media resolves.
+- Fixed wakeup and provider ingress edge-case handling that could surface unclear gateway errors or unstable pull behavior.
+
 ## [v1.2.2] - 2026-04-24
 
 ### Added

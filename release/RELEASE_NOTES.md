@@ -13,6 +13,18 @@ Policy:
 ### Changed
 - Placeholder for next beta cycle.
 
+## [v1.2.3]
+
+### Improved
+- Improved message workflows with safer local deletion: delete actions are now undoable and easier to recover from.
+- Improved message list productivity with a new action to mark all currently displayed items as read.
+- Improved message filtering with clearer facet-based multi-select controls and better alignment with tag search.
+- Improved message receiving reliability and overall in-app message state consistency.
+
+### Fixed
+- Fixed animated image playback detection issues in markdown/detail rendering.
+- Fixed detail-page media loading behavior so media fetches no longer block screen responsiveness.
+
 ## [v1.2.2]
 
 ### Improved
