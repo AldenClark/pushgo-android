@@ -475,6 +475,20 @@ fun MessageListScreen(
     }
     val areAllSelectableMessagesSelected = selectableMessageIds.isNotEmpty() &&
         selectedMessageIds.containsAll(selectableMessageIds)
+    val displayedMessagesForToolbar = remember(
+        query,
+        filteredPagedItems,
+        filteredSearchResults,
+    ) {
+        if (query.isBlank()) filteredPagedItems else filteredSearchResults
+    }
+    val unreadDisplayedMessageIds = remember(displayedMessagesForToolbar) {
+        displayedMessagesForToolbar
+            .asSequence()
+            .filter { !it.isRead }
+            .map { it.id }
+            .toList()
+    }
 
     Box(modifier = Modifier.fillMaxSize()) {
         PullToRefreshBox(
@@ -532,16 +546,44 @@ fun MessageListScreen(
                                         placeholderText = stringResource(R.string.label_search),
                                         modifier = Modifier.weight(1f).testTag("field.message.search")
                                     ) {
+                                        val hasActiveFilter = filterState.channels.isNotEmpty()
+                                            || filterState.tags.isNotEmpty()
+                                            || filterState.unreadOnly
+                                        val toolbarIconTint = if (hasActiveFilter) uiColors.accentPrimary else uiColors.iconMuted
                                         Box {
-                                            IconButton(onClick = { searchMenuExpanded = true }) {
-                                                val hasActiveFilter = filterState.channels.isNotEmpty()
-                                                    || filterState.tags.isNotEmpty()
-                                                    || filterState.unreadOnly
-                                                FilterMenuIcon(
-                                                    active = hasActiveFilter,
-                                                    inactiveTint = uiColors.iconMuted,
-                                                    contentDescription = stringResource(R.string.label_channel_id),
-                                                )
+                                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                                if (unreadDisplayedMessageIds.isNotEmpty()) {
+                                                    IconButton(
+                                                        onClick = {
+                                                            scope.launch {
+                                                                container.messageStateCoordinator.markRead(unreadDisplayedMessageIds)
+                                                                val toastText = context.getString(
+                                                                    R.string.message_marked_read_selected_count,
+                                                                    unreadDisplayedMessageIds.size,
+                                                                )
+                                                                Toast.makeText(
+                                                                    context,
+                                                                    toastText,
+                                                                    Toast.LENGTH_SHORT,
+                                                                ).show()
+                                                                announceForAccessibility(context, toastText)
+                                                            }
+                                                        }
+                                                    ) {
+                                                        Icon(
+                                                            imageVector = Icons.Outlined.DoneAll,
+                                                            contentDescription = stringResource(R.string.action_mark_all_read),
+                                                            tint = toolbarIconTint,
+                                                        )
+                                                    }
+                                                }
+                                                IconButton(onClick = { searchMenuExpanded = true }) {
+                                                    FilterMenuIcon(
+                                                        active = hasActiveFilter,
+                                                        inactiveTint = uiColors.iconMuted,
+                                                        contentDescription = stringResource(R.string.label_channel_id),
+                                                    )
+                                                }
                                             }
                                             DropdownMenu(expanded = searchMenuExpanded, onDismissRequest = { searchMenuExpanded = false }) {
                                                 DropdownMenuItem(
