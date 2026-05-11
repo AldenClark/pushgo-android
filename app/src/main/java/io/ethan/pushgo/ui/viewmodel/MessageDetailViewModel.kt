@@ -14,6 +14,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 
 class MessageDetailViewModel(
@@ -140,18 +141,21 @@ class MessageDetailViewModel(
             val loadedAtMs = SystemClock.elapsedRealtime()
             val loaded = loadResult.message
             if (loaded != null) {
-                val resolvedBodyText = MessageBodyResolver.resolve(loaded.rawPayloadJson, loaded.body).rawText
-                imageStore.preheatDetailAssets(loaded.rawPayloadJson, resolvedBodyText)
-                stateCoordinator.markRead(messageId)
                 val resolved = if (loaded.isRead) loaded else loaded.copy(isRead = true)
                 _message.value = resolved
                 storeCachedMessage(messageId, resolved)
+                _isLoading.value = false
+                viewModelScope.launch(Dispatchers.IO) {
+                    val resolvedBodyText = MessageBodyResolver.resolve(loaded.rawPayloadJson, loaded.body).rawText
+                    imageStore.preheatDetailAssets(loaded.rawPayloadJson, resolvedBodyText)
+                }
+                stateCoordinator.markRead(messageId)
             } else {
                 _message.value = null
                 removeCachedMessage(messageId)
                 _loadError.value = loadResult.error?.message?.takeIf { it.isNotBlank() }
+                _isLoading.value = false
             }
-            _isLoading.value = false
             val finishedAtMs = SystemClock.elapsedRealtime()
             io.ethan.pushgo.util.SilentSink.i(
                 PERF_TAG,

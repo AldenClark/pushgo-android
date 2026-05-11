@@ -74,6 +74,7 @@ import io.ethan.pushgo.data.model.MessageSeverity
 import io.ethan.pushgo.notifications.ForegroundNotificationPresentationState
 import io.ethan.pushgo.notifications.ForegroundNotificationTopMetrics
 import io.ethan.pushgo.notifications.ProviderIngressCoordinator
+import io.ethan.pushgo.markdown.MessageBodyResolver
 import io.ethan.pushgo.ui.viewmodel.toUserFacingText
 import io.ethan.pushgo.ui.PendingLocalDeletionCoordinator
 import io.ethan.pushgo.ui.PushGoViewModelFactory
@@ -686,7 +687,17 @@ fun MessageListScreen(
                                         rawChannelId = message.channel,
                                         channelNameMap = channelNameMap,
                                     ),
-                                    onClick = { if (isSelectionMode) toggleSelection(message.id) else onMessageClick(message.id) },
+                                    onClick = {
+                                        if (isSelectionMode) {
+                                            toggleSelection(message.id)
+                                        } else {
+                                            scope.launch {
+                                                val body = MessageBodyResolver.resolve(message.rawPayloadJson, message.body).rawText
+                                                container.messageImageStore.preheatDetailAssets(message.rawPayloadJson, body)
+                                            }
+                                            onMessageClick(message.id)
+                                        }
+                                    },
                                     onMarkRead = { viewModel.markRead(message.id) },
                                     onDelete = { scope.launch { scheduleDeletion(listOf(message)) } },
                                     selectionMode = isSelectionMode,
@@ -712,7 +723,17 @@ fun MessageListScreen(
                                     rawChannelId = message.channel,
                                     channelNameMap = channelNameMap,
                                 ),
-                                onClick = { if (isSelectionMode) toggleSelection(message.id) else onMessageClick(message.id) },
+                                onClick = {
+                                    if (isSelectionMode) {
+                                        toggleSelection(message.id)
+                                    } else {
+                                        scope.launch {
+                                            val body = MessageBodyResolver.resolve(message.rawPayloadJson, message.body).rawText
+                                            container.messageImageStore.preheatDetailAssets(message.rawPayloadJson, body)
+                                        }
+                                        onMessageClick(message.id)
+                                    }
+                                },
                                 onMarkRead = { viewModel.markRead(message.id) },
                                 onDelete = { scope.launch { scheduleDeletion(listOf(message)) } },
                                 selectionMode = isSelectionMode,

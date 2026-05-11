@@ -10,11 +10,13 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -43,6 +45,7 @@ import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -154,6 +157,14 @@ fun MessageDetailScreen(
     val imageModels = remember(current?.rawPayloadJson) {
         current?.let { imageStore.resolveDetailImageModels(it.rawPayloadJson) }.orEmpty()
     }
+    val primaryRemoteImageUrl = remember(current?.rawPayloadJson) {
+        current?.let { imageStore.resolveRemoteImageUrl(it.rawPayloadJson, preferredUrl = null) }
+    }
+    val primaryImageAspectRatio by produceState<Float?>(initialValue = null, primaryRemoteImageUrl) {
+        value = primaryRemoteImageUrl?.let { url ->
+            imageStore.imageAspectRatioFromMetadata(url)
+        }
+    }
     var channelNameMap by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
     var previewImageModel by remember(current?.id) { mutableStateOf<Any?>(null) }
     val resolvedBodyText = remember(current?.rawPayloadJson, current?.body) {
@@ -178,50 +189,12 @@ fun MessageDetailScreen(
         sheetState = sheetState,
     ) {
         when {
-            isLoading -> {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(start = 24.dp, top = 24.dp, end = 24.dp, bottom = bottomGestureInset + 24.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        text = stringResource(R.string.label_loading),
-                        style = MaterialTheme.typography.bodyLarge,
-                        color = uiColors.accentPrimary
-                    )
-                }
-            }
-
-            loadError != null -> {
-                AppEmptyState(
-                    icon = Icons.Outlined.MarkEmailRead,
-                    title = stringResource(R.string.error_request_failed),
-                    description = loadError.orEmpty(),
-                    modifier = Modifier.fillMaxWidth(),
-                    topPadding = 32.dp,
-                    bottomPadding = bottomGestureInset + 24.dp,
-                    iconSize = 44.dp,
-                )
-            }
-
-            current == null -> {
-                AppEmptyState(
-                    icon = Icons.Outlined.MarkEmailRead,
-                    title = stringResource(R.string.label_no_messages),
-                    description = stringResource(R.string.message_list_empty_hint),
-                    modifier = Modifier.fillMaxWidth(),
-                    topPadding = 32.dp,
-                    bottomPadding = bottomGestureInset + 24.dp,
-                    iconSize = 44.dp,
-                )
-            }
-
-            else -> {
+            current != null -> {
                 MessageDetailCoreContent(
                     message = current,
                     timeText = timeText,
                     imageModels = imageModels,
+                    primaryImageAspectRatio = primaryImageAspectRatio,
                     channelDisplayName = channelDisplayName,
                     resolvedBodyText = resolvedBodyText,
                     bottomGestureInset = bottomGestureInset,
@@ -278,6 +251,45 @@ fun MessageDetailScreen(
                     onOpenUrl = { url -> context.openExternalUrl(url) }
                 )
             }
+
+            isLoading -> {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(start = 24.dp, top = 24.dp, end = 24.dp, bottom = bottomGestureInset + 24.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = stringResource(R.string.label_loading),
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = uiColors.accentPrimary
+                    )
+                }
+            }
+
+            loadError != null -> {
+                AppEmptyState(
+                    icon = Icons.Outlined.MarkEmailRead,
+                    title = stringResource(R.string.error_request_failed),
+                    description = loadError.orEmpty(),
+                    modifier = Modifier.fillMaxWidth(),
+                    topPadding = 32.dp,
+                    bottomPadding = bottomGestureInset + 24.dp,
+                    iconSize = 44.dp,
+                )
+            }
+
+            else -> {
+                AppEmptyState(
+                    icon = Icons.Outlined.MarkEmailRead,
+                    title = stringResource(R.string.label_no_messages),
+                    description = stringResource(R.string.message_list_empty_hint),
+                    modifier = Modifier.fillMaxWidth(),
+                    topPadding = 32.dp,
+                    bottomPadding = bottomGestureInset + 24.dp,
+                    iconSize = 44.dp,
+                )
+            }
         }
     }
 
@@ -322,6 +334,7 @@ internal fun MessageDetailCoreContent(
     message: PushMessage,
     timeText: String,
     imageModels: List<Any>,
+    primaryImageAspectRatio: Float?,
     channelDisplayName: String?,
     resolvedBodyText: String,
     bottomGestureInset: Dp,
@@ -333,6 +346,9 @@ internal fun MessageDetailCoreContent(
     val uiColors = PushGoThemeExtras.colors
     val detailScrollState = rememberScrollState()
     var activeAnimatedImageKey by remember(message.id) { mutableStateOf<String?>(null) }
+    val reservedAspectRatio = remember(primaryImageAspectRatio) {
+        (primaryImageAspectRatio ?: (16f / 9f)).coerceIn(0.6f, 2.2f)
+    }
 
     LaunchedEffect(detailScrollState.isScrollInProgress) {
         if (detailScrollState.isScrollInProgress) {
@@ -456,7 +472,8 @@ internal fun MessageDetailCoreContent(
                     },
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(240.dp)
+                        .heightIn(min = 180.dp, max = 360.dp)
+                        .aspectRatio(reservedAspectRatio)
                         .clip(RoundedCornerShape(12.dp)),
                 )
             } else {

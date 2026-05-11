@@ -1566,6 +1566,7 @@ private fun ThingRelatedMessageDetailSheet(message: ThingRelatedMessage) {
         message = current,
         timeText = timeText,
         imageModels = current.imageUrls.map { it as Any },
+        primaryImageAspectRatio = null,
         channelDisplayName = current.channel?.trim()?.takeIf { it.isNotEmpty() },
         resolvedBodyText = resolvedBody.rawText,
         bottomGestureInset = bottomGestureInset,

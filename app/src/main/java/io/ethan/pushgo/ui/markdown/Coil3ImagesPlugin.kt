@@ -97,16 +97,14 @@ class Coil3ImagesPlugin private constructor(
     ) : Target {
         override fun onStart(placeholder: Image?) {
             val placeholderDrawable = placeholder?.asDrawable(resources) ?: return
-            if (drawable.isAttached) {
-                DrawableUtils.applyIntrinsicBoundsIfEmpty(placeholderDrawable)
-                drawable.setResult(placeholderDrawable)
-            }
+            DrawableUtils.applyIntrinsicBoundsIfEmpty(placeholderDrawable)
+            drawable.setResult(placeholderDrawable)
         }
 
         override fun onError(error: Image?) {
-            if (cache.remove(drawable) == null) return
-            val errorDrawable = error?.asDrawable(resources) ?: return
-            if (drawable.isAttached) {
+            if (cache.remove(drawable) != null || !loaded.get()) {
+                loaded.set(true)
+                val errorDrawable = error?.asDrawable(resources) ?: ErrorPlaceholderDrawable()
                 DrawableUtils.applyIntrinsicBoundsIfEmpty(errorDrawable)
                 drawable.setResult(errorDrawable)
             }
@@ -115,15 +113,13 @@ class Coil3ImagesPlugin private constructor(
         override fun onSuccess(result: Image) {
             if (cache.remove(drawable) != null || !loaded.get()) {
                 loaded.set(true)
-                if (drawable.isAttached) {
-                    val loadedDrawable = result.asDrawable(resources)
-                    val displayDrawable = MarkdownPlayableDrawable.wrapIfAnimated(resources, loadedDrawable)
-                    if (displayDrawable is MarkdownPlayableDrawable) {
-                        MarkdownAnimatedImagePlaybackRegistry.register(displayDrawable)
-                    }
-                    DrawableUtils.applyIntrinsicBoundsIfEmpty(displayDrawable)
-                    drawable.setResult(displayDrawable)
+                val loadedDrawable = result.asDrawable(resources)
+                val displayDrawable = MarkdownPlayableDrawable.wrapIfAnimated(resources, loadedDrawable)
+                if (displayDrawable is MarkdownPlayableDrawable) {
+                    MarkdownAnimatedImagePlaybackRegistry.register(displayDrawable)
                 }
+                DrawableUtils.applyIntrinsicBoundsIfEmpty(displayDrawable)
+                drawable.setResult(displayDrawable)
             }
         }
     }
@@ -200,4 +196,22 @@ private class MetadataPlaceholderDrawable(
     override fun getIntrinsicWidth(): Int = intrinsicWidthPx
 
     override fun getIntrinsicHeight(): Int = intrinsicHeightPx
+}
+
+private class ErrorPlaceholderDrawable : Drawable() {
+    private val paint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+        color = 0x33FFFFFF
+        style = android.graphics.Paint.Style.FILL
+    }
+
+    override fun draw(canvas: android.graphics.Canvas) {
+        canvas.drawRect(bounds, paint)
+    }
+
+    override fun setAlpha(alpha: Int) {}
+
+    override fun setColorFilter(colorFilter: android.graphics.ColorFilter?) {}
+
+    @Suppress("DEPRECATION", "OVERRIDE_DEPRECATION")
+    override fun getOpacity(): Int = android.graphics.PixelFormat.TRANSLUCENT
 }

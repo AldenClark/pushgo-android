@@ -69,6 +69,7 @@ internal class MarkdownPlayableDrawable private constructor(
 ) : Drawable(), Drawable.Callback {
     private var drawable: Drawable = baseDrawable.mutate()
     private var isPlaying = false
+    private var hideOverlayUntilPlaybackFinishes = false
     private val density = resources.displayMetrics.density
     private val overlaySizePx = 24f * density
     private val overlayMarginPx = 8f * density
@@ -93,14 +94,19 @@ internal class MarkdownPlayableDrawable private constructor(
     init {
         this.drawable.callback = this
         applyOneShotPolicy(this.drawable)
+        // Keep initial frame deterministic even if a decoder attempts eager playback.
+        this.drawable.asAnimatable()?.stop()
     }
 
     val isOverlayVisible: Boolean
-        get() = isAnimationCapable(drawable) && !isPlaying
+        get() = isAnimationCapable(drawable) &&
+            !hideOverlayUntilPlaybackFinishes &&
+            !drawable.isActuallyRunning()
 
     fun playOnce(): Boolean {
         val animatable = drawable.asAnimatable() ?: return false
         isPlaying = true
+        hideOverlayUntilPlaybackFinishes = true
         applyOneShotPolicy(drawable)
         animatable.start()
         invalidateSelf()
@@ -110,6 +116,7 @@ internal class MarkdownPlayableDrawable private constructor(
     fun stopAndReset() {
         drawable.asAnimatable()?.stop()
         isPlaying = false
+        hideOverlayUntilPlaybackFinishes = false
         drawable = resetDrawableForFirstFrame(drawable).also {
             it.callback = this
             applyOneShotPolicy(it)
@@ -212,6 +219,7 @@ internal class MarkdownPlayableDrawable private constructor(
 
     private fun handleAnimationFinished() {
         isPlaying = false
+        hideOverlayUntilPlaybackFinishes = false
         drawable = resetDrawableForFirstFrame(drawable).also {
             it.callback = this
             applyOneShotPolicy(it)
@@ -252,6 +260,14 @@ internal class MarkdownPlayableDrawable private constructor(
             is Animatable -> this
             is Animatable2Compat -> this
             else -> null
+        }
+    }
+
+    private fun Drawable.isActuallyRunning(): Boolean {
+        return when (this) {
+            is Animatable -> this.isRunning
+            is Animatable2Compat -> this.isRunning
+            else -> false
         }
     }
 

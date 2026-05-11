@@ -198,7 +198,9 @@ internal fun pushGoIsAnimatedModel(model: Any?): Boolean {
     val sanitized = identity.substringBefore('#').substringBefore('?')
     val name = sanitized.substringAfterLast('/')
     val extension = name.substringAfterLast('.', "").lowercase(Locale.US)
-    return extension == "gif" || extension == "webp" || extension == "apng"
+    // WebP can be either static or animated; do not infer animation from extension alone.
+    // Animated WebP should be determined by decoded drawable capability or persisted metadata.
+    return extension == "gif" || extension == "apng"
 }
 
 private fun Image.stopAnimationIfPossible() {
