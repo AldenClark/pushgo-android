@@ -441,6 +441,7 @@
     <string name="label_sort">정렬</string>
     <string name="message_sort_time_desc">최신순</string>
     <string name="message_sort_unread_first">안 읽은 항목 우선</string>
+    <string name="message_show_unread_only">읽지 않은 항목만 보기</string>
     <string name="section_notification_settings">알림 설정</string>
     <string name="label_notification_settings">알림 설정</string>
     <string name="label_notification_settings_hint">PushGo의 시스템 알림 설정을 엽니다.</string>

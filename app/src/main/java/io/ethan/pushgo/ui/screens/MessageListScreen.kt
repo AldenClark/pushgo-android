@@ -69,7 +69,6 @@ import androidx.paging.compose.itemContentType
 import io.ethan.pushgo.R
 import io.ethan.pushgo.automation.PushGoAutomation
 import io.ethan.pushgo.data.AppContainer
-import io.ethan.pushgo.data.model.MessageListSortMode
 import io.ethan.pushgo.data.model.PushMessage
 import io.ethan.pushgo.data.model.MessageSeverity
 import io.ethan.pushgo.notifications.ForegroundNotificationPresentationState
@@ -85,7 +84,6 @@ import io.ethan.pushgo.ui.theme.PushGoThemeExtras
 import io.ethan.pushgo.ui.viewmodel.MessageListViewModel
 import io.ethan.pushgo.ui.viewmodel.MessageSearchViewModel
 import kotlinx.coroutines.flow.distinctUntilChanged
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.time.Instant
 import java.time.ZoneId
@@ -117,7 +115,8 @@ fun MessageListScreen(
     val uiColors = PushGoThemeExtras.colors
     val messages = viewModel.messages.collectAsLazyPagingItems()
     val filterState by viewModel.filterState.collectAsStateWithLifecycle()
-    val channelCounts by viewModel.channelCounts.collectAsStateWithLifecycle()
+    val facetChannelCounts by viewModel.facetChannelCounts.collectAsStateWithLifecycle()
+    val facetTagCounts by viewModel.facetTagCounts.collectAsStateWithLifecycle()
     val query by searchViewModel.queryState.collectAsStateWithLifecycle()
     val searchResults by searchViewModel.results.collectAsStateWithLifecycle()
     val pendingLocalDeletion by container.pendingLocalDeletionCoordinator.pendingDeletion.collectAsStateWithLifecycle()
@@ -145,6 +144,33 @@ fun MessageListScreen(
             id = message.id,
             channelId = message.channel,
         )
+    }
+
+    fun normalizedChannel(channel: String?): String {
+        return channel?.trim().orEmpty()
+    }
+
+    fun normalizedTags(message: PushMessage): Set<String> {
+        return message.tags
+            .asSequence()
+            .map { it.trim().lowercase() }
+            .filter { it.isNotEmpty() }
+            .toSet()
+    }
+
+    fun matchesChannelSelection(message: PushMessage, selectedChannels: Set<String>): Boolean {
+        if (selectedChannels.isEmpty()) return true
+        return selectedChannels.contains(normalizedChannel(message.channel))
+    }
+
+    fun matchesTagSelection(message: PushMessage, selectedTags: Set<String>): Boolean {
+        if (selectedTags.isEmpty()) return true
+        val tags = normalizedTags(message)
+        return selectedTags.any(tags::contains)
+    }
+
+    fun matchesFacetFilter(message: PushMessage, selectedChannels: Set<String>, selectedTags: Set<String>): Boolean {
+        return matchesChannelSelection(message, selectedChannels) && matchesTagSelection(message, selectedTags)
     }
 
     val visibleSearchResults = remember(searchResults, pendingLocalDeletion?.id) {
@@ -238,7 +264,15 @@ fun MessageListScreen(
         val selectedMessages = if (query.isBlank()) {
             messages.itemSnapshotList.items.filter { selectedMessageIds.contains(it.id) }
         } else {
-            visibleSearchResults.filter { selectedMessageIds.contains(it.id) }
+            visibleSearchResults
+                .filter { selectedMessageIds.contains(it.id) }
+                .filter { message ->
+                    matchesFacetFilter(
+                        message = message,
+                        selectedChannels = filterState.channels,
+                        selectedTags = filterState.tags,
+                    )
+                }
         }
         scheduleDeletion(selectedMessages)
     }
@@ -248,7 +282,13 @@ fun MessageListScreen(
             val msg = if (query.isBlank()) {
                 messages.itemSnapshotList.items.firstOrNull { it.id == id }
             } else {
-                visibleSearchResults.firstOrNull { it.id == id }
+                visibleSearchResults.firstOrNull { message ->
+                    message.id == id && matchesFacetFilter(
+                        message = message,
+                        selectedChannels = filterState.channels,
+                        selectedTags = filterState.tags,
+                    )
+                }
             }
             msg?.isRead == false
         }
@@ -319,8 +359,6 @@ fun MessageListScreen(
 
     LaunchedEffect(Unit) {
         channelNameMap = container.channelRepository.loadSubscriptionLookup(includeDeleted = true)
-        delay(180)
-        viewModel.enableChannelCounts()
     }
 
     DisposableEffect(lifecycleOwner) {
@@ -355,37 +393,82 @@ fun MessageListScreen(
         selectedMessageIds = selectedMessageIds.filterNot(pendingScope::suppressesMessageId).toSet()
     }
 
-    val channelOptions = remember(channelCounts) { channelCounts.map { it.channel.trim() }.distinct() }
-    val tagOptions = remember(
-        query,
-        messages.itemSnapshotList.items,
-        visibleSearchResults,
-        pendingLocalDeletion?.id,
-    ) {
-        val source = if (query.isBlank()) {
-            messages.itemSnapshotList.items
-        } else {
-            visibleSearchResults
+    LaunchedEffect(filterState.unreadOnly) {
+        searchViewModel.setUnreadOnlyFilter(filterState.unreadOnly)
+    }
+
+    val selectedChannels = filterState.channels
+    val selectedTags = filterState.tags
+    val visiblePagedItems = remember(messages.itemSnapshotList.items, pendingLocalDeletion?.id) {
+        messages.itemSnapshotList.items.filterNot(::isPendingLocalDeletion)
+    }
+    val filteredPagedItems = remember(visiblePagedItems, selectedChannels, selectedTags) {
+        visiblePagedItems.filter { message ->
+            matchesFacetFilter(
+                message = message,
+                selectedChannels = selectedChannels,
+                selectedTags = selectedTags,
+            )
         }
-        source
-            .asSequence()
-            .flatMap { it.tags.asSequence() }
-            .map { it.trim().lowercase() }
-            .filter { it.isNotEmpty() }
-            .distinct()
-            .sorted()
+    }
+    val filteredSearchResults = remember(visibleSearchResults, selectedChannels, selectedTags) {
+        visibleSearchResults.filter { message ->
+            matchesFacetFilter(
+                message = message,
+                selectedChannels = selectedChannels,
+                selectedTags = selectedTags,
+            )
+        }
+    }
+
+    val channelOptions = remember(
+        facetChannelCounts,
+        selectedChannels,
+        channelNameMap,
+    ) {
+        val globalCounts = linkedMapOf<String, Int>()
+        facetChannelCounts.forEach { row ->
+            val normalized = row.value.trim()
+            globalCounts[normalized] = row.count
+        }
+        selectedChannels.forEach { channel -> globalCounts.putIfAbsent(channel, 0) }
+        globalCounts
             .toList()
+            .sortedWith(
+                compareByDescending<Pair<String, Int>> { it.second }
+                    .thenBy { channelNameMap[it.first] ?: it.first },
+            )
+    }
+
+    val tagOptions = remember(
+        facetTagCounts,
+        selectedTags,
+    ) {
+        val globalCounts = linkedMapOf<String, Int>()
+        facetTagCounts.forEach { row ->
+            val normalized = row.value.trim().lowercase()
+            if (normalized.isNotEmpty()) {
+                globalCounts[normalized] = row.count
+            }
+        }
+        selectedTags.forEach { tag -> globalCounts.putIfAbsent(tag, 0) }
+        globalCounts
+            .toList()
+            .sortedWith(
+                compareByDescending<Pair<String, Int>> { it.second }
+                    .thenBy { it.first },
+            )
     }
     val selectableMessageIds = remember(
         query,
-        messages.itemSnapshotList.items,
-        visibleSearchResults,
+        filteredPagedItems,
+        filteredSearchResults,
         pendingLocalDeletion?.id,
     ) {
         val source = if (query.isBlank()) {
-            messages.itemSnapshotList.items.filterNot(::isPendingLocalDeletion)
+            filteredPagedItems
         } else {
-            visibleSearchResults
+            filteredSearchResults
         }
         source.mapTo(mutableSetOf()) { it.id }
     }
@@ -450,9 +533,9 @@ fun MessageListScreen(
                                     ) {
                                         Box {
                                             IconButton(onClick = { searchMenuExpanded = true }) {
-                                                val hasActiveFilter = filterState.channel != null
-                                                    || filterState.tag != null
-                                                    || filterState.sortMode != MessageListSortMode.TIME_DESC
+                                                val hasActiveFilter = filterState.channels.isNotEmpty()
+                                                    || filterState.tags.isNotEmpty()
+                                                    || filterState.unreadOnly
                                                 FilterMenuIcon(
                                                     active = hasActiveFilter,
                                                     inactiveTint = uiColors.iconMuted,
@@ -470,41 +553,20 @@ fun MessageListScreen(
                                                     },
                                                 )
 
-                                                HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
-
                                                 DropdownMenuItem(
-                                                    text = {
-                                                        Text(
-                                                            text = stringResource(R.string.label_sort),
-                                                            style = MaterialTheme.typography.labelSmall,
-                                                            color = uiColors.textSecondary,
+                                                    text = { Text(stringResource(R.string.message_show_unread_only)) },
+                                                    leadingIcon = {
+                                                        Icon(
+                                                            Icons.Outlined.MarkEmailUnread,
+                                                            contentDescription = null,
+                                                            modifier = Modifier.size(18.dp),
                                                         )
                                                     },
-                                                    onClick = {},
-                                                    enabled = false,
-                                                )
-                                                DropdownMenuItem(
-                                                    text = { Text(stringResource(R.string.message_sort_time_desc)) },
                                                     onClick = {
-                                                        viewModel.setSortMode(MessageListSortMode.TIME_DESC)
-                                                        searchViewModel.setSortMode(MessageListSortMode.TIME_DESC)
-                                                        searchMenuExpanded = false
+                                                        viewModel.toggleUnreadOnlyFilter()
                                                     },
                                                     trailingIcon = {
-                                                        if (filterState.sortMode == MessageListSortMode.TIME_DESC) {
-                                                            Icon(Icons.Outlined.Check, null, modifier = Modifier.size(18.dp))
-                                                        }
-                                                    }
-                                                )
-                                                DropdownMenuItem(
-                                                    text = { Text(stringResource(R.string.message_sort_unread_first)) },
-                                                    onClick = {
-                                                        viewModel.setSortMode(MessageListSortMode.UNREAD_FIRST)
-                                                        searchViewModel.setSortMode(MessageListSortMode.UNREAD_FIRST)
-                                                        searchMenuExpanded = false
-                                                    },
-                                                    trailingIcon = {
-                                                        if (filterState.sortMode == MessageListSortMode.UNREAD_FIRST) {
+                                                        if (filterState.unreadOnly) {
                                                             Icon(Icons.Outlined.Check, null, modifier = Modifier.size(18.dp))
                                                         }
                                                     }
@@ -526,11 +588,26 @@ fun MessageListScreen(
                                                     )
                                                 }
                                                 if (channelOptions.isNotEmpty()) {
-                                                    channelOptions.forEach { channel ->
+                                                    channelOptions.forEach { (channel, _) ->
                                                         DropdownMenuItem(
-                                                            text = { Text(if (channel.isBlank()) stringResource(R.string.label_group_ungrouped) else channelNameMap[channel] ?: channel, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-                                                            onClick = { viewModel.setChannel(if (filterState.channel == channel) null else channel); searchMenuExpanded = false },
-                                                            trailingIcon = { if (filterState.channel == channel) Icon(Icons.Outlined.Check, null, modifier = Modifier.size(18.dp)) }
+                                                            text = {
+                                                                val baseName = if (channel.isBlank()) {
+                                                                    stringResource(R.string.label_group_ungrouped)
+                                                                } else {
+                                                                    channelNameMap[channel] ?: channel
+                                                                }
+                                                                Text(
+                                                                    text = baseName,
+                                                                    maxLines = 1,
+                                                                    overflow = TextOverflow.Ellipsis,
+                                                                )
+                                                            },
+                                                            onClick = { viewModel.toggleChannel(channel) },
+                                                            trailingIcon = {
+                                                                if (filterState.channels.contains(channel)) {
+                                                                    Icon(Icons.Outlined.Check, null, modifier = Modifier.size(18.dp))
+                                                                }
+                                                            }
                                                         )
                                                     }
                                                 }
@@ -551,20 +628,14 @@ fun MessageListScreen(
                                                             horizontalArrangement = Arrangement.spacedBy(8.dp),
                                                             verticalArrangement = Arrangement.spacedBy(8.dp),
                                                     ) {
-                                                        tagOptions.forEach { tag ->
-                                                            val selected = filterState.tag == tag
+                                                        tagOptions.forEach { (tag, _) ->
+                                                            val selected = filterState.tags.contains(tag)
                                                             FilterChip(
                                                                     selected = selected,
                                                                     onClick = {
-                                                                        viewModel.setTag(if (selected) null else tag)
-                                                                        searchMenuExpanded = false
+                                                                        viewModel.toggleTag(tag)
                                                                     },
-                                                                    label = { Text("#$tag") },
-                                                                    leadingIcon = if (selected) {
-                                                                        { Icon(Icons.Outlined.Check, contentDescription = null, modifier = Modifier.size(16.dp)) }
-                                                                    } else {
-                                                                        null
-                                                                    },
+                                                                    label = { Text(tag) },
                                                                 )
                                                             }
                                                         }
@@ -586,7 +657,7 @@ fun MessageListScreen(
                 }
 
                 if (query.isBlank()) {
-                    if (messages.itemCount == 0 && messages.loadState.refresh is LoadState.NotLoading) {
+                    if (filteredPagedItems.isEmpty() && messages.loadState.refresh is LoadState.NotLoading) {
                         item { AppEmptyState(icon = Icons.Outlined.Email, title = stringResource(R.string.message_list_empty_title), description = stringResource(R.string.message_list_empty_hint)) }
                     } else {
                         items(
@@ -595,7 +666,15 @@ fun MessageListScreen(
                             contentType = messages.itemContentType { "message" }
                         ) { index ->
                             val message = messages[index]
-                            if (message != null && !isPendingLocalDeletion(message)) {
+                            if (
+                                message != null &&
+                                !isPendingLocalDeletion(message) &&
+                                matchesFacetFilter(
+                                    message = message,
+                                    selectedChannels = selectedChannels,
+                                    selectedTags = selectedTags,
+                                )
+                            ) {
                                 val listImageModels = remember(message.rawPayloadJson) {
                                     container.messageImageStore.resolveListImageModels(message.rawPayloadJson, MessageListImagePreviewMaxItems)
                                 }
@@ -618,10 +697,10 @@ fun MessageListScreen(
                         }
                     }
                 } else {
-                    if (visibleSearchResults.isEmpty()) {
+                    if (filteredSearchResults.isEmpty()) {
                         item { AppEmptyState(icon = Icons.Default.Search, title = stringResource(R.string.label_no_search_results), description = stringResource(R.string.message_list_empty_hint)) }
                     } else {
-                        items(items = visibleSearchResults, key = { it.id }) { message ->
+                        items(items = filteredSearchResults, key = { it.id }) { message ->
                             val listImageModels = remember(message.rawPayloadJson) {
                                 container.messageImageStore.resolveListImageModels(message.rawPayloadJson, MessageListImagePreviewMaxItems)
                             }
@@ -700,15 +779,13 @@ private fun FilterMenuIcon(
 ) {
     Box(
         modifier = Modifier
-            .size(24.dp)
-            .clip(CircleShape)
-            .background(if (active) Color.Black else Color.Transparent),
+            .size(24.dp),
         contentAlignment = Alignment.Center,
     ) {
         Icon(
             imageVector = Icons.Outlined.FilterList,
             contentDescription = contentDescription,
-            tint = if (active) Color.White else inactiveTint,
+            tint = if (active) PushGoThemeExtras.colors.accentPrimary else inactiveTint,
         )
     }
 }

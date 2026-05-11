@@ -13,6 +13,7 @@
     <string name="label_sort">Sort</string>
     <string name="message_sort_time_desc">Newest first</string>
     <string name="message_sort_unread_first">Unread first</string>
+    <string name="message_show_unread_only">Show unread only</string>
     <string name="section_status">Status</string>
     <string name="label_server_token">Token (optional)</string>
     <string name="label_save">Save</string>

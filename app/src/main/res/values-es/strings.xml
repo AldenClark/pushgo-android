@@ -446,6 +446,7 @@
     <string name="label_sort">Ordenar</string>
     <string name="message_sort_time_desc">Más recientes primero</string>
     <string name="message_sort_unread_first">No leídos primero</string>
+    <string name="message_show_unread_only">Mostrar solo no leídos</string>
     <string name="section_notification_settings">Ajustes de notificaciones</string>
     <string name="label_notification_settings">Ajustes de notificaciones</string>
     <string name="label_notification_settings_hint">Abrir los ajustes del sistema de notificaciones para PushGo.</string>

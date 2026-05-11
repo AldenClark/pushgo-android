@@ -188,8 +188,8 @@ fun EventListScreen(
     var selectedEventIds by remember { mutableStateOf<Set<String>>(emptySet()) }
     var isPullRefreshing by remember { mutableStateOf(false) }
     var searchQuery by remember { mutableStateOf("") }
-    var channelFilter by remember { mutableStateOf<String?>(null) }
-    var selectedTag by remember { mutableStateOf<String?>(null) }
+    var selectedChannelFilters by remember { mutableStateOf<Set<String>>(emptySet()) }
+    var selectedTagFilters by remember { mutableStateOf<Set<String>>(emptySet()) }
     var showOnlyOpen by remember { mutableStateOf(false) }
     var channelNameMap by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
     var pendingCloseEvent by remember { mutableStateOf<EventCardModel?>(null) }
@@ -415,11 +415,11 @@ fun EventListScreen(
         listState.animateScrollToItem(0)
     }
 
-    val filteredEvents = remember(allEvents, searchQuery, channelFilter, selectedTag, showOnlyOpen, pendingLocalDeletion?.id) {
+    val filteredEvents = remember(allEvents, searchQuery, selectedChannelFilters, selectedTagFilters, showOnlyOpen, pendingLocalDeletion?.id) {
         val query = searchQuery.trim().lowercase()
         allEvents.filter { event ->
-            (channelFilter == null || event.channelId == channelFilter) &&
-            (selectedTag == null || event.tags.any { it.trim().lowercase() == selectedTag }) &&
+            (selectedChannelFilters.isEmpty() || selectedChannelFilters.contains(event.channelId.orEmpty().trim())) &&
+            (selectedTagFilters.isEmpty() || event.tags.any { tag -> selectedTagFilters.contains(tag.trim().lowercase()) }) &&
             (!showOnlyOpen || event.state == EventLifecycleState.Ongoing) &&
             (query.isEmpty() || event.title.lowercase().contains(query) || event.summary?.lowercase()?.contains(query) == true) &&
             !isPendingLocalDeletion(event)
@@ -444,12 +444,23 @@ fun EventListScreen(
             }
     }
 
-    val channelOptions = remember(allEvents) { 
-        allEvents.mapNotNull { it.channelId?.trim()?.takeIf { v -> v.isNotEmpty() } }.distinct().sorted() 
-    }
-    val tagOptions = remember(allEvents) {
+    val channelOptions = remember(allEvents, pendingLocalDeletion?.id) {
         allEvents
             .asSequence()
+            .filter { event ->
+                !isPendingLocalDeletion(event)
+            }
+            .mapNotNull { it.channelId?.trim()?.takeIf { value -> value.isNotEmpty() } }
+            .distinct()
+            .sorted()
+            .toList()
+    }
+    val tagOptions = remember(allEvents, pendingLocalDeletion?.id) {
+        allEvents
+            .asSequence()
+            .filter { event ->
+                !isPendingLocalDeletion(event)
+            }
             .flatMap { it.tags.asSequence() }
             .map { it.trim().lowercase() }
             .filter { it.isNotEmpty() }
@@ -573,7 +584,7 @@ fun EventListScreen(
                                     Box {
                                         var menuExpanded by remember { mutableStateOf(false) }
                                         IconButton(onClick = { menuExpanded = true }) {
-                                            val active = channelFilter != null || selectedTag != null || showOnlyOpen
+                                            val active = selectedChannelFilters.isNotEmpty() || selectedTagFilters.isNotEmpty() || showOnlyOpen
                                             FilterMenuIcon(
                                                 active = active,
                                                 inactiveTint = uiColors.iconMuted,
@@ -595,7 +606,7 @@ fun EventListScreen(
 
                                             DropdownMenuItem(
                                                 text = { Text(stringResource(R.string.filter_open_events)) },
-                                                onClick = { showOnlyOpen = !showOnlyOpen; menuExpanded = false },
+                                                onClick = { showOnlyOpen = !showOnlyOpen },
                                                 trailingIcon = { if (showOnlyOpen) Icon(Icons.Outlined.Check, null, modifier = Modifier.size(18.dp)) }
                                             )
                                             if (channelOptions.isNotEmpty()) {
@@ -614,8 +625,18 @@ fun EventListScreen(
                                                 channelOptions.forEach { channel ->
                                                     DropdownMenuItem(
                                                         text = { Text(channel, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-                                                        onClick = { channelFilter = if (channelFilter == channel) null else channel; menuExpanded = false },
-                                                        trailingIcon = { if (channelFilter == channel) Icon(Icons.Outlined.Check, null, modifier = Modifier.size(18.dp)) }
+                                                        onClick = {
+                                                            selectedChannelFilters = if (selectedChannelFilters.contains(channel)) {
+                                                                selectedChannelFilters - channel
+                                                            } else {
+                                                                selectedChannelFilters + channel
+                                                            }
+                                                        },
+                                                        trailingIcon = {
+                                                            if (selectedChannelFilters.contains(channel)) {
+                                                                Icon(Icons.Outlined.Check, null, modifier = Modifier.size(18.dp))
+                                                            }
+                                                        }
                                                     )
                                                 }
                                             } else {
@@ -643,19 +664,17 @@ fun EventListScreen(
                                                         verticalArrangement = Arrangement.spacedBy(8.dp),
                                                     ) {
                                                         tagOptions.forEach { tag ->
-                                                            val selected = selectedTag == tag
+                                                            val selected = selectedTagFilters.contains(tag)
                                                             FilterChip(
                                                                 selected = selected,
                                                                 onClick = {
-                                                                    selectedTag = if (selected) null else tag
-                                                                    menuExpanded = false
+                                                                    selectedTagFilters = if (selected) {
+                                                                        selectedTagFilters - tag
+                                                                    } else {
+                                                                        selectedTagFilters + tag
+                                                                    }
                                                                 },
-                                                                label = { Text("#$tag") },
-                                                                leadingIcon = if (selected) {
-                                                                    { Icon(Icons.Outlined.Check, contentDescription = null, modifier = Modifier.size(16.dp)) }
-                                                                } else {
-                                                                    null
-                                                                },
+                                                                label = { Text(tag) },
                                                             )
                                                         }
                                                     }
@@ -673,9 +692,9 @@ fun EventListScreen(
             if (filteredEvents.isEmpty()) {
                 item {
                     AppEmptyState(
-                        icon = if (searchQuery.isNotEmpty() || channelFilter != null || selectedTag != null || showOnlyOpen) Icons.Default.Search else Icons.AutoMirrored.Outlined.EventNote,
-                        title = if (searchQuery.isNotEmpty() || channelFilter != null || selectedTag != null || showOnlyOpen) stringResource(R.string.label_no_search_results) else stringResource(R.string.label_no_events_title),
-                        description = if (searchQuery.isNotEmpty() || channelFilter != null || selectedTag != null || showOnlyOpen) stringResource(R.string.message_list_empty_hint) else stringResource(R.string.label_no_events_hint),
+                        icon = if (searchQuery.isNotEmpty() || selectedChannelFilters.isNotEmpty() || selectedTagFilters.isNotEmpty() || showOnlyOpen) Icons.Default.Search else Icons.AutoMirrored.Outlined.EventNote,
+                        title = if (searchQuery.isNotEmpty() || selectedChannelFilters.isNotEmpty() || selectedTagFilters.isNotEmpty() || showOnlyOpen) stringResource(R.string.label_no_search_results) else stringResource(R.string.label_no_events_title),
+                        description = if (searchQuery.isNotEmpty() || selectedChannelFilters.isNotEmpty() || selectedTagFilters.isNotEmpty() || showOnlyOpen) stringResource(R.string.message_list_empty_hint) else stringResource(R.string.label_no_events_hint),
                     )
                 }
             } else {

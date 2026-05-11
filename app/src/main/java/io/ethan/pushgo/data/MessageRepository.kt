@@ -21,8 +21,8 @@ import io.ethan.pushgo.data.db.ThingHeadDao
 import io.ethan.pushgo.data.db.ThingSubMessageDao
 import io.ethan.pushgo.data.db.ThingSubMessageEntity
 import io.ethan.pushgo.data.model.MessageChannelCount
+import io.ethan.pushgo.data.model.MessageFacetOptionCount
 import io.ethan.pushgo.data.model.MessageFilter
-import io.ethan.pushgo.data.model.MessageListSortMode
 import io.ethan.pushgo.data.model.PushMessage
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -75,14 +75,15 @@ class MessageRepository(
                 initialLoadSize = 50
             ),
             pagingSourceFactory = {
-                val prioritizeUnread = if (filter.sortMode == MessageListSortMode.UNREAD_FIRST) 1 else 0
                 dao.observeMessages(
-                    readState = null,
+                    readState = if (filter.unreadOnly) false else null,
                     withUrl = if (filter.withUrlOnly) 1 else 0,
-                    channel = filter.channel,
-                    tag = filter.tag,
+                    channels = filter.channels.toList(),
+                    channelCount = filter.channels.size,
+                    tags = filter.tags.toList(),
+                    tagCount = filter.tags.size,
                     serverId = filter.serverId,
-                    prioritizeUnread = prioritizeUnread,
+                    prioritizeUnread = 0,
                 )
             }
         ).flow.map { pagingData ->
@@ -92,33 +93,33 @@ class MessageRepository(
 
     fun searchMessages(
         rawQuery: String,
-        sortMode: MessageListSortMode,
+        unreadOnly: Boolean,
         limit: Int = 200
     ): Flow<List<PushMessage>> {
         val plan = parseSearchQuery(rawQuery)
         if (plan.isEmpty) {
             return kotlinx.coroutines.flow.flowOf(emptyList())
         }
-        val prioritizeUnread = if (sortMode == MessageListSortMode.UNREAD_FIRST) 1 else 0
+        val readState = if (unreadOnly) false else null
         val flow = when {
             plan.hasText && plan.hasTags -> dao.searchMessagesByTextAndTags(
                 query = plan.ftsQuery,
                 tags = plan.tags,
                 tagCount = plan.tags.size,
-                prioritizeUnread = prioritizeUnread,
+                readState = readState,
                 limit = limit,
             )
 
             plan.hasText -> dao.searchMessages(
                 query = plan.ftsQuery,
-                prioritizeUnread = prioritizeUnread,
+                readState = readState,
                 limit = limit,
             )
 
             else -> dao.searchMessagesByTags(
                 tags = plan.tags,
                 tagCount = plan.tags.size,
-                prioritizeUnread = prioritizeUnread,
+                readState = readState,
                 limit = limit,
             )
         }
@@ -128,6 +129,19 @@ class MessageRepository(
     fun observeChannelCounts(): Flow<List<MessageChannelCount>> = channelStatsDao.observeChannelCounts()
 
     fun observeUnreadCount(): Flow<Int> = channelStatsDao.observeUnreadCount().distinctUntilChanged()
+
+    fun observeFacetChannelCounts(): Flow<List<MessageFacetOptionCount>> {
+        return dao.observeFacetChannelCounts().map { list ->
+            list.map { row -> MessageFacetOptionCount(value = row.value.trim(), count = row.count) }
+        }
+    }
+
+    fun observeFacetTagCounts(): Flow<List<MessageFacetOptionCount>> {
+        return dao.observeFacetTagCounts().map { list ->
+            list.map { row -> MessageFacetOptionCount(value = row.value.trim().lowercase(), count = row.count) }
+                .filter { row -> row.value.isNotEmpty() }
+        }
+    }
 
     fun observeEventCount(): Flow<Int> = kotlinx.coroutines.flow.flowOf(0)
 

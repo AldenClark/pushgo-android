@@ -3,17 +3,15 @@ package io.ethan.pushgo.ui.viewmodel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import io.ethan.pushgo.data.MessageRepository
-import io.ethan.pushgo.data.SettingsRepository
 import io.ethan.pushgo.notifications.MessageStateCoordinator
 import io.ethan.pushgo.data.model.MessageFilter
-import io.ethan.pushgo.data.model.MessageListSortMode
+import io.ethan.pushgo.data.model.MessageFacetOptionCount
 import io.ethan.pushgo.data.model.PushMessage
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.flatMapLatest
-import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
@@ -25,13 +23,9 @@ import kotlinx.coroutines.Job
 @OptIn(ExperimentalCoroutinesApi::class)
 class MessageListViewModel(
     private val repository: MessageRepository,
-    private val settingsRepository: SettingsRepository,
     private val stateCoordinator: MessageStateCoordinator,
 ) : ViewModel() {
-    private val filter = MutableStateFlow(
-        MessageFilter(sortMode = settingsRepository.getCachedMessageListSortMode())
-    )
-    private val channelCountsEnabled = MutableStateFlow(false)
+    private val filter = MutableStateFlow(MessageFilter())
 
     val messages: Flow<PagingData<PushMessage>> = filter
         .flatMapLatest { repository.observeMessages(it) }
@@ -40,39 +34,33 @@ class MessageListViewModel(
     val filterState: StateFlow<MessageFilter> = filter
         .stateIn(viewModelScope, SharingStarted.Lazily, MessageFilter())
 
-    val channelCounts = channelCountsEnabled
-        .flatMapLatest { enabled ->
-            if (enabled) {
-                repository.observeChannelCounts()
-            } else {
-                flowOf(emptyList())
-            }
-        }
+    val facetChannelCounts: StateFlow<List<MessageFacetOptionCount>> = repository.observeFacetChannelCounts()
         .stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
 
-    fun enableChannelCounts() {
-        if (!channelCountsEnabled.value) {
-            channelCountsEnabled.value = true
-        }
-    }
+    val facetTagCounts: StateFlow<List<MessageFacetOptionCount>> = repository.observeFacetTagCounts()
+        .stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
 
     fun setWithUrlOnly(withUrlOnly: Boolean) {
         filter.value = filter.value.copy(withUrlOnly = withUrlOnly)
     }
 
-    fun setChannel(channel: String?) {
-        filter.value = filter.value.copy(channel = channel)
+    fun toggleChannel(channel: String) {
+        val normalized = channel.trim()
+        if (normalized.isEmpty()) return
+        val current = filter.value.channels
+        val next = if (current.contains(normalized)) current - normalized else current + normalized
+        filter.value = filter.value.copy(channels = next)
     }
 
-    fun setTag(tag: String?) {
-        val normalized = tag?.trim()?.lowercase()?.takeIf { it.isNotEmpty() }
-        filter.value = filter.value.copy(tag = normalized)
+    fun toggleTag(tag: String) {
+        val normalized = tag.trim().lowercase().takeIf { it.isNotEmpty() } ?: return
+        val current = filter.value.tags
+        val next = if (current.contains(normalized)) current - normalized else current + normalized
+        filter.value = filter.value.copy(tags = next)
     }
 
-    fun setSortMode(sortMode: MessageListSortMode) {
-        if (filter.value.sortMode == sortMode) return
-        filter.value = filter.value.copy(sortMode = sortMode)
-        settingsRepository.setCachedMessageListSortMode(sortMode)
+    fun toggleUnreadOnlyFilter() {
+        filter.value = filter.value.copy(unreadOnly = !filter.value.unreadOnly)
     }
 
     fun markRead(messageId: String): Job {
@@ -94,7 +82,8 @@ class MessageListViewModel(
     }
 
     fun cleanupMessagesForCurrentFilter(): Job {
-        val channel = filter.value.channel
+        val selectedChannels = filter.value.channels
+        val channel = if (selectedChannels.size == 1) selectedChannels.first() else null
         return viewModelScope.launch {
             stateCoordinator.deleteMessagesByChannelRead(channel, null)
         }

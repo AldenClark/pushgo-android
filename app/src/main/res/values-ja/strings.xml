@@ -441,6 +441,7 @@
     <string name="label_sort">並び替え</string>
     <string name="message_sort_time_desc">新しい順</string>
     <string name="message_sort_unread_first">未読優先</string>
+    <string name="message_show_unread_only">未読のみ表示</string>
     <string name="section_notification_settings">通知設定</string>
     <string name="label_notification_settings">通知設定</string>
     <string name="label_notification_settings_hint">PushGo のシステム通知設定を開きます。</string>

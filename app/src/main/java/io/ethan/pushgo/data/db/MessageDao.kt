@@ -25,18 +25,17 @@ interface MessageDao {
         WHERE (:readState IS NULL OR is_read = :readState)
           AND (:withUrl = 0 OR url IS NOT NULL)
           AND (
-            :channel IS NULL
-            OR (:channel = '' AND (channel IS NULL OR channel = ''))
-            OR (:channel != '' AND channel = :channel)
+            :channelCount = 0
+            OR COALESCE(NULLIF(TRIM(channel), ''), '') IN (:channels)
           )
           AND (
-            :tag IS NULL
+            :tagCount = 0
             OR EXISTS (
               SELECT 1
               FROM message_metadata_index mi
               WHERE mi.message_id = messages.id
                 AND mi.key_name = 'tag'
-                AND mi.value_norm = :tag
+                AND mi.value_norm IN (:tags)
             )
           )
           AND (:serverId IS NULL OR server_id = :serverId)
@@ -53,29 +52,51 @@ interface MessageDao {
     fun observeMessages(
         readState: Boolean?,
         withUrl: Int,
-        channel: String?,
-        tag: String?,
+        channels: List<String>,
+        channelCount: Int,
+        tags: List<String>,
+        tagCount: Int,
         serverId: String?,
         prioritizeUnread: Int,
     ): PagingSource<Int, MessageEntity>
 
     @Query(
         """
+        SELECT COALESCE(NULLIF(TRIM(m.channel), ''), '') AS value, COUNT(*) AS count
+        FROM messages m
+        GROUP BY COALESCE(NULLIF(TRIM(m.channel), ''), '')
+        ORDER BY count DESC, value ASC
+        """
+    )
+    fun observeFacetChannelCounts(): Flow<List<MessageFacetValueCount>>
+
+    @Query(
+        """
+        SELECT mi.value_norm AS value, COUNT(DISTINCT m.id) AS count
+        FROM messages m
+        JOIN message_metadata_index mi
+          ON mi.message_id = m.id
+         AND mi.key_name = 'tag'
+        WHERE mi.value_norm != ''
+        GROUP BY mi.value_norm
+        ORDER BY count DESC, value ASC
+        """
+    )
+    fun observeFacetTagCounts(): Flow<List<MessageFacetValueCount>>
+
+    @Query(
+        """
         SELECT m.* FROM messages m
         JOIN message_fts f ON m.rowid = f.rowid
         WHERE message_fts MATCH :query
+          AND (:readState IS NULL OR m.is_read = :readState)
         ORDER BY
-          CASE
-            WHEN :prioritizeUnread = 1 AND m.is_read = 0 THEN 0
-            WHEN :prioritizeUnread = 1 THEN 1
-            ELSE 0
-          END ASC,
           m.received_at DESC,
           m.id DESC
         LIMIT :limit
         """
     )
-    fun searchMessages(query: String, prioritizeUnread: Int, limit: Int): Flow<List<MessageEntity>>
+    fun searchMessages(query: String, readState: Boolean?, limit: Int): Flow<List<MessageEntity>>
 
     @Query(
         """
@@ -88,12 +109,8 @@ interface MessageDao {
             GROUP BY mi.message_id
             HAVING COUNT(DISTINCT mi.value_norm) = :tagCount
         )
+          AND (:readState IS NULL OR m.is_read = :readState)
         ORDER BY
-          CASE
-            WHEN :prioritizeUnread = 1 AND m.is_read = 0 THEN 0
-            WHEN :prioritizeUnread = 1 THEN 1
-            ELSE 0
-          END ASC,
           m.received_at DESC,
           m.id DESC
         LIMIT :limit
@@ -102,7 +119,7 @@ interface MessageDao {
     fun searchMessagesByTags(
         tags: List<String>,
         tagCount: Int,
-        prioritizeUnread: Int,
+        readState: Boolean?,
         limit: Int,
     ): Flow<List<MessageEntity>>
 
@@ -111,6 +128,7 @@ interface MessageDao {
         SELECT m.* FROM messages m
         JOIN message_fts f ON m.rowid = f.rowid
         WHERE message_fts MATCH :query
+          AND (:readState IS NULL OR m.is_read = :readState)
           AND m.id IN (
             SELECT mi.message_id
             FROM message_metadata_index mi
@@ -120,11 +138,6 @@ interface MessageDao {
             HAVING COUNT(DISTINCT mi.value_norm) = :tagCount
           )
         ORDER BY
-          CASE
-            WHEN :prioritizeUnread = 1 AND m.is_read = 0 THEN 0
-            WHEN :prioritizeUnread = 1 THEN 1
-            ELSE 0
-          END ASC,
           m.received_at DESC,
           m.id DESC
         LIMIT :limit
@@ -134,7 +147,7 @@ interface MessageDao {
         query: String,
         tags: List<String>,
         tagCount: Int,
-        prioritizeUnread: Int,
+        readState: Boolean?,
         limit: Int,
     ): Flow<List<MessageEntity>>
 

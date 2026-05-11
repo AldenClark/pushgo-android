@@ -192,8 +192,8 @@ fun ThingListScreen(
     var initialSelectionStateForDrag by remember { mutableStateOf<Boolean?>(null) }
     var isPullRefreshing by remember { mutableStateOf(false) }
     var searchQuery by remember { mutableStateOf("") }
-    var channelFilter by remember { mutableStateOf<String?>(null) }
-    var selectedTag by remember { mutableStateOf<String?>(null) }
+    var selectedChannelFilters by remember { mutableStateOf<Set<String>>(emptySet()) }
+    var selectedTagFilters by remember { mutableStateOf<Set<String>>(emptySet()) }
     var showOnlyActive by remember { mutableStateOf(false) }
     
     val context = LocalContext.current
@@ -426,12 +426,12 @@ fun ThingListScreen(
         listState.animateScrollToItem(0)
     }
 
-    val filteredThings = remember(allThings, searchQuery, channelFilter, selectedTag, showOnlyActive, pendingLocalDeletion?.id) {
+    val filteredThings = remember(allThings, searchQuery, selectedChannelFilters, selectedTagFilters, showOnlyActive, pendingLocalDeletion?.id) {
         val query = searchQuery.trim().lowercase()
         allThings.filter { thing ->
             (searchQuery.isBlank() || thing.title.lowercase().contains(query)) &&
-            (channelFilter == null || thing.channelId == channelFilter) &&
-            (selectedTag == null || thing.tags.any { it.trim().lowercase() == selectedTag }) &&
+            (selectedChannelFilters.isEmpty() || selectedChannelFilters.contains(thing.channelId.orEmpty().trim())) &&
+            (selectedTagFilters.isEmpty() || thing.tags.any { tag -> selectedTagFilters.contains(tag.trim().lowercase()) }) &&
             (!showOnlyActive || (thing.state != "archived" && thing.state != "deleted")) &&
             !isPendingThingDeletion(thing)
         }
@@ -440,12 +440,23 @@ fun ThingListScreen(
     val areAllSelectableThingsSelected = selectableThingIds.isNotEmpty() &&
         selectedThingIds.containsAll(selectableThingIds)
 
-    val channelOptions = remember(allThings) {
-        allThings.mapNotNull { it.channelId?.trim()?.takeIf { v -> v.isNotEmpty() } }.distinct().sorted()
-    }
-    val tagOptions = remember(allThings) {
+    val channelOptions = remember(allThings, pendingLocalDeletion?.id) {
         allThings
             .asSequence()
+            .filter { thing ->
+                !isPendingThingDeletion(thing)
+            }
+            .mapNotNull { it.channelId?.trim()?.takeIf { value -> value.isNotEmpty() } }
+            .distinct()
+            .sorted()
+            .toList()
+    }
+    val tagOptions = remember(allThings, pendingLocalDeletion?.id) {
+        allThings
+            .asSequence()
+            .filter { thing ->
+                !isPendingThingDeletion(thing)
+            }
             .flatMap { it.tags.asSequence() }
             .map { it.trim().lowercase() }
             .filter { it.isNotEmpty() }
@@ -657,7 +668,7 @@ fun ThingListScreen(
                                     Box {
                                         var menuExpanded by remember { mutableStateOf(false) }
                                         IconButton(onClick = { menuExpanded = true }) {
-                                            val active = channelFilter != null || selectedTag != null || showOnlyActive
+                                            val active = selectedChannelFilters.isNotEmpty() || selectedTagFilters.isNotEmpty() || showOnlyActive
                                             FilterMenuIcon(
                                                 active = active,
                                                 inactiveTint = uiColors.iconMuted,
@@ -679,7 +690,7 @@ fun ThingListScreen(
 
                                             DropdownMenuItem(
                                                 text = { Text(stringResource(R.string.filter_active_things)) },
-                                                onClick = { showOnlyActive = !showOnlyActive; menuExpanded = false },
+                                                onClick = { showOnlyActive = !showOnlyActive },
                                                 trailingIcon = { if (showOnlyActive) Icon(Icons.Outlined.Check, null, modifier = Modifier.size(18.dp)) }
                                             )
                                             if (channelOptions.isNotEmpty()) {
@@ -699,8 +710,18 @@ fun ThingListScreen(
                                                     val displayName = channelNameMap[channel] ?: channel
                                                     DropdownMenuItem(
                                                         text = { Text(displayName, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-                                                        onClick = { channelFilter = if (channelFilter == channel) null else channel; menuExpanded = false },
-                                                        trailingIcon = { if (channelFilter == channel) Icon(Icons.Outlined.Check, null, modifier = Modifier.size(18.dp)) }
+                                                        onClick = {
+                                                            selectedChannelFilters = if (selectedChannelFilters.contains(channel)) {
+                                                                selectedChannelFilters - channel
+                                                            } else {
+                                                                selectedChannelFilters + channel
+                                                            }
+                                                        },
+                                                        trailingIcon = {
+                                                            if (selectedChannelFilters.contains(channel)) {
+                                                                Icon(Icons.Outlined.Check, null, modifier = Modifier.size(18.dp))
+                                                            }
+                                                        }
                                                     )
                                                 }
                                             } else {
@@ -728,19 +749,17 @@ fun ThingListScreen(
                                                         verticalArrangement = Arrangement.spacedBy(8.dp),
                                                     ) {
                                                         tagOptions.forEach { tag ->
-                                                            val selected = selectedTag == tag
+                                                            val selected = selectedTagFilters.contains(tag)
                                                             FilterChip(
                                                                 selected = selected,
                                                                 onClick = {
-                                                                    selectedTag = if (selected) null else tag
-                                                                    menuExpanded = false
+                                                                    selectedTagFilters = if (selected) {
+                                                                        selectedTagFilters - tag
+                                                                    } else {
+                                                                        selectedTagFilters + tag
+                                                                    }
                                                                 },
-                                                                label = { Text("#$tag") },
-                                                                leadingIcon = if (selected) {
-                                                                    { Icon(Icons.Outlined.Check, contentDescription = null, modifier = Modifier.size(16.dp)) }
-                                                                } else {
-                                                                    null
-                                                                },
+                                                                label = { Text(tag) },
                                                             )
                                                         }
                                                     }
@@ -758,9 +777,9 @@ fun ThingListScreen(
             if (filteredThings.isEmpty()) {
                 item {
                     AppEmptyState(
-                        icon = if (searchQuery.isNotEmpty() || channelFilter != null || selectedTag != null || showOnlyActive) Icons.Default.Search else Icons.Outlined.Memory,
-                        title = if (searchQuery.isNotEmpty() || channelFilter != null || selectedTag != null || showOnlyActive) stringResource(R.string.label_no_search_results) else stringResource(R.string.label_no_things_title),
-                        description = if (searchQuery.isNotEmpty() || channelFilter != null || selectedTag != null || showOnlyActive) stringResource(R.string.message_list_empty_hint) else stringResource(R.string.label_no_things_hint),
+                        icon = if (searchQuery.isNotEmpty() || selectedChannelFilters.isNotEmpty() || selectedTagFilters.isNotEmpty() || showOnlyActive) Icons.Default.Search else Icons.Outlined.Memory,
+                        title = if (searchQuery.isNotEmpty() || selectedChannelFilters.isNotEmpty() || selectedTagFilters.isNotEmpty() || showOnlyActive) stringResource(R.string.label_no_search_results) else stringResource(R.string.label_no_things_title),
+                        description = if (searchQuery.isNotEmpty() || selectedChannelFilters.isNotEmpty() || selectedTagFilters.isNotEmpty() || showOnlyActive) stringResource(R.string.message_list_empty_hint) else stringResource(R.string.label_no_things_hint),
                     )
                 }
             } else {
