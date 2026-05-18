@@ -1,6 +1,7 @@
 package io.ethan.pushgo.ui.viewmodel
 
 import android.content.Context
+import androidx.annotation.VisibleForTesting
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.snapshotFlow
@@ -63,6 +64,9 @@ class SettingsViewModel(
     private val privateChannelClient: PrivateChannelClient,
     private val updateManager: UpdateManager,
     private val pushTokenProvider: PushTokenProvider,
+    private val gatewayPrivateChannelEnabledFetcher: suspend () -> Boolean? = {
+        privateChannelClient.gatewayPrivateChannelEnabled()
+    },
 ) : ViewModel() {
     companion object {
         private const val TAG = "SettingsViewModel"
@@ -180,7 +184,7 @@ class SettingsViewModel(
             deviceToken = settingsRepository.getFcmToken()
             useFcmChannel = settingsRepository.getUseFcmChannel()
             isFcmSupported = true
-            gatewayPrivateChannelEnabled = privateChannelClient.gatewayPrivateChannelEnabled()
+            gatewayPrivateChannelEnabled = gatewayPrivateChannelEnabledFetcher()
             val currentKey = settingsRepository.getNotificationKeyBytes()
             isDecryptionConfigured = currentKey?.isNotEmpty() == true
             decryptionUpdatedAt = settingsRepository.getNotificationKeyUpdatedAt()
@@ -414,7 +418,7 @@ class SettingsViewModel(
             if (supported || !useFcmChannel) {
                 return@launch
             }
-            val privateEnabled = privateChannelClient.gatewayPrivateChannelEnabled()
+            val privateEnabled = gatewayPrivateChannelEnabledFetcher()
             gatewayPrivateChannelEnabled = privateEnabled
             if (privateEnabled == false) {
                 errorMessage = ResMessage(R.string.error_private_disabled_and_fcm_unavailable)
@@ -433,7 +437,7 @@ class SettingsViewModel(
             val previousUseFcmChannel = useFcmChannel
             isFcmSupported = isFcmSupported(context)
             if (!enabled) {
-                val privateEnabled = privateChannelClient.gatewayPrivateChannelEnabled()
+                val privateEnabled = gatewayPrivateChannelEnabledFetcher()
                 gatewayPrivateChannelEnabled = privateEnabled
                 if (privateEnabled == false) {
                     if (isFcmSupported) {
@@ -684,7 +688,7 @@ class SettingsViewModel(
                 settingsRepository.setServerAddress(normalizedAddress)
                 settingsRepository.setGatewayToken(token)
                 gatewayAddress = normalizedAddress
-                gatewayPrivateChannelEnabled = privateChannelClient.gatewayPrivateChannelEnabled()
+                gatewayPrivateChannelEnabled = gatewayPrivateChannelEnabledFetcher()
                 var activeFcmToken: String? = null
                 if (shouldUseFcm(context)) {
                     val fcmToken = requireFcmToken(context) ?: return@launch
@@ -1033,6 +1037,17 @@ class SettingsViewModel(
                 isClearing = false
             }
         }
+    }
+
+    @VisibleForTesting
+    internal suspend fun refreshChannelUiStateForTesting() {
+        useFcmChannel = settingsRepository.getUseFcmChannel()
+        deviceToken = settingsRepository.getFcmToken()
+        privateTransportStatus = privateChannelClient.summarizeConnectionStatus(
+            snapshot = privateChannelClient.readConnectionSnapshot(),
+            privateModeEnabled = !useFcmChannel,
+        )
+        isChannelModeLoaded = true
     }
 
     suspend fun loadAllMessages() = messageRepository.getAll()
