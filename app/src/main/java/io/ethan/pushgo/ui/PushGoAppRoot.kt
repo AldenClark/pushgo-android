@@ -626,8 +626,14 @@ private fun buildAutomationState(
 ): PushGoAutomation.AutomationState {
     val tab = activeTab.substringBefore('?').substringBefore('/')
     val error = PushGoAutomation.latestRuntimeErrorSnapshot()
+    val visibleScreen = automationVisibleScreen(
+        currentRoute = currentRoute,
+        selectedMessageId = selectedMessageId,
+        openedEntityType = openedEntityType,
+        openedEntityId = openedEntityId,
+    )
     return PushGoAutomation.AutomationState(
-        activeTab = tab, visibleScreen = if (selectedMessageId != null) "screen.message.detail" else "screen.messages.list",
+        activeTab = tab, visibleScreen = visibleScreen,
         openedMessageId = selectedMessageId, openedMessageDecryptionState = snapshot.openedMessageDecryptionState,
         openedEntityType = openedEntityType, openedEntityId = openedEntityId, pendingEventId = pendingEventId, pendingThingId = pendingThingId,
         unreadMessageCount = snapshot.unreadMessageCount, totalMessageCount = snapshot.totalMessageCount,
@@ -645,6 +651,34 @@ private fun buildAutomationState(
         latestRuntimeErrorSource = error?.source, latestRuntimeErrorCategory = error?.category,
         latestRuntimeErrorCode = error?.code, latestRuntimeErrorMessage = error?.message, latestRuntimeErrorTimestamp = error?.timestamp,
     )
+}
+
+private fun automationVisibleScreen(
+    currentRoute: String?,
+    selectedMessageId: String?,
+    openedEntityType: String?,
+    openedEntityId: String?,
+): String {
+    if (!selectedMessageId.isNullOrBlank()) {
+        return "screen.message.detail"
+    }
+    if (!openedEntityType.isNullOrBlank() && !openedEntityId.isNullOrBlank()) {
+        return when (openedEntityType.lowercase()) {
+            "event" -> "screen.event.detail"
+            "thing" -> "screen.thing.detail"
+            else -> "screen.message.detail"
+        }
+    }
+    if (currentRoute.matchesSettingsRoute()) {
+        return "screen.settings"
+    }
+    return when (currentRoute.topLevelRoute()) {
+        TopLevelRoute.EVENTS -> "screen.events.list"
+        TopLevelRoute.THINGS -> "screen.things.list"
+        TopLevelRoute.CHANNELS -> "screen.channels.list"
+        TopLevelRoute.MESSAGES -> "screen.messages.list"
+        null -> "screen.unknown"
+    }
 }
 
 private data class RouteMatchSpec(

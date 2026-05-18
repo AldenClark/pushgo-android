@@ -4,6 +4,7 @@ import android.content.Context
 import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
+import androidx.annotation.VisibleForTesting
 import io.ethan.pushgo.R
 import io.ethan.pushgo.BuildConfig
 import io.ethan.pushgo.automation.PushGoAutomation
@@ -2716,6 +2717,53 @@ class PrivateChannelClient(
 
     fun readConnectionSnapshot(): ConnectionSnapshot {
         return connectionSnapshotState.value
+    }
+
+    @VisibleForTesting
+    internal suspend fun injectSessionEventForTesting(
+        eventJson: String,
+        sessionHandle: Long = 1L,
+        sessionGeneration: Long = 1L,
+        loopToken: Long = 1L,
+        welcomeReceived: Boolean = true,
+    ) {
+        val root = JSONObject(eventJson)
+        val eventType = root.optString("type").trim().lowercase()
+        lifecycleMutex.withLock {
+            runtimeConfigured = true
+            fcmAvailable = false
+            activeLoopToken = loopToken
+            activeSessionHandle = sessionHandle
+            activeSessionGeneration = sessionGeneration
+        }
+        if (eventType == "session_ended") {
+            val reason = root.optString("reason").trim().ifEmpty { "session ended" }
+            val errorText = root.optString("error").trim().ifEmpty { null }
+            if (welcomeReceived && errorText == null) {
+                saveTransportStatus(
+                    route = "private",
+                    transport = transportStatusState.value.transport,
+                    stage = "reconnecting",
+                    detail = "$reason, restarting private session",
+                )
+                return
+            }
+            val detail = errorText?.let { "$reason ($it)" } ?: reason
+            onFailure(
+                "stream_session",
+                IllegalStateException(
+                    if (welcomeReceived) {
+                        "private stream ended after welcome: $detail"
+                    } else {
+                        "private stream ended before welcome: $detail"
+                    }
+                ),
+                sessionGeneration = sessionGeneration,
+                loopToken = loopToken,
+            )
+            return
+        }
+        handleSessionEvent(sessionHandle, root, sessionGeneration, loopToken)
     }
 
     fun requestInSessionProbe(): Boolean {

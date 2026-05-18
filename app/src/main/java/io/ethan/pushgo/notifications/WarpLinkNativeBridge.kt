@@ -3,8 +3,24 @@ package io.ethan.pushgo.notifications
 object WarpLinkNativeBridge {
     private const val TAG = "WarpLinkNativeBridge"
 
+    internal interface SessionRuntime {
+        fun isAvailable(): Boolean
+        fun sessionStart(configJson: String): Long
+        fun sessionPollEvent(handle: Long, timeoutMs: Int): String?
+        fun sessionStop(handle: Long)
+        fun sessionReplaceAuthToken(handle: Long, authToken: String?): Boolean
+        fun sessionResolveMessage(handle: Long, ackId: Long, status: Int): Boolean
+        fun sessionSetPowerHint(handle: Long, appState: String?, powerTier: String?): Boolean
+        fun sessionRequestProbe(handle: Long): Boolean
+        fun sessionForceReconnect(handle: Long): Boolean
+        fun sessionPinTransport(handle: Long, transport: String, ttlMs: Long): Boolean
+        fun sessionClearPin(handle: Long): Boolean
+    }
+
     @Volatile
     private var loaded: Boolean = load()
+    @Volatile
+    private var testRuntime: SessionRuntime? = null
 
     private fun load(): Boolean {
         return try {
@@ -16,9 +32,14 @@ object WarpLinkNativeBridge {
         }
     }
 
-    fun isAvailable(): Boolean = loaded
+    fun isAvailable(): Boolean = testRuntime?.isAvailable() ?: loaded
+
+    internal fun installTestRuntime(runtime: SessionRuntime?) {
+        testRuntime = runtime
+    }
 
     fun sessionStart(configJson: String): Long {
+        testRuntime?.let { return it.sessionStart(configJson) }
         if (!loaded) return 0L
         return runCatching {
             nativeSessionStart(configJson)
@@ -29,6 +50,7 @@ object WarpLinkNativeBridge {
     }
 
     fun sessionPollEvent(handle: Long, timeoutMs: Int): String? {
+        testRuntime?.let { return it.sessionPollEvent(handle, timeoutMs) }
         if (!loaded || handle == 0L) return null
         return runCatching {
             nativeSessionPollEvent(handle, timeoutMs)
@@ -39,6 +61,10 @@ object WarpLinkNativeBridge {
     }
 
     fun sessionStop(handle: Long) {
+        testRuntime?.let {
+            it.sessionStop(handle)
+            return
+        }
         if (!loaded || handle == 0L) return
         runCatching {
             nativeSessionStop(handle)
@@ -48,6 +74,7 @@ object WarpLinkNativeBridge {
     }
 
     fun sessionReplaceAuthToken(handle: Long, authToken: String?): Boolean {
+        testRuntime?.let { return it.sessionReplaceAuthToken(handle, authToken) }
         if (!loaded || handle == 0L) return false
         val token = authToken?.trim().orEmpty()
         return runCatching {
@@ -59,6 +86,7 @@ object WarpLinkNativeBridge {
     }
 
     fun sessionResolveMessage(handle: Long, ackId: Long, status: Int): Boolean {
+        testRuntime?.let { return it.sessionResolveMessage(handle, ackId, status) }
         if (!loaded || handle == 0L || ackId <= 0L) return false
         return runCatching {
             nativeSessionResolveMessage(handle, ackId, status) == 1
@@ -69,6 +97,7 @@ object WarpLinkNativeBridge {
     }
 
     fun sessionSetPowerHint(handle: Long, appState: String?, powerTier: String?): Boolean {
+        testRuntime?.let { return it.sessionSetPowerHint(handle, appState, powerTier) }
         if (!loaded || handle == 0L) return false
         val state = appState?.trim().orEmpty()
         val tier = powerTier?.trim().orEmpty()
@@ -81,6 +110,7 @@ object WarpLinkNativeBridge {
     }
 
     fun sessionRequestProbe(handle: Long): Boolean {
+        testRuntime?.let { return it.sessionRequestProbe(handle) }
         if (!loaded || handle == 0L) return false
         return runCatching {
             nativeSessionRequestProbe(handle) == 1
@@ -91,6 +121,7 @@ object WarpLinkNativeBridge {
     }
 
     fun sessionForceReconnect(handle: Long): Boolean {
+        testRuntime?.let { return it.sessionForceReconnect(handle) }
         if (!loaded || handle == 0L) return false
         return runCatching {
             nativeSessionForceReconnect(handle) == 1
@@ -101,6 +132,7 @@ object WarpLinkNativeBridge {
     }
 
     fun sessionPinTransport(handle: Long, transport: String, ttlMs: Long): Boolean {
+        testRuntime?.let { return it.sessionPinTransport(handle, transport, ttlMs) }
         if (!loaded || handle == 0L) return false
         val normalizedTransport = transport.trim()
         if (normalizedTransport.isEmpty()) return false
@@ -113,6 +145,7 @@ object WarpLinkNativeBridge {
     }
 
     fun sessionClearPin(handle: Long): Boolean {
+        testRuntime?.let { return it.sessionClearPin(handle) }
         if (!loaded || handle == 0L) return false
         return runCatching {
             nativeSessionClearPin(handle) == 1
