@@ -13,6 +13,15 @@ Policy:
 ### Changed
 - Placeholder for next beta cycle.
 
+## [v1.2.4]
+
+### Improved
+- Improved unread-only message filtering continuity: your unread-only filter preference is now preserved across app restarts.
+- Improved gateway/channel error clarity when a private channel reaches the subscriber cap, with direct actionable guidance in-app.
+
+### Fixed
+- Fixed private channel subscriber-limit errors being grouped into generic validation failures, which could make root-cause diagnosis less clear.
+
 ## [v1.2.3]
 
 ### Improved

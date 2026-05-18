@@ -23,6 +23,20 @@ PushGo Android policy:
 ### Changed
 - Placeholder for next development cycle.
 
+## [v1.2.4] - 2026-05-18
+
+### Added
+- Added versioned stable update notes source: `release/update-notes/v1.2.4.json`.
+
+### Changed
+- Finalized Android app version to `v1.2.4` for release builds.
+- `versionCode` now resolves to stable code `1020499` from `versionName=v1.2.4`.
+- Improved message-list unread-only filter continuity by persisting the unread-only toggle state across app restarts.
+- Improved private channel runtime testability hooks and automation visible-screen reporting to keep runtime-quality validation and automation state snapshots more consistent.
+
+### Fixed
+- Fixed gateway/channel subscription error mapping for `channel_subscriber_limit_exceeded` and surfaced clearer user-facing guidance in both English and Simplified Chinese.
+
 ## [v1.2.3] - 2026-05-11
 
 ### Added
