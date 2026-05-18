@@ -199,6 +199,7 @@ fun EventListScreen(
     val closeEventStatusDefault = stringResource(R.string.event_status_closed_default)
     val closeEventBodyDefault = stringResource(R.string.event_message_closed_default)
     val closeEventSuccessMessage = stringResource(R.string.message_event_closed)
+    val missingChannelMessage = stringResource(R.string.error_event_missing_channel)
     val eventsLabel = stringResource(R.string.label_send_type_event)
     val haptic = LocalHapticFeedback.current
     val scope = rememberCoroutineScope()
@@ -265,7 +266,7 @@ fun EventListScreen(
     suspend fun closeEvent(event: EventCardModel) {
         val channelId = event.channelId.orEmpty().trim()
         if (channelId.isEmpty()) {
-            showToast(context.getString(R.string.error_event_missing_channel))
+            showToast(missingChannelMessage)
             return
         }
         runCatching {

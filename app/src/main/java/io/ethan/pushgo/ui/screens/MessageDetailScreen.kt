@@ -182,6 +182,7 @@ fun MessageDetailScreen(
     LaunchedEffect(Unit) {
         channelNameMap = channelRepository.loadSubscriptionLookup(includeDeleted = true)
     }
+    val messagesTabLabel = stringResource(R.string.tab_messages)
 
     PushGoModalBottomSheet(
         modifier = Modifier.testTag("sheet.message.detail"),
@@ -203,7 +204,7 @@ fun MessageDetailScreen(
                         scope.launch {
                             pendingLocalDeletionCoordinator.schedule(
                                 summary = targetMessage.title.trim().ifEmpty {
-                                    context.getString(R.string.tab_messages)
+                                    messagesTabLabel
                                 },
                                 scope = PendingLocalDeletionCoordinator.Scope(
                                     messageIds = setOf(targetMessage.id),

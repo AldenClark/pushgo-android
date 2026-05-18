@@ -557,16 +557,16 @@ fun MessageListScreen(
                                                         onClick = {
                                                             scope.launch {
                                                                 container.messageStateCoordinator.markRead(unreadDisplayedMessageIds)
-                                                                val toastText = context.getString(
+                                                                val localizedToastText = context.resources.getString(
                                                                     R.string.message_marked_read_selected_count,
                                                                     unreadDisplayedMessageIds.size,
                                                                 )
                                                                 Toast.makeText(
                                                                     context,
-                                                                    toastText,
+                                                                    localizedToastText,
                                                                     Toast.LENGTH_SHORT,
                                                                 ).show()
-                                                                announceForAccessibility(context, toastText)
+                                                                announceForAccessibility(context, localizedToastText)
                                                             }
                                                         }
                                                     ) {

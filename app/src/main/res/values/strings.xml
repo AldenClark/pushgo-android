@@ -1,4 +1,4 @@
-<resources>
+<resources xmlns:tools="http://schemas.android.com/tools">
     <string name="app_name">PushGo</string>
     <string name="tab_messages">Messages</string>
     <string name="tab_settings">Settings</string><string name="action_mark_read">Mark read</string>
@@ -264,21 +264,21 @@
     <string name="error_fcm_not_supported">This device does not support FCM</string>
     <string name="error_fcm_token_timeout">FCM token request timed out</string>
     <string name="error_gateway_private_disabled_use_fcm">Gateway private channel is disabled. Please use FCM.</string>
-    <string name="error_gateway_auth_failed">Authentication failed. Check the gateway token and try again.</string>
-    <string name="error_gateway_permission_denied">Permission denied. Check the gateway settings and try again.</string>
-    <string name="error_gateway_rate_limited">Too many requests. Please wait a moment and try again.</string>
-    <string name="error_gateway_temporarily_unavailable">Service is temporarily unavailable. Please try again later.</string>
-    <string name="error_gateway_upstream_unavailable">Upstream delivery service is unavailable. Please try again later.</string>
-    <string name="error_gateway_resource_not_found">The requested item was not found or has expired.</string>
-    <string name="error_gateway_validation_failed">The request content is invalid. Please check your input and try again.</string>
-    <string name="error_gateway_local_operation_failed">Local operation failed. Please try again.</string>
-    <string name="error_gateway_feature_unavailable">This feature is currently unavailable on the gateway.</string>
-    <string name="error_gateway_channel_not_found">Channel not found. Check the Channel ID and try again.</string>
-    <string name="error_gateway_channel_password_incorrect">Channel password is incorrect. Check the password and try again.</string>
-    <string name="error_gateway_channel_subscriber_limit_exceeded">This channel already has 32 subscribers. Remove an unused device before adding another one.</string>
-    <string name="error_gateway_device_registration_stale">Device registration expired. Please retry.</string>
-    <string name="error_gateway_device_route_stale">Device route expired. Please retry.</string>
-    <string name="error_gateway_route_not_found">This gateway does not support the requested API route.</string>
+    <string name="error_gateway_auth_failed" tools:ignore="MissingTranslation">Authentication failed. Check the gateway token and try again.</string>
+    <string name="error_gateway_permission_denied" tools:ignore="MissingTranslation">Permission denied. Check the gateway settings and try again.</string>
+    <string name="error_gateway_rate_limited" tools:ignore="MissingTranslation">Too many requests. Please wait a moment and try again.</string>
+    <string name="error_gateway_temporarily_unavailable" tools:ignore="MissingTranslation">Service is temporarily unavailable. Please try again later.</string>
+    <string name="error_gateway_upstream_unavailable" tools:ignore="MissingTranslation">Upstream delivery service is unavailable. Please try again later.</string>
+    <string name="error_gateway_resource_not_found" tools:ignore="MissingTranslation">The requested item was not found or has expired.</string>
+    <string name="error_gateway_validation_failed" tools:ignore="MissingTranslation">The request content is invalid. Please check your input and try again.</string>
+    <string name="error_gateway_local_operation_failed" tools:ignore="MissingTranslation">Local operation failed. Please try again.</string>
+    <string name="error_gateway_feature_unavailable" tools:ignore="MissingTranslation">This feature is currently unavailable on the gateway.</string>
+    <string name="error_gateway_channel_not_found" tools:ignore="MissingTranslation">Channel not found. Check the Channel ID and try again.</string>
+    <string name="error_gateway_channel_password_incorrect" tools:ignore="MissingTranslation">Channel password is incorrect. Check the password and try again.</string>
+    <string name="error_gateway_channel_subscriber_limit_exceeded" tools:ignore="MissingTranslation">This channel already has 32 subscribers. Remove an unused device before adding another one.</string>
+    <string name="error_gateway_device_registration_stale" tools:ignore="MissingTranslation">Device registration expired. Please retry.</string>
+    <string name="error_gateway_device_route_stale" tools:ignore="MissingTranslation">Device route expired. Please retry.</string>
+    <string name="error_gateway_route_not_found" tools:ignore="MissingTranslation">This gateway does not support the requested API route.</string>
     <string name="error_private_disabled_and_fcm_unavailable">Gateway private channel is disabled and this device cannot use FCM. Push is unavailable.</string>
     <string name="error_request_failed">Request failed. Please retry.</string>
     <string name="error_channel_create_requires_fcm">Creating a new channel requires FCM. Use an existing Channel ID on devices without FCM.</string>
@@ -445,13 +445,13 @@
     <string name="message_update_install_started">Installation started. Follow the system installer flow to finish update.</string>
     <string name="message_update_skipped">Skipped version %1$s.</string>
     <string name="message_update_remind_later_saved">Reminder deferred with cooldown.</string>
-    <string name="error_update_check_failed">Unable to check updates right now. Please try again later.</string>
-    <string name="error_update_check_network_unavailable">Unable to check updates because the network is unavailable.</string>
+    <string name="error_update_check_failed" tools:ignore="MissingTranslation">Unable to check updates right now. Please try again later.</string>
+    <string name="error_update_check_network_unavailable" tools:ignore="MissingTranslation">Unable to check updates because the network is unavailable.</string>
     <string name="error_update_no_candidate">No update candidate available.</string>
-    <string name="error_update_install_download_failed">Unable to download the update package. Please try again later.</string>
-    <string name="error_update_install_validation_failed">Unable to verify the downloaded update package.</string>
-    <string name="error_update_install_incompatible">The downloaded update package is not compatible with this app.</string>
-    <string name="error_update_install_preparation_failed">Unable to prepare the update for installation. Please try again.</string>
+    <string name="error_update_install_download_failed" tools:ignore="MissingTranslation">Unable to download the update package. Please try again later.</string>
+    <string name="error_update_install_validation_failed" tools:ignore="MissingTranslation">Unable to verify the downloaded update package.</string>
+    <string name="error_update_install_incompatible" tools:ignore="MissingTranslation">The downloaded update package is not compatible with this app.</string>
+    <string name="error_update_install_preparation_failed" tools:ignore="MissingTranslation">Unable to prepare the update for installation. Please try again.</string>
     <string name="label_update_notification_channel_name">App updates</string>
     <string name="label_update_notification_channel_desc">Update checks and installation reminders</string>
     <string name="label_update_install_success_title">Update installed</string>

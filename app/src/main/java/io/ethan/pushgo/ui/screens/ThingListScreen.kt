@@ -203,6 +203,7 @@ fun ThingListScreen(
     val closeEventFailedMessage = stringResource(R.string.error_event_close_failed)
     val closeEventStatusDefault = stringResource(R.string.event_status_closed_default)
     val closeEventBodyDefault = stringResource(R.string.event_message_closed_default)
+    val missingChannelMessage = stringResource(R.string.error_event_missing_channel)
     val closeEventSuccessMessage = stringResource(R.string.message_event_closed)
     val haptic = LocalHapticFeedback.current
     val scope = rememberCoroutineScope()
@@ -559,7 +560,7 @@ fun ThingListScreen(
                     scope.launch {
                         val channelId = event.channelId.orEmpty().trim()
                         if (channelId.isEmpty()) {
-                            showToast(context.getString(R.string.error_event_missing_channel))
+                            showToast(missingChannelMessage)
                             return@launch
                         }
                         runCatching {
