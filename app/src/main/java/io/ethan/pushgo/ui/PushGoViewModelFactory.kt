@@ -15,6 +15,7 @@ class PushGoViewModelFactory(private val container: AppContainer) : ViewModelPro
                 MessageListViewModel(
                     repository = container.messageRepository,
                     stateCoordinator = container.messageStateCoordinator,
+                    settingsRepository = container.settingsRepository,
                 ) as T
             }
             modelClass.isAssignableFrom(MessageSearchViewModel::class.java) -> {

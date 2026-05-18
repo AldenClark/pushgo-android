@@ -66,6 +66,8 @@ private fun ChannelSubscriptionException.gatewayCodeResId(): Int? {
         matchesCode("password_required") -> R.string.error_channel_password_missing
         matchesCode("password_mismatch") || matchesCode("invalid_channel_password") ->
             R.string.error_gateway_channel_password_incorrect
+        matchesCode("channel_subscriber_limit_exceeded") ->
+            R.string.error_gateway_channel_subscriber_limit_exceeded
         matchesCode("provider_token_missing") || matchesCode("provider_token_required") ->
             R.string.error_gateway_validation_failed
         matchesCode("device_key_not_found") -> R.string.error_gateway_device_registration_stale

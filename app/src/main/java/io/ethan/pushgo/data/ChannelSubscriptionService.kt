@@ -723,7 +723,7 @@ class ChannelSubscriptionException(
                 "authentication_failed" -> Triple("authentication_failed", GatewayErrorCategory.AUTH, false)
                 "device_key_not_found", "channel_not_found", "device_not_found" ->
                     Triple(normalizedCode, GatewayErrorCategory.NOT_FOUND, false)
-                "invalid_channel_id", "invalid_password", "invalid_platform", "invalid_device_token", "provider_token_missing", "provider_token_required" ->
+                "invalid_channel_id", "invalid_password", "invalid_platform", "invalid_device_token", "provider_token_missing", "provider_token_required", "channel_subscriber_limit_exceeded" ->
                     Triple(normalizedCode, GatewayErrorCategory.VALIDATION, false)
                 "password_mismatch", "invalid_channel_password", "platform_mismatch", "channel_type_mismatch" ->
                     Triple(normalizedCode, GatewayErrorCategory.CONFLICT, false)
@@ -780,6 +780,11 @@ class ChannelSubscriptionException(
             }
             if (detail?.contains("invalid_password") == true || detail?.contains("invalid password") == true) {
                 return Triple("invalid_password", GatewayErrorCategory.VALIDATION, false)
+            }
+            if (detail?.contains("channel_subscriber_limit_exceeded") == true ||
+                detail?.contains("subscriber limit") == true
+            ) {
+                return Triple("channel_subscriber_limit_exceeded", GatewayErrorCategory.VALIDATION, false)
             }
             return when (httpStatus) {
                 400, 422 -> Triple(null, GatewayErrorCategory.VALIDATION, false)

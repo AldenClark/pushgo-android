@@ -45,4 +45,23 @@ class GatewayErrorUiTest {
         val res = message as ResMessage
         assertEquals(R.string.error_gateway_channel_password_incorrect, res.resId)
     }
+
+    @Test
+    fun subscriberLimitUsesSpecificMessage() {
+        val error = ChannelSubscriptionException(
+            message = "channel subscriber limit exceeded",
+            code = "channel_subscriber_limit_exceeded",
+            category = GatewayErrorCategory.VALIDATION,
+            localizedMessageText = null,
+            detail = "channel subscriber limit exceeded",
+            httpStatus = 400,
+            retryable = false,
+            requestId = null,
+        )
+
+        val message = error.toUiErrorMessage(R.string.error_private_channel_subscribe_failed)
+        assertTrue(message is ResMessage)
+        val res = message as ResMessage
+        assertEquals(R.string.error_gateway_channel_subscriber_limit_exceeded, res.resId)
+    }
 }

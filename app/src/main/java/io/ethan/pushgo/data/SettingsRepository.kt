@@ -68,6 +68,9 @@ class SettingsRepository(
             settingsCache.getString(KEY_MESSAGE_LIST_SORT_MODE, MessageListSortMode.TIME_DESC.persistedValue)
         )
 
+    fun getCachedMessageUnreadOnlyFilter(): Boolean =
+        settingsCache.getBoolean(KEY_MESSAGE_UNREAD_ONLY_FILTER, false)
+
     fun getCachedUpdateScheduledCheckIntervalSeconds(): Long =
         settingsCache.getLong(KEY_UPDATE_SCHEDULED_CHECK_INTERVAL_SECONDS, AppConstants.updateCheckIntervalSeconds)
 
@@ -96,6 +99,12 @@ class SettingsRepository(
     fun setCachedMessageListSortMode(sortMode: MessageListSortMode) {
         settingsCache.edit()
             .putString(KEY_MESSAGE_LIST_SORT_MODE, sortMode.persistedValue)
+            .commit()
+    }
+
+    fun setCachedMessageUnreadOnlyFilter(enabled: Boolean) {
+        settingsCache.edit()
+            .putBoolean(KEY_MESSAGE_UNREAD_ONLY_FILTER, enabled)
             .commit()
     }
 
@@ -364,5 +373,6 @@ class SettingsRepository(
         private const val KEY_UPDATE_SCHEDULED_CHECK_INTERVAL_SECONDS = "update_scheduled_check_interval_seconds"
         private const val KEY_UPDATE_IMPATIENT_REMINDER_INTERVAL_SECONDS = "update_impatient_reminder_interval_seconds"
         private const val KEY_MESSAGE_LIST_SORT_MODE = "message_list_sort_mode"
+        private const val KEY_MESSAGE_UNREAD_ONLY_FILTER = "message_unread_only_filter"
     }
 }

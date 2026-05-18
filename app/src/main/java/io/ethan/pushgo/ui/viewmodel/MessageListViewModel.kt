@@ -3,6 +3,7 @@ package io.ethan.pushgo.ui.viewmodel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import io.ethan.pushgo.data.MessageRepository
+import io.ethan.pushgo.data.SettingsRepository
 import io.ethan.pushgo.notifications.MessageStateCoordinator
 import io.ethan.pushgo.data.model.MessageFilter
 import io.ethan.pushgo.data.model.MessageFacetOptionCount
@@ -24,15 +25,19 @@ import kotlinx.coroutines.Job
 class MessageListViewModel(
     private val repository: MessageRepository,
     private val stateCoordinator: MessageStateCoordinator,
+    private val settingsRepository: SettingsRepository,
 ) : ViewModel() {
-    private val filter = MutableStateFlow(MessageFilter())
+    private val initialFilter = MessageFilter(
+        unreadOnly = settingsRepository.getCachedMessageUnreadOnlyFilter(),
+    )
+    private val filter = MutableStateFlow(initialFilter)
 
     val messages: Flow<PagingData<PushMessage>> = filter
         .flatMapLatest { repository.observeMessages(it) }
         .cachedIn(viewModelScope)
 
     val filterState: StateFlow<MessageFilter> = filter
-        .stateIn(viewModelScope, SharingStarted.Lazily, MessageFilter())
+        .stateIn(viewModelScope, SharingStarted.Lazily, initialFilter)
 
     val facetChannelCounts: StateFlow<List<MessageFacetOptionCount>> = repository.observeFacetChannelCounts()
         .stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
@@ -60,7 +65,9 @@ class MessageListViewModel(
     }
 
     fun toggleUnreadOnlyFilter() {
-        filter.value = filter.value.copy(unreadOnly = !filter.value.unreadOnly)
+        val enabled = !filter.value.unreadOnly
+        settingsRepository.setCachedMessageUnreadOnlyFilter(enabled)
+        filter.value = filter.value.copy(unreadOnly = enabled)
     }
 
     fun markRead(messageId: String): Job {
