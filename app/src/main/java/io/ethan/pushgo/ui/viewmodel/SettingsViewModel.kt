@@ -181,8 +181,8 @@ class SettingsViewModel(
         }
         viewModelScope.launch {
             gatewayToken = settingsRepository.getGatewayToken() ?: ""
-            deviceToken = settingsRepository.getFcmToken()
-            useFcmChannel = settingsRepository.getUseFcmChannel()
+            val initialUseFcm = settingsRepository.getUseFcmChannel()
+            useFcmChannel = initialUseFcm
             isFcmSupported = true
             gatewayPrivateChannelEnabled = gatewayPrivateChannelEnabledFetcher()
             val currentKey = settingsRepository.getNotificationKeyBytes()
@@ -192,6 +192,11 @@ class SettingsViewModel(
             updateAutoCheckEnabled = settingsRepository.getUpdateAutoCheckEnabled()
             updateBetaChannelEnabled = settingsRepository.getUpdateBetaChannelEnabled()
             isChannelModeLoaded = true
+        }
+        viewModelScope.launch {
+            settingsRepository.fcmTokenFlow.collect { token ->
+                deviceToken = token
+            }
         }
         viewModelScope.launch {
             settingsRepository.useFcmChannelFlow

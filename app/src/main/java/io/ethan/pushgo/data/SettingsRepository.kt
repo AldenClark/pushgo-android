@@ -6,6 +6,9 @@ import io.ethan.pushgo.data.db.AppSettingsEntity
 import io.ethan.pushgo.data.model.KeyEncoding
 import io.ethan.pushgo.data.model.MessageListSortMode
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import java.time.Instant
@@ -16,6 +19,7 @@ class SettingsRepository(
     private val settingsCache: SharedPreferences,
 ) {
     private val settingsFlow = appSettingsDao.observe()
+    private val fcmTokenState = MutableStateFlow(secretStore.fcmToken())
 
     val serverAddressFlow: Flow<String?> = settingsFlow
         .map { it?.serverAddress }
@@ -36,6 +40,7 @@ class SettingsRepository(
         settingsFlow
             .map { it?.useFcmChannel ?: getCachedUseFcmChannel() }
             .distinctUntilChanged()
+    val fcmTokenFlow: StateFlow<String?> = fcmTokenState.asStateFlow()
     val updateAutoCheckEnabledFlow: Flow<Boolean> =
         settingsFlow
             .map { it?.updateAutoCheckEnabled ?: getCachedUpdateAutoCheckEnabled() }
@@ -221,6 +226,7 @@ class SettingsRepository(
     suspend fun setFcmToken(token: String?) {
         val normalized = token?.trim()?.ifEmpty { null }
         secretStore.setFcmToken(normalized)
+        fcmTokenState.value = normalized
         updateSettings { it.copy(fcmToken = null) }
     }
 
