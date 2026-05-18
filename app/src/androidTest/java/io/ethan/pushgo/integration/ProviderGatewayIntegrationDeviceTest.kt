@@ -15,6 +15,7 @@ import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
+import org.junit.Assume.assumeTrue
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -33,6 +34,7 @@ class ProviderGatewayIntegrationDeviceTest {
     private lateinit var container: AppContainer
     private lateinit var baseUrl: String
     private lateinit var token: String
+    private var enabled: Boolean = false
     private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     @Before
@@ -40,10 +42,16 @@ class ProviderGatewayIntegrationDeviceTest {
         context = ApplicationProvider.getApplicationContext()
         container = AppContainer(context, appScope)
         val args = InstrumentationRegistry.getArguments()
+        enabled = args.getString("pushgo.runtime.providerIntegration")?.trim()?.toBooleanStrictOrNull() == true
+        assumeTrue(
+            "provider gateway integration is disabled by default; pass -e pushgo.runtime.providerIntegration true",
+            enabled,
+        )
         baseUrl = args.getString("pushgoGatewayBaseUrl")?.trim()?.takeIf { it.isNotEmpty() }
-            ?: "http://127.0.0.1:7780"
+            ?: "https://sandbox.pushgo.dev"
         token = args.getString("pushgoGatewayToken")?.trim()?.takeIf { it.isNotEmpty() }
             ?: "integration-token"
+        check(!baseUrl.contains("gateway.pushgo.cn")) { "production gateway is forbidden for provider integration tests: $baseUrl" }
 
         val health = request(
             method = "GET",
