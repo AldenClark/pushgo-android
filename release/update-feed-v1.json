@@ -41,46 +41,46 @@
         "versionName": "v1.2.0-beta.15"
       },
       {
-        "apkSha256": "9b6d3459fa75f361ae1075079ca15b37b23c9ed8f65f521ceddf585295c03c8e",
-        "apkUrl": "https://update.pushgo.cn/android/stable/v1.2.3/pushgo-android-v1.2.3-universal-release.apk",
+        "apkSha256": "4951ba44815912e40cd5ac84ef895beb0e55ac05d55c9d64ac3ecd7214d8b784",
+        "apkUrl": "https://update.pushgo.cn/android/stable/v1.2.4/pushgo-android-v1.2.4-universal-release.apk",
         "channel": "stable",
         "critical": false,
-        "notes": "PushGo 1.2.3 improves message productivity, safer deletion, and media playback reliability on Android.\n- Added undoable local deletion so mistaken delete actions can be recovered\n- Added mark-all-displayed-read action and refined facet-based multi-select message filters\n- Improved message receiving reliability and overall in-app message state consistency\n- Fixed animated image playback detection and made detail-page media loading non-blocking",
+        "notes": "PushGo 1.2.4 improves message filter continuity and gateway error clarity on Android.\\n- Unread-only filter preference is now preserved across app restarts\\n- Private channel subscriber-limit errors now show clearer actionable guidance in-app",
         "notesI18n": {
-          "de": "PushGo 1.2.3 verbessert auf Android Nachrichten-Produktivitat, sichere Loschablaufe und Medienwiedergabe.\n- Ruckgangig machbares lokales Loschen hinzugefugt, damit versehentliche Loschaktionen wiederhergestellt werden konnen\n- Aktion zum Markieren aller angezeigten Elemente als gelesen sowie verfeinerte facettenbasierte Mehrfachauswahl-Filter hinzugefugt\n- Zuverlassigkeit beim Nachrichtenempfang und die allgemeine Konsistenz des Nachrichtenstatus in der App verbessert\n- Erkennung animierter Medienwiedergabe korrigiert und nicht-blockierendes Medienladen auf Detailseiten umgesetzt",
-          "en": "PushGo 1.2.3 improves message productivity, safer deletion, and media playback reliability on Android.\n- Added undoable local deletion so mistaken delete actions can be recovered\n- Added mark-all-displayed-read action and refined facet-based multi-select message filters\n- Improved message receiving reliability and overall in-app message state consistency\n- Fixed animated image playback detection and made detail-page media loading non-blocking",
-          "es": "PushGo 1.2.3 mejora en Android la productividad de mensajes, el borrado seguro y la fiabilidad multimedia.\n- Se agrega borrado local con deshacer para recuperar eliminaciones accidentales\n- Se agrega accion para marcar como leido todo lo mostrado y se refinan filtros facetados con seleccion multiple\n- Se mejora la fiabilidad de recepcion de mensajes y la consistencia del estado de mensajes en la app\n- Se corrige la deteccion de reproduccion de imagenes animadas y la carga multimedia en detalle ahora es no bloqueante",
-          "fr": "PushGo 1.2.3 ameliore sur Android la productivite des messages, la suppression securisee et la fiabilite media.\n- Ajout d'une suppression locale annulable pour recuperer une suppression accidentelle\n- Ajout d'une action pour marquer comme lus tous les elements affiches et amelioration des filtres a facettes multi-selection\n- Fiabilite de reception des messages et coherence globale de l'etat des messages dans l'application ameliorees\n- Correction de la detection de lecture d'images animees et chargement media non bloquant sur les pages detail",
-          "ja": "PushGo 1.2.3 では、Android のメッセージ操作性・安全な削除・メディア再生信頼性を改善しました。\n- 誤削除を戻せるローカル削除の取り消し機能を追加\n- 表示中メッセージを一括既読にする操作と、ファセット型複数選択フィルターを改善\n- メッセージ受信の安定性とアプリ内メッセージ状態の一貫性を改善\n- アニメーション画像の再生判定を修正し、詳細ページのメディア読み込みを非ブロッキング化",
-          "ko": "PushGo 1.2.3은 Android에서 메시지 생산성, 안전한 삭제, 미디어 재생 신뢰성을 개선했습니다.\n- 실수로 삭제한 항목을 복구할 수 있도록 실행 취소 가능한 로컬 삭제를 추가했습니다\n- 현재 표시된 항목 전체 읽음 처리와 패싯 기반 다중 선택 필터를 개선했습니다\n- 메시지 수신 안정성과 앱 내 메시지 상태 일관성을 개선했습니다\n- 애니메이션 이미지 재생 감지 문제를 수정하고 상세 페이지 미디어 로딩을 논블로킹으로 전환했습니다",
-          "zh-CN": "PushGo 1.2.3 在 Android 端重点提升了消息处理效率、删除安全性与媒体加载稳定性。\n- 新增本地删除可撤销能力，误删后可快速恢复\n- 新增“全部标记已读（当前展示项）”操作，并优化基于分面的多选筛选工具栏\n- 提升消息接收稳定性与应用内消息状态一致性\n- 修复动图播放识别问题，并将详情页媒体加载改为非阻塞",
-          "zh-TW": "PushGo 1.2.3 在 Android 端重點提升了訊息處理效率、刪除安全性與媒體載入穩定性。\n- 新增本地刪除可復原能力，誤刪後可快速還原\n- 新增「全部標記已讀（目前顯示項目）」操作，並優化基於分面的多選篩選工具列\n- 提升訊息接收穩定性與應用內訊息狀態一致性\n- 修復動圖播放辨識問題，並將詳情頁媒體載入改為非阻塞"
+          "de": "PushGo 1.2.4 verbessert auf Android die Kontinuitat von Nachrichtenfiltern und die Klarheit bei Gateway-Fehlern.\\n- Die Einstellung Nur-Ungelesen bleibt jetzt auch nach einem App-Neustart erhalten\\n- Fehler beim Erreichen des Abonnentenlimits in privaten Kanalen zeigen nun klarere, direkt nutzbare Hinweise in der App",
+          "en": "PushGo 1.2.4 improves message filter continuity and gateway error clarity on Android.\\n- Unread-only filter preference is now preserved across app restarts\\n- Private channel subscriber-limit errors now show clearer actionable guidance in-app",
+          "es": "PushGo 1.2.4 mejora en Android la continuidad de filtros y la claridad de errores del gateway.\\n- La preferencia de filtro solo no leidos ahora se conserva tras reiniciar la app\\n- Los errores por limite de suscriptores en canales privados ahora muestran una guia mas clara y accionable dentro de la app",
+          "fr": "PushGo 1.2.4 ameliore sur Android la continuité des filtres de messages et la clarte des erreurs gateway.\\n- La preference du filtre non lus est desormais conservee apres redemarrage de l'application\\n- Les erreurs de limite d'abonnes des canaux prives affichent maintenant des indications plus claires et actionnables dans l'application",
+          "ja": "PushGo 1.2.4 では、Android のメッセージフィルター継続性とゲートウェイエラー表示を改善しました。\\n- 未読のみフィルター設定がアプリ再起動後も保持されます\\n- プライベートチャンネルの購読上限エラーで、アプリ内により分かりやすい対処案内を表示します",
+          "ko": "PushGo 1.2.4는 Android에서 메시지 필터 연속성과 게이트웨이 오류 가독성을 개선했습니다.\\n- 읽지 않음 전용 필터 설정이 앱 재시작 후에도 유지됩니다\\n- 비공개 채널 구독자 한도 오류에 대해 앱 내에서 더 명확한 안내를 제공합니다",
+          "zh-CN": "PushGo 1.2.4 在 Android 端提升了筛选状态连续性与网关错误提示清晰度。\\n- 只看未读筛选偏好现在会在应用重启后继续保留\\n- 私有频道订阅者达到上限时，会在应用内显示更明确的处理指引",
+          "zh-TW": "PushGo 1.2.4 在 Android 端提升了篩選狀態連續性與網關錯誤提示清晰度。\\n- 只看未讀篩選偏好現在會在應用重啟後繼續保留\\n- 私有頻道訂閱者達到上限時，會在應用內顯示更明確的處理指引"
         },
         "packages": {
           "arm64-v8a": {
-            "apkSha256": "a2c1a5866b327031f9013af0ee2d8e8724929bf9e8f0f48a94c3c85e2d7f51b5",
-            "apkUrl": "https://update.pushgo.cn/android/stable/v1.2.3/pushgo-android-v1.2.3-arm64-v8a-release.apk"
+            "apkSha256": "eae0630678036a00107ce4a970a36934df4d517e8ebdb7c186d36301c54da333",
+            "apkUrl": "https://update.pushgo.cn/android/stable/v1.2.4/pushgo-android-v1.2.4-arm64-v8a-release.apk"
           },
           "armeabi-v7a": {
-            "apkSha256": "2b97ee1fd1072859cbfbacb70d745aa07519d260e0057d008bea4c24984c6e85",
-            "apkUrl": "https://update.pushgo.cn/android/stable/v1.2.3/pushgo-android-v1.2.3-armeabi-v7a-release.apk"
+            "apkSha256": "8cd647fcd60f1980a74722fdc09cc5601dc2d7851e840c0c4b4a9f1621995078",
+            "apkUrl": "https://update.pushgo.cn/android/stable/v1.2.4/pushgo-android-v1.2.4-armeabi-v7a-release.apk"
           },
           "universal": {
-            "apkSha256": "9b6d3459fa75f361ae1075079ca15b37b23c9ed8f65f521ceddf585295c03c8e",
-            "apkUrl": "https://update.pushgo.cn/android/stable/v1.2.3/pushgo-android-v1.2.3-universal-release.apk"
+            "apkSha256": "4951ba44815912e40cd5ac84ef895beb0e55ac05d55c9d64ac3ecd7214d8b784",
+            "apkUrl": "https://update.pushgo.cn/android/stable/v1.2.4/pushgo-android-v1.2.4-universal-release.apk"
           },
           "x86_64": {
-            "apkSha256": "8149e4e155603e5d0a9bdb34692d8ef4b6682bf0f9d367102df2d1a035891a2d",
-            "apkUrl": "https://update.pushgo.cn/android/stable/v1.2.3/pushgo-android-v1.2.3-x86_64-release.apk"
+            "apkSha256": "1c3b1be399e496be96bbac34323e5eddc79bf1ba49a3ffdce70aa58ed9dc0642",
+            "apkUrl": "https://update.pushgo.cn/android/stable/v1.2.4/pushgo-android-v1.2.4-x86_64-release.apk"
           }
         },
-        "publishedAtEpochMs": 1778483052000,
-        "releaseNotesUrl": "https://github.com/AldenClark/pushgo-android/releases/tag/v1.2.3",
-        "versionCode": 1020399,
-        "versionName": "v1.2.3"
+        "publishedAtEpochMs": 1779084994000,
+        "releaseNotesUrl": "https://github.com/AldenClark/pushgo-android/releases/tag/v1.2.4",
+        "versionCode": 1020499,
+        "versionName": "v1.2.4"
       }
     ],
-    "generatedAtEpochMs": 1778483052000,
+    "generatedAtEpochMs": 1779084994000,
     "policy": {
       "impatientReminderIntervalSeconds": 604800,
       "scheduledCheckIntervalSeconds": 21600
@@ -88,6 +88,6 @@
     "schemaVersion": 1
   },
   "signatures": {
-    "ecdsa-p256-sha256": "MEQCIB4zxpt1GBXflU/nqW0I7NUsegYUuSqDds+jLtFDgp7OAiA5gTrgq0lPAc9TtdMYf2W/4vCHQ3KWEQDpYllPDsKeuA=="
+    "ecdsa-p256-sha256": "MEQCIBdA/Sn47AggqyfFsir5P715amo8T/509br3ze+nu3/HAiBPUSZ22gv6Xwk5X13TK0Bagh8NjH+sDplBBhGMpSg/0g=="
   }
 }
