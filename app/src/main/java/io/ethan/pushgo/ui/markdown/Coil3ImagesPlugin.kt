@@ -12,6 +12,7 @@ import coil3.gif.repeatCount
 import coil3.request.Disposable
 import coil3.request.ImageRequest
 import coil3.target.Target
+import io.ethan.pushgo.R
 import io.ethan.pushgo.data.ImageAssetMetadataStore
 import io.noties.markwon.AbstractMarkwonPlugin
 import io.noties.markwon.MarkwonConfiguration
@@ -102,25 +103,26 @@ class Coil3ImagesPlugin private constructor(
         }
 
         override fun onError(error: Image?) {
-            if (cache.remove(drawable) != null || !loaded.get()) {
-                loaded.set(true)
-                val errorDrawable = error?.asDrawable(resources) ?: ErrorPlaceholderDrawable()
-                DrawableUtils.applyIntrinsicBoundsIfEmpty(errorDrawable)
-                drawable.setResult(errorDrawable)
-            }
+            cache.remove(drawable)
+            loaded.set(true)
+            val errorDrawable = error?.asDrawable(resources) ?: ErrorPlaceholderDrawable(
+                resources = resources,
+                label = resources.getString(R.string.error_image_load_failed),
+            )
+            DrawableUtils.applyIntrinsicBoundsIfEmpty(errorDrawable)
+            drawable.setResult(errorDrawable)
         }
 
         override fun onSuccess(result: Image) {
-            if (cache.remove(drawable) != null || !loaded.get()) {
-                loaded.set(true)
-                val loadedDrawable = result.asDrawable(resources)
-                val displayDrawable = MarkdownPlayableDrawable.wrapIfAnimated(resources, loadedDrawable)
-                if (displayDrawable is MarkdownPlayableDrawable) {
-                    MarkdownAnimatedImagePlaybackRegistry.register(displayDrawable)
-                }
-                DrawableUtils.applyIntrinsicBoundsIfEmpty(displayDrawable)
-                drawable.setResult(displayDrawable)
+            cache.remove(drawable)
+            loaded.set(true)
+            val loadedDrawable = result.asDrawable(resources)
+            val displayDrawable = MarkdownPlayableDrawable.wrapIfAnimated(resources, loadedDrawable)
+            if (displayDrawable is MarkdownPlayableDrawable) {
+                MarkdownAnimatedImagePlaybackRegistry.register(displayDrawable)
             }
+            DrawableUtils.applyIntrinsicBoundsIfEmpty(displayDrawable)
+            drawable.setResult(displayDrawable)
         }
     }
 
@@ -198,14 +200,53 @@ private class MetadataPlaceholderDrawable(
     override fun getIntrinsicHeight(): Int = intrinsicHeightPx
 }
 
-private class ErrorPlaceholderDrawable : Drawable() {
-    private val paint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
-        color = 0x33FFFFFF
+private class ErrorPlaceholderDrawable(
+    resources: Resources,
+    private val label: String,
+) : Drawable() {
+    private val density = resources.displayMetrics.density
+    private val intrinsicWidthPx = (320f * density).toInt().coerceAtLeast(1)
+    private val intrinsicHeightPx = (180f * density).toInt().coerceAtLeast(1)
+    private val fillPaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+        color = 0xFFEFF3F9.toInt()
         style = android.graphics.Paint.Style.FILL
+    }
+    private val strokePaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+        color = 0xFFCBD5E1.toInt()
+        style = android.graphics.Paint.Style.STROKE
+        strokeWidth = density
+    }
+    private val iconPaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+        color = 0xFF64748B.toInt()
+        style = android.graphics.Paint.Style.STROKE
+        strokeWidth = 2f * density
+        strokeCap = android.graphics.Paint.Cap.ROUND
+        strokeJoin = android.graphics.Paint.Join.ROUND
+    }
+    private val textPaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+        color = 0xFF64748B.toInt()
+        textAlign = android.graphics.Paint.Align.CENTER
+        textSize = 14f * density
     }
 
     override fun draw(canvas: android.graphics.Canvas) {
-        canvas.drawRect(bounds, paint)
+        val rect = android.graphics.RectF(bounds)
+        canvas.drawRoundRect(rect, 12f * density, 12f * density, fillPaint)
+        canvas.drawRoundRect(rect, 12f * density, 12f * density, strokePaint)
+
+        val centerX = rect.centerX()
+        val iconTop = rect.centerY() - 32f * density
+        val iconRect = android.graphics.RectF(
+            centerX - 20f * density,
+            iconTop,
+            centerX + 20f * density,
+            iconTop + 28f * density,
+        )
+        canvas.drawRoundRect(iconRect, 4f * density, 4f * density, iconPaint)
+        canvas.drawLine(iconRect.left + 6f * density, iconRect.bottom - 7f * density, iconRect.centerX(), iconRect.centerY(), iconPaint)
+        canvas.drawLine(iconRect.centerX(), iconRect.centerY(), iconRect.right - 6f * density, iconRect.bottom - 7f * density, iconPaint)
+        canvas.drawLine(iconRect.right - 5f * density, iconRect.top + 5f * density, iconRect.right - 14f * density, iconRect.top + 14f * density, iconPaint)
+        canvas.drawText(label, centerX, iconRect.bottom + 24f * density, textPaint)
     }
 
     override fun setAlpha(alpha: Int) {}
@@ -214,4 +255,8 @@ private class ErrorPlaceholderDrawable : Drawable() {
 
     @Suppress("DEPRECATION", "OVERRIDE_DEPRECATION")
     override fun getOpacity(): Int = android.graphics.PixelFormat.TRANSLUCENT
+
+    override fun getIntrinsicWidth(): Int = intrinsicWidthPx
+
+    override fun getIntrinsicHeight(): Int = intrinsicHeightPx
 }

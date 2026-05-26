@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import io.ethan.pushgo.data.MessageImageStore
 import io.ethan.pushgo.data.MessageRepository
+import io.ethan.pushgo.data.model.PushMessage
 import io.ethan.pushgo.notifications.MessageStateCoordinator
 import io.ethan.pushgo.ui.viewmodel.MessageDetailViewModel
 
@@ -12,11 +13,12 @@ class MessageDetailViewModelFactory(
     private val imageStore: MessageImageStore,
     private val stateCoordinator: MessageStateCoordinator,
     private val messageId: String,
+    private val initialMessage: PushMessage? = null,
 ) : ViewModelProvider.Factory {
     @Suppress("UNCHECKED_CAST")
     override fun <T : ViewModel> create(modelClass: Class<T>): T {
         if (modelClass.isAssignableFrom(MessageDetailViewModel::class.java)) {
-            return MessageDetailViewModel(repository, imageStore, stateCoordinator, messageId) as T
+            return MessageDetailViewModel(repository, imageStore, stateCoordinator, messageId, initialMessage) as T
         }
         throw IllegalArgumentException("Unknown ViewModel: ${modelClass.name}")
     }

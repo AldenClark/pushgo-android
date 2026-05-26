@@ -453,4 +453,5 @@
     <string name="message_image_saved">画像を写真に保存しました。</string>
     <string name="error_message_image_save_failed">画像の保存に失敗しました。</string>
     <string name="error_message_image_share_failed">共有パネルを開けませんでした。</string>
+    <string name="error_image_load_failed">画像を読み込めませんでした</string>
 </resources>

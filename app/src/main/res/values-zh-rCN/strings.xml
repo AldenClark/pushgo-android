@@ -453,5 +453,6 @@
     <string name="message_image_saved">图片已保存到相册。</string>
     <string name="error_message_image_save_failed">保存图片失败。</string>
     <string name="error_message_image_share_failed">无法打开分享面板。</string>
+    <string name="error_image_load_failed">图片加载失败</string>
     <string name="label_unknown_error">未知错误</string>
 </resources>

@@ -22,6 +22,7 @@ class MessageDetailViewModel(
     private val imageStore: MessageImageStore,
     private val stateCoordinator: MessageStateCoordinator,
     private val messageId: String,
+    initialMessage: PushMessage? = null,
 ) : ViewModel() {
     companion object {
         private const val PERF_TAG = "PushGoPerf"
@@ -121,10 +122,10 @@ class MessageDetailViewModel(
         }
     }
 
-    private val _message = MutableStateFlow<PushMessage?>(null)
+    private val _message = MutableStateFlow(initialMessage?.let(::displayMessage))
     val message: StateFlow<PushMessage?> = _message
 
-    private val _isLoading = MutableStateFlow(true)
+    private val _isLoading = MutableStateFlow(initialMessage == null)
     val isLoading: StateFlow<Boolean> = _isLoading
 
     private val _loadError = MutableStateFlow<String?>(null)
@@ -141,7 +142,7 @@ class MessageDetailViewModel(
             val loadedAtMs = SystemClock.elapsedRealtime()
             val loaded = loadResult.message
             if (loaded != null) {
-                val resolved = if (loaded.isRead) loaded else loaded.copy(isRead = true)
+                val resolved = displayMessage(loaded)
                 _message.value = resolved
                 storeCachedMessage(messageId, resolved)
                 _isLoading.value = false
@@ -184,5 +185,9 @@ class MessageDetailViewModel(
             _message.value = updated
             storeCachedMessage(messageId, updated)
         }
+    }
+
+    private fun displayMessage(message: PushMessage): PushMessage {
+        return if (message.isRead) message else message.copy(isRead = true)
     }
 }

@@ -458,4 +458,5 @@
     <string name="message_image_saved">Image enregistrée dans Photos.</string>
     <string name="error_message_image_save_failed">Échec de l’enregistrement de l’image.</string>
     <string name="error_message_image_share_failed">Impossible d’ouvrir le panneau de partage.</string>
+    <string name="error_image_load_failed">Échec du chargement de l’image</string>
 </resources>

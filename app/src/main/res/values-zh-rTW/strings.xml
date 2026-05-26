@@ -407,5 +407,6 @@
     <string name="label_update_install_blocked_action">打開安裝設定</string>
     <string name="label_update_install_action_required_title">繼續完成更新安裝</string>
     <string name="label_update_install_action_required_body">繼續安裝需要你確認系統安裝提示。</string>
+    <string name="error_image_load_failed">圖片載入失敗</string>
     <string name="label_unknown_error">未知錯誤</string>
 </resources>

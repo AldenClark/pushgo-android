@@ -15,7 +15,6 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -37,7 +36,6 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -51,6 +49,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -111,6 +110,7 @@ import android.text.format.DateFormat
 fun MessageDetailScreen(
     messageId: String,
     repository: MessageRepository,
+    initialMessage: PushMessage? = null,
     stateCoordinator: MessageStateCoordinator,
     pendingLocalDeletionCoordinator: PendingLocalDeletionCoordinator,
     channelRepository: ChannelSubscriptionRepository,
@@ -124,7 +124,7 @@ fun MessageDetailScreen(
     val scope = rememberCoroutineScope()
     val viewModel: MessageDetailViewModel = viewModel(
         key = messageId,
-        factory = MessageDetailViewModelFactory(repository, imageStore, stateCoordinator, messageId),
+        factory = MessageDetailViewModelFactory(repository, imageStore, stateCoordinator, messageId, initialMessage),
     )
     val message by viewModel.message.collectAsStateWithLifecycle()
     val isLoading by viewModel.isLoading.collectAsStateWithLifecycle()
@@ -139,6 +139,17 @@ fun MessageDetailScreen(
         viewModel.load()
     }
     val current = message
+
+    LaunchedEffect(current?.id) {
+        current ?: return@LaunchedEffect
+        repeat(3) {
+            withFrameNanos { }
+            if (sheetState.hasExpandedState) {
+                runCatching { sheetState.expand() }
+                return@LaunchedEffect
+            }
+        }
+    }
 
     LaunchedEffect(isLoading, current?.id) {
         if (!isLoading && current != null) {
@@ -188,6 +199,7 @@ fun MessageDetailScreen(
         modifier = Modifier.testTag("sheet.message.detail"),
         onDismissRequest = { onDismiss() },
         sheetState = sheetState,
+        minHeightFraction = 0.62f,
     ) {
         when {
             current != null -> {

@@ -521,6 +521,7 @@ fun ThingListScreen(
     }
 
     if (selectedThing != null && !isSelectionMode) {
+        val thing = selectedThing!!
         PushGoModalBottomSheet(
             onDismissRequest = {
                 selectedThing = null
@@ -531,7 +532,7 @@ fun ThingListScreen(
             },
         ) {
             ThingDetailSheet(
-                thing = selectedThing!!,
+                thing = thing,
                 channelNameMap = channelNameMap,
                 bottomGestureInset = bottomGestureInset,
                 onOpenRelatedEvent = { selectedRelatedEvent = it },
@@ -548,12 +549,13 @@ fun ThingListScreen(
     }
 
     if (selectedRelatedEvent != null) {
+        val event = selectedRelatedEvent!!
         PushGoModalBottomSheet(
             onDismissRequest = { selectedRelatedEvent = null },
         ) {
             EventDetailSheet(
-                event = selectedRelatedEvent!!,
-                channelDisplayName = selectedRelatedEvent?.channelId?.let { channelNameMap[it] ?: it },
+                event = event,
+                channelDisplayName = event.channelId?.let { channelNameMap[it] ?: it },
                 bottomGestureInset = bottomGestureInset,
                 onCloseEvent = {
                     val event = selectedRelatedEvent ?: return@EventDetailSheet
@@ -593,18 +595,20 @@ fun ThingListScreen(
     }
 
     if (selectedRelatedMessage != null) {
+        val message = selectedRelatedMessage!!
         PushGoModalBottomSheet(
             onDismissRequest = { selectedRelatedMessage = null },
         ) {
-            ThingRelatedMessageDetailSheet(message = selectedRelatedMessage!!)
+            ThingRelatedMessageDetailSheet(message = message)
         }
     }
 
     if (selectedRelatedUpdate != null) {
+        val update = selectedRelatedUpdate!!
         PushGoModalBottomSheet(
             onDismissRequest = { selectedRelatedUpdate = null },
         ) {
-            ThingUpdateDetailSheet(update = selectedRelatedUpdate!!)
+            ThingUpdateDetailSheet(update = update)
         }
     }
 

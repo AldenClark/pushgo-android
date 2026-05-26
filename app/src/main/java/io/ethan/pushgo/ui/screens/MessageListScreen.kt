@@ -104,7 +104,7 @@ fun MessageListScreen(
     navController: NavHostController,
     container: AppContainer,
     factory: PushGoViewModelFactory,
-    onMessageClick: (String) -> Unit,
+    onMessageClick: (PushMessage) -> Unit,
     onBatchModeChanged: (Boolean) -> Unit,
     onBottomBarVisibilityChanged: (Boolean) -> Unit,
     suppressForegroundNotificationAtTop: Boolean,
@@ -737,7 +737,7 @@ fun MessageListScreen(
                                                 val body = MessageBodyResolver.resolve(message.rawPayloadJson, message.body).rawText
                                                 container.messageImageStore.preheatDetailAssets(message.rawPayloadJson, body)
                                             }
-                                            onMessageClick(message.id)
+                                            onMessageClick(message)
                                         }
                                     },
                                     onMarkRead = { viewModel.markRead(message.id) },
@@ -773,7 +773,7 @@ fun MessageListScreen(
                                             val body = MessageBodyResolver.resolve(message.rawPayloadJson, message.body).rawText
                                             container.messageImageStore.preheatDetailAssets(message.rawPayloadJson, body)
                                         }
-                                        onMessageClick(message.id)
+                                        onMessageClick(message)
                                     }
                                 },
                                 onMarkRead = { viewModel.markRead(message.id) },

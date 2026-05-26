@@ -506,12 +506,13 @@ fun EventListScreen(
     }
 
     if (selectedEvent != null && !isSelectionMode) {
+        val event = selectedEvent!!
         PushGoModalBottomSheet(
-                onDismissRequest = { selectedEvent = null; onEventDetailClosed() },
+            onDismissRequest = { selectedEvent = null; onEventDetailClosed() },
         ) {
             EventDetailSheet(
-                event = selectedEvent!!,
-                channelDisplayName = selectedEvent?.channelId?.let { channelNameMap[it] ?: it },
+                event = event,
+                channelDisplayName = event.channelId?.let { channelNameMap[it] ?: it },
                 bottomGestureInset = bottomGestureInset,
                 onCloseEvent = { pendingCloseEvent = selectedEvent },
                 onDeleteEvent = {

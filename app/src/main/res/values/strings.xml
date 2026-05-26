@@ -469,5 +469,6 @@
     <string name="message_image_saved">Image saved to Photos.</string>
     <string name="error_message_image_save_failed">Failed to save image.</string>
     <string name="error_message_image_share_failed">Unable to open share panel.</string>
+    <string name="error_image_load_failed">Image failed to load</string>
     <string name="label_unknown_error">Unknown error</string>
 </resources>
