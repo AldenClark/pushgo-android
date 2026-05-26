@@ -23,6 +23,22 @@ PushGo Android policy:
 ### Changed
 - Placeholder for next development cycle.
 
+## [v1.2.5] - 2026-05-26
+
+### Added
+- Added versioned stable update notes source: `release/update-notes/v1.2.5.json`.
+
+### Changed
+- Finalized Android app version to `v1.2.5` for release builds.
+- `versionCode` now resolves to stable code `1020599` from `versionName=v1.2.5`.
+- Stabilized message-detail bottom-sheet presentation with bounded height handling and safer initial expand behavior.
+- Updated message detail state wiring to accept initial message snapshots, reducing blank/loading transitions when opening detail from lists.
+- Improved image-load fallback rendering in both Compose surfaces and Markdown-rendered content with explicit localized error placeholders.
+
+### Fixed
+- Fixed message detail sheet layout/interaction edge cases that could produce unstable presentation behavior on some screen sizes.
+- Fixed image error fallback behavior so failed media now presents clear, user-visible error placeholders instead of ambiguous blank blocks.
+
 ## [v1.2.4] - 2026-05-18
 
 ### Added

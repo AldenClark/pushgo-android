@@ -13,6 +13,12 @@ Policy:
 ### Changed
 - Placeholder for next beta cycle.
 
+## [v1.2.5]
+
+### Improved
+- Improved message detail sheet stability and presentation consistency when opening message details.
+- Improved image load failure handling with clearer placeholders and localized failure text in both message detail and markdown content.
+
 ## [v1.2.4]
 
 ### Improved

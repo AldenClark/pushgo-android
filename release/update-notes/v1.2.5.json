@@ -1,0 +1,10 @@
+{
+  "en": "PushGo 1.2.5 improves message detail stability and image fallback clarity on Android.\\n- Message detail bottom sheet now opens and sizes more consistently across screen sizes\\n- Failed image loads now show clearer localized placeholders in both detail view and markdown content",
+  "de": "PushGo 1.2.5 verbessert auf Android die Stabilitat der Nachrichtendetails und die Klarheit bei Bild-Fehlerruckfallen.\\n- Das Bottom Sheet der Nachrichtendetails offnet und skaliert nun uber verschiedene Bildschirmgrossen konsistenter\\n- Fehlgeschlagene Bildladevorgange zeigen jetzt klarere, lokalisierte Platzhalter in Detailansicht und Markdown-Inhalten",
+  "es": "PushGo 1.2.5 mejora en Android la estabilidad del detalle de mensajes y la claridad ante fallos de imagen.\\n- La hoja inferior de detalle ahora se abre y dimensiona de forma mas consistente en distintos tamanos de pantalla\\n- Las cargas de imagen fallidas ahora muestran marcadores mas claros y localizados tanto en detalle como en contenido markdown",
+  "fr": "PushGo 1.2.5 ameliore sur Android la stabilite du detail des messages et la clarte des retours en cas d'echec d'image.\\n- Le panneau bas des details de message s'ouvre et se dimensionne desormais de maniere plus coherente selon les tailles d'ecran\\n- Les echecs de chargement d'image affichent maintenant des placeholders localises plus explicites dans la vue detail et le contenu markdown",
+  "ja": "PushGo 1.2.5 では、Android のメッセージ詳細の安定性と画像エラー時の表示わかりやすさを改善しました。\\n- メッセージ詳細のボトムシートが、さまざまな画面サイズでより安定して開き、適切に表示されます\\n- 画像の読み込み失敗時に、詳細画面と Markdown コンテンツの両方で、より分かりやすいローカライズ済みプレースホルダーを表示します",
+  "ko": "PushGo 1.2.5는 Android에서 메시지 상세 안정성과 이미지 실패 처리 가독성을 개선했습니다.\\n- 메시지 상세 하단 시트가 다양한 화면 크기에서 더 일관되게 열리고 크기가 맞춰집니다\\n- 이미지 로드 실패 시 상세 보기와 마크다운 콘텐츠 모두에서 더 명확한 현지화 플레이스홀더를 표시합니다",
+  "zh-CN": "PushGo 1.2.5 提升了 Android 端消息详情稳定性与图片失败回退提示清晰度。\\n- 消息详情底部弹层在不同屏幕尺寸下的打开与尺寸表现更稳定\\n- 图片加载失败时，在详情页和 Markdown 内容中都会显示更清晰的本地化占位提示",
+  "zh-TW": "PushGo 1.2.5 提升了 Android 端訊息詳情穩定性與圖片失敗回退提示清晰度。\\n- 訊息詳情底部彈層在不同螢幕尺寸下的開啟與尺寸表現更穩定\\n- 圖片載入失敗時，在詳情頁與 Markdown 內容中都會顯示更清晰的在地化占位提示"
+}
