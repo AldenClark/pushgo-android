@@ -25,12 +25,13 @@ interface MessageChannelStatsDao {
 
     @Query(
         """
-        INSERT INTO message_channel_counts(channel, total_count, unread_count, latest_received_at)
-        VALUES(:channel, :totalCount, :unreadCount, :latestReceivedAt)
-        ON CONFLICT(channel) DO UPDATE SET
-            total_count = message_channel_counts.total_count + excluded.total_count,
-            unread_count = message_channel_counts.unread_count + excluded.unread_count,
-            latest_received_at = MAX(message_channel_counts.latest_received_at, excluded.latest_received_at)
+        INSERT OR REPLACE INTO message_channel_counts(channel, total_count, unread_count, latest_received_at)
+        VALUES(
+            :channel,
+            COALESCE((SELECT total_count FROM message_channel_counts WHERE channel = :channel), 0) + :totalCount,
+            COALESCE((SELECT unread_count FROM message_channel_counts WHERE channel = :channel), 0) + :unreadCount,
+            MAX(COALESCE((SELECT latest_received_at FROM message_channel_counts WHERE channel = :channel), 0), :latestReceivedAt)
+        )
         """
     )
     suspend fun applyPositiveDelta(

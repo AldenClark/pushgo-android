@@ -10,7 +10,7 @@ PushGo for Android is the official client app for PushGo. It works with PushGo G
 
 ## Requirements
 
-- Android 12+ (minSdk 31)
+- Android 9+ (minSdk 28)
 
 ---
 
@@ -26,4 +26,4 @@ PushGo Android 是 PushGo 的官方客户端应用，可配合 PushGo Gateway �
 
 ## 环境要求
 
-- Android 12+（minSdk 31）
+- Android 9+（minSdk 28）

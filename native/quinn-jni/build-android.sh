@@ -10,7 +10,7 @@ if ! command -v cargo-ndk >/dev/null 2>&1; then
   exit 1
 fi
 
-API_LEVEL="${ANDROID_API_LEVEL:-31}"
+API_LEVEL="${ANDROID_API_LEVEL:-28}"
 TARGETS=(
   "arm64-v8a:aarch64-linux-android"
   "armeabi-v7a:armv7-linux-androideabi"

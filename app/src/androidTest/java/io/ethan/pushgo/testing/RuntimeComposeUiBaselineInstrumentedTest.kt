@@ -2,6 +2,7 @@ package io.ethan.pushgo.testing
 
 import android.content.Context
 import android.hardware.input.InputManager
+import android.os.Build
 import android.os.SystemClock
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -83,8 +84,12 @@ class RuntimeComposeUiBaselineInstrumentedTest {
                 "note=compose_ui_rule_uses_espresso_onIdle",
         )
 
-        // 当前 API 17 镜像缺少该反射入口，保留为环境事实。
-        assertFalse("expected API17 image to miss InputManager.getInstance reflective entry", hasInputManagerGetInstance)
+        if (Build.VERSION.SDK_INT <= Build.VERSION_CODES.JELLY_BEAN_MR1) {
+            assertFalse(
+                "expected API17 image to miss InputManager.getInstance reflective entry",
+                hasInputManagerGetInstance,
+            )
+        }
     }
 
     @Test

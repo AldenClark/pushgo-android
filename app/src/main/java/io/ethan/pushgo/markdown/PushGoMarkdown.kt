@@ -984,7 +984,7 @@ private object InlineRegex {
     val EMAIL = Regex("(?i)\\b([A-Z0-9._%+-]+@[A-Z0-9.-]+\\.[A-Z]{2,})")
     val PHONE = Regex("(?i)(?<!\\w)(\\+?[0-9][0-9\\-\\s]{6,}[0-9])(?!\\w)")
     val MENTION = Regex("(?<!\\w)@([A-Za-z0-9_]{1,30})")
-    val TAG = Regex("(?<!\\w)#([A-Za-z0-9_\\p{IsHan}]{1,30})")
+    val TAG = Regex("(?<!\\w)#([A-Za-z0-9_\\u4E00-\\u9FFF]{1,30})")
 }
 
 private object BlockRegex {

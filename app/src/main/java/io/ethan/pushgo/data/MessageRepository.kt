@@ -29,6 +29,8 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import org.json.JSONObject
 
+private const val SQLITE_BIND_PARAMETER_CHUNK_SIZE = 900
+
 class MessageRepository(
     private val database: PushGoDatabase,
     private val dao: MessageDao,
@@ -369,7 +371,7 @@ class MessageRepository(
                 val existingByStableId = if (stableMessageIds.isEmpty()) {
                     emptyMap()
                 } else {
-                    dao.getByMessageIds(stableMessageIds.toList())
+                    getMessagesByMessageIdsChunked(stableMessageIds)
                         .asSequence()
                         .filter { !it.messageId.isNullOrBlank() }
                         .fold(linkedMapOf<String, MessageEntity>()) { acc, entity ->
@@ -402,7 +404,7 @@ class MessageRepository(
                 val existingById = if (entities.isEmpty()) {
                     emptyMap()
                 } else {
-                    dao.getByIds(entities.map { it.id }).associateBy { it.id }
+                    getMessagesByIdsChunked(entities.map { it.id }).associateBy { it.id }
                 }
                 val persistedEntities = mutableListOf<MessageEntity>()
                 resolved.values.forEach { (entity, message) ->
@@ -433,7 +435,7 @@ class MessageRepository(
                 val existingByStableId = if (stableMessageIds.isEmpty()) {
                     emptyMap()
                 } else {
-                    thingSubMessageDao.getByMessageIds(stableMessageIds.toList())
+                    getThingSubMessagesByMessageIdsChunked(stableMessageIds)
                         .asSequence()
                         .filter { !it.messageId.isNullOrBlank() }
                         .fold(linkedMapOf<String, ThingSubMessageEntity>()) { acc, entity ->
@@ -464,7 +466,7 @@ class MessageRepository(
                 }
                 if (resolved.isNotEmpty()) {
                     val entities = resolved.values.toList()
-                    val existingById = thingSubMessageDao.getByIds(entities.map { it.id }).associateBy { it.id }
+                    val existingById = getThingSubMessagesByIdsChunked(entities.map { it.id }).associateBy { it.id }
                     entities.forEach { entity ->
                         if (existingById.containsKey(entity.id)) {
                             thingSubMessageDao.update(entity)
@@ -574,11 +576,15 @@ class MessageRepository(
             return 0
         }
         return database.withTransaction {
-            val aggregates = dao.getChannelAggregatesByIds(normalizedIds)
+            val aggregates = normalizedIds
+                .chunked(SQLITE_BIND_PARAMETER_CHUNK_SIZE)
+                .flatMap { dao.getChannelAggregatesByIds(it) }
             if (aggregates.isEmpty()) {
                 return@withTransaction 0
             }
-            val deleted = dao.deleteByIds(normalizedIds)
+            val deleted = normalizedIds
+                .chunked(SQLITE_BIND_PARAMETER_CHUNK_SIZE)
+                .sumOf { dao.deleteByIds(it) }
             if (deleted > 0) {
                 applyRemovalAggregates(aggregates)
             }
@@ -797,7 +803,7 @@ class MessageRepository(
             return
         }
         val duplicates = mutableListOf<MessageEntity>()
-        val existing = dao.getByMessageIds(stableMessageIds.toList())
+        val existing = getMessagesByMessageIdsChunked(stableMessageIds)
             .filter { !it.messageId.isNullOrBlank() }
         existing
             .groupBy { entity -> entity.messageId!!.trim() }
@@ -817,7 +823,9 @@ class MessageRepository(
         if (duplicates.isEmpty()) {
             return
         }
-        dao.deleteByIds(duplicates.map { it.id })
+        duplicates.map { it.id }
+            .chunked(SQLITE_BIND_PARAMETER_CHUNK_SIZE)
+            .forEach { dao.deleteByIds(it) }
         val aggregates = duplicates.map { message ->
             MessageChannelStatsAggregate(
                 channel = channelKey(message.channel),
@@ -834,7 +842,7 @@ class MessageRepository(
             return
         }
         val duplicates = mutableListOf<ThingSubMessageEntity>()
-        val existing = thingSubMessageDao.getByMessageIds(stableMessageIds.toList())
+        val existing = getThingSubMessagesByMessageIdsChunked(stableMessageIds)
             .filter { !it.messageId.isNullOrBlank() }
         existing
             .groupBy { entity -> entity.messageId!!.trim() }
@@ -854,7 +862,35 @@ class MessageRepository(
         if (duplicates.isEmpty()) {
             return
         }
-        thingSubMessageDao.deleteByIds(duplicates.map { it.id })
+        duplicates.map { it.id }
+            .chunked(SQLITE_BIND_PARAMETER_CHUNK_SIZE)
+            .forEach { thingSubMessageDao.deleteByIds(it) }
+    }
+
+    private suspend fun getMessagesByMessageIdsChunked(messageIds: Collection<String>): List<MessageEntity> {
+        return messageIds
+            .chunked(SQLITE_BIND_PARAMETER_CHUNK_SIZE)
+            .flatMap { dao.getByMessageIds(it) }
+    }
+
+    private suspend fun getMessagesByIdsChunked(ids: Collection<String>): List<MessageEntity> {
+        return ids
+            .chunked(SQLITE_BIND_PARAMETER_CHUNK_SIZE)
+            .flatMap { dao.getByIds(it) }
+    }
+
+    private suspend fun getThingSubMessagesByMessageIdsChunked(
+        messageIds: Collection<String>,
+    ): List<ThingSubMessageEntity> {
+        return messageIds
+            .chunked(SQLITE_BIND_PARAMETER_CHUNK_SIZE)
+            .flatMap { thingSubMessageDao.getByMessageIds(it) }
+    }
+
+    private suspend fun getThingSubMessagesByIdsChunked(ids: Collection<String>): List<ThingSubMessageEntity> {
+        return ids
+            .chunked(SQLITE_BIND_PARAMETER_CHUNK_SIZE)
+            .flatMap { thingSubMessageDao.getByIds(it) }
     }
 
     private fun isPushMessageNewer(candidate: PushMessage, current: PushMessage): Boolean {
@@ -1116,7 +1152,9 @@ class MessageRepository(
                 }
             }
             if (consumedIds.isNotEmpty()) {
-                pendingThingMessageDao.deleteByIds(consumedIds)
+                consumedIds
+                    .chunked(SQLITE_BIND_PARAMETER_CHUNK_SIZE)
+                    .forEach { pendingThingMessageDao.deleteByIds(it) }
             }
         }
     }

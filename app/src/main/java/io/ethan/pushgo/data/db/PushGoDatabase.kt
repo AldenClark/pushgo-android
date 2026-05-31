@@ -300,11 +300,8 @@ abstract class PushGoDatabase : RoomDatabase() {
         private fun markEpochNormalizationDone(db: SupportSQLiteDatabase) {
             db.execSQL(
                 """
-                INSERT INTO db_maintenance_flags(flag_key, flag_value, updated_at)
+                INSERT OR REPLACE INTO db_maintenance_flags(flag_key, flag_value, updated_at)
                 VALUES (?, '1', CAST(strftime('%s','now') AS INTEGER) * 1000)
-                ON CONFLICT(flag_key) DO UPDATE SET
-                    flag_value = excluded.flag_value,
-                    updated_at = excluded.updated_at
                 """.trimIndent(),
                 arrayOf(EPOCH_NORMALIZATION_FLAG_KEY),
             )

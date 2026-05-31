@@ -14,6 +14,7 @@ Options:
   --repo-feed-path <path>               Persistent repo feed path (default: release/update-feed-v1.json)
   --update-notes-dir <path>             Directory containing <tag>.json note maps (default: release/update-notes)
   --update-notes-file <path>            Override note file path for this tag
+  --min-sdk <api-level>                 Minimum Android SDK for this release (default: 28)
   --output <path>                       Output signed feed JSON (default: <dist_dir>/update-feed-v1.json)
   --ecdsa-private-key-file <path>       ECDSA P-256 private key (PKCS8 PEM) for payload signature
   -h, --help                            Show this help
@@ -51,6 +52,7 @@ existing_feed=""
 repo_feed_path="release/update-feed-v1.json"
 update_notes_dir="release/update-notes"
 update_notes_file=""
+min_sdk="28"
 output_path="${dist_dir%/}/update-feed-v1.json"
 ecdsa_private_key_file=""
 
@@ -82,6 +84,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --update-notes-file)
       update_notes_file="${2:-}"
+      shift 2
+      ;;
+    --min-sdk)
+      min_sdk="${2:-}"
       shift 2
       ;;
     --output)
@@ -116,6 +122,11 @@ fi
 
 if [[ -n "$base_url" && ! "$base_url" =~ ^https?:// ]]; then
   echo "Error: --base-url must start with http:// or https://, got: $base_url" >&2
+  exit 1
+fi
+
+if [[ ! "$min_sdk" =~ ^[0-9]+$ || "$min_sdk" -lt 1 ]]; then
+  echo "Error: --min-sdk must be a positive integer, got: $min_sdk" >&2
   exit 1
 fi
 
@@ -243,10 +254,12 @@ new_entry_json="$(jq -n \
   --argjson notesI18n "$notes_i18n_json" \
   --argjson versionCode "$version_code" \
   --argjson generatedAt "$generated_at_ms" \
+  --argjson minSdk "$min_sdk" \
   '{
     channel: $channel,
     versionCode: $versionCode,
     versionName: $versionName,
+    minSdk: $minSdk,
     apkUrl: $apkUrl,
     apkSha256: $apkSha256,
     packages: $packages,

@@ -121,7 +121,7 @@ android {
 
     defaultConfig {
         applicationId = "io.ethan.pushgo"
-        minSdk = 31
+        minSdk = 28
         versionCode = appVersionCode
         versionName = appVersionName
         testInstrumentationRunner = "io.ethan.pushgo.test.PushGoAndroidJUnitRunner"

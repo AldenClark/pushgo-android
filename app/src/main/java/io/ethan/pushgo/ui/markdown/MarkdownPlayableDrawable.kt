@@ -12,6 +12,7 @@ import android.graphics.drawable.Animatable
 import android.graphics.drawable.Animatable2
 import android.graphics.drawable.AnimatedImageDrawable
 import android.graphics.drawable.Drawable
+import android.os.Looper
 import androidx.vectordrawable.graphics.drawable.Animatable2Compat
 import java.lang.ref.WeakReference
 
@@ -233,10 +234,12 @@ internal class MarkdownPlayableDrawable private constructor(
         when (target) {
             is AnimatedImageDrawable -> {
                 target.repeatCount = 0
+                if (Looper.myLooper() == null) return
                 target.unregisterAnimationCallback(animationCallback)
                 target.registerAnimationCallback(animationCallback)
             }
             is Animatable2 -> {
+                if (Looper.myLooper() == null) return
                 target.unregisterAnimationCallback(animationCallback)
                 target.registerAnimationCallback(animationCallback)
             }
