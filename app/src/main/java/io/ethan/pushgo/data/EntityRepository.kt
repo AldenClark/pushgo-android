@@ -364,7 +364,13 @@ class EntityRepository(
                 false
             } else {
                 eventChangeLogDao.insert(EventChangeLogEntity.fromIncoming(entity))
-                topLevelEventHeadDao.upsert(TopLevelEventHeadEntity.fromIncoming(entity))
+                val eventId = entity.eventId?.trim()?.takeIf { it.isNotEmpty() } ?: entity.entityId
+                topLevelEventHeadDao.upsert(
+                    TopLevelEventHeadEntity.fromMerged(
+                        existing = topLevelEventHeadDao.getByEventId(eventId),
+                        entity = entity,
+                    )
+                )
                 true
             }
         } else {
@@ -386,8 +392,13 @@ class EntityRepository(
             return false
         }
         thingChangeLogDao.insert(ThingChangeLogEntity.fromIncoming(entity))
-        thingHeadDao.upsert(ThingHeadEntity.fromIncoming(entity))
         val thingId = entity.thingId?.trim()?.takeIf { it.isNotEmpty() } ?: entity.entityId
+        thingHeadDao.upsert(
+            ThingHeadEntity.fromMerged(
+                existing = thingHeadDao.getByThingId(thingId),
+                entity = entity,
+            )
+        )
         replayPendingForThing(thingId)
         return true
     }

@@ -202,6 +202,9 @@ interface TopLevelEventHeadDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(head: TopLevelEventHeadEntity)
 
+    @Query("SELECT * FROM top_level_event_heads WHERE event_id = :eventId LIMIT 1")
+    suspend fun getByEventId(eventId: String): TopLevelEventHeadEntity?
+
     @Query(
         """
         SELECT * FROM top_level_event_heads
@@ -269,6 +272,9 @@ interface TopLevelEventHeadDao {
 interface ThingHeadDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(head: ThingHeadEntity)
+
+    @Query("SELECT * FROM thing_heads WHERE thing_id = :thingId LIMIT 1")
+    suspend fun getByThingId(thingId: String): ThingHeadEntity?
 
     @Query(
         """

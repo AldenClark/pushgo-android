@@ -4,6 +4,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import org.json.JSONObject
 import kotlin.system.measureNanoTime
 
 class RuntimeLocalStoreCorrectnessTest {
@@ -132,6 +133,106 @@ class RuntimeLocalStoreCorrectnessTest {
     }
 
     @Test
+    fun localStore_eventPatchDoesNotClearExistingHeadFields() {
+        val store = RuntimeLocalStore()
+
+        assertTrue(
+            store.ingest(
+                entityPayload(
+                    canonicalId = "event-patch-1",
+                    entityType = "event",
+                    opId = "event-create",
+                    extras = mapOf(
+                        "event_id" to "event-patch-1",
+                        "title" to "Original event",
+                        "message" to "Original message",
+                        "metadata" to JSONObject().put("source", "create").toString(),
+                    ),
+                ),
+            ).accepted,
+        )
+        assertTrue(
+            store.ingest(
+                entityPayload(
+                    canonicalId = "event-patch-1",
+                    entityType = "event",
+                    opId = "event-update-metadata",
+                    extras = mapOf(
+                        "event_id" to "event-patch-1",
+                        "metadata" to JSONObject().put("stage", "update").toString(),
+                    ),
+                ),
+            ).accepted,
+        )
+
+        val head = store.snapshot().eventHeads.single()
+        val metadata = JSONObject(JSONObject(head.rawPayloadJson).getString("metadata"))
+        assertEquals("Original event", head.title)
+        assertEquals("Original message", head.body)
+        assertEquals("create", metadata.getString("source"))
+        assertEquals("update", metadata.getString("stage"))
+    }
+
+    @Test
+    fun localStore_thingObjectPatchMergesAndDeletesKeys() {
+        val store = RuntimeLocalStore()
+
+        assertTrue(
+            store.ingest(
+                entityPayload(
+                    canonicalId = "thing-patch-1",
+                    entityType = "thing",
+                    opId = "thing-create",
+                    extras = mapOf(
+                        "thing_id" to "thing-patch-1",
+                        "title" to "Original thing",
+                        "description" to "Original description",
+                        "attrs" to JSONObject()
+                            .put("temperature", "20")
+                            .put("pressure", "ok")
+                            .toString(),
+                        "external_ids" to JSONObject()
+                            .put("asset", "asset-1")
+                            .toString(),
+                    ),
+                ),
+            ).accepted,
+        )
+        assertTrue(
+            store.ingest(
+                entityPayload(
+                    canonicalId = "thing-patch-1",
+                    entityType = "thing",
+                    opId = "thing-update-attrs",
+                    extras = mapOf(
+                        "thing_id" to "thing-patch-1",
+                        "attrs" to JSONObject()
+                            .put("temperature", JSONObject.NULL)
+                            .put("rpm", "50")
+                            .toString(),
+                        "external_ids" to JSONObject()
+                            .put("asset", JSONObject.NULL)
+                            .put("cmms", "cmms-1")
+                            .toString(),
+                    ),
+                ),
+            ).accepted,
+        )
+
+        val head = store.snapshot().thingHeads.single()
+        val payload = JSONObject(head.rawPayloadJson)
+        val attrs = JSONObject(payload.getString("attrs"))
+        val externalIds = JSONObject(payload.getString("external_ids"))
+        assertEquals("Original thing", head.title)
+        assertEquals("Original description", head.body)
+        assertFalse(attrs.has("temperature"))
+        assertEquals("ok", attrs.getString("pressure"))
+        assertEquals("50", attrs.getString("rpm"))
+        assertFalse(externalIds.has("asset"))
+        assertEquals("cmms-1", externalIds.getString("cmms"))
+    }
+
+    @Test
     fun localStore_rebuildSnapshotPreservesCanonicalState() {
         val store = RuntimeLocalStore()
         RuntimeFixtureGenerator(seed = 37L).generateRecords(100).forEach { store.ingest(it.privatePayload()) }
@@ -244,6 +345,28 @@ class RuntimeLocalStoreCorrectnessTest {
             unreadFilterMs = unreadFilterNs.toMillis(),
             eventProjectionMs = eventProjectionNs.toMillis(),
             thingProjectionMs = thingProjectionNs.toMillis(),
+        )
+    }
+
+    private fun entityPayload(
+        canonicalId: String,
+        entityType: String,
+        opId: String,
+        extras: Map<String, String>,
+    ): RuntimeInboundPayload {
+        val data = linkedMapOf(
+            "entity_type" to entityType,
+            "entity_id" to canonicalId,
+            "channel_id" to "channel-patch",
+            "op_id" to opId,
+            "delivery_id" to "delivery-$opId",
+            "sent_at" to "1710000000000",
+        )
+        data += extras
+        return RuntimeInboundPayload(
+            deliveryChannel = RuntimeDeliveryChannel.FCM,
+            transportMessageId = "fcm-$opId",
+            data = data,
         )
     }
 

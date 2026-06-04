@@ -236,8 +236,12 @@ class RuntimeLocalStore private constructor(
                 val log = EventChangeLogEntity.fromIncoming(record)
                 eventChangeLogsByDelivery[log.id] = log
                 if (record.thingId.isNullOrBlank()) {
-                    val head = TopLevelEventHeadEntity.fromIncoming(record)
-                    val current = eventHeadsByEventId[head.eventId]
+                    val eventId = record.eventId?.trim()?.takeIf { it.isNotEmpty() } ?: record.entityId
+                    val current = eventHeadsByEventId[eventId]
+                    val head = TopLevelEventHeadEntity.fromMerged(
+                        existing = current,
+                        entity = record,
+                    )
                     if (current == null || head.isNewerThan(current)) {
                         eventHeadsByEventId[head.eventId] = head
                     }
@@ -247,8 +251,12 @@ class RuntimeLocalStore private constructor(
             "thing" -> {
                 val log = ThingChangeLogEntity.fromIncoming(record)
                 thingChangeLogsByDelivery[log.id] = log
-                val head = ThingHeadEntity.fromIncoming(record)
-                val current = thingHeadsByThingId[head.thingId]
+                val thingId = record.thingId?.trim()?.takeIf { it.isNotEmpty() } ?: record.entityId
+                val current = thingHeadsByThingId[thingId]
+                val head = ThingHeadEntity.fromMerged(
+                    existing = current,
+                    entity = record,
+                )
                 if (current == null || head.isNewerThan(current)) {
                     thingHeadsByThingId[head.thingId] = head
                 }

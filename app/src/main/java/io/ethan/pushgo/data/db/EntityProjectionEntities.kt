@@ -292,6 +292,41 @@ data class TopLevelEventHeadEntity(
                 eventTimeEpoch = entity.eventTimeEpoch,
             )
         }
+
+        fun fromMerged(
+            existing: TopLevelEventHeadEntity?,
+            entity: IncomingEntityRecord,
+        ): TopLevelEventHeadEntity {
+            val incoming = fromIncoming(entity)
+            val incomingPayload = parsePayloadObject(entity.rawPayloadJson)
+            val mergedPayloadJson = mergeEntityPayloadJson(existing?.rawPayloadJson, entity.rawPayloadJson)
+            return incoming.copy(
+                sourceId = incoming.sourceId,
+                messageId = incoming.messageId ?: existing?.messageId,
+                title = textStringFromPatch(
+                    incomingPayload = incomingPayload,
+                    keys = listOf("title"),
+                    incoming = incoming.title,
+                    existing = existing?.title,
+                ),
+                body = textStringFromPatch(
+                    incomingPayload = incomingPayload,
+                    keys = listOf("body", "description", "message"),
+                    incoming = incoming.body,
+                    existing = existing?.body,
+                ),
+                rawPayloadJson = mergedPayloadJson,
+                serverId = incoming.serverId ?: existing?.serverId,
+                thingId = incoming.thingId ?: existing?.thingId,
+                eventState = textNullableFromPatch(
+                    incomingPayload = incomingPayload,
+                    keys = listOf("event_state"),
+                    incoming = incoming.eventState,
+                    existing = existing?.eventState,
+                ),
+                eventTimeEpoch = incoming.eventTimeEpoch ?: existing?.eventTimeEpoch,
+            )
+        }
     }
 }
 
@@ -364,6 +399,42 @@ data class ThingHeadEntity(
                 eventState = entity.eventState?.trim()?.takeIf { it.isNotEmpty() },
                 eventTimeEpoch = entity.eventTimeEpoch,
                 observedTimeEpoch = entity.observedTimeEpoch,
+            )
+        }
+
+        fun fromMerged(
+            existing: ThingHeadEntity?,
+            entity: IncomingEntityRecord,
+        ): ThingHeadEntity {
+            val incoming = fromIncoming(entity)
+            val incomingPayload = parsePayloadObject(entity.rawPayloadJson)
+            val mergedPayloadJson = mergeEntityPayloadJson(existing?.rawPayloadJson, entity.rawPayloadJson)
+            return incoming.copy(
+                sourceId = incoming.sourceId,
+                messageId = incoming.messageId ?: existing?.messageId,
+                title = textStringFromPatch(
+                    incomingPayload = incomingPayload,
+                    keys = listOf("title"),
+                    incoming = incoming.title,
+                    existing = existing?.title,
+                ),
+                body = textStringFromPatch(
+                    incomingPayload = incomingPayload,
+                    keys = listOf("body", "description", "message"),
+                    incoming = incoming.body,
+                    existing = existing?.body,
+                ),
+                rawPayloadJson = mergedPayloadJson,
+                serverId = incoming.serverId ?: existing?.serverId,
+                eventId = incoming.eventId ?: existing?.eventId,
+                eventState = textNullableFromPatch(
+                    incomingPayload = incomingPayload,
+                    keys = listOf("event_state", "state"),
+                    incoming = incoming.eventState,
+                    existing = existing?.eventState,
+                ),
+                eventTimeEpoch = incoming.eventTimeEpoch ?: existing?.eventTimeEpoch,
+                observedTimeEpoch = incoming.observedTimeEpoch ?: existing?.observedTimeEpoch,
             )
         }
     }
@@ -499,4 +570,109 @@ private fun asModelInternal(
         serverId = serverId,
         bodyPreview = MessagePreviewExtractor.listPreview(body),
     )
+}
+
+private val objectPatchPayloadKeys = setOf("attrs", "metadata", "external_ids")
+private val blankTextPatchPayloadKeys = setOf("title", "body", "description", "message")
+
+private fun parsePayloadObject(raw: String?): JSONObject? {
+    val text = raw?.trim()?.takeIf { it.isNotEmpty() } ?: return null
+    return runCatching { JSONObject(text) }.getOrNull()
+}
+
+private fun mergeEntityPayloadJson(existingRaw: String?, incomingRaw: String): String {
+    val incoming = parsePayloadObject(incomingRaw) ?: return incomingRaw
+    val merged = parsePayloadObject(existingRaw)?.let(::copyJsonObject) ?: JSONObject()
+    val keys = incoming.keys()
+    while (keys.hasNext()) {
+        val key = keys.next()
+        val value = incoming.opt(key)
+        if (key in blankTextPatchPayloadKeys && value is String && value.trim().isEmpty()) {
+            continue
+        }
+        if (key in objectPatchPayloadKeys) {
+            val patch = value.toPatchObjectOrNull()
+            if (patch != null) {
+                val base = merged.opt(key).toPatchObjectOrNull() ?: JSONObject()
+                applyObjectPatch(base, patch)
+                merged.put(key, base.toString())
+            } else {
+                merged.put(key, value)
+            }
+        } else {
+            merged.put(key, value)
+        }
+    }
+    return merged.toString()
+}
+
+private fun copyJsonObject(source: JSONObject): JSONObject {
+    val copy = JSONObject()
+    val keys = source.keys()
+    while (keys.hasNext()) {
+        val key = keys.next()
+        copy.put(key, source.opt(key))
+    }
+    return copy
+}
+
+private fun applyObjectPatch(base: JSONObject, patch: JSONObject) {
+    val keys = patch.keys()
+    while (keys.hasNext()) {
+        val key = keys.next()
+        val value = patch.opt(key)
+        if (value == null || value == JSONObject.NULL) {
+            base.remove(key)
+        } else {
+            base.put(key, value)
+        }
+    }
+}
+
+private fun Any?.toPatchObjectOrNull(): JSONObject? {
+    return when (this) {
+        null, JSONObject.NULL -> null
+        is JSONObject -> this
+        is String -> parsePayloadObject(this)
+        else -> null
+    }
+}
+
+private fun textStringFromPatch(
+    incomingPayload: JSONObject?,
+    keys: List<String>,
+    incoming: String,
+    existing: String?,
+): String {
+    val incomingText = incoming.trim().takeIf { it.isNotEmpty() }
+    val existingText = existing?.trim()?.takeIf { it.isNotEmpty() }
+    return patchTextFromPayload(incomingPayload, keys) ?: existingText ?: incomingText.orEmpty()
+}
+
+private fun textNullableFromPatch(
+    incomingPayload: JSONObject?,
+    keys: List<String>,
+    incoming: String?,
+    existing: String?,
+): String? {
+    val incomingText = incoming?.trim()?.takeIf { it.isNotEmpty() }
+    val existingText = existing?.trim()?.takeIf { it.isNotEmpty() }
+    return patchTextFromPayload(incomingPayload, keys) ?: existingText ?: incomingText
+}
+
+private fun patchTextFromPayload(incomingPayload: JSONObject?, keys: List<String>): String? {
+    if (incomingPayload == null) return null
+    for (key in keys) {
+        if (!incomingPayload.has(key)) continue
+        val value = incomingPayload.opt(key)
+        val text = when (value) {
+            null, JSONObject.NULL -> null
+            is String -> value
+            else -> value.toString()
+        }
+            ?.trim()
+            ?.takeIf { it.isNotEmpty() }
+        if (text != null) return text
+    }
+    return null
 }
