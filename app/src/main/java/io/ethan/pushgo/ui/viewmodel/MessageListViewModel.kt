@@ -39,6 +39,10 @@ class MessageListViewModel(
     val filterState: StateFlow<MessageFilter> = filter
         .stateIn(viewModelScope, SharingStarted.Lazily, initialFilter)
 
+    val currentScopeUnreadCount: StateFlow<Int> = filter
+        .flatMapLatest { repository.observeUnreadCount(it) }
+        .stateIn(viewModelScope, SharingStarted.Lazily, 0)
+
     val facetChannelCounts: StateFlow<List<MessageFacetOptionCount>> = repository.observeFacetChannelCounts()
         .stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
 
@@ -80,6 +84,12 @@ class MessageListViewModel(
         return viewModelScope.launch {
             stateCoordinator.markAllRead()
         }
+    }
+
+    suspend fun markCurrentScopeRead(): Int {
+        val unreadIds = repository.getUnreadIds(filter.value)
+        if (unreadIds.isEmpty()) return 0
+        return stateCoordinator.markRead(unreadIds)
     }
 
     fun deleteMessage(messageId: String): Job {

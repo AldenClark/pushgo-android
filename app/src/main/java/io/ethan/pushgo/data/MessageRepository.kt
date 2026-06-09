@@ -132,6 +132,17 @@ class MessageRepository(
 
     fun observeUnreadCount(): Flow<Int> = channelStatsDao.observeUnreadCount().distinctUntilChanged()
 
+    fun observeUnreadCount(filter: MessageFilter): Flow<Int> {
+        return dao.observeUnreadCountForFilter(
+            withUrl = if (filter.withUrlOnly) 1 else 0,
+            channels = filter.channels.toList(),
+            channelCount = filter.channels.size,
+            tags = filter.tags.toList(),
+            tagCount = filter.tags.size,
+            serverId = filter.serverId,
+        ).distinctUntilChanged()
+    }
+
     fun observeFacetChannelCounts(): Flow<List<MessageFacetOptionCount>> {
         return dao.observeFacetChannelCounts().map { list ->
             list.map { row -> MessageFacetOptionCount(value = row.value.trim(), count = row.count) }
@@ -164,6 +175,17 @@ class MessageRepository(
 
     suspend fun getIdsByChannelRead(channel: String?, readState: Boolean?): List<String> {
         return dao.getIdsByChannelRead(channel, readState)
+    }
+
+    suspend fun getUnreadIds(filter: MessageFilter): List<String> {
+        return dao.getUnreadIdsForFilter(
+            withUrl = if (filter.withUrlOnly) 1 else 0,
+            channels = filter.channels.toList(),
+            channelCount = filter.channels.size,
+            tags = filter.tags.toList(),
+            tagCount = filter.tags.size,
+            serverId = filter.serverId,
+        )
     }
 
     suspend fun insertIncoming(message: PushMessage): Boolean {

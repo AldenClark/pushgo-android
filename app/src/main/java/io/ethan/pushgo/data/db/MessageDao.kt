@@ -203,6 +203,68 @@ interface MessageDao {
     @Query(
         """
         SELECT COUNT(*) FROM messages
+        WHERE is_read = 0
+          AND (:withUrl = 0 OR url IS NOT NULL)
+          AND (
+            :channelCount = 0
+            OR COALESCE(NULLIF(TRIM(channel), ''), '') IN (:channels)
+          )
+          AND (
+            :tagCount = 0
+            OR EXISTS (
+              SELECT 1
+              FROM message_metadata_index mi
+              WHERE mi.message_id = messages.id
+                AND mi.key_name = 'tag'
+                AND mi.value_norm IN (:tags)
+            )
+          )
+          AND (:serverId IS NULL OR server_id = :serverId)
+        """
+    )
+    fun observeUnreadCountForFilter(
+        withUrl: Int,
+        channels: List<String>,
+        channelCount: Int,
+        tags: List<String>,
+        tagCount: Int,
+        serverId: String?,
+    ): Flow<Int>
+
+    @Query(
+        """
+        SELECT id FROM messages
+        WHERE is_read = 0
+          AND (:withUrl = 0 OR url IS NOT NULL)
+          AND (
+            :channelCount = 0
+            OR COALESCE(NULLIF(TRIM(channel), ''), '') IN (:channels)
+          )
+          AND (
+            :tagCount = 0
+            OR EXISTS (
+              SELECT 1
+              FROM message_metadata_index mi
+              WHERE mi.message_id = messages.id
+                AND mi.key_name = 'tag'
+                AND mi.value_norm IN (:tags)
+            )
+          )
+          AND (:serverId IS NULL OR server_id = :serverId)
+        """
+    )
+    suspend fun getUnreadIdsForFilter(
+        withUrl: Int,
+        channels: List<String>,
+        channelCount: Int,
+        tags: List<String>,
+        tagCount: Int,
+        serverId: String?,
+    ): List<String>
+
+    @Query(
+        """
+        SELECT COUNT(*) FROM messages
         WHERE (:readState IS NULL OR is_read = :readState)
           AND (:cutoff IS NULL OR received_at < :cutoff)
         """

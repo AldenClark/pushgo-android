@@ -116,6 +116,7 @@ fun MessageListScreen(
     val uiColors = PushGoThemeExtras.colors
     val messages = viewModel.messages.collectAsLazyPagingItems()
     val filterState by viewModel.filterState.collectAsStateWithLifecycle()
+    val currentScopeUnreadCount by viewModel.currentScopeUnreadCount.collectAsStateWithLifecycle()
     val facetChannelCounts by viewModel.facetChannelCounts.collectAsStateWithLifecycle()
     val facetTagCounts by viewModel.facetTagCounts.collectAsStateWithLifecycle()
     val query by searchViewModel.queryState.collectAsStateWithLifecycle()
@@ -475,21 +476,6 @@ fun MessageListScreen(
     }
     val areAllSelectableMessagesSelected = selectableMessageIds.isNotEmpty() &&
         selectedMessageIds.containsAll(selectableMessageIds)
-    val displayedMessagesForToolbar = remember(
-        query,
-        filteredPagedItems,
-        filteredSearchResults,
-    ) {
-        if (query.isBlank()) filteredPagedItems else filteredSearchResults
-    }
-    val unreadDisplayedMessageIds = remember(displayedMessagesForToolbar) {
-        displayedMessagesForToolbar
-            .asSequence()
-            .filter { !it.isRead }
-            .map { it.id }
-            .toList()
-    }
-
     Box(modifier = Modifier.fillMaxSize()) {
         PullToRefreshBox(
             isRefreshing = isPullRefreshing,
@@ -552,14 +538,15 @@ fun MessageListScreen(
                                         val toolbarIconTint = if (hasActiveFilter) uiColors.accentPrimary else uiColors.iconMuted
                                         Box {
                                             Row(verticalAlignment = Alignment.CenterVertically) {
-                                                if (unreadDisplayedMessageIds.isNotEmpty()) {
+                                                if (query.isBlank() && currentScopeUnreadCount > 0) {
                                                     IconButton(
                                                         onClick = {
                                                             scope.launch {
-                                                                container.messageStateCoordinator.markRead(unreadDisplayedMessageIds)
+                                                                val changed = viewModel.markCurrentScopeRead()
+                                                                if (changed <= 0) return@launch
                                                                 val localizedToastText = context.resources.getString(
                                                                     R.string.message_marked_read_selected_count,
-                                                                    unreadDisplayedMessageIds.size,
+                                                                    changed,
                                                                 )
                                                                 Toast.makeText(
                                                                     context,
