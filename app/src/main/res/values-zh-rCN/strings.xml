@@ -292,6 +292,8 @@
     <string name="entity_body_event_closed">已关闭</string>
     <string name="entity_body_unknown">未知</string>
     <string name="entity_body_updated">已更新</string>
+    <string name="entity_body_thing_archived">已归档</string>
+    <string name="entity_body_thing_deleted">已删除</string>
     <string name="entity_body_thing_attribute_update_template">属性更新 || %1$s</string>
     <string name="entity_body_thing_attribute_pair_template">%1$s: %2$s</string>
     <string name="event_meta_severity">严重程度：%1$s</string>

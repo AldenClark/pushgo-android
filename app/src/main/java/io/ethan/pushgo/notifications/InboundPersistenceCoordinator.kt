@@ -193,9 +193,13 @@ object InboundPersistenceCoordinator {
                 shouldAck = false,
             )
         }
-        settingsRepository.reenablePageForEntity(resolvedInbound.record.entityType)
+        val displayInbound = resolveEntityNotificationDisplayAfterPersist(
+            entityRepository = entityRepository,
+            inbound = resolvedInbound,
+        )
+        settingsRepository.reenablePageForEntity(displayInbound.record.entityType)
         if (!inserted) {
-            val pending = entityRepository.wouldPersistAsPending(resolvedInbound.record)
+            val pending = entityRepository.wouldPersistAsPending(displayInbound.record)
             return InboundPersistenceOutcome(
                 status = if (pending) {
                     InboundPersistenceStatus.PERSISTED_PENDING
@@ -203,44 +207,74 @@ object InboundPersistenceCoordinator {
                     InboundPersistenceStatus.DUPLICATE
                 },
                 notified = false,
-                shouldAck = inboundDeliveryLedgerRepository.shouldAck(resolvedInbound.record.deliveryId),
+                shouldAck = inboundDeliveryLedgerRepository.shouldAck(displayInbound.record.deliveryId),
             )
         }
-        if (!resolvedInbound.shouldNotify) {
-            if (resolvedInbound.record.entityType == "thing") {
-                val thingId = resolvedInbound.record.thingId?.trim()?.takeIf { it.isNotEmpty() }
-                    ?: resolvedInbound.record.entityId
+        if (!displayInbound.shouldNotify) {
+            if (displayInbound.record.entityType == "thing") {
+                val thingId = displayInbound.record.thingId?.trim()?.takeIf { it.isNotEmpty() }
+                    ?: displayInbound.record.entityId
                 messageRepository.replayPendingForThing(thingId)
                 entityRepository.replayPendingForThing(thingId)
             }
             return InboundPersistenceOutcome(
                 status = InboundPersistenceStatus.PERSISTED_MAIN,
                 notified = false,
-                shouldAck = inboundDeliveryLedgerRepository.shouldAck(resolvedInbound.record.deliveryId),
+                shouldAck = inboundDeliveryLedgerRepository.shouldAck(displayInbound.record.deliveryId),
             )
         }
 
         NotificationHelper.showEntityNotification(
             context = context,
-            entityType = resolvedInbound.record.entityType,
-            entityId = resolvedInbound.record.entityId,
-            groupChannel = resolvedInbound.record.channel,
-            eventId = resolvedInbound.record.eventId,
-            thingId = resolvedInbound.record.thingId,
-            title = resolvedInbound.notificationTitle,
-            body = resolvedInbound.notificationBody,
-            level = resolvedInbound.level,
+            entityType = displayInbound.record.entityType,
+            entityId = displayInbound.record.entityId,
+            groupChannel = displayInbound.record.channel,
+            eventId = displayInbound.record.eventId,
+            thingId = displayInbound.record.thingId,
+            title = displayInbound.notificationTitle,
+            body = displayInbound.notificationBody,
+            level = displayInbound.level,
         )
-        if (resolvedInbound.record.entityType == "thing") {
-            val thingId = resolvedInbound.record.thingId?.trim()?.takeIf { it.isNotEmpty() }
-                ?: resolvedInbound.record.entityId
+        if (displayInbound.record.entityType == "thing") {
+            val thingId = displayInbound.record.thingId?.trim()?.takeIf { it.isNotEmpty() }
+                ?: displayInbound.record.entityId
             messageRepository.replayPendingForThing(thingId)
             entityRepository.replayPendingForThing(thingId)
         }
         return InboundPersistenceOutcome(
             status = InboundPersistenceStatus.PERSISTED_MAIN,
             notified = true,
-            shouldAck = inboundDeliveryLedgerRepository.shouldAck(resolvedInbound.record.deliveryId),
+            shouldAck = inboundDeliveryLedgerRepository.shouldAck(displayInbound.record.deliveryId),
+        )
+    }
+
+    private suspend fun resolveEntityNotificationDisplayAfterPersist(
+        entityRepository: EntityRepository,
+        inbound: InboundPersistenceRequest.Entity,
+    ): InboundPersistenceRequest.Entity {
+        if (inbound.record.entityType != "thing") {
+            return inbound
+        }
+        val thingId = inbound.record.thingId?.trim()?.takeIf { it.isNotEmpty() }
+            ?: inbound.record.entityId
+        val storedTitle = runCatching { entityRepository.resolveStoredThingTitle(thingId) }
+            .onFailure { error ->
+                io.ethan.pushgo.util.SilentSink.w(
+                    TAG,
+                    "thing title snapshot lookup failed thingId=$thingId",
+                    error,
+                )
+            }
+            .getOrNull()
+            ?.trim()
+            ?.takeIf { it.isNotEmpty() }
+            ?: return inbound
+        if (storedTitle == inbound.notificationTitle) {
+            return inbound
+        }
+        return inbound.copy(
+            record = inbound.record.copy(title = storedTitle),
+            notificationTitle = storedTitle,
         )
     }
 }

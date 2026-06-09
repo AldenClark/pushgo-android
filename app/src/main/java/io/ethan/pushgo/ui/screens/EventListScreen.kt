@@ -48,6 +48,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.ethan.pushgo.R
 import io.ethan.pushgo.data.AppContainer
 import io.ethan.pushgo.data.EntityProjectionCursor
+import io.ethan.pushgo.data.EntityProjectionDetail
 import io.ethan.pushgo.data.model.DecryptionState
 import io.ethan.pushgo.data.model.PushMessage
 import io.ethan.pushgo.notifications.ForegroundNotificationPresentationState
@@ -263,6 +264,27 @@ fun EventListScreen(
         }
     }
 
+    suspend fun loadEventDetailModel(eventId: String): EventCardModel? {
+        val normalized = eventId.trim().takeIf { it.isNotEmpty() } ?: return null
+        val detail = container.entityRepository.getEventProjectionDetail(normalized) ?: return null
+        return withContext(Dispatchers.Default) {
+            buildEventCardFromProjectionDetailInternal(detail, normalized)
+        }
+    }
+
+    suspend fun refreshSelectedEventDetail() {
+        val selectedId = selectedEvent?.eventId ?: return
+        val detailEvent = loadEventDetailModel(selectedId)
+        if (detailEvent == null) {
+            selectedEvent = null
+            onEventDetailClosed()
+            return
+        }
+        if (selectedEvent?.eventId == selectedId) {
+            selectedEvent = detailEvent
+        }
+    }
+
     suspend fun closeEvent(event: EventCardModel) {
         val channelId = event.channelId.orEmpty().trim()
         if (channelId.isEmpty()) {
@@ -371,6 +393,9 @@ fun EventListScreen(
     }
 
     LaunchedEffect(refreshToken) { reloadEvents() }
+    LaunchedEffect(selectedEvent?.eventId, refreshToken) {
+        refreshSelectedEventDetail()
+    }
     LaunchedEffect(Unit) {
         channelNameMap = container.channelRepository.loadSubscriptionLookup(includeDeleted = true)
     }
@@ -474,24 +499,20 @@ fun EventListScreen(
         val target = openEventId?.trim()?.takeIf { it.isNotEmpty() } ?: return@LaunchedEffect
         val matched = allEvents.firstOrNull { it.eventId == target }
         if (matched != null) {
-            selectedEvent = matched
-            onEventDetailOpened(matched.eventId)
+            selectedEvent = loadEventDetailModel(target) ?: matched
+            onEventDetailOpened(target)
+            onOpenEventHandled()
+            return@LaunchedEffect
+        }
+        val detailEvent = loadEventDetailModel(target)
+        if (detailEvent != null) {
+            selectedEvent = detailEvent
+            onEventDetailOpened(target)
             onOpenEventHandled()
             return@LaunchedEffect
         }
         if (hasMoreEvents && !isLoadingMoreEvents) {
             loadMoreEventsIfNeeded()
-        }
-    }
-
-    LaunchedEffect(allEvents, selectedEvent?.eventId) {
-        val selectedId = selectedEvent?.eventId ?: return@LaunchedEffect
-        val latest = allEvents.firstOrNull { it.eventId == selectedId }
-        if (latest == null) {
-            selectedEvent = null
-            onEventDetailClosed()
-        } else if (latest != selectedEvent) {
-            selectedEvent = latest
         }
     }
 
@@ -1129,9 +1150,11 @@ fun EventDetailSheet(
                     val pointAttrs = parseEventDisplayAttributes(row.attrsJson)
                     Surface(
                         modifier = Modifier.fillMaxWidth(),
-                        color = uiColors.fieldContainer.copy(alpha = 0.95f),
+                        color = uiColors.surfaceBase,
                         shape = RoundedCornerShape(12.dp),
-                        border = BorderStroke(0.8.dp, uiColors.dividerSubtle.copy(alpha = 0.85f)),
+                        border = BorderStroke(0.8.dp, uiColors.dividerStrong.copy(alpha = 0.45f)),
+                        tonalElevation = 1.dp,
+                        shadowElevation = 1.dp,
                     ) {
                         Column(
                             modifier = Modifier
@@ -1433,6 +1456,22 @@ private fun buildEventCardsInternal(messages: List<PushMessage>): List<EventCard
             )
         }
         .sortedWith(compareBy<EventCardModel> { stateSortPriority(it.state) }.thenByDescending { it.updatedAt })
+}
+
+internal fun buildEventCardFromProjectionDetailInternal(
+    detail: EntityProjectionDetail,
+    eventId: String,
+): EventCardModel? {
+    val full = buildEventCardsInternal(detail.asMessages()).firstOrNull { it.eventId == eventId }
+    val head = detail.head
+        ?.let { buildEventCardsInternal(listOf(it)).firstOrNull { card -> card.eventId == eventId } }
+        ?: return full
+    if (full == null) return head
+    return head.copy(
+        attachmentUrls = (head.attachmentUrls + full.attachmentUrls).distinct(),
+        updatedAt = maxOf(head.updatedAt, full.updatedAt),
+        timeline = full.timeline,
+    )
 }
 
 private fun mergeEventCardsInternal(existing: List<EventCardModel>, incoming: List<EventCardModel>): List<EventCardModel> {

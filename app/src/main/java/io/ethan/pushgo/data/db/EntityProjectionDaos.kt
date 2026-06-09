@@ -18,34 +18,23 @@ interface EventChangeLogDao {
     @Query(
         """
         SELECT * FROM event_change_logs
-        ORDER BY COALESCE(event_time_epoch, received_at) DESC, received_at DESC
+        WHERE event_id = :eventId
+        ORDER BY COALESCE(event_time_epoch, received_at) DESC, received_at DESC, id DESC
         """
     )
-    suspend fun getAllProjection(): List<EventChangeLogEntity>
-
-    @Query(
-        """
-        SELECT * FROM event_change_logs
-        WHERE (
-            :beforeReceivedAt IS NULL
-            OR received_at < :beforeReceivedAt
-            OR (received_at = :beforeReceivedAt AND id < :beforeId)
-        )
-        ORDER BY received_at DESC, id DESC
-        LIMIT :limit
-        """
-    )
-    suspend fun getProjectionPage(
-        beforeReceivedAt: Long?,
-        beforeId: String?,
-        limit: Int,
-    ): List<EventChangeLogEntity>
+    suspend fun getByEventId(eventId: String): List<EventChangeLogEntity>
 
     @Query("DELETE FROM event_change_logs")
     suspend fun deleteAll()
 
     @Query("SELECT COUNT(*) FROM event_change_logs")
     suspend fun countAll(): Int
+
+    @Query("SELECT COUNT(*) FROM event_change_logs")
+    fun observeCount(): Flow<Int>
+
+    @Query("SELECT COALESCE(MAX(received_at), 0) FROM event_change_logs")
+    fun observeLatestReceivedAt(): Flow<Long>
 
     @Query("DELETE FROM event_change_logs WHERE event_id = :eventId")
     suspend fun deleteByEventId(eventId: String): Int
@@ -79,28 +68,11 @@ interface ThingChangeLogDao {
     @Query(
         """
         SELECT * FROM thing_change_logs
-        ORDER BY COALESCE(observed_time_epoch, event_time_epoch, received_at) DESC, received_at DESC
+        WHERE thing_id = :thingId
+        ORDER BY COALESCE(observed_time_epoch, event_time_epoch, received_at) DESC, received_at DESC, id DESC
         """
     )
-    suspend fun getAllProjection(): List<ThingChangeLogEntity>
-
-    @Query(
-        """
-        SELECT * FROM thing_change_logs
-        WHERE (
-            :beforeReceivedAt IS NULL
-            OR received_at < :beforeReceivedAt
-            OR (received_at = :beforeReceivedAt AND id < :beforeId)
-        )
-        ORDER BY received_at DESC, id DESC
-        LIMIT :limit
-        """
-    )
-    suspend fun getProjectionPage(
-        beforeReceivedAt: Long?,
-        beforeId: String?,
-        limit: Int,
-    ): List<ThingChangeLogEntity>
+    suspend fun getByThingId(thingId: String): List<ThingChangeLogEntity>
 
     @Query("DELETE FROM thing_change_logs")
     suspend fun deleteAll()
@@ -122,6 +94,17 @@ interface ThingChangeLogDao {
 
     @Query("DELETE FROM thing_change_logs WHERE channel = :channelId")
     suspend fun deleteByChannel(channelId: String): Int
+
+    @Query(
+        """
+        SELECT title FROM thing_change_logs
+        WHERE thing_id = :thingId
+          AND TRIM(title) <> ''
+        ORDER BY COALESCE(observed_time_epoch, event_time_epoch, received_at) DESC, received_at DESC
+        LIMIT 1
+        """
+    )
+    suspend fun findLatestTitleByThingId(thingId: String): String?
 }
 
 @Dao
@@ -135,28 +118,20 @@ interface ThingSubEventDao {
     @Query(
         """
         SELECT * FROM thing_sub_events
-        ORDER BY COALESCE(event_time_epoch, received_at) DESC, received_at DESC
+        WHERE event_id = :eventId
+        ORDER BY COALESCE(event_time_epoch, received_at) DESC, received_at DESC, id DESC
         """
     )
-    suspend fun getAllProjection(): List<ThingSubEventEntity>
+    suspend fun getByEventId(eventId: String): List<ThingSubEventEntity>
 
     @Query(
         """
         SELECT * FROM thing_sub_events
-        WHERE (
-            :beforeReceivedAt IS NULL
-            OR received_at < :beforeReceivedAt
-            OR (received_at = :beforeReceivedAt AND id < :beforeId)
-        )
-        ORDER BY received_at DESC, id DESC
-        LIMIT :limit
+        WHERE thing_id = :thingId
+        ORDER BY COALESCE(event_time_epoch, received_at) DESC, received_at DESC, id DESC
         """
     )
-    suspend fun getProjectionPage(
-        beforeReceivedAt: Long?,
-        beforeId: String?,
-        limit: Int,
-    ): List<ThingSubEventEntity>
+    suspend fun getByThingId(thingId: String): List<ThingSubEventEntity>
 
     @Query("DELETE FROM thing_sub_events")
     suspend fun deleteAll()
@@ -216,16 +191,11 @@ interface TopLevelEventHeadDao {
     @Query(
         """
         SELECT * FROM top_level_event_heads h
-        WHERE NOT EXISTS (
-            SELECT 1
-            FROM event_change_logs e
-            WHERE e.event_id = h.event_id
-        )
-          AND (
+        WHERE (
             :beforeReceivedAt IS NULL
             OR h.received_at < :beforeReceivedAt
             OR (h.received_at = :beforeReceivedAt AND h.source_id < :beforeId)
-          )
+        )
         ORDER BY h.received_at DESC, h.source_id DESC
         LIMIT :limit
         """
@@ -287,16 +257,11 @@ interface ThingHeadDao {
     @Query(
         """
         SELECT * FROM thing_heads h
-        WHERE NOT EXISTS (
-            SELECT 1
-            FROM thing_change_logs t
-            WHERE t.thing_id = h.thing_id
-        )
-          AND (
+        WHERE (
             :beforeReceivedAt IS NULL
             OR h.received_at < :beforeReceivedAt
             OR (h.received_at = :beforeReceivedAt AND h.source_id < :beforeId)
-          )
+        )
         ORDER BY h.received_at DESC, h.source_id DESC
         LIMIT :limit
         """
@@ -330,6 +295,16 @@ interface ThingHeadDao {
 
     @Query("DELETE FROM thing_heads WHERE channel = :channelId")
     suspend fun deleteByChannel(channelId: String): Int
+
+    @Query(
+        """
+        SELECT title FROM thing_heads
+        WHERE thing_id = :thingId
+          AND TRIM(title) <> ''
+        LIMIT 1
+        """
+    )
+    suspend fun findTitleByThingId(thingId: String): String?
 }
 
 @Dao
@@ -355,28 +330,11 @@ interface ThingSubMessageDao {
     @Query(
         """
         SELECT * FROM thing_sub_messages
-        ORDER BY COALESCE(occurred_at_epoch, event_time_epoch, received_at) DESC, received_at DESC
+        WHERE thing_id = :thingId
+        ORDER BY COALESCE(occurred_at_epoch, event_time_epoch, received_at) DESC, received_at DESC, id DESC
         """
     )
-    suspend fun getAllProjection(): List<ThingSubMessageEntity>
-
-    @Query(
-        """
-        SELECT * FROM thing_sub_messages
-        WHERE (
-            :beforeReceivedAt IS NULL
-            OR received_at < :beforeReceivedAt
-            OR (received_at = :beforeReceivedAt AND id < :beforeId)
-        )
-        ORDER BY received_at DESC, id DESC
-        LIMIT :limit
-        """
-    )
-    suspend fun getProjectionPage(
-        beforeReceivedAt: Long?,
-        beforeId: String?,
-        limit: Int,
-    ): List<ThingSubMessageEntity>
+    suspend fun getByThingId(thingId: String): List<ThingSubMessageEntity>
 
     @Query("DELETE FROM thing_sub_messages")
     suspend fun deleteAll()

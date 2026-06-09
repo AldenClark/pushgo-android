@@ -19,12 +19,10 @@ import io.ethan.pushgo.data.db.ThingSubMessageEntity
 import io.ethan.pushgo.data.db.TopLevelEventHeadDao
 import io.ethan.pushgo.data.db.TopLevelEventHeadEntity
 import io.ethan.pushgo.data.model.PushMessage
-import io.ethan.pushgo.util.PayloadTimeNormalizer
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
-import org.json.JSONObject
 import java.time.Instant
 
 data class IncomingEntityRecord(
@@ -50,6 +48,32 @@ data class EntityProjectionCursor(
     val id: String,
 )
 
+data class EntityProjectionDetail(
+    val head: PushMessage?,
+    val history: List<PushMessage>,
+) {
+    fun asMessages(): List<PushMessage> {
+        val headMessage = head ?: return history
+        val seen = linkedSetOf(headMessage.id)
+        headMessage.messageId?.trim()?.takeIf { it.isNotEmpty() }?.let(seen::add)
+        return buildList {
+            add(headMessage)
+            history.forEach { message ->
+                val keys = listOfNotNull(
+                    message.id.trim().takeIf { it.isNotEmpty() },
+                    message.messageId?.trim()?.takeIf { it.isNotEmpty() },
+                )
+                if (keys.any(seen::contains)) return@forEach
+                add(message)
+                seen.addAll(keys)
+            }
+        }.sortedWith(
+            compareByDescending<PushMessage> { it.receivedAt.toEpochMilli() }
+                .thenByDescending { it.messageId ?: it.id }
+        )
+    }
+}
+
 class EntityRepository(
     private val database: PushGoDatabase,
     private val inboundDeliveryLedgerDao: InboundDeliveryLedgerDao,
@@ -72,12 +96,31 @@ class EntityRepository(
     fun observeEventCount(): Flow<Int> = topLevelEventHeadDao.observeCount().distinctUntilChanged()
 
     fun observeEventRefreshToken(): Flow<Long> {
+        val headCountFlow = topLevelEventHeadDao.observeCount().map(Int::toLong)
+        val changeCountFlow = eventChangeLogDao.observeCount().map(Int::toLong)
+        val subEventCountFlow = thingSubEventDao.observeCount().map(Int::toLong)
         return combine(
-            topLevelEventHeadDao.observeCount(),
+            headCountFlow,
             topLevelEventHeadDao.observeLatestReceivedAt(),
-        ) { count, latestReceivedAt ->
-            // Encode both row count and latest event timestamp so in-place event updates trigger UI refresh.
-            (latestReceivedAt shl 16) xor count.toLong()
+            changeCountFlow,
+            eventChangeLogDao.observeLatestReceivedAt(),
+            subEventCountFlow,
+            thingSubEventDao.observeLatestReceivedAt(),
+        ) { values ->
+            val headCount = values[0]
+            val headLatest = values[1]
+            val changeCount = values[2]
+            val changeLatest = values[3]
+            val subEventCount = values[4]
+            val subEventLatest = values[5]
+            var token = 23L
+            token = (token * 31) xor (headLatest shl 1)
+            token = (token * 31) xor headCount
+            token = (token * 31) xor (changeLatest shl 2)
+            token = (token * 31) xor changeCount
+            token = (token * 31) xor (subEventLatest shl 3)
+            token = (token * 31) xor subEventCount
+            token
         }.distinctUntilChanged()
     }
 
@@ -131,13 +174,15 @@ class EntityRepository(
             ?: eventChangeLogDao.findLatestTitleByEventId(normalized)?.trim()?.takeIf { it.isNotEmpty() }
     }
 
+    suspend fun resolveStoredThingTitle(thingId: String): String? {
+        val normalized = thingId.trim()
+        if (normalized.isEmpty()) return null
+        return thingHeadDao.findTitleByThingId(normalized)?.trim()?.takeIf { it.isNotEmpty() }
+            ?: thingChangeLogDao.findLatestTitleByThingId(normalized)?.trim()?.takeIf { it.isNotEmpty() }
+    }
+
     suspend fun getEventProjectionMessages(): List<PushMessage> {
-        val topLevelHistory = eventChangeLogDao.getAllProjection().map(EventChangeLogEntity::asModel)
-        val topLevelHeads = topLevelEventHeadDao.getAllProjection().map(TopLevelEventHeadEntity::asModel)
-        return mergeAndSort(
-            messages = topLevelHistory + topLevelHeads,
-            keySelector = { eventProjectionTimeEpochMillis(it) }
-        )
+        return topLevelEventHeadDao.getAllProjection().map(TopLevelEventHeadEntity::asModel)
     }
 
     suspend fun getEventProjectionMessagesPage(
@@ -147,31 +192,28 @@ class EntityRepository(
         val pageSize = limit.coerceIn(1, 500)
         val beforeReceivedAt = before?.receivedAt
         val beforeId = before?.id
-        val topLevelHistory = eventChangeLogDao.getProjectionPage(
-            beforeReceivedAt = beforeReceivedAt,
-            beforeId = beforeId,
-            limit = pageSize,
-        ).map(EventChangeLogEntity::asModel)
-        val topLevelHeads = topLevelEventHeadDao.getProjectionPage(
+        return topLevelEventHeadDao.getProjectionPage(
             beforeReceivedAt = beforeReceivedAt,
             beforeId = beforeId,
             limit = pageSize,
         ).map(TopLevelEventHeadEntity::asModel)
-        return mergeProjectionPage(
-            messages = topLevelHistory + topLevelHeads,
-            limit = pageSize,
-        )
+    }
+
+    suspend fun getEventProjectionDetail(eventId: String): EntityProjectionDetail? {
+        val normalized = eventId.trim()
+        if (normalized.isEmpty()) return null
+        val head = topLevelEventHeadDao.getByEventId(normalized)?.asModel()
+        val history = (
+            eventChangeLogDao.getByEventId(normalized).map(EventChangeLogEntity::asModel) +
+                thingSubEventDao.getByEventId(normalized).map(ThingSubEventEntity::asModel)
+            )
+            .sortedWith(entityProjectionMessageSortComparator)
+        if (head == null && history.isEmpty()) return null
+        return EntityProjectionDetail(head = head, history = history)
     }
 
     suspend fun getThingProjectionMessages(): List<PushMessage> {
-        val heads = thingHeadDao.getAllProjection().map(ThingHeadEntity::asModel)
-        val thingHistory = thingChangeLogDao.getAllProjection().map(ThingChangeLogEntity::asModel)
-        val thingSubEvents = thingSubEventDao.getAllProjection().map(ThingSubEventEntity::asModel)
-        val thingSubMessages = thingSubMessageDao.getAllProjection().map { it.asModel() }
-        return mergeAndSort(
-            messages = heads + thingHistory + thingSubEvents + thingSubMessages,
-            keySelector = { thingProjectionTimeEpochMillis(it) }
-        )
+        return thingHeadDao.getAllProjection().map(ThingHeadEntity::asModel)
     }
 
     suspend fun getThingProjectionMessagesPage(
@@ -181,30 +223,25 @@ class EntityRepository(
         val pageSize = limit.coerceIn(1, 500)
         val beforeReceivedAt = before?.receivedAt
         val beforeId = before?.id
-        val heads = thingHeadDao.getProjectionPage(
+        return thingHeadDao.getProjectionPage(
             beforeReceivedAt = beforeReceivedAt,
             beforeId = beforeId,
             limit = pageSize,
         ).map(ThingHeadEntity::asModel)
-        val thingHistory = thingChangeLogDao.getProjectionPage(
-            beforeReceivedAt = beforeReceivedAt,
-            beforeId = beforeId,
-            limit = pageSize,
-        ).map(ThingChangeLogEntity::asModel)
-        val thingSubEvents = thingSubEventDao.getProjectionPage(
-            beforeReceivedAt = beforeReceivedAt,
-            beforeId = beforeId,
-            limit = pageSize,
-        ).map(ThingSubEventEntity::asModel)
-        val thingSubMessages = thingSubMessageDao.getProjectionPage(
-            beforeReceivedAt = beforeReceivedAt,
-            beforeId = beforeId,
-            limit = pageSize,
-        ).map(ThingSubMessageEntity::asModel)
-        return mergeProjectionPage(
-            messages = heads + thingHistory + thingSubEvents + thingSubMessages,
-            limit = pageSize,
-        )
+    }
+
+    suspend fun getThingProjectionDetail(thingId: String): EntityProjectionDetail? {
+        val normalized = thingId.trim()
+        if (normalized.isEmpty()) return null
+        val head = thingHeadDao.getByThingId(normalized)?.asModel()
+        val history = (
+            thingChangeLogDao.getByThingId(normalized).map(ThingChangeLogEntity::asModel) +
+                thingSubEventDao.getByThingId(normalized).map(ThingSubEventEntity::asModel) +
+                thingSubMessageDao.getByThingId(normalized).map(ThingSubMessageEntity::asModel)
+            )
+            .sortedWith(entityProjectionMessageSortComparator)
+        if (head == null && history.isEmpty()) return null
+        return EntityProjectionDetail(head = head, history = history)
     }
 
     suspend fun insertIncoming(entity: IncomingEntityRecord): Boolean {
@@ -212,7 +249,7 @@ class EntityRepository(
         return database.withTransaction {
             when (entityType) {
                 "event", "thing" -> {
-                    val deliveryClaimed = claimInboundDelivery(
+                    val deliveryClaimed = io.ethan.pushgo.data.claimInboundDelivery(
                         inboundDeliveryLedgerDao = inboundDeliveryLedgerDao,
                         channelId = entity.channel,
                         entityType = entityType,
@@ -224,7 +261,7 @@ class EntityRepository(
                     if (!deliveryClaimed) {
                         return@withTransaction false
                     }
-                    val claimed = claimOperationScope(
+                    val claimed = io.ethan.pushgo.data.claimOperationScope(
                         operationLedgerDao = operationLedgerDao,
                         channelId = entity.channel,
                         entityType = entityType,
@@ -288,11 +325,14 @@ class EntityRepository(
             if (normalizedChannel == null) {
                 deleted += eventChangeLogDao.countAll()
                 deleted += topLevelEventHeadDao.countAll()
+                deleted += thingSubEventDao.countAll()
                 eventChangeLogDao.deleteAll()
                 topLevelEventHeadDao.deleteAll()
+                thingSubEventDao.deleteAll()
             } else {
                 deleted += eventChangeLogDao.deleteByChannel(normalizedChannel)
                 deleted += topLevelEventHeadDao.deleteByChannel(normalizedChannel)
+                deleted += thingSubEventDao.deleteByChannel(normalizedChannel)
             }
             deleted
         }
@@ -307,6 +347,7 @@ class EntityRepository(
             deleted += thingHeadDao.deleteByThingId(normalized)
             deleted += thingSubEventDao.deleteByThingId(normalized)
             deleted += thingSubMessageDao.deleteByThingId(normalized)
+            deleted += pendingThingEventDao.deleteByThingId(normalized)
             deleted
         }
     }
@@ -320,6 +361,7 @@ class EntityRepository(
             deleted += thingHeadDao.deleteByThingIds(normalizedIds)
             deleted += thingSubEventDao.deleteByThingIds(normalizedIds)
             deleted += thingSubMessageDao.deleteByThingIds(normalizedIds)
+            deleted += pendingThingEventDao.deleteByThingIds(normalizedIds)
             deleted
         }
     }
@@ -337,11 +379,13 @@ class EntityRepository(
                 thingHeadDao.deleteAll()
                 thingSubEventDao.deleteAll()
                 thingSubMessageDao.deleteAll()
+                deleted += pendingThingEventDao.deleteAll()
             } else {
                 deleted += thingChangeLogDao.deleteByChannel(normalizedChannel)
                 deleted += thingHeadDao.deleteByChannel(normalizedChannel)
                 deleted += thingSubEventDao.deleteByChannel(normalizedChannel)
                 deleted += thingSubMessageDao.deleteByChannel(normalizedChannel)
+                deleted += pendingThingEventDao.deleteByChannel(normalizedChannel)
             }
             deleted
         }
@@ -425,68 +469,8 @@ class EntityRepository(
         }
     }
 
-    private fun mergeAndSort(
-        messages: List<PushMessage>,
-        keySelector: (PushMessage) -> Long,
-    ): List<PushMessage> {
-        if (messages.isEmpty()) return emptyList()
-        val byId = LinkedHashMap<String, PushMessage>(messages.size)
-        for (message in messages) {
-            val current = byId[message.id]
-            if (current == null) {
-                byId[message.id] = message
-                continue
-            }
-            val nextKey = keySelector(message)
-            val currentKey = keySelector(current)
-            if (nextKey > currentKey || (nextKey == currentKey && message.receivedAt > current.receivedAt)) {
-                byId[message.id] = message
-            }
-        }
-        return byId.values.sortedWith(
-            compareByDescending<PushMessage> { keySelector(it) }
-                .thenByDescending { it.receivedAt.toEpochMilli() }
-                .thenByDescending { it.id }
-        )
-    }
-
-    private fun mergeProjectionPage(
-        messages: List<PushMessage>,
-        limit: Int,
-    ): List<PushMessage> {
-        if (messages.isEmpty()) return emptyList()
-        val byId = LinkedHashMap<String, PushMessage>(messages.size)
-        for (message in messages) {
-            val current = byId[message.id]
-            if (current == null) {
-                byId[message.id] = message
-                continue
-            }
-            if (message.receivedAt > current.receivedAt || (message.receivedAt == current.receivedAt && message.id > current.id)) {
-                byId[message.id] = message
-            }
-        }
-        return byId.values
-            .sortedWith(
-                compareByDescending<PushMessage> { it.receivedAt.toEpochMilli() }
-                    .thenByDescending { it.id }
-            )
-            .take(limit)
-    }
-
-    private fun eventProjectionTimeEpochMillis(message: PushMessage): Long {
-        val payload = runCatching { JSONObject(message.rawPayloadJson) }.getOrNull()
-        val eventTimeEpoch = PayloadTimeNormalizer.epochMillisFromJson(payload, "event_time")
-        return eventTimeEpoch ?: message.receivedAt.toEpochMilli()
-    }
-
-    private fun thingProjectionTimeEpochMillis(message: PushMessage): Long {
-        val payload = runCatching { JSONObject(message.rawPayloadJson) }.getOrNull()
-        val observedEpoch = PayloadTimeNormalizer.epochMillisFromJson(payload, "observed_at")
-        if (observedEpoch != null) {
-            return observedEpoch
-        }
-        val eventEpoch = PayloadTimeNormalizer.epochMillisFromJson(payload, "event_time")
-        return eventEpoch ?: message.receivedAt.toEpochMilli()
+    private companion object {
+        val entityProjectionMessageSortComparator = compareByDescending<PushMessage> { it.receivedAt.toEpochMilli() }
+            .thenByDescending { it.messageId ?: it.id }
     }
 }

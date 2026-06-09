@@ -217,6 +217,8 @@
     <string name="entity_body_event_closed">已關閉</string>
     <string name="entity_body_unknown">未知</string>
     <string name="entity_body_updated">已更新</string>
+    <string name="entity_body_thing_archived">已歸檔</string>
+    <string name="entity_body_thing_deleted">已刪除</string>
     <string name="entity_body_thing_attribute_update_template">屬性更新 || %1$s</string>
     <string name="entity_body_thing_attribute_pair_template">%1$s: %2$s</string>
     <string name="thing_detail_metadata_button">中繼資料</string>

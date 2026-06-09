@@ -130,16 +130,46 @@ class RuntimeLocalStore private constructor(
     }
 
     fun eventProjectionsNewestFirst(): List<PushMessage> {
-        val models = eventHeadsByEventId.values.map(TopLevelEventHeadEntity::asModel) +
-            eventChangeLogsByDelivery.values.map(EventChangeLogEntity::asModel)
-        return models.distinctBy { it.messageId ?: it.id }.sortedWith(messageSortComparator)
+        return eventHeadsByEventId.values
+            .map(TopLevelEventHeadEntity::asModel)
+            .sortedWith(messageSortComparator)
     }
 
     fun thingProjectionsNewestFirst(): List<PushMessage> {
-        val models = thingHeadsByThingId.values.map(ThingHeadEntity::asModel) +
-            thingChangeLogsByDelivery.values.map(ThingChangeLogEntity::asModel) +
-            thingSubMessageEntitiesByStableId.values.map(ThingSubMessageEntity::asModel)
-        return models.distinctBy { it.messageId ?: it.id }.sortedWith(messageSortComparator)
+        return thingHeadsByThingId.values
+            .map(ThingHeadEntity::asModel)
+            .sortedWith(messageSortComparator)
+    }
+
+    fun eventProjectionDetailMessages(eventId: String): List<PushMessage> {
+        val normalized = eventId.trim().takeIf { it.isNotEmpty() } ?: return emptyList()
+        val head = eventHeadsByEventId[normalized]?.asModel()
+        val history = eventChangeLogsByDelivery.values
+            .asSequence()
+            .filter { it.eventId == normalized }
+            .map(EventChangeLogEntity::asModel)
+            .sortedWith(messageSortComparator)
+            .toList()
+        return combineHeadAndHistory(head, history)
+    }
+
+    fun thingProjectionDetailMessages(thingId: String): List<PushMessage> {
+        val normalized = thingId.trim().takeIf { it.isNotEmpty() } ?: return emptyList()
+        val head = thingHeadsByThingId[normalized]?.asModel()
+        val history = (
+            thingChangeLogsByDelivery.values
+                .asSequence()
+                .filter { it.thingId == normalized }
+                .map(ThingChangeLogEntity::asModel)
+                .toList() +
+                thingSubMessageEntitiesByStableId.values
+                    .asSequence()
+                    .filter { it.thingId == normalized }
+                    .map(ThingSubMessageEntity::asModel)
+                    .toList()
+            )
+            .sortedWith(messageSortComparator)
+        return combineHeadAndHistory(head, history)
     }
 
     fun taskMessages(): List<PushMessage> {
@@ -269,6 +299,24 @@ class RuntimeLocalStore private constructor(
     private fun allMessageModels(): List<PushMessage> {
         return messageEntitiesByStableId.values.map(MessageEntity::asModel) +
             thingSubMessageEntitiesByStableId.values.map(ThingSubMessageEntity::asModel)
+    }
+
+    private fun combineHeadAndHistory(head: PushMessage?, history: List<PushMessage>): List<PushMessage> {
+        val headMessage = head ?: return history
+        val seen = linkedSetOf(headMessage.id)
+        headMessage.messageId?.trim()?.takeIf { it.isNotEmpty() }?.let(seen::add)
+        return buildList {
+            add(headMessage)
+            history.forEach { message ->
+                val keys = listOfNotNull(
+                    message.id.trim().takeIf { it.isNotEmpty() },
+                    message.messageId?.trim()?.takeIf { it.isNotEmpty() },
+                )
+                if (keys.any(seen::contains)) return@forEach
+                add(message)
+                seen.addAll(keys)
+            }
+        }
     }
 
     private fun canonicalizeMessage(message: PushMessage): PushMessage {

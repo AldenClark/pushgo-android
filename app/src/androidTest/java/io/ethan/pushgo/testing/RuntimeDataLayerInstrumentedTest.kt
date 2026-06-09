@@ -24,6 +24,7 @@ import org.json.JSONObject
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Assume.assumeTrue
@@ -243,6 +244,136 @@ class RuntimeDataLayerInstrumentedTest {
         val ftsMatches = messages.searchMessages("runtime", unreadOnly = false, limit = 20).first()
         assertTrue(ftsMatches.isNotEmpty())
         assertEquals(1, ftsCount(db, "TaskUnique*"))
+    }
+
+    @Test
+    fun entityProjectionPagesReadFinalHeadsOnlyWhileKeepingChangeLogs() = runBlocking {
+        val opened = openFreshDatabase()
+        val db = opened.database
+        val entities = entityRepository(db)
+
+        assertTrue(
+            entities.insertIncoming(
+                incomingEntity(
+                    entityType = "event",
+                    entityId = "event-head-only",
+                    eventId = "event-head-only",
+                    thingId = null,
+                    title = "Event create",
+                    deliveryId = "delivery-event-head-create",
+                    receivedAtMs = BASE_TIME_MS + 1_000,
+                )
+            )
+        )
+        assertTrue(
+            entities.insertIncoming(
+                incomingEntity(
+                    entityType = "event",
+                    entityId = "event-head-only",
+                    eventId = "event-head-only",
+                    thingId = null,
+                    title = "Event patched",
+                    deliveryId = "delivery-event-head-patch",
+                    receivedAtMs = BASE_TIME_MS + 2_000,
+                )
+            )
+        )
+        assertTrue(
+            entities.insertIncoming(
+                incomingEntity(
+                    entityType = "thing",
+                    entityId = "thing-head-only",
+                    eventId = null,
+                    thingId = "thing-head-only",
+                    title = "Thing create",
+                    deliveryId = "delivery-thing-head-create",
+                    receivedAtMs = BASE_TIME_MS + 3_000,
+                )
+            )
+        )
+        assertTrue(
+            entities.insertIncoming(
+                incomingEntity(
+                    entityType = "thing",
+                    entityId = "thing-head-only",
+                    eventId = null,
+                    thingId = "thing-head-only",
+                    title = "Thing patched",
+                    deliveryId = "delivery-thing-head-patch",
+                    receivedAtMs = BASE_TIME_MS + 4_000,
+                )
+            )
+        )
+
+        assertEquals(1, entities.getEventProjectionMessages().size)
+        assertEquals(1, entities.getEventProjectionMessagesPage(before = null, limit = 50).size)
+        assertEquals(1, entities.getThingProjectionMessages().size)
+        assertEquals(1, entities.getThingProjectionMessagesPage(before = null, limit = 50).size)
+        assertEquals(2, db.eventChangeLogDao().countAll())
+        assertEquals(2, db.thingChangeLogDao().countAll())
+        assertEquals(2, entities.getEventProjectionDetail("event-head-only")?.asMessages()?.size)
+        assertEquals(2, entities.getThingProjectionDetail("thing-head-only")?.asMessages()?.size)
+    }
+
+    @Test
+    fun eventRefreshAndChannelCleanupIncludeThingSubEvents() = runBlocking {
+        val opened = openFreshDatabase()
+        val db = opened.database
+        val entities = entityRepository(db)
+        val initialToken = entities.observeEventRefreshToken().first()
+
+        assertTrue(
+            entities.insertIncoming(
+                incomingEntity(
+                    entityType = "thing",
+                    entityId = "cleanup-thing",
+                    eventId = null,
+                    thingId = "cleanup-thing",
+                    title = "Cleanup thing",
+                    deliveryId = "delivery-cleanup-thing",
+                    receivedAtMs = BASE_TIME_MS + 1_000,
+                    channel = "cleanup-channel",
+                )
+            )
+        )
+        assertTrue(
+            entities.insertIncoming(
+                incomingEntity(
+                    entityType = "event",
+                    entityId = "cleanup-top-event",
+                    eventId = "cleanup-top-event",
+                    thingId = null,
+                    title = "Cleanup top event",
+                    deliveryId = "delivery-cleanup-top-event",
+                    receivedAtMs = BASE_TIME_MS + 2_000,
+                    channel = "cleanup-channel",
+                )
+            )
+        )
+        assertTrue(
+            entities.insertIncoming(
+                incomingEntity(
+                    entityType = "event",
+                    entityId = "cleanup-sub-event",
+                    eventId = "cleanup-sub-event",
+                    thingId = "cleanup-thing",
+                    title = "Cleanup sub event",
+                    deliveryId = "delivery-cleanup-sub-event",
+                    receivedAtMs = BASE_TIME_MS + 3_000,
+                    channel = "cleanup-channel",
+                )
+            )
+        )
+
+        assertNotEquals(initialToken, entities.observeEventRefreshToken().first())
+        assertEquals(1, db.eventChangeLogDao().countAll())
+        assertEquals(1, db.thingSubEventDao().countAll())
+        assertEquals(1, db.thingHeadDao().countAll())
+
+        assertEquals(3, entities.deleteEvents("cleanup-channel"))
+        assertEquals(0, db.eventChangeLogDao().countAll())
+        assertEquals(0, db.thingSubEventDao().countAll())
+        assertEquals(1, db.thingHeadDao().countAll())
     }
 
     @Test
@@ -539,6 +670,7 @@ class RuntimeDataLayerInstrumentedTest {
         title: String,
         deliveryId: String,
         receivedAtMs: Long,
+        channel: String = "entity-channel",
     ): IncomingEntityRecord {
         val rawPayload = JSONObject()
             .put("entity_type", entityType)
@@ -551,7 +683,7 @@ class RuntimeDataLayerInstrumentedTest {
         return IncomingEntityRecord(
             entityType = entityType,
             entityId = entityId,
-            channel = "entity-channel",
+            channel = channel,
             title = title,
             body = "$title body",
             rawPayloadJson = rawPayload.toString(),

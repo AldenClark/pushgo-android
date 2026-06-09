@@ -131,9 +131,15 @@ data class PushMessage(
         get() = imageUrls.firstOrNull()
 
     private fun decodeMetadata(payload: Map<String, Any?>?): Map<String, String> {
-        val raw = (payload?.get("metadata") as? String)?.trim().orEmpty()
-        if (raw.isEmpty()) return emptyMap()
-        val objectValue = JsonCompat.parseObject(raw) ?: return emptyMap()
+        val objectValue = when (val raw = payload?.get("metadata")) {
+            is String -> JsonCompat.parseObject(raw.trim())
+            is Map<*, *> -> raw.entries.fold(linkedMapOf<String, Any?>()) { acc, entry ->
+                val key = entry.key as? String ?: return@fold acc
+                acc[key] = entry.value
+                acc
+            }
+            else -> null
+        } ?: return emptyMap()
         val map = linkedMapOf<String, String>()
         for (rawKey in objectValue.keys) {
             val key = rawKey.trim()

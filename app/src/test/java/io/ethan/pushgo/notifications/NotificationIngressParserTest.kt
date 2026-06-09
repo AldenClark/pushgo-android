@@ -202,6 +202,87 @@ class NotificationIngressParserTest {
     }
 
     @Test
+    fun parseEntity_usesDisplayFallbackWithoutBackfillingPatchPayloadText() {
+        val payload = mapOf(
+            "entity_type" to "event",
+            "event_id" to "evt-fallback-1",
+            "entity_id" to "evt-fallback-1",
+            "metadata" to "{\"stage\":\"patched\"}",
+        )
+
+        val parsed = NotificationIngressParser.parse(
+            data = payload,
+            transportMessageId = null,
+            keyBytes = null,
+            now = Instant.ofEpochSecond(1_710_000_000),
+        )
+        val entity = parsed as? InboundPersistenceRequest.Entity
+        assertNotNull(entity)
+        entity ?: return
+
+        assertEquals("Event evt-fallback-1", entity.record.title)
+        assertEquals("Updated", entity.record.body)
+        assertTrue(entity.shouldNotify)
+        val raw = JsonCompat.parseObject(entity.record.rawPayloadJson) ?: emptyMap()
+        assertEquals("", raw["title"])
+        assertEquals("", raw["body"])
+        assertEquals("{\"stage\":\"patched\"}", raw["metadata"])
+    }
+
+    @Test
+    fun parseEventUpdateAndClose_notifyWithoutHighSeverity() {
+        for (state in listOf("updated", "closed")) {
+            val parsed = NotificationIngressParser.parse(
+                data = mapOf(
+                    "entity_type" to "event",
+                    "event_id" to "evt-$state",
+                    "entity_id" to "evt-$state",
+                    "status" to state,
+                    "event_state" to state,
+                ),
+                transportMessageId = null,
+                keyBytes = null,
+                now = Instant.ofEpochSecond(1_710_000_000),
+            )
+            val entity = parsed as? InboundPersistenceRequest.Entity
+            assertNotNull(entity)
+            entity ?: continue
+
+            assertTrue(entity.shouldNotify)
+        }
+    }
+
+    @Test
+    fun parseThingUpdateArchiveDelete_notifyAndUseOperationBody() {
+        val cases = listOf(
+            Triple("/thing/update", mapOf("attrs" to "{\"temperature\":\"24\"}"), "Attribute update || temperature: 24"),
+            Triple("/thing/archive", mapOf("attrs" to "{\"temperature\":\"24\"}"), "Archived"),
+            Triple("/thing/delete", emptyMap<String, String>(), "Deleted"),
+        )
+
+        cases.forEachIndexed { index, (endpoint, extra, expectedBody) ->
+            val parsed = NotificationIngressParser.parse(
+                data = mapOf(
+                    "entity_type" to "thing",
+                    "thing_id" to "thing-op-$index",
+                    "entity_id" to "thing-op-$index",
+                    "endpoint" to endpoint,
+                    "severity" to "normal",
+                ) + extra,
+                transportMessageId = null,
+                keyBytes = null,
+                now = Instant.ofEpochSecond(1_710_000_000),
+            )
+            val entity = parsed as? InboundPersistenceRequest.Entity
+            assertNotNull(entity)
+            entity ?: return@forEachIndexed
+
+            assertTrue(entity.shouldNotify)
+            assertEquals(expectedBody, entity.notificationBody)
+        }
+    }
+
+    @Test
     fun providerWakeupPullDeliveryId_requiresWakeupMarkers() {
         assertEquals(
             "delivery-1",

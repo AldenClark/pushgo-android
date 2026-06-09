@@ -23,6 +23,8 @@ object NotificationIngressParser {
         val eventBodyOngoing: String,
         val eventBodyClosed: String,
         val updatedBody: String,
+        val thingArchivedBody: String,
+        val thingDeletedBody: String,
         val thingAttributeUpdateTemplate: (String) -> String,
         val thingAttributePairTemplate: (String, String) -> String,
     ) {
@@ -34,6 +36,8 @@ object NotificationIngressParser {
                 eventBodyOngoing = "Ongoing",
                 eventBodyClosed = "Closed",
                 updatedBody = "Updated",
+                thingArchivedBody = "Archived",
+                thingDeletedBody = "Deleted",
                 thingAttributeUpdateTemplate = { details -> "Attribute update || $details" },
                 thingAttributePairTemplate = { name, value -> "$name: $value" },
             )
@@ -45,6 +49,8 @@ object NotificationIngressParser {
                 eventBodyOngoing = context.getString(R.string.entity_body_event_ongoing),
                 eventBodyClosed = context.getString(R.string.entity_body_event_closed),
                 updatedBody = context.getString(R.string.entity_body_updated),
+                thingArchivedBody = context.getString(R.string.entity_body_thing_archived),
+                thingDeletedBody = context.getString(R.string.entity_body_thing_deleted),
                 thingAttributeUpdateTemplate = { details ->
                     context.getString(R.string.entity_body_thing_attribute_update_template, details)
                 },
@@ -64,6 +70,12 @@ object NotificationIngressParser {
         val pairs: List<Pair<String, String>>,
         val thingName: String?,
     )
+
+    private enum class ThingOperation {
+        UPDATE,
+        ARCHIVE,
+        DELETE,
+    }
 
     fun parse(
         data: Map<String, String>,
@@ -255,6 +267,11 @@ object NotificationIngressParser {
         } else {
             null
         }
+        val thingOperation = if (entityType == "thing") {
+            resolveThingOperation(payload)
+        } else {
+            null
+        }
 
         val fallbackTitleId = when (entityType) {
             "event" -> eventId ?: entityId
@@ -281,9 +298,13 @@ object NotificationIngressParser {
         val body = explicitBody.trim().ifEmpty {
             messageText
                 ?: if (entityType == "thing") {
-                    buildThingAttributeUpdateBody(attrsSnapshot, textLocalizer)
-                        ?: profile?.description?.trim()?.takeIf { it.isNotEmpty() }
-                        ?: textLocalizer.updatedBody
+                    when (thingOperation) {
+                        ThingOperation.ARCHIVE -> textLocalizer.thingArchivedBody
+                        ThingOperation.DELETE -> textLocalizer.thingDeletedBody
+                        ThingOperation.UPDATE, null -> buildThingAttributeUpdateBody(attrsSnapshot, textLocalizer)
+                            ?: profile?.description?.trim()?.takeIf { it.isNotEmpty() }
+                            ?: textLocalizer.updatedBody
+                    }
                 } else {
                     profile?.description?.trim()?.takeIf { it.isNotEmpty() }
                         ?: defaultEventBody(payload["event_state"], textLocalizer)
@@ -494,8 +515,11 @@ object NotificationIngressParser {
         isExpired: Boolean,
     ): Boolean {
         if (isExpired) return false
-        if (entityType == "event" || entityType == "thing") {
-            return level == "critical" || level == "high"
+        if (entityType == "event") {
+            return true
+        }
+        if (entityType == "thing") {
+            return true
         }
         return true
     }
@@ -640,6 +664,44 @@ object NotificationIngressParser {
             ?.takeIf { it.isNotEmpty() }
             ?: return null
         return textLocalizer.thingAttributeUpdateTemplate(details)
+    }
+
+    private fun resolveThingOperation(payload: Map<String, String>): ThingOperation {
+        val operationText = listOf(
+            "operation",
+            "action",
+            "entity_action",
+            "thing_action",
+            "endpoint",
+            "path",
+            "request_path",
+            "route",
+        ).mapNotNull { key ->
+            payload[key]?.trim()?.lowercase()?.takeIf { it.isNotEmpty() }
+        }.joinToString(separator = " ")
+        val stateText = listOfNotNull(
+            payload["state"]?.trim()?.lowercase(),
+            payload["status"]?.trim()?.lowercase(),
+        ).filter { it.isNotEmpty() }.joinToString(separator = " ")
+        val text = "$operationText $stateText"
+
+        if (text.contains("/thing/delete") ||
+            text.contains("thing.delete") ||
+            text.contains("thing_delete") ||
+            text.contains("delete") ||
+            text.contains("deleted")
+        ) {
+            return ThingOperation.DELETE
+        }
+        if (text.contains("/thing/archive") ||
+            text.contains("thing.archive") ||
+            text.contains("thing_archive") ||
+            text.contains("archive") ||
+            text.contains("archived")
+        ) {
+            return ThingOperation.ARCHIVE
+        }
+        return ThingOperation.UPDATE
     }
 
     private fun defaultEventBody(

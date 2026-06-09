@@ -591,14 +591,18 @@ private fun mergeEntityPayloadJson(existingRaw: String?, incomingRaw: String): S
             continue
         }
         if (key in objectPatchPayloadKeys) {
-            val patch = value.toPatchObjectOrNull()
-            if (patch != null) {
-                val base = merged.opt(key).toPatchObjectOrNull() ?: JSONObject()
-                applyObjectPatch(base, patch)
-                merged.put(key, base.toString())
-            } else {
-                merged.put(key, value)
+            if (value == null || value == JSONObject.NULL) {
+                merged.remove(key)
+                continue
             }
+                val patch = value.toPatchObjectOrNull()
+                if (patch != null) {
+                    val base = merged.opt(key).toPatchObjectOrNull() ?: JSONObject()
+                    applyObjectPatch(base, patch)
+                    merged.put(key, base)
+                } else {
+                    merged.put(key, value)
+                }
         } else {
             merged.put(key, value)
         }

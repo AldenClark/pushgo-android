@@ -198,4 +198,16 @@ interface PendingThingEventDao {
 
     @Query("DELETE FROM pending_thing_events WHERE id IN (:ids)")
     suspend fun deleteByIds(ids: List<String>): Int
+
+    @Query("DELETE FROM pending_thing_events WHERE thing_id = :thingId")
+    suspend fun deleteByThingId(thingId: String): Int
+
+    @Query("DELETE FROM pending_thing_events WHERE thing_id IN (:thingIds)")
+    suspend fun deleteByThingIds(thingIds: List<String>): Int
+
+    @Query("DELETE FROM pending_thing_events WHERE channel = :channelId")
+    suspend fun deleteByChannel(channelId: String): Int
+
+    @Query("DELETE FROM pending_thing_events")
+    suspend fun deleteAll(): Int
 }

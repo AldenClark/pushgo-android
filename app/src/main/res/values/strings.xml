@@ -309,6 +309,8 @@
     <string name="entity_body_event_closed">Closed</string>
     <string name="entity_body_unknown">Unknown</string>
     <string name="entity_body_updated">Updated</string>
+    <string name="entity_body_thing_archived">Archived</string>
+    <string name="entity_body_thing_deleted">Deleted</string>
     <string name="entity_body_thing_attribute_update_template">Attribute update || %1$s</string>
     <string name="entity_body_thing_attribute_pair_template">%1$s: %2$s</string>
     <string name="event_meta_severity">Severity: %1$s</string>

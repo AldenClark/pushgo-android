@@ -14,6 +14,15 @@ class EntityBatchDeletePathContractTest {
     }
 
     @Test
+    fun thingDeletePathsAlsoClearPendingThingScopedEvents() {
+        val source = readSource("src/main/java/io/ethan/pushgo/data/EntityRepository.kt")
+        assertTrue(source.contains("pendingThingEventDao.deleteByThingId(normalized)"))
+        assertTrue(source.contains("pendingThingEventDao.deleteByThingIds(normalizedIds)"))
+        assertTrue(source.contains("pendingThingEventDao.deleteByChannel(normalizedChannel)"))
+        assertTrue(source.contains("pendingThingEventDao.deleteAll()"))
+    }
+
+    @Test
     fun batchUiPathsUseSingleRepositoryBatchCallsInsteadOfPerItemLoops() {
         val eventScreen = readSource("src/main/java/io/ethan/pushgo/ui/screens/EventListScreen.kt")
         val thingScreen = readSource("src/main/java/io/ethan/pushgo/ui/screens/ThingListScreen.kt")

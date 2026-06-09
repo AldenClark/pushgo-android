@@ -230,6 +230,8 @@
     <string name="entity_body_event_ongoing">Ongoing</string>
     <string name="entity_body_event_closed">Closed</string>
     <string name="entity_body_updated">Updated</string>
+    <string name="entity_body_thing_archived">Archived</string>
+    <string name="entity_body_thing_deleted">Deleted</string>
     <string name="entity_body_thing_attribute_update_template">Mise à jour des attributs || %1$s</string>
     <string name="entity_body_thing_attribute_pair_template">%1$s: %2$s</string>
 

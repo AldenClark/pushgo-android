@@ -1,10 +1,13 @@
 package io.ethan.pushgo.testing
 
+import io.ethan.pushgo.data.IncomingEntityRecord
+import io.ethan.pushgo.data.db.ThingHeadEntity
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.json.JSONObject
+import java.time.Instant
 import kotlin.system.measureNanoTime
 
 class RuntimeLocalStoreCorrectnessTest {
@@ -166,11 +169,12 @@ class RuntimeLocalStoreCorrectnessTest {
         )
 
         val head = store.snapshot().eventHeads.single()
-        val metadata = JSONObject(JSONObject(head.rawPayloadJson).getString("metadata"))
+        val metadata = JSONObject(head.rawPayloadJson).getJSONObject("metadata")
         assertEquals("Original event", head.title)
         assertEquals("Original message", head.body)
         assertEquals("create", metadata.getString("source"))
         assertEquals("update", metadata.getString("stage"))
+        assertEquals("update", head.asModel().metadata["stage"])
     }
 
     @Test
@@ -221,8 +225,8 @@ class RuntimeLocalStoreCorrectnessTest {
 
         val head = store.snapshot().thingHeads.single()
         val payload = JSONObject(head.rawPayloadJson)
-        val attrs = JSONObject(payload.getString("attrs"))
-        val externalIds = JSONObject(payload.getString("external_ids"))
+        val attrs = payload.getJSONObject("attrs")
+        val externalIds = payload.getJSONObject("external_ids")
         assertEquals("Original thing", head.title)
         assertEquals("Original description", head.body)
         assertFalse(attrs.has("temperature"))
@@ -230,6 +234,168 @@ class RuntimeLocalStoreCorrectnessTest {
         assertEquals("50", attrs.getString("rpm"))
         assertFalse(externalIds.has("asset"))
         assertEquals("cmms-1", externalIds.getString("cmms"))
+    }
+
+    @Test
+    fun localStore_projectionListsExposeOnlyFinalHeadsAndKeepChangeLogs() {
+        val store = RuntimeLocalStore()
+
+        assertTrue(
+            store.ingest(
+                entityPayload(
+                    canonicalId = "projection-event-1",
+                    entityType = "event",
+                    opId = "projection-event-create",
+                    extras = mapOf(
+                        "event_id" to "projection-event-1",
+                        "title" to "Original event",
+                    ),
+                ),
+            ).accepted,
+        )
+        assertTrue(
+            store.ingest(
+                entityPayload(
+                    canonicalId = "projection-event-1",
+                    entityType = "event",
+                    opId = "projection-event-update",
+                    extras = mapOf(
+                        "event_id" to "projection-event-1",
+                        "metadata" to JSONObject().put("stage", "updated").toString(),
+                    ),
+                ),
+            ).accepted,
+        )
+        assertTrue(
+            store.ingest(
+                entityPayload(
+                    canonicalId = "projection-thing-1",
+                    entityType = "thing",
+                    opId = "projection-thing-create",
+                    extras = mapOf(
+                        "thing_id" to "projection-thing-1",
+                        "title" to "Original thing",
+                    ),
+                ),
+            ).accepted,
+        )
+        assertTrue(
+            store.ingest(
+                entityPayload(
+                    canonicalId = "projection-thing-1",
+                    entityType = "thing",
+                    opId = "projection-thing-update",
+                    extras = mapOf(
+                        "thing_id" to "projection-thing-1",
+                        "attrs" to JSONObject().put("rpm", "50").toString(),
+                    ),
+                ),
+            ).accepted,
+        )
+
+        assertEquals(1, store.eventProjectionsNewestFirst().size)
+        assertEquals(1, store.thingProjectionsNewestFirst().size)
+        assertEquals(2, store.snapshot().eventChangeLogs.size)
+        assertEquals(2, store.snapshot().thingChangeLogs.size)
+    }
+
+    @Test
+    fun localStore_projectionDetailsExposeFinalHeadAndFullHistory() {
+        val store = RuntimeLocalStore()
+
+        assertTrue(
+            store.ingest(
+                entityPayload(
+                    canonicalId = "detail-event-1",
+                    entityType = "event",
+                    opId = "detail-event-create",
+                    extras = mapOf(
+                        "event_id" to "detail-event-1",
+                        "title" to "Created event",
+                    ),
+                ),
+            ).accepted,
+        )
+        assertTrue(
+            store.ingest(
+                entityPayload(
+                    canonicalId = "detail-event-1",
+                    entityType = "event",
+                    opId = "detail-event-update",
+                    extras = mapOf(
+                        "event_id" to "detail-event-1",
+                        "metadata" to JSONObject().put("stage", "updated").toString(),
+                    ),
+                ),
+            ).accepted,
+        )
+        assertTrue(
+            store.ingest(
+                entityPayload(
+                    canonicalId = "detail-thing-1",
+                    entityType = "thing",
+                    opId = "detail-thing-create",
+                    extras = mapOf(
+                        "thing_id" to "detail-thing-1",
+                        "title" to "Created thing",
+                    ),
+                ),
+            ).accepted,
+        )
+        assertTrue(
+            store.ingest(
+                entityPayload(
+                    canonicalId = "detail-thing-1",
+                    entityType = "thing",
+                    opId = "detail-thing-update",
+                    extras = mapOf(
+                        "thing_id" to "detail-thing-1",
+                        "attrs" to JSONObject().put("rpm", "50").toString(),
+                    ),
+                ),
+            ).accepted,
+        )
+
+        assertEquals(1, store.eventProjectionsNewestFirst().size)
+        assertEquals(2, store.eventProjectionDetailMessages("detail-event-1").size)
+        assertEquals(1, store.thingProjectionsNewestFirst().size)
+        assertEquals(2, store.thingProjectionDetailMessages("detail-thing-1").size)
+        assertEquals(2, store.snapshot().eventChangeLogs.size)
+        assertEquals(2, store.snapshot().thingChangeLogs.size)
+    }
+
+    @Test
+    fun entityHeadMergeRemovesTopLevelObjectPatchWhenValueIsNull() {
+        val existing = ThingHeadEntity.fromMerged(
+            existing = null,
+            entity = incomingThingRecord(
+                deliveryId = "thing-null-create",
+                rawPayloadJson = JSONObject()
+                    .put("entity_type", "thing")
+                    .put("entity_id", "thing-null-1")
+                    .put("thing_id", "thing-null-1")
+                    .put("title", "Thing")
+                    .put("attrs", JSONObject().put("rpm", "50").toString())
+                    .put("metadata", JSONObject().put("site", "a").toString())
+                    .toString(),
+            ),
+        )
+        val merged = ThingHeadEntity.fromMerged(
+            existing = existing,
+            entity = incomingThingRecord(
+                deliveryId = "thing-null-update",
+                rawPayloadJson = JSONObject()
+                    .put("entity_type", "thing")
+                    .put("entity_id", "thing-null-1")
+                    .put("thing_id", "thing-null-1")
+                    .put("attrs", JSONObject.NULL)
+                    .toString(),
+            ),
+        )
+
+        val payload = JSONObject(merged.rawPayloadJson)
+        assertFalse(payload.has("attrs"))
+        assertTrue(payload.has("metadata"))
     }
 
     @Test
@@ -367,6 +533,29 @@ class RuntimeLocalStoreCorrectnessTest {
             deliveryChannel = RuntimeDeliveryChannel.FCM,
             transportMessageId = "fcm-$opId",
             data = data,
+        )
+    }
+
+    private fun incomingThingRecord(
+        deliveryId: String,
+        rawPayloadJson: String,
+    ): IncomingEntityRecord {
+        return IncomingEntityRecord(
+            entityType = "thing",
+            entityId = "thing-null-1",
+            channel = "channel-patch",
+            title = "Thing",
+            body = "",
+            rawPayloadJson = rawPayloadJson,
+            receivedAt = Instant.ofEpochMilli(1_710_000_000_000L),
+            opId = deliveryId,
+            deliveryId = deliveryId,
+            serverId = null,
+            eventId = null,
+            thingId = "thing-null-1",
+            eventState = null,
+            eventTimeEpoch = null,
+            observedTimeEpoch = null,
         )
     }
 

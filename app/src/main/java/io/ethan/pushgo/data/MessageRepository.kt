@@ -145,10 +145,6 @@ class MessageRepository(
         }
     }
 
-    fun observeEventCount(): Flow<Int> = kotlinx.coroutines.flow.flowOf(0)
-
-    fun observeThingCount(): Flow<Int> = kotlinx.coroutines.flow.flowOf(0)
-
     suspend fun getById(id: String): PushMessage? = dao.getById(id)?.asModel()
 
     suspend fun getByMessageId(messageId: String): PushMessage? {
@@ -161,12 +157,6 @@ class MessageRepository(
     }
 
     suspend fun getAll(): List<PushMessage> = dao.getAll().map(MessageEntity::asModel)
-
-    suspend fun getEventProjectionMessages(): List<PushMessage> = emptyList()
-
-    suspend fun getThingProjectionMessages(): List<PushMessage> {
-        return thingSubMessageDao.getAllProjection().map(ThingSubMessageEntity::asModel)
-    }
 
     suspend fun getIdsBefore(readState: Boolean?, cutoff: Long): List<String> {
         return dao.getIdsBefore(readState, cutoff)

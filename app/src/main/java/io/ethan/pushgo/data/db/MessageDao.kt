@@ -171,24 +171,6 @@ interface MessageDao {
 
     @Query(
         """
-        SELECT * FROM messages
-        WHERE event_id IS NOT NULL
-        ORDER BY COALESCE(event_time_epoch, occurred_at_epoch, received_at) DESC, received_at DESC
-        """
-    )
-    suspend fun getEventProjectionMessages(): List<MessageEntity>
-
-    @Query(
-        """
-        SELECT * FROM messages
-        WHERE thing_id IS NOT NULL
-        ORDER BY COALESCE(occurred_at_epoch, event_time_epoch, received_at) DESC, received_at DESC
-        """
-    )
-    suspend fun getThingProjectionMessages(): List<MessageEntity>
-
-    @Query(
-        """
         SELECT id FROM messages
         WHERE (:readState IS NULL OR is_read = :readState)
           AND received_at < :cutoff
@@ -217,22 +199,6 @@ interface MessageDao {
 
     @Query("SELECT COUNT(*) FROM messages WHERE is_read = 0")
     fun observeUnreadCount(): Flow<Int>
-
-    @Query(
-        """
-        SELECT COUNT(*) FROM messages
-        WHERE entity_type = 'event' OR event_id IS NOT NULL
-        """
-    )
-    fun observeEventCount(): Flow<Int>
-
-    @Query(
-        """
-        SELECT COUNT(*) FROM messages
-        WHERE entity_type = 'thing' OR thing_id IS NOT NULL
-        """
-    )
-    fun observeThingCount(): Flow<Int>
 
     @Query(
         """

@@ -50,6 +50,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.ethan.pushgo.R
 import io.ethan.pushgo.data.AppContainer
 import io.ethan.pushgo.data.EntityProjectionCursor
+import io.ethan.pushgo.data.EntityProjectionDetail
 import io.ethan.pushgo.data.model.*
 import io.ethan.pushgo.data.parseThingProfileFromPayload
 import io.ethan.pushgo.data.parseEventProfileFromPayload
@@ -323,6 +324,30 @@ fun ThingListScreen(
         }
     }
 
+    suspend fun loadThingDetailModel(thingId: String): ThingCardModel? {
+        val normalized = thingId.trim().takeIf { it.isNotEmpty() } ?: return null
+        val detail = container.entityRepository.getThingProjectionDetail(normalized) ?: return null
+        return withContext(Dispatchers.Default) {
+            buildThingCardFromProjectionDetailInternal(detail, normalized)
+        }
+    }
+
+    suspend fun refreshSelectedThingDetail() {
+        val selectedId = selectedThing?.thingId ?: return
+        val detailThing = loadThingDetailModel(selectedId)
+        if (detailThing == null) {
+            selectedThing = null
+            selectedRelatedMessage = null
+            selectedRelatedEvent = null
+            selectedRelatedUpdate = null
+            onThingDetailClosed()
+            return
+        }
+        if (selectedThing?.thingId == selectedId) {
+            selectedThing = detailThing
+        }
+    }
+
     fun refreshProviderIngressFromPullDown() {
         if (isPullRefreshing) return
         scope.launch {
@@ -366,6 +391,10 @@ fun ThingListScreen(
     fun loadMoreThingsIfNeeded() {
         if (isLoadingMoreThings || !hasMoreThings) return
         scope.launch { loadMoreThingsInternal() }
+    }
+
+    LaunchedEffect(selectedThing?.thingId, refreshToken) {
+        refreshSelectedThingDetail()
     }
 
     suspend fun scheduleThingDeletion(targetThings: List<ThingCardModel>) {
@@ -485,24 +514,20 @@ fun ThingListScreen(
         val target = openThingId?.trim()?.takeIf { it.isNotEmpty() } ?: return@LaunchedEffect
         val matched = allThings.firstOrNull { it.thingId == target }
         if (matched != null) {
-            selectedThing = matched
+            selectedThing = loadThingDetailModel(target) ?: matched
             onThingDetailOpened(matched.thingId)
+            onOpenThingHandled()
+            return@LaunchedEffect
+        }
+        val detailThing = loadThingDetailModel(target)
+        if (detailThing != null) {
+            selectedThing = detailThing
+            onThingDetailOpened(target)
             onOpenThingHandled()
             return@LaunchedEffect
         }
         if (hasMoreThings && !isLoadingMoreThings) {
             loadMoreThingsIfNeeded()
-        }
-    }
-
-    LaunchedEffect(allThings, selectedThing?.thingId) {
-        val selectedId = selectedThing?.thingId ?: return@LaunchedEffect
-        val latest = allThings.firstOrNull { it.thingId == selectedId }
-        if (latest == null) {
-            selectedThing = null
-            onThingDetailClosed()
-        } else if (latest != selectedThing) {
-            selectedThing = latest
         }
     }
 
@@ -1173,6 +1198,23 @@ private fun buildThingCardsInternal(messages: List<PushMessage>): List<ThingCard
                 .toList(),
         )
     }.sortedByDescending { it.updatedAt }
+}
+
+internal fun buildThingCardFromProjectionDetailInternal(
+    detail: EntityProjectionDetail,
+    thingId: String,
+): ThingCardModel? {
+    val full = buildThingCardsInternal(detail.asMessages()).firstOrNull { it.thingId == thingId }
+    val head = detail.head
+        ?.let { buildThingCardsInternal(listOf(it)).firstOrNull { card -> card.thingId == thingId } }
+        ?: return full
+    if (full == null) return head
+    return head.copy(
+        updatedAt = maxOf(head.updatedAt, full.updatedAt),
+        relatedEvents = full.relatedEvents,
+        relatedMessages = full.relatedMessages,
+        relatedUpdates = full.relatedUpdates,
+    )
 }
 
 private fun mergeThingCardsInternal(existing: List<ThingCardModel>, incoming: List<ThingCardModel>): List<ThingCardModel> {
