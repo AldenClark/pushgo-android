@@ -23,6 +23,27 @@ PushGo Android policy:
 ### Changed
 - Placeholder for next development cycle.
 
+## [v1.2.6] - 2026-06-09
+
+### Added
+- Added versioned stable update notes source: `release/update-notes/v1.2.6.json`.
+- Added Android 9 focused regression coverage for markdown media rendering and API 28 compatibility paths.
+- Added projection/detail correctness coverage for entity patch merge, storage, and notification ingress flows.
+
+### Changed
+- Finalized Android app version to `v1.2.6` for release builds.
+- `versionCode` now resolves to stable code `1020699` from `versionName=v1.2.6`.
+- Lowered the supported Android floor to Android 9 (`minSdk 28`) and aligned native/update-feed tooling with that release target.
+- Reworked entity projection merge and persistence flow so event/object detail state stays aligned with inbound patch data.
+- Updated mark-all-read behavior to operate on the user's current visible message scope instead of a broader implicit set.
+- Refined pending-local-deletion refresh behavior so visible message lists stay synchronized while delete/recover actions are in flight.
+
+### Fixed
+- Fixed multiple Android 9 / API 28 compatibility issues across database, markdown media, and repository code paths.
+- Fixed entity patch storage, projection merge, and notification-driven detail refresh issues that could leave event/object views stale or inconsistent.
+- Fixed mark-all-read scope mismatches that could affect messages outside the current filtered list.
+- Fixed visible message list refresh gaps during pending deletion so list state updates immediately after local delete/recover operations.
+
 ## [v1.2.5] - 2026-05-26
 
 ### Added

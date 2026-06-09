@@ -13,6 +13,18 @@ Policy:
 ### Changed
 - Placeholder for next beta cycle.
 
+## [v1.2.6]
+
+### Improved
+- Improved Android compatibility by lowering the supported floor to Android 9 and hardening several app behaviors for API 28 devices.
+- Improved event and object detail consistency so entity patch updates, notification-driven refreshes, and persisted projection data stay in sync.
+- Improved message workflow accuracy by making mark-all-read apply only to the messages currently visible in your active list or filter.
+- Improved list responsiveness during pending local deletion so visible message lists refresh more reliably while delete and recovery actions are happening.
+
+### Fixed
+- Fixed stale or inconsistent event/object detail content that could appear after entity patch merges or notification-triggered updates.
+- Fixed message list refresh gaps during pending deletion that could leave on-screen results temporarily out of date.
+
 ## [v1.2.5]
 
 ### Improved
