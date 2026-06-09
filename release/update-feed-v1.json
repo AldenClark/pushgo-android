@@ -41,46 +41,47 @@
         "versionName": "v1.2.0-beta.15"
       },
       {
-        "apkSha256": "257289ad72479e7436271b1150ff99cd44aa2c49f3df01287ad2fbdb693ee747",
-        "apkUrl": "https://update.pushgo.cn/android/stable/v1.2.5/pushgo-android-v1.2.5-universal-release.apk",
+        "apkSha256": "ae424a70c19d73521a8ab06b7c0a3042d7087a44adba96292b8d92e170f56922",
+        "apkUrl": "https://update.pushgo.cn/android/stable/v1.2.6/pushgo-android-v1.2.6-universal-release.apk",
         "channel": "stable",
         "critical": false,
-        "notes": "PushGo 1.2.5 improves message detail stability and image fallback clarity on Android.\\n- Message detail bottom sheet now opens and sizes more consistently across screen sizes\\n- Failed image loads now show clearer localized placeholders in both detail view and markdown content",
+        "minSdk": 28,
+        "notes": "PushGo 1.2.6 improves Android compatibility and keeps message and entity views more consistent.\\n- Android support now starts at Android 9, with multiple API 28 compatibility fixes\\n- Event and object detail views now stay in sync more reliably after entity patch and notification-driven updates\\n- Mark all read now applies only to the messages currently visible in your active list or filter\\n- Message lists refresh more reliably while local delete and recovery actions are pending",
         "notesI18n": {
-          "de": "PushGo 1.2.5 verbessert auf Android die Stabilitat der Nachrichtendetails und die Klarheit bei Bild-Fehlerruckfallen.\\n- Das Bottom Sheet der Nachrichtendetails offnet und skaliert nun uber verschiedene Bildschirmgrossen konsistenter\\n- Fehlgeschlagene Bildladevorgange zeigen jetzt klarere, lokalisierte Platzhalter in Detailansicht und Markdown-Inhalten",
-          "en": "PushGo 1.2.5 improves message detail stability and image fallback clarity on Android.\\n- Message detail bottom sheet now opens and sizes more consistently across screen sizes\\n- Failed image loads now show clearer localized placeholders in both detail view and markdown content",
-          "es": "PushGo 1.2.5 mejora en Android la estabilidad del detalle de mensajes y la claridad ante fallos de imagen.\\n- La hoja inferior de detalle ahora se abre y dimensiona de forma mas consistente en distintos tamanos de pantalla\\n- Las cargas de imagen fallidas ahora muestran marcadores mas claros y localizados tanto en detalle como en contenido markdown",
-          "fr": "PushGo 1.2.5 ameliore sur Android la stabilite du detail des messages et la clarte des retours en cas d'echec d'image.\\n- Le panneau bas des details de message s'ouvre et se dimensionne desormais de maniere plus coherente selon les tailles d'ecran\\n- Les echecs de chargement d'image affichent maintenant des placeholders localises plus explicites dans la vue detail et le contenu markdown",
-          "ja": "PushGo 1.2.5 では、Android のメッセージ詳細の安定性と画像エラー時の表示わかりやすさを改善しました。\\n- メッセージ詳細のボトムシートが、さまざまな画面サイズでより安定して開き、適切に表示されます\\n- 画像の読み込み失敗時に、詳細画面と Markdown コンテンツの両方で、より分かりやすいローカライズ済みプレースホルダーを表示します",
-          "ko": "PushGo 1.2.5는 Android에서 메시지 상세 안정성과 이미지 실패 처리 가독성을 개선했습니다.\\n- 메시지 상세 하단 시트가 다양한 화면 크기에서 더 일관되게 열리고 크기가 맞춰집니다\\n- 이미지 로드 실패 시 상세 보기와 마크다운 콘텐츠 모두에서 더 명확한 현지화 플레이스홀더를 표시합니다",
-          "zh-CN": "PushGo 1.2.5 提升了 Android 端消息详情稳定性与图片失败回退提示清晰度。\\n- 消息详情底部弹层在不同屏幕尺寸下的打开与尺寸表现更稳定\\n- 图片加载失败时，在详情页和 Markdown 内容中都会显示更清晰的本地化占位提示",
-          "zh-TW": "PushGo 1.2.5 提升了 Android 端訊息詳情穩定性與圖片失敗回退提示清晰度。\\n- 訊息詳情底部彈層在不同螢幕尺寸下的開啟與尺寸表現更穩定\\n- 圖片載入失敗時，在詳情頁與 Markdown 內容中都會顯示更清晰的在地化占位提示"
+          "de": "PushGo 1.2.6 verbessert die Android-Kompatibilitat und sorgt fur konsistentere Nachrichten- und Entitatsansichten.\\n- Die Android-Unterstutzung beginnt jetzt bei Android 9, inklusive mehrerer API-28-Kompatibilitatskorrekturen\\n- Ereignis- und Objektdetailansichten bleiben nach Entitatspatches und benachrichtigungsgesteuerten Aktualisierungen zuverlassiger synchron\\n- Alle als gelesen markieren wirkt jetzt nur noch auf die aktuell sichtbaren Nachrichten in der aktiven Liste oder im aktiven Filter\\n- Nachrichtenlisten werden wahrend ausstehender lokaler Losch- und Wiederherstellungsaktionen zuverlassiger aktualisiert",
+          "en": "PushGo 1.2.6 improves Android compatibility and keeps message and entity views more consistent.\\n- Android support now starts at Android 9, with multiple API 28 compatibility fixes\\n- Event and object detail views now stay in sync more reliably after entity patch and notification-driven updates\\n- Mark all read now applies only to the messages currently visible in your active list or filter\\n- Message lists refresh more reliably while local delete and recovery actions are pending",
+          "es": "PushGo 1.2.6 mejora la compatibilidad con Android y mantiene mas consistentes las vistas de mensajes y entidades.\\n- La compatibilidad con Android ahora comienza en Android 9, con varias correcciones para API 28\\n- Las vistas de detalle de eventos y objetos ahora permanecen sincronizadas con mayor fiabilidad tras parches de entidad y actualizaciones impulsadas por notificaciones\\n- Marcar todo como leido ahora solo se aplica a los mensajes visibles en tu lista o filtro actual\\n- Las listas de mensajes se actualizan con mayor fiabilidad mientras hay acciones locales de borrado o recuperacion pendientes",
+          "fr": "PushGo 1.2.6 ameliore la compatibilite Android et rend les vues de messages et d'entites plus coherentes.\\n- La prise en charge Android commence desormais a Android 9, avec plusieurs correctifs de compatibilite API 28\\n- Les vues detail des evenements et des objets restent maintenant plus fiablements synchronisees apres les patchs d'entite et les mises a jour declenchees par notification\\n- Tout marquer comme lu s'applique maintenant uniquement aux messages actuellement visibles dans votre liste ou filtre actif\\n- Les listes de messages se rafraichissent plus fiablement pendant les suppressions locales et recuperations en attente",
+          "ja": "PushGo 1.2.6 では、Android 互換性を強化し、メッセージ画面とエンティティ画面の整合性を改善しました。\\n- Android 9 から利用可能になり、API 28 向けの互換性修正を複数追加しました\\n- イベント詳細とオブジェクト詳細は、エンティティパッチ適用後や通知起点の更新後も、より確実に同期されます\\n- 既読にする操作は、現在のリストやフィルターで表示中のメッセージだけに適用されます\\n- ローカル削除や復元の保留中でも、メッセージ一覧がより確実に更新されます",
+          "ko": "PushGo 1.2.6은 Android 호환성을 개선하고 메시지 및 엔터티 화면의 일관성을 높였습니다.\\n- 이제 Android 9부터 지원하며, API 28 호환성 수정이 여러 건 포함됩니다\\n- 이벤트 및 오브젝트 상세 화면이 엔터티 패치와 알림 기반 업데이트 이후에도 더 안정적으로 동기화됩니다\\n- 모두 읽음 처리는 현재 활성 목록이나 필터에 보이는 메시지에만 적용됩니다\\n- 로컬 삭제 및 복구가 대기 중일 때도 메시지 목록이 더 안정적으로 새로고침됩니다",
+          "zh-CN": "PushGo 1.2.6 提升了 Android 兼容性，并让消息与实体视图保持更一致。\\n- Android 支持范围现已下探到 Android 9，并修复了多处 API 28 兼容性问题\\n- 事件与对象详情页在实体 patch 更新和通知驱动刷新后，状态同步更加可靠\\n- 全部标记已读现在只会作用于当前列表或筛选条件下可见的消息\\n- 本地删除与恢复处于待处理状态时，消息列表刷新更加及时可靠",
+          "zh-TW": "PushGo 1.2.6 提升了 Android 相容性，並讓訊息與實體視圖保持更一致。\\n- Android 支援範圍現已下探到 Android 9，並修復多處 API 28 相容性問題\\n- 事件與物件詳情頁在實體 patch 更新與通知驅動刷新後，狀態同步更加可靠\\n- 全部標示已讀現在只會作用於目前列表或篩選條件下可見的訊息\\n- 本地刪除與復原處於待處理狀態時，訊息列表刷新更加即時可靠"
         },
         "packages": {
           "arm64-v8a": {
-            "apkSha256": "ef683e75f4cc436af1f5dd403e4b90e4109608811b79a5964913c36b500b87a7",
-            "apkUrl": "https://update.pushgo.cn/android/stable/v1.2.5/pushgo-android-v1.2.5-arm64-v8a-release.apk"
+            "apkSha256": "0da2916f7b63839475acf43ba0dfeb5a2b5bb72a996f6000bd52e1750979e692",
+            "apkUrl": "https://update.pushgo.cn/android/stable/v1.2.6/pushgo-android-v1.2.6-arm64-v8a-release.apk"
           },
           "armeabi-v7a": {
-            "apkSha256": "93c9815faf9f101647318f7634f58aafc83ef26254658b0a0e86b2bd6e0902a2",
-            "apkUrl": "https://update.pushgo.cn/android/stable/v1.2.5/pushgo-android-v1.2.5-armeabi-v7a-release.apk"
+            "apkSha256": "786f1072ac7412da6491bd7555da911c4d38ec26c3704ba6645c12bb639dae91",
+            "apkUrl": "https://update.pushgo.cn/android/stable/v1.2.6/pushgo-android-v1.2.6-armeabi-v7a-release.apk"
           },
           "universal": {
-            "apkSha256": "257289ad72479e7436271b1150ff99cd44aa2c49f3df01287ad2fbdb693ee747",
-            "apkUrl": "https://update.pushgo.cn/android/stable/v1.2.5/pushgo-android-v1.2.5-universal-release.apk"
+            "apkSha256": "ae424a70c19d73521a8ab06b7c0a3042d7087a44adba96292b8d92e170f56922",
+            "apkUrl": "https://update.pushgo.cn/android/stable/v1.2.6/pushgo-android-v1.2.6-universal-release.apk"
           },
           "x86_64": {
-            "apkSha256": "bf4dabe0bdd54f4e6779784b98eca00218c3b293a27852d3488d999b81d71f3b",
-            "apkUrl": "https://update.pushgo.cn/android/stable/v1.2.5/pushgo-android-v1.2.5-x86_64-release.apk"
+            "apkSha256": "012a53792cfebd366beb7819e60e0d9786a6c32199474ef97876b87469336196",
+            "apkUrl": "https://update.pushgo.cn/android/stable/v1.2.6/pushgo-android-v1.2.6-x86_64-release.apk"
           }
         },
-        "publishedAtEpochMs": 1779788984000,
-        "releaseNotesUrl": "https://github.com/AldenClark/pushgo-android/releases/tag/v1.2.5",
-        "versionCode": 1020599,
-        "versionName": "v1.2.5"
+        "publishedAtEpochMs": 1781010388000,
+        "releaseNotesUrl": "https://github.com/AldenClark/pushgo-android/releases/tag/v1.2.6",
+        "versionCode": 1020699,
+        "versionName": "v1.2.6"
       }
     ],
-    "generatedAtEpochMs": 1779788984000,
+    "generatedAtEpochMs": 1781010388000,
     "policy": {
       "impatientReminderIntervalSeconds": 604800,
       "scheduledCheckIntervalSeconds": 21600
@@ -88,6 +89,6 @@
     "schemaVersion": 1
   },
   "signatures": {
-    "ecdsa-p256-sha256": "MEUCIDs7PZa6CQwoXNsxBIa062RL6rLmkbZRLIXChCWBZ5ssAiEAo06NxAHqUNsj0hURsOlGpjxASgfDMZ6fOiFQIbjTvQM="
+    "ecdsa-p256-sha256": "MEUCIQDaalL0i2+rWbS8mcIxaD2xU86AYsANqV7UOaSv/A8e4QIgBmZcZ2GoRae94BsWlkPEvgJK/h9UiVd78n6Qct4nihQ="
   }
 }
