@@ -122,6 +122,7 @@ fun MessageListScreen(
     val query by searchViewModel.queryState.collectAsStateWithLifecycle()
     val searchResults by searchViewModel.results.collectAsStateWithLifecycle()
     val pendingLocalDeletion by container.pendingLocalDeletionCoordinator.pendingDeletion.collectAsStateWithLifecycle()
+    val effectivePendingScope by container.pendingLocalDeletionCoordinator.effectiveScope.collectAsStateWithLifecycle()
     
     val context = LocalContext.current
     val haptic = LocalHapticFeedback.current
@@ -141,8 +142,7 @@ fun MessageListScreen(
     val messagesTabLabel = stringResource(R.string.tab_messages)
 
     fun isPendingLocalDeletion(message: PushMessage): Boolean {
-        val pendingScope = pendingLocalDeletion?.scope ?: return false
-        return pendingScope.suppressesMessage(
+        return effectivePendingScope.suppressesMessage(
             id = message.id,
             channelId = message.channel,
         )
@@ -175,7 +175,7 @@ fun MessageListScreen(
         return matchesChannelSelection(message, selectedChannels) && matchesTagSelection(message, selectedTags)
     }
 
-    val visibleSearchResults = remember(searchResults, pendingLocalDeletion?.id) {
+    val visibleSearchResults = remember(searchResults, effectivePendingScope) {
         searchResults.filterNot(::isPendingLocalDeletion)
     }
 
@@ -390,9 +390,12 @@ fun MessageListScreen(
         listState.animateScrollToItem(0)
     }
 
-    LaunchedEffect(pendingLocalDeletion?.id) {
-        val pendingScope = pendingLocalDeletion?.scope ?: return@LaunchedEffect
-        selectedMessageIds = selectedMessageIds.filterNot(pendingScope::suppressesMessageId).toSet()
+    LaunchedEffect(effectivePendingScope) {
+        val suppressedIds = effectivePendingScope.messageIds
+        viewModel.setLocallySuppressedMessageIds(suppressedIds)
+        searchViewModel.setLocallySuppressedMessageIds(suppressedIds)
+        if (suppressedIds.isEmpty()) return@LaunchedEffect
+        selectedMessageIds = selectedMessageIds.filterNot(effectivePendingScope::suppressesMessageId).toSet()
     }
 
     LaunchedEffect(filterState.unreadOnly) {
@@ -401,7 +404,7 @@ fun MessageListScreen(
 
     val selectedChannels = filterState.channels
     val selectedTags = filterState.tags
-    val visiblePagedItems = remember(messages.itemSnapshotList.items, pendingLocalDeletion?.id) {
+    val visiblePagedItems = remember(messages.itemSnapshotList.items, effectivePendingScope) {
         messages.itemSnapshotList.items.filterNot(::isPendingLocalDeletion)
     }
     val filteredPagedItems = remember(visiblePagedItems, selectedChannels, selectedTags) {
@@ -465,7 +468,7 @@ fun MessageListScreen(
         query,
         filteredPagedItems,
         filteredSearchResults,
-        pendingLocalDeletion?.id,
+        effectivePendingScope,
     ) {
         val source = if (query.isBlank()) {
             filteredPagedItems

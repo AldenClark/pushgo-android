@@ -12,6 +12,7 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -31,23 +32,49 @@ class MessageListViewModel(
         unreadOnly = settingsRepository.getCachedMessageUnreadOnlyFilter(),
     )
     private val filter = MutableStateFlow(initialFilter)
+    private val locallySuppressedMessageIds = MutableStateFlow<Set<String>>(emptySet())
 
-    val messages: Flow<PagingData<PushMessage>> = filter
-        .flatMapLatest { repository.observeMessages(it) }
+    val messages: Flow<PagingData<PushMessage>> = combine(
+        filter,
+        locallySuppressedMessageIds,
+    ) { currentFilter, suppressedIds ->
+        currentFilter to suppressedIds
+    }
+        .flatMapLatest { (currentFilter, suppressedIds) ->
+            repository.observeMessages(currentFilter, suppressedIds)
+        }
         .cachedIn(viewModelScope)
 
     val filterState: StateFlow<MessageFilter> = filter
         .stateIn(viewModelScope, SharingStarted.Lazily, initialFilter)
 
-    val currentScopeUnreadCount: StateFlow<Int> = filter
-        .flatMapLatest { repository.observeUnreadCount(it) }
+    val currentScopeUnreadCount: StateFlow<Int> = combine(
+        filter,
+        locallySuppressedMessageIds,
+    ) { currentFilter, suppressedIds ->
+        currentFilter to suppressedIds
+    }
+        .flatMapLatest { (currentFilter, suppressedIds) ->
+            repository.observeUnreadCount(currentFilter, suppressedIds)
+        }
         .stateIn(viewModelScope, SharingStarted.Lazily, 0)
 
-    val facetChannelCounts: StateFlow<List<MessageFacetOptionCount>> = repository.observeFacetChannelCounts()
+    val facetChannelCounts: StateFlow<List<MessageFacetOptionCount>> = locallySuppressedMessageIds
+        .flatMapLatest { suppressedIds -> repository.observeFacetChannelCounts(suppressedIds) }
         .stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
 
-    val facetTagCounts: StateFlow<List<MessageFacetOptionCount>> = repository.observeFacetTagCounts()
+    val facetTagCounts: StateFlow<List<MessageFacetOptionCount>> = locallySuppressedMessageIds
+        .flatMapLatest { suppressedIds -> repository.observeFacetTagCounts(suppressedIds) }
         .stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
+
+    fun setLocallySuppressedMessageIds(messageIds: Set<String>) {
+        val normalized = messageIds.asSequence()
+            .map(String::trim)
+            .filter(String::isNotEmpty)
+            .toSet()
+        if (locallySuppressedMessageIds.value == normalized) return
+        locallySuppressedMessageIds.value = normalized
+    }
 
     fun setWithUrlOnly(withUrlOnly: Boolean) {
         filter.value = filter.value.copy(withUrlOnly = withUrlOnly)
@@ -87,7 +114,7 @@ class MessageListViewModel(
     }
 
     suspend fun markCurrentScopeRead(): Int {
-        val unreadIds = repository.getUnreadIds(filter.value)
+        val unreadIds = repository.getUnreadIds(filter.value, locallySuppressedMessageIds.value)
         if (unreadIds.isEmpty()) return 0
         return stateCoordinator.markRead(unreadIds)
     }

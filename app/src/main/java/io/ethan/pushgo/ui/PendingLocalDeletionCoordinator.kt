@@ -75,8 +75,10 @@ class PendingLocalDeletionCoordinator(
     private val mutex = Mutex()
     private val nextId = AtomicLong(1L)
     private val _pendingDeletion = MutableStateFlow<PendingDeletion?>(null)
+    private val _effectiveScope = MutableStateFlow(Scope())
 
     val pendingDeletion: StateFlow<PendingDeletion?> = _pendingDeletion.asStateFlow()
+    val effectiveScope: StateFlow<Scope> = _effectiveScope.asStateFlow()
 
     private var activeEntry: Entry? = null
     private var countdownJob: Job? = null
@@ -105,6 +107,7 @@ class PendingLocalDeletionCoordinator(
             countdownJob?.cancel()
             activeEntry = entry
             _pendingDeletion.value = pendingDeletion
+            _effectiveScope.value = pendingDeletion.scope
             countdownJob = appScope.launch {
                 val remainingMillis = (pendingDeletion.deadlineElapsedRealtimeMillis - elapsedRealtimeMillis()).coerceAtLeast(0L)
                 delay(remainingMillis)
@@ -116,6 +119,7 @@ class PendingLocalDeletionCoordinator(
     suspend fun undoCurrent() {
         mutex.withLock {
             discardActiveEntryLocked(cancelCountdown = true)
+            _effectiveScope.value = Scope()
         }
     }
 
@@ -169,6 +173,7 @@ class PendingLocalDeletionCoordinator(
                 error,
             )
         }
+        _effectiveScope.value = Scope()
     }
 
     companion object {

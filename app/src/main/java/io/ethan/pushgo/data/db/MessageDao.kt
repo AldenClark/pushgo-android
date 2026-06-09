@@ -23,6 +23,7 @@ interface MessageDao {
         """
         SELECT * FROM messages
         WHERE (:readState IS NULL OR is_read = :readState)
+          AND (:excludedCount = 0 OR id NOT IN (:excludedIds))
           AND (:withUrl = 0 OR url IS NOT NULL)
           AND (
             :channelCount = 0
@@ -58,17 +59,23 @@ interface MessageDao {
         tagCount: Int,
         serverId: String?,
         prioritizeUnread: Int,
+        excludedIds: List<String>,
+        excludedCount: Int,
     ): PagingSource<Int, MessageEntity>
 
     @Query(
         """
         SELECT COALESCE(NULLIF(TRIM(m.channel), ''), '') AS value, COUNT(*) AS count
         FROM messages m
+        WHERE (:excludedCount = 0 OR m.id NOT IN (:excludedIds))
         GROUP BY COALESCE(NULLIF(TRIM(m.channel), ''), '')
         ORDER BY count DESC, value ASC
         """
     )
-    fun observeFacetChannelCounts(): Flow<List<MessageFacetValueCount>>
+    fun observeFacetChannelCounts(
+        excludedIds: List<String>,
+        excludedCount: Int,
+    ): Flow<List<MessageFacetValueCount>>
 
     @Query(
         """
@@ -78,11 +85,15 @@ interface MessageDao {
           ON mi.message_id = m.id
          AND mi.key_name = 'tag'
         WHERE mi.value_norm != ''
+          AND (:excludedCount = 0 OR m.id NOT IN (:excludedIds))
         GROUP BY mi.value_norm
         ORDER BY count DESC, value ASC
         """
     )
-    fun observeFacetTagCounts(): Flow<List<MessageFacetValueCount>>
+    fun observeFacetTagCounts(
+        excludedIds: List<String>,
+        excludedCount: Int,
+    ): Flow<List<MessageFacetValueCount>>
 
     @Query(
         """
@@ -90,13 +101,20 @@ interface MessageDao {
         JOIN message_fts f ON m.rowid = f.rowid
         WHERE message_fts MATCH :query
           AND (:readState IS NULL OR m.is_read = :readState)
+          AND (:excludedCount = 0 OR m.id NOT IN (:excludedIds))
         ORDER BY
           m.received_at DESC,
           m.id DESC
         LIMIT :limit
         """
     )
-    fun searchMessages(query: String, readState: Boolean?, limit: Int): Flow<List<MessageEntity>>
+    fun searchMessages(
+        query: String,
+        readState: Boolean?,
+        limit: Int,
+        excludedIds: List<String>,
+        excludedCount: Int,
+    ): Flow<List<MessageEntity>>
 
     @Query(
         """
@@ -110,6 +128,7 @@ interface MessageDao {
             HAVING COUNT(DISTINCT mi.value_norm) = :tagCount
         )
           AND (:readState IS NULL OR m.is_read = :readState)
+          AND (:excludedCount = 0 OR m.id NOT IN (:excludedIds))
         ORDER BY
           m.received_at DESC,
           m.id DESC
@@ -121,6 +140,8 @@ interface MessageDao {
         tagCount: Int,
         readState: Boolean?,
         limit: Int,
+        excludedIds: List<String>,
+        excludedCount: Int,
     ): Flow<List<MessageEntity>>
 
     @Query(
@@ -129,6 +150,7 @@ interface MessageDao {
         JOIN message_fts f ON m.rowid = f.rowid
         WHERE message_fts MATCH :query
           AND (:readState IS NULL OR m.is_read = :readState)
+          AND (:excludedCount = 0 OR m.id NOT IN (:excludedIds))
           AND m.id IN (
             SELECT mi.message_id
             FROM message_metadata_index mi
@@ -149,6 +171,8 @@ interface MessageDao {
         tagCount: Int,
         readState: Boolean?,
         limit: Int,
+        excludedIds: List<String>,
+        excludedCount: Int,
     ): Flow<List<MessageEntity>>
 
     @Query("SELECT * FROM messages WHERE id = :id LIMIT 1")
@@ -204,6 +228,7 @@ interface MessageDao {
         """
         SELECT COUNT(*) FROM messages
         WHERE is_read = 0
+          AND (:excludedCount = 0 OR id NOT IN (:excludedIds))
           AND (:withUrl = 0 OR url IS NOT NULL)
           AND (
             :channelCount = 0
@@ -229,12 +254,15 @@ interface MessageDao {
         tags: List<String>,
         tagCount: Int,
         serverId: String?,
+        excludedIds: List<String>,
+        excludedCount: Int,
     ): Flow<Int>
 
     @Query(
         """
         SELECT id FROM messages
         WHERE is_read = 0
+          AND (:excludedCount = 0 OR id NOT IN (:excludedIds))
           AND (:withUrl = 0 OR url IS NOT NULL)
           AND (
             :channelCount = 0
@@ -260,6 +288,8 @@ interface MessageDao {
         tags: List<String>,
         tagCount: Int,
         serverId: String?,
+        excludedIds: List<String>,
+        excludedCount: Int,
     ): List<String>
 
     @Query(

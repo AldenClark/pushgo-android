@@ -20,6 +20,7 @@ class MessageSearchViewModel(
 ) : ViewModel() {
     private val query = MutableStateFlow("")
     private val unreadOnly = MutableStateFlow(false)
+    private val locallySuppressedMessageIds = MutableStateFlow<Set<String>>(emptySet())
 
     val queryState: StateFlow<String> = query
         .stateIn(viewModelScope, SharingStarted.Lazily, "")
@@ -27,11 +28,12 @@ class MessageSearchViewModel(
     val results: StateFlow<List<PushMessage>> = combine(
         query.debounce(200),
         unreadOnly,
-    ) { rawQuery, currentUnreadOnly ->
-        rawQuery to currentUnreadOnly
+        locallySuppressedMessageIds,
+    ) { rawQuery, currentUnreadOnly, suppressedIds ->
+        Triple(rawQuery, currentUnreadOnly, suppressedIds)
     }
-        .flatMapLatest { (rawQuery, currentUnreadOnly) ->
-            repository.searchMessages(rawQuery, currentUnreadOnly)
+        .flatMapLatest { (rawQuery, currentUnreadOnly, suppressedIds) ->
+            repository.searchMessages(rawQuery, currentUnreadOnly, excludedIds = suppressedIds)
         }
         .stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
 
@@ -42,5 +44,14 @@ class MessageSearchViewModel(
     fun setUnreadOnlyFilter(enabled: Boolean) {
         if (unreadOnly.value == enabled) return
         unreadOnly.value = enabled
+    }
+
+    fun setLocallySuppressedMessageIds(messageIds: Set<String>) {
+        val normalized = messageIds.asSequence()
+            .map(String::trim)
+            .filter(String::isNotEmpty)
+            .toSet()
+        if (locallySuppressedMessageIds.value == normalized) return
+        locallySuppressedMessageIds.value = normalized
     }
 }

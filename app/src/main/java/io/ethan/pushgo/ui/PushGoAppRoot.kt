@@ -119,6 +119,7 @@ fun PushGoAppRoot(
     val thingCount by container.entityRepository.observeThingCount().collectAsStateWithLifecycle(initialValue = 0)
     val thingRefreshToken by container.entityRepository.observeThingRefreshToken().collectAsStateWithLifecycle(initialValue = 0L)
     val pendingLocalDeletion by container.pendingLocalDeletionCoordinator.pendingDeletion.collectAsStateWithLifecycle()
+    val effectivePendingScope by container.pendingLocalDeletionCoordinator.effectiveScope.collectAsStateWithLifecycle()
 
     val isMessagePageEnabled by container.settingsRepository.messagePageEnabledFlow
         .collectAsStateWithLifecycle(initialValue = container.settingsRepository.getCachedMessagePageEnabled())
@@ -249,10 +250,9 @@ fun PushGoAppRoot(
         }
     }
 
-    LaunchedEffect(selectedMessageId, pendingLocalDeletion?.id) {
+    LaunchedEffect(selectedMessageId, effectivePendingScope) {
         val currentMessageId = selectedMessageId ?: return@LaunchedEffect
-        val pendingScope = pendingLocalDeletion?.scope ?: return@LaunchedEffect
-        if (pendingScope.suppressesMessageId(currentMessageId)) {
+        if (effectivePendingScope.suppressesMessageId(currentMessageId)) {
             selectedMessageId = null
             selectedMessagePreview = null
         }

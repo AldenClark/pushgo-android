@@ -69,7 +69,15 @@ class MessageRepository(
             get() = textTokens.joinToString(" AND ") { "${it}*" }
     }
 
-    fun observeMessages(filter: MessageFilter): Flow<PagingData<PushMessage>> {
+    fun observeMessages(
+        filter: MessageFilter,
+        excludedIds: Set<String> = emptySet(),
+    ): Flow<PagingData<PushMessage>> {
+        val normalizedExcludedIds = excludedIds.asSequence()
+            .map(String::trim)
+            .filter(String::isNotEmpty)
+            .distinct()
+            .toList()
         return Pager(
             config = PagingConfig(
                 pageSize = 50,
@@ -86,6 +94,8 @@ class MessageRepository(
                     tagCount = filter.tags.size,
                     serverId = filter.serverId,
                     prioritizeUnread = 0,
+                    excludedIds = normalizedExcludedIds,
+                    excludedCount = normalizedExcludedIds.size,
                 )
             }
         ).flow.map { pagingData ->
@@ -96,12 +106,18 @@ class MessageRepository(
     fun searchMessages(
         rawQuery: String,
         unreadOnly: Boolean,
-        limit: Int = 200
+        limit: Int = 200,
+        excludedIds: Set<String> = emptySet(),
     ): Flow<List<PushMessage>> {
         val plan = parseSearchQuery(rawQuery)
         if (plan.isEmpty) {
             return kotlinx.coroutines.flow.flowOf(emptyList())
         }
+        val normalizedExcludedIds = excludedIds.asSequence()
+            .map(String::trim)
+            .filter(String::isNotEmpty)
+            .distinct()
+            .toList()
         val readState = if (unreadOnly) false else null
         val flow = when {
             plan.hasText && plan.hasTags -> dao.searchMessagesByTextAndTags(
@@ -110,12 +126,16 @@ class MessageRepository(
                 tagCount = plan.tags.size,
                 readState = readState,
                 limit = limit,
+                excludedIds = normalizedExcludedIds,
+                excludedCount = normalizedExcludedIds.size,
             )
 
             plan.hasText -> dao.searchMessages(
                 query = plan.ftsQuery,
                 readState = readState,
                 limit = limit,
+                excludedIds = normalizedExcludedIds,
+                excludedCount = normalizedExcludedIds.size,
             )
 
             else -> dao.searchMessagesByTags(
@@ -123,6 +143,8 @@ class MessageRepository(
                 tagCount = plan.tags.size,
                 readState = readState,
                 limit = limit,
+                excludedIds = normalizedExcludedIds,
+                excludedCount = normalizedExcludedIds.size,
             )
         }
         return flow.map { list -> list.map(MessageEntity::asModel) }
@@ -132,7 +154,15 @@ class MessageRepository(
 
     fun observeUnreadCount(): Flow<Int> = channelStatsDao.observeUnreadCount().distinctUntilChanged()
 
-    fun observeUnreadCount(filter: MessageFilter): Flow<Int> {
+    fun observeUnreadCount(
+        filter: MessageFilter,
+        excludedIds: Set<String> = emptySet(),
+    ): Flow<Int> {
+        val normalizedExcludedIds = excludedIds.asSequence()
+            .map(String::trim)
+            .filter(String::isNotEmpty)
+            .distinct()
+            .toList()
         return dao.observeUnreadCountForFilter(
             withUrl = if (filter.withUrlOnly) 1 else 0,
             channels = filter.channels.toList(),
@@ -140,17 +170,35 @@ class MessageRepository(
             tags = filter.tags.toList(),
             tagCount = filter.tags.size,
             serverId = filter.serverId,
+            excludedIds = normalizedExcludedIds,
+            excludedCount = normalizedExcludedIds.size,
         ).distinctUntilChanged()
     }
 
-    fun observeFacetChannelCounts(): Flow<List<MessageFacetOptionCount>> {
-        return dao.observeFacetChannelCounts().map { list ->
+    fun observeFacetChannelCounts(excludedIds: Set<String> = emptySet()): Flow<List<MessageFacetOptionCount>> {
+        val normalizedExcludedIds = excludedIds.asSequence()
+            .map(String::trim)
+            .filter(String::isNotEmpty)
+            .distinct()
+            .toList()
+        return dao.observeFacetChannelCounts(
+            excludedIds = normalizedExcludedIds,
+            excludedCount = normalizedExcludedIds.size,
+        ).map { list ->
             list.map { row -> MessageFacetOptionCount(value = row.value.trim(), count = row.count) }
         }
     }
 
-    fun observeFacetTagCounts(): Flow<List<MessageFacetOptionCount>> {
-        return dao.observeFacetTagCounts().map { list ->
+    fun observeFacetTagCounts(excludedIds: Set<String> = emptySet()): Flow<List<MessageFacetOptionCount>> {
+        val normalizedExcludedIds = excludedIds.asSequence()
+            .map(String::trim)
+            .filter(String::isNotEmpty)
+            .distinct()
+            .toList()
+        return dao.observeFacetTagCounts(
+            excludedIds = normalizedExcludedIds,
+            excludedCount = normalizedExcludedIds.size,
+        ).map { list ->
             list.map { row -> MessageFacetOptionCount(value = row.value.trim().lowercase(), count = row.count) }
                 .filter { row -> row.value.isNotEmpty() }
         }
@@ -177,7 +225,15 @@ class MessageRepository(
         return dao.getIdsByChannelRead(channel, readState)
     }
 
-    suspend fun getUnreadIds(filter: MessageFilter): List<String> {
+    suspend fun getUnreadIds(
+        filter: MessageFilter,
+        excludedIds: Set<String> = emptySet(),
+    ): List<String> {
+        val normalizedExcludedIds = excludedIds.asSequence()
+            .map(String::trim)
+            .filter(String::isNotEmpty)
+            .distinct()
+            .toList()
         return dao.getUnreadIdsForFilter(
             withUrl = if (filter.withUrlOnly) 1 else 0,
             channels = filter.channels.toList(),
@@ -185,6 +241,8 @@ class MessageRepository(
             tags = filter.tags.toList(),
             tagCount = filter.tags.size,
             serverId = filter.serverId,
+            excludedIds = normalizedExcludedIds,
+            excludedCount = normalizedExcludedIds.size,
         )
     }
 
