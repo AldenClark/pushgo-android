@@ -601,16 +601,16 @@ class MessageImageStore(context: Context) {
             if (hasCacheControlDirective(cacheControl, "no-store") ||
                 hasCacheControlDirective(cacheControl, "no-cache")
             ) {
-                return now
+                return now + MIN_RENDER_TTL_MS
             }
             cacheControlMaxAge(cacheControl)?.let { maxAge ->
                 val ttl = (maxAge * 1000L).coerceIn(0L, MAX_CACHE_TTL_MS)
-                return now + ttl
+                return now + ttl.coerceAtLeast(MIN_RENDER_TTL_MS)
             }
         }
         connection.getHeaderField("Expires")?.takeIf { it.isNotBlank() }?.let { expires ->
             parseHttpDateMillis(expires)?.let { expiresAt ->
-                return expiresAt.coerceIn(now, now + MAX_CACHE_TTL_MS)
+                return expiresAt.coerceIn(now + MIN_RENDER_TTL_MS, now + MAX_CACHE_TTL_MS)
             }
         }
         return now + DEFAULT_CACHE_TTL_MS
@@ -744,6 +744,7 @@ class MessageImageStore(context: Context) {
         private const val THUMBNAIL_DISK_LIMIT_BYTES = 256L * 1024L * 1024L
         private const val DEFAULT_CACHE_TTL_MS = 7L * 24L * 60L * 60L * 1000L
         private const val MAX_CACHE_TTL_MS = 30L * 24L * 60L * 60L * 1000L
+        private const val MIN_RENDER_TTL_MS = 10L * 60L * 1000L
         private const val METADATA_EXTENSION = ".meta.json"
 
         private val HTTP_DATE_FORMATS = listOf(
