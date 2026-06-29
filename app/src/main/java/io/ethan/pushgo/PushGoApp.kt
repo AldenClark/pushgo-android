@@ -13,6 +13,7 @@ import coil3.request.crossfade
 import com.google.firebase.messaging.FirebaseMessaging
 import io.ethan.pushgo.data.AppContainer
 import io.ethan.pushgo.automation.PushGoAutomation
+import io.ethan.pushgo.data.ImageCacheCleanupScheduler
 import io.ethan.pushgo.data.MessageImageStore
 import io.ethan.pushgo.data.MessageImageStoreFetcher
 import io.ethan.pushgo.notifications.KeepaliveState
@@ -129,6 +130,7 @@ class PushGoApp : Application(), SingletonImageLoader.Factory {
         }
         initializePushRuntime()
         UpdateCheckScheduler.refreshSchedule(this)
+        ImageCacheCleanupScheduler.refreshSchedule(this)
         scheduleStartupSyncIfNeeded()
         registerActivityLifecycleCallbacks(object : ActivityLifecycleCallbacks {
             override fun onActivityStarted(activity: android.app.Activity) {

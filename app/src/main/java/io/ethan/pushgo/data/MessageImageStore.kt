@@ -11,9 +11,12 @@ import org.json.JSONObject
 import java.io.File
 import java.io.FileOutputStream
 import java.net.HttpURLConnection
+import java.net.URI
 import java.net.URL
 import java.security.MessageDigest
+import java.text.SimpleDateFormat
 import java.util.Locale
+import java.util.TimeZone
 import kotlin.math.max
 
 class MessageImageStore(context: Context) {
@@ -42,6 +45,13 @@ class MessageImageStore(context: Context) {
         originalDir.parentFile?.deleteRecursively()
         originalDir.mkdirs()
         thumbnailDir.mkdirs()
+    }
+
+    fun purgeExpired(): Int {
+        var removed = 0
+        removed += purgeExpiredInDirectory(originalDir)
+        removed += purgeExpiredInDirectory(thumbnailDir)
+        return removed
     }
 
     fun resolveImageRefs(rawPayloadJson: String): ImageRefs {
@@ -104,11 +114,11 @@ class MessageImageStore(context: Context) {
         val originalPath = payload?.optString(KEY_IMAGE_LOCAL_PATH, "")
             ?.trim()
             ?.takeIf { it.isNotEmpty() }
-            ?.takeIf { File(it).exists() }
+            ?.takeIf { File(it).let(::isCacheFileFresh) }
         val thumbnailPath = payload?.optString(KEY_IMAGE_THUMBNAIL_LOCAL_PATH, "")
             ?.trim()
             ?.takeIf { it.isNotEmpty() }
-            ?.takeIf { File(it).exists() }
+            ?.takeIf { File(it).let(::isCacheFileFresh) }
         return ImageRefs(
             remoteUrl = remoteUrl,
             originalPath = originalPath,
@@ -119,10 +129,10 @@ class MessageImageStore(context: Context) {
     suspend fun ensureCached(imageUrl: String): CachedImagePaths? = withContext(Dispatchers.IO) {
         val originalPath = ensureOriginalCached(imageUrl) ?: return@withContext null
         val original = File(originalPath)
-        val normalized = UrlValidators.normalizeHttpsUrl(imageUrl) ?: return@withContext null
+        val normalized = canonicalImageCacheUrl(imageUrl) ?: return@withContext null
         val key = sha256(normalized)
         val thumbnail = findThumbnail(key)
-            ?: generateListThumbnail(original, key)
+            ?: generateListThumbnail(original, key, readCacheMetadata(original)?.expiresAtEpochMillis)
 
         enforceDiskLimitIfNeeded(thumbnailDir, THUMBNAIL_DISK_LIMIT_BYTES)
 
@@ -134,7 +144,7 @@ class MessageImageStore(context: Context) {
 
     suspend fun ensureOriginalCached(imageUrl: String): String? = withContext(Dispatchers.IO) {
         val normalized = UrlValidators.normalizeHttpsUrl(imageUrl) ?: return@withContext null
-        val key = sha256(normalized)
+        val key = sha256(canonicalImageCacheUrl(normalized) ?: normalized)
         val existing = findExistingOriginal(key)
         val original = existing ?: downloadOriginal(normalized, key)?.file ?: return@withContext null
         ensureImageMetadata(
@@ -234,13 +244,25 @@ class MessageImageStore(context: Context) {
     private fun findExistingOriginal(hash: String): File? {
         val files = originalDir.listFiles() ?: return null
         return files.firstOrNull { file ->
-            file.isFile && file.name.startsWith("$hash.")
+            file.isFile && !file.name.endsWith(METADATA_EXTENSION) && file.name.startsWith("$hash.")
+        }?.takeIf { file ->
+            if (isCacheFileFresh(file)) {
+                true
+            } else {
+                deleteCachePair(file)
+                false
+            }
         }
     }
 
     private fun findThumbnail(hash: String): File? {
         val file = File(thumbnailDir, "$hash.jpg")
-        return if (file.exists()) file else null
+        return if (file.exists() && isCacheFileFresh(file)) {
+            file
+        } else {
+            if (file.exists()) deleteCachePair(file)
+            null
+        }
     }
 
     private data class DownloadedOriginal(
@@ -275,6 +297,7 @@ class MessageImageStore(context: Context) {
                     }
                 }
             }
+            writeCacheMetadata(file, cacheExpirationEpochMillis(connection))
             completed = true
             val metadata = ensureImageMetadata(
                 imageUrl = url,
@@ -384,9 +407,13 @@ class MessageImageStore(context: Context) {
         return false to null
     }
 
-    private fun generateListThumbnail(original: File, hash: String): File? {
+    private fun generateListThumbnail(
+        original: File,
+        hash: String,
+        expiresAtEpochMillis: Long? = readCacheMetadata(original)?.expiresAtEpochMillis,
+    ): File? {
         val target = File(thumbnailDir, "$hash.jpg")
-        if (target.exists()) return target
+        if (target.exists() && isCacheFileFresh(target)) return target
 
         val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
         BitmapFactory.decodeFile(original.absolutePath, bounds)
@@ -416,6 +443,10 @@ class MessageImageStore(context: Context) {
             FileOutputStream(target).use { output ->
                 scaled.compress(Bitmap.CompressFormat.JPEG, LIST_THUMBNAIL_QUALITY, output)
             }
+            writeCacheMetadata(
+                target,
+                expiresAtEpochMillis ?: System.currentTimeMillis() + DEFAULT_CACHE_TTL_MS,
+            )
             scaled.recycle()
             target
         } catch (_: Exception) {
@@ -497,7 +528,7 @@ class MessageImageStore(context: Context) {
     }
 
     private fun enforceDiskLimitIfNeeded(directory: File, limitBytes: Long) {
-        val files = directory.listFiles()?.filter { it.isFile } ?: return
+        val files = directory.listFiles()?.filter { it.isFile && !it.name.endsWith(METADATA_EXTENSION) } ?: return
         var total = files.sumOf { it.length() }
         if (total <= limitBytes) return
 
@@ -505,10 +536,193 @@ class MessageImageStore(context: Context) {
         for (file in sorted) {
             if (total <= limitBytes) break
             val size = file.length()
-            if (file.delete()) {
+            if (deleteCachePair(file)) {
                 total -= size
             }
         }
+    }
+
+    private data class CacheMetadata(val expiresAtEpochMillis: Long)
+
+    private fun cacheMetadataFile(file: File): File = File(file.parentFile, "${file.name}$METADATA_EXTENSION")
+
+    private fun readCacheMetadata(file: File): CacheMetadata? {
+        val metadataFile = cacheMetadataFile(file)
+        if (!metadataFile.exists()) return null
+        return runCatching {
+            val json = JSONObject(metadataFile.readText())
+            CacheMetadata(expiresAtEpochMillis = json.optLong("expiresAtEpochMillis", Long.MIN_VALUE))
+        }.getOrNull()
+    }
+
+    private fun writeCacheMetadata(file: File, expiresAtEpochMillis: Long) {
+        runCatching {
+            cacheMetadataFile(file).writeText(
+                JSONObject()
+                    .put("expiresAtEpochMillis", expiresAtEpochMillis)
+                    .toString(),
+            )
+        }
+    }
+
+    private fun isCacheFileFresh(file: File, nowMs: Long = System.currentTimeMillis()): Boolean {
+        if (!file.exists() || !file.isFile) return false
+        val metadata = readCacheMetadata(file) ?: return false
+        return metadata.expiresAtEpochMillis > nowMs
+    }
+
+    private fun deleteCachePair(file: File): Boolean {
+        cacheMetadataFile(file).delete()
+        return file.delete()
+    }
+
+    private fun purgeExpiredInDirectory(directory: File): Int {
+        val nowMs = System.currentTimeMillis()
+        val files = directory.listFiles()?.filter { it.isFile && !it.name.endsWith(METADATA_EXTENSION) } ?: return 0
+        var removed = 0
+        files.forEach { file ->
+            if (!isCacheFileFresh(file, nowMs) && deleteCachePair(file)) {
+                removed += 1
+            }
+        }
+        directory.listFiles()
+            ?.filter { it.isFile && it.name.endsWith(METADATA_EXTENSION) }
+            ?.forEach { metadataFile ->
+                val imageName = metadataFile.name.removeSuffix(METADATA_EXTENSION)
+                if (!File(directory, imageName).exists()) metadataFile.delete()
+            }
+        return removed
+    }
+
+    private fun cacheExpirationEpochMillis(connection: HttpURLConnection): Long {
+        val now = System.currentTimeMillis()
+        val cacheControl = connection.getHeaderField("Cache-Control")
+        if (!cacheControl.isNullOrBlank()) {
+            if (hasCacheControlDirective(cacheControl, "no-store") ||
+                hasCacheControlDirective(cacheControl, "no-cache")
+            ) {
+                return now
+            }
+            cacheControlMaxAge(cacheControl)?.let { maxAge ->
+                val ttl = (maxAge * 1000L).coerceIn(0L, MAX_CACHE_TTL_MS)
+                return now + ttl
+            }
+        }
+        connection.getHeaderField("Expires")?.takeIf { it.isNotBlank() }?.let { expires ->
+            parseHttpDateMillis(expires)?.let { expiresAt ->
+                return expiresAt.coerceIn(now, now + MAX_CACHE_TTL_MS)
+            }
+        }
+        return now + DEFAULT_CACHE_TTL_MS
+    }
+
+    private fun hasCacheControlDirective(cacheControl: String, directive: String): Boolean {
+        return cacheControl.split(',').any { part ->
+            part.trim().substringBefore('=').trim().equals(directive, ignoreCase = true)
+        }
+    }
+
+    private fun cacheControlMaxAge(cacheControl: String): Long? {
+        return cacheControl.split(',').firstNotNullOfOrNull { part ->
+            val pieces = part.trim().split('=', limit = 2)
+            if (pieces.size != 2 || !pieces[0].trim().equals("max-age", ignoreCase = true)) {
+                null
+            } else {
+                pieces[1].trim().trim('"').toLongOrNull()
+            }
+        }
+    }
+
+    private fun parseHttpDateMillis(value: String): Long? {
+        return HTTP_DATE_FORMATS.firstNotNullOfOrNull { pattern ->
+            runCatching {
+                SimpleDateFormat(pattern, Locale.US).apply {
+                    timeZone = TimeZone.getTimeZone("GMT")
+                    isLenient = false
+                }.parse(value)?.time
+            }.getOrNull()
+        }
+    }
+
+    private fun canonicalImageCacheUrl(raw: String): String? {
+        val normalized = UrlValidators.normalizeHttpsUrl(raw) ?: return null
+        val uri = runCatching { URI(normalized) }.getOrNull() ?: return normalized.substringBefore('#')
+        val pairs = uri.rawQuery
+            ?.split('&')
+            ?.filter { it.isNotEmpty() }
+            ?.map {
+                val pieces = it.split('=', limit = 2)
+                pieces[0] to pieces.getOrElse(1) { "" }
+            }
+            .orEmpty()
+        val filtered = filterCacheKeyQueryPairs(pairs)
+        val query = if (filtered.isEmpty()) {
+            null
+        } else {
+            val ordered = if (filtered.map { it.first.lowercase(Locale.US) }.distinct().size == filtered.size) {
+                filtered.sortedWith(compareBy<Pair<String, String>> { it.first }.thenBy { it.second })
+            } else {
+                filtered
+            }
+            ordered.joinToString("&") { (name, value) -> if (value.isEmpty()) name else "$name=$value" }
+        }
+        val port = when {
+            uri.scheme.equals("https", ignoreCase = true) && uri.port == 443 -> -1
+            uri.scheme.equals("http", ignoreCase = true) && uri.port == 80 -> -1
+            else -> uri.port
+        }
+        return runCatching {
+            URI(
+                uri.scheme?.lowercase(Locale.US),
+                uri.userInfo,
+                uri.host?.lowercase(Locale.US),
+                port,
+                uri.rawPath,
+                query,
+                null,
+            ).toASCIIString()
+        }.getOrDefault(normalized.substringBefore('#'))
+    }
+
+    private fun filterCacheKeyQueryPairs(pairs: List<Pair<String, String>>): List<Pair<String, String>> {
+        val names = pairs.map { it.first.lowercase(Locale.US) }
+        val signedStorage = names.any { name ->
+            name.startsWith("x-amz-") ||
+                name.startsWith("x-goog-") ||
+                name.startsWith("x-oss-") ||
+                name.startsWith("x-cos-") ||
+                name in setOf("signature", "awsaccesskeyid", "key-pair-id", "policy")
+        }
+        val azureSas = "sv" in names && "se" in names && "sig" in names
+        return pairs.filterNot { (name, _) -> isNonResourceQueryParameter(name, signedStorage, azureSas) }
+    }
+
+    private fun isNonResourceQueryParameter(
+        name: String,
+        signedStorage: Boolean,
+        azureSas: Boolean,
+    ): Boolean {
+        val normalized = name.lowercase(Locale.US)
+        if (normalized.startsWith("utm_") ||
+            normalized in setOf(
+                "_hsenc", "_hsmi", "dclid", "fbclid", "gbraid", "gclid", "igshid",
+                "mc_cid", "mc_eid", "mkt_tok", "msclkid", "wbraid", "yclid",
+            )
+        ) {
+            return true
+        }
+        if (signedStorage &&
+            (normalized.startsWith("x-amz-") ||
+                normalized.startsWith("x-goog-") ||
+                normalized.startsWith("x-oss-") ||
+                normalized.startsWith("x-cos-") ||
+                normalized in setOf("awsaccesskeyid", "expires", "key-pair-id", "policy", "signature", "x-id"))
+        ) {
+            return true
+        }
+        return azureSas && normalized in setOf(
+            "se", "sig", "skoid", "sks", "skt", "sktid", "ske", "skv", "sp", "spr", "sr", "st", "sv",
+        )
     }
 
     private fun sha256(input: String): String {
@@ -528,7 +742,15 @@ class MessageImageStore(context: Context) {
         private const val LIST_THUMBNAIL_QUALITY = 84
         private const val ORIGINAL_DISK_LIMIT_BYTES = 512L * 1024L * 1024L
         private const val THUMBNAIL_DISK_LIMIT_BYTES = 256L * 1024L * 1024L
+        private const val DEFAULT_CACHE_TTL_MS = 7L * 24L * 60L * 60L * 1000L
+        private const val MAX_CACHE_TTL_MS = 30L * 24L * 60L * 60L * 1000L
+        private const val METADATA_EXTENSION = ".meta.json"
 
+        private val HTTP_DATE_FORMATS = listOf(
+            "EEE, dd MMM yyyy HH:mm:ss zzz",
+            "EEEE, dd-MMM-yy HH:mm:ss zzz",
+            "EEE MMM d HH:mm:ss yyyy",
+        )
         private val imageKeys = listOf("images")
     }
 }
