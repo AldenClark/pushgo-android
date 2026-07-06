@@ -457,4 +457,11 @@
     <string name="error_message_image_share_failed">无法打开分享面板。</string>
     <string name="error_image_load_failed">图片加载失败</string>
     <string name="label_unknown_error">未知错误</string>
+    <string name="confirm_cleanup_events_all">这将删除全部事件记录，且无法撤销。</string>
+    <string name="confirm_cleanup_events_channel">这将删除当前频道的事件记录，且无法撤销。</string>
+    <string name="confirm_close_event">此事件将被关闭，是否继续？</string>
+    <string name="message_events_cleaned">事件已清理</string>
+    <string name="message_events_exported">事件已导出</string>
+    <string name="no_events_available_to_export">没有可导出的事件</string>
+    <string name="thing_meta_metadata_count">元数据：%1$d</string>
 </resources>

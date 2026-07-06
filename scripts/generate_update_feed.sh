@@ -227,6 +227,7 @@ if [[ -n "$notes_file" ]]; then
       with_entries(
         select(
           (.key | type == "string")
+          and (.key == "en" or .key == "zh-CN" or .key == "zh-TW")
           and (.value | type == "string" and (gsub("\\s+"; "") | length > 0))
         )
       )
@@ -315,8 +316,24 @@ merged_entries_json="$(jq -c -n \
      else
        .
      end;
+   def normalize_notes_i18n:
+     if (.notesI18n? | type == "object") then
+       .notesI18n = (
+         .notesI18n
+         | with_entries(
+             select(
+               (.key == "en" or .key == "zh-CN" or .key == "zh-TW")
+               and (.value | type == "string" and (gsub("\\s+"; "") | length > 0))
+             )
+           )
+       )
+       | if (.notesI18n | length) == 0 then del(.notesI18n) else . end
+     else
+       del(.notesI18n)
+     end;
    ($existing + [$entry])
    | map(normalize_packages)
+   | map(normalize_notes_i18n)
    | map(select(.channel | type == "string" and length > 0))
    | sort_by(.channel, .versionCode)
    | group_by(.channel)

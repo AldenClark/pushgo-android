@@ -372,7 +372,7 @@ class UpdateCandidateSelectorTest {
                 versionName = "v1.2.2",
                 channel = "stable",
                 notes = "Plain fallback note",
-                notesI18n = mapOf("fr" to "Note francaise"),
+                notesI18n = mapOf("zh-CN" to "简体中文说明"),
             ),
         )
 
@@ -381,7 +381,7 @@ class UpdateCandidateSelectorTest {
             currentVersionCode = 1020100,
             betaEnabled = false,
             nowEpochMs = 2_000L,
-            runtime = runtime(preferredLocales = listOf("de-DE")),
+            runtime = runtime(preferredLocales = listOf("en-US")),
         )
 
         assertNotNull(selected)

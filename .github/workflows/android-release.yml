@@ -431,6 +431,7 @@ jobs:
                       .notesI18n? != null
                       and (.notesI18n | type) == "object"
                       and (.notesI18n | length) > 0
+                      and ([.notesI18n | keys[] | . == "en" or . == "zh-CN" or . == "zh-TW"] | all)
                     )
                   )
                 )
