@@ -140,34 +140,71 @@ if ! command -v jq >/dev/null 2>&1; then
   exit 1
 fi
 
-declare -A apk_by_key=()
+detect_package_key() {
+  local base_name="$1"
+  local base_lower
+  base_lower="$(printf '%s' "$base_name" | tr '[:upper:]' '[:lower:]')"
+  if [[ "$base_lower" == *"universal"* || "$base_lower" == *"-all-"* ]]; then
+    printf '%s\n' "universal"
+  elif [[ "$base_lower" == *"arm64-v8a"* || "$base_lower" == *"aarch64"* ]]; then
+    printf '%s\n' "arm64-v8a"
+  elif [[ "$base_lower" == *"armeabi-v7a"* || "$base_lower" == *"armv7"* || "$base_lower" == *"arm-v7a"* ]]; then
+    printf '%s\n' "armeabi-v7a"
+  elif [[ "$base_lower" == *"x86_64"* || "$base_lower" == *"-x86-"* || "$base_lower" == *"-x86."* ]]; then
+    printf '%s\n' "x86_64"
+  fi
+}
+
+package_path_for_key() {
+  case "$1" in
+    arm64-v8a) printf '%s\n' "$apk_arm64_v8a" ;;
+    armeabi-v7a) printf '%s\n' "$apk_armeabi_v7a" ;;
+    x86_64) printf '%s\n' "$apk_x86_64" ;;
+    universal) printf '%s\n' "$apk_universal" ;;
+    *) return 1 ;;
+  esac
+}
+
+apk_arm64_v8a=""
+apk_armeabi_v7a=""
+apk_x86_64=""
+apk_universal=""
 while IFS= read -r apk_file; do
   base_name="$(basename "$apk_file")"
-  base_lower="$(printf '%s' "$base_name" | tr '[:upper:]' '[:lower:]')"
-  package_key=""
-  if [[ "$base_lower" == *"universal"* || "$base_lower" == *"-all-"* ]]; then
-    package_key="universal"
-  elif [[ "$base_lower" == *"arm64-v8a"* || "$base_lower" == *"aarch64"* ]]; then
-    package_key="arm64-v8a"
-  elif [[ "$base_lower" == *"armeabi-v7a"* || "$base_lower" == *"armv7"* || "$base_lower" == *"arm-v7a"* ]]; then
-    package_key="armeabi-v7a"
-  elif [[ "$base_lower" == *"x86_64"* || "$base_lower" == *"-x86-"* || "$base_lower" == *"-x86."* ]]; then
-    package_key="x86_64"
-  fi
-  if [[ -n "$package_key" && -z "${apk_by_key[$package_key]:-}" ]]; then
-    apk_by_key[$package_key]="$apk_file"
-  fi
+  package_key="$(detect_package_key "$base_name")"
+  case "$package_key" in
+    arm64-v8a)
+      if [[ -z "$apk_arm64_v8a" ]]; then
+        apk_arm64_v8a="$apk_file"
+      fi
+      ;;
+    armeabi-v7a)
+      if [[ -z "$apk_armeabi_v7a" ]]; then
+        apk_armeabi_v7a="$apk_file"
+      fi
+      ;;
+    x86_64)
+      if [[ -z "$apk_x86_64" ]]; then
+        apk_x86_64="$apk_file"
+      fi
+      ;;
+    universal)
+      if [[ -z "$apk_universal" ]]; then
+        apk_universal="$apk_file"
+      fi
+      ;;
+  esac
 done < <(find "$dist_dir" -maxdepth 1 -type f -name '*.apk' | sort)
 
 required_package_keys=("arm64-v8a" "armeabi-v7a" "x86_64" "universal")
 for required_key in "${required_package_keys[@]}"; do
-  if [[ -z "${apk_by_key[$required_key]:-}" ]]; then
+  if [[ -z "$(package_path_for_key "$required_key")" ]]; then
     echo "Error: missing ${required_key} package APK under $dist_dir" >&2
     exit 1
   fi
 done
 
-universal_apk_path="${apk_by_key[universal]}"
+universal_apk_path="$(package_path_for_key "universal")"
 apk_name="$(basename "$universal_apk_path")"
 version_name="$(awk -F= '$1=="versionName"{print $2}' "${dist_dir%/}/BUILD_INFO.txt" | tr -d '\r' | tail -n1)"
 version_code="$(awk -F= '$1=="versionCode"{print $2}' "${dist_dir%/}/BUILD_INFO.txt" | tr -d '\r' | tail -n1)"
@@ -181,7 +218,7 @@ generated_at_ms="$(($(date +%s) * 1000))"
 
 packages_json="{}"
 for package_key in "${required_package_keys[@]}"; do
-  package_path="${apk_by_key[$package_key]}"
+  package_path="$(package_path_for_key "$package_key")"
   package_name="$(basename "$package_path")"
   package_sha256=""
   if [[ -f "${dist_dir%/}/SHA256SUMS.txt" ]]; then

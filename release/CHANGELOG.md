@@ -21,7 +21,17 @@ PushGo Android policy:
 ## [Unreleased]
 
 ### Changed
-- Placeholder for next development cycle.
+- Prepared Android beta version `v1.3.0-beta.1` for the next release cycle.
+- `versionCode` now resolves to beta code `1030001` from `versionName=v1.3.0-beta.1`.
+- Upgraded the Android build stack to AGP `9.2.1` with its compatible Gradle/toolchain baseline and refreshed core Android dependencies.
+- Cleaned Kotlin/lint warning fallout from the toolchain upgrade and aligned platform compatibility handling across update install, battery settings, image decoding, and Compose resource usage.
+
+### Added
+- Added versioned beta update notes source: `release/update-notes/v1.3.0-beta.1.json`.
+
+### Fixed
+- Fixed release-audit noise caused by stale Android resources and launcher asset duplication after the build-stack refresh.
+- Fixed several Android compatibility and policy edge cases surfaced by the upgraded toolchain, including backup rules, package-install settings routing, and obsolete SDK-guard branches.
 
 ## [v1.2.6] - 2026-06-09
 

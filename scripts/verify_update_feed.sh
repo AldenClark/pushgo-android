@@ -98,7 +98,9 @@ echo "$raw" | jq -e '
       or (
         (.notesI18n | type == "object")
         and ([.notesI18n[] | type == "string"] | all)
-        and ([.notesI18n | keys[] | . == "en" or . == "zh-CN" or . == "zh-TW"] | all)
+        and (.notesI18n["en"] | type == "string" and (gsub("\\s+"; "") | length > 0))
+        and (.notesI18n["zh-CN"] | type == "string" and (gsub("\\s+"; "") | length > 0))
+        and (.notesI18n["zh-TW"] | type == "string" and (gsub("\\s+"; "") | length > 0))
       )
     )
 ' >/dev/null

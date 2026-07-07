@@ -7,7 +7,7 @@ Suggested naming:
 - `vX.Y.Z.json`
 - `vX.Y.Z-beta.N.json`
 
-Current required locale set (must match app language support):
+Current minimum required locale set (must match app language support):
 
 - `en`
 - `zh-CN`

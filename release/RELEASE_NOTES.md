@@ -10,8 +10,14 @@ Policy:
 
 ## [Unreleased]
 
-### Changed
-- Placeholder for next beta cycle.
+### Improved
+- Improved Android build and runtime compatibility by moving the app onto the AGP 9.2.1 toolchain baseline with refreshed core dependencies.
+- Improved update install and system-settings handoff behavior so package install permission, battery settings, and related flows behave more consistently on modern Android builds.
+- Improved message and detail rendering stability with cleanup across image decoding, Compose resource access, and platform compatibility paths.
+
+### Fixed
+- Fixed warning-heavy Android build and lint issues exposed by the latest toolchain refresh.
+- Fixed stale resource and launcher asset issues that could interfere with release readiness checks.
 
 ## [v1.2.6]
 
