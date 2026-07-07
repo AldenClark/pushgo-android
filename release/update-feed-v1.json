@@ -2,45 +2,6 @@
   "payload": {
     "entries": [
       {
-        "apkSha256": "ceead28518f0a01494f461a2c0d711851f54e21a2339ba9beb3339fa60e49c04",
-        "apkUrl": "https://update.pushgo.cn/android/beta/v1.2.0-beta.15/pushgo-android-v1.2.0-beta.15-universal-release.apk",
-        "channel": "beta",
-        "critical": false,
-        "notes": "This beta rolls up all Android changes accumulated since v1.2.0-beta.13.\n- Improved install-blocked handling with immediate in-app alerting\n- Added one-tap fallback to continue via Android system installer",
-        "notesI18n": {
-          "de": "Diese Beta umfasst alle Android-Anderungen seit v1.2.0-beta.13.\n- Verbesserte Behandlung blockierter Installationen mit sofortigem In-App-Hinweis\n- Ein-Klick-Fallback zum Fortsetzen mit dem Android-Systeminstaller hinzugefugt",
-          "en": "This beta rolls up all Android changes accumulated since v1.2.0-beta.13.\n- Improved install-blocked handling with immediate in-app alerting\n- Added one-tap fallback to continue via Android system installer",
-          "es": "Esta beta integra todos los cambios de Android acumulados desde v1.2.0-beta.13.\n- Mejor manejo de instalaciones bloqueadas con alerta inmediata dentro de la app\n- Se agrego un acceso directo para continuar con el instalador del sistema Android",
-          "fr": "Cette beta integre toutes les modifications Android accumulees depuis v1.2.0-beta.13.\n- Gestion amelioree des installations bloquees avec alerte immediate dans l'application\n- Ajout d'un raccourci pour continuer avec l'installateur systeme Android",
-          "ja": "このベータには、v1.2.0-beta.13 以降に蓄積した Android 変更をすべて含みます。\n- インストールがブロックされた際のアプリ内即時アラートを改善\n- Android システムインストーラーで続行するワンタップフォールバックを追加",
-          "ko": "이번 베타에는 v1.2.0-beta.13 이후 누적된 Android 변경사항이 모두 포함됩니다.\n- 설치 차단 시 앱 내 즉시 경고를 개선했습니다\n- Android 시스템 설치 프로그램으로 계속 진행하는 원탭 대체 경로를 추가했습니다",
-          "zh-CN": "此测试版合并了自 v1.2.0-beta.13 以来的全部 Android 累积改动。\n- 优化了安装受阻时的应用内即时提示\n- 新增一键回退到 Android 系统安装器继续安装",
-          "zh-TW": "此測試版合併了自 v1.2.0-beta.13 以來的全部 Android 累積改動。\n- 優化了安裝受阻時的應用內即時提示\n- 新增一鍵回退至 Android 系統安裝器繼續安裝"
-        },
-        "packages": {
-          "arm64-v8a": {
-            "apkSha256": "1d4967005c1e667389db8099bdd28638ec0ab5284904c556ac7620fea8dcb3f0",
-            "apkUrl": "https://update.pushgo.cn/android/beta/v1.2.0-beta.15/pushgo-android-v1.2.0-beta.15-arm64-v8a-release.apk"
-          },
-          "armeabi-v7a": {
-            "apkSha256": "821ffdda9f01e89045ceabef9cd82d8c55b5d045da3b3455e7e9e6de39a335ca",
-            "apkUrl": "https://update.pushgo.cn/android/beta/v1.2.0-beta.15/pushgo-android-v1.2.0-beta.15-armeabi-v7a-release.apk"
-          },
-          "universal": {
-            "apkSha256": "ceead28518f0a01494f461a2c0d711851f54e21a2339ba9beb3339fa60e49c04",
-            "apkUrl": "https://update.pushgo.cn/android/beta/v1.2.0-beta.15/pushgo-android-v1.2.0-beta.15-universal-release.apk"
-          },
-          "x86_64": {
-            "apkSha256": "41c05274f51b0a383427f6b4cc0b0efa3d1aac5251b7b1a2444f53f33b686e26",
-            "apkUrl": "https://update.pushgo.cn/android/beta/v1.2.0-beta.15/pushgo-android-v1.2.0-beta.15-x86_64-release.apk"
-          }
-        },
-        "publishedAtEpochMs": 1776570343000,
-        "releaseNotesUrl": "https://github.com/AldenClark/pushgo-android/releases/tag/v1.2.0-beta.15",
-        "versionCode": 1020015,
-        "versionName": "v1.2.0-beta.15"
-      },
-      {
         "apkSha256": "ae424a70c19d73521a8ab06b7c0a3042d7087a44adba96292b8d92e170f56922",
         "apkUrl": "https://update.pushgo.cn/android/stable/v1.2.6/pushgo-android-v1.2.6-universal-release.apk",
         "channel": "stable",
@@ -48,12 +9,7 @@
         "minSdk": 28,
         "notes": "PushGo 1.2.6 improves Android compatibility and keeps message and entity views more consistent.\\n- Android support now starts at Android 9, with multiple API 28 compatibility fixes\\n- Event and object detail views now stay in sync more reliably after entity patch and notification-driven updates\\n- Mark all read now applies only to the messages currently visible in your active list or filter\\n- Message lists refresh more reliably while local delete and recovery actions are pending",
         "notesI18n": {
-          "de": "PushGo 1.2.6 verbessert die Android-Kompatibilitat und sorgt fur konsistentere Nachrichten- und Entitatsansichten.\\n- Die Android-Unterstutzung beginnt jetzt bei Android 9, inklusive mehrerer API-28-Kompatibilitatskorrekturen\\n- Ereignis- und Objektdetailansichten bleiben nach Entitatspatches und benachrichtigungsgesteuerten Aktualisierungen zuverlassiger synchron\\n- Alle als gelesen markieren wirkt jetzt nur noch auf die aktuell sichtbaren Nachrichten in der aktiven Liste oder im aktiven Filter\\n- Nachrichtenlisten werden wahrend ausstehender lokaler Losch- und Wiederherstellungsaktionen zuverlassiger aktualisiert",
           "en": "PushGo 1.2.6 improves Android compatibility and keeps message and entity views more consistent.\\n- Android support now starts at Android 9, with multiple API 28 compatibility fixes\\n- Event and object detail views now stay in sync more reliably after entity patch and notification-driven updates\\n- Mark all read now applies only to the messages currently visible in your active list or filter\\n- Message lists refresh more reliably while local delete and recovery actions are pending",
-          "es": "PushGo 1.2.6 mejora la compatibilidad con Android y mantiene mas consistentes las vistas de mensajes y entidades.\\n- La compatibilidad con Android ahora comienza en Android 9, con varias correcciones para API 28\\n- Las vistas de detalle de eventos y objetos ahora permanecen sincronizadas con mayor fiabilidad tras parches de entidad y actualizaciones impulsadas por notificaciones\\n- Marcar todo como leido ahora solo se aplica a los mensajes visibles en tu lista o filtro actual\\n- Las listas de mensajes se actualizan con mayor fiabilidad mientras hay acciones locales de borrado o recuperacion pendientes",
-          "fr": "PushGo 1.2.6 ameliore la compatibilite Android et rend les vues de messages et d'entites plus coherentes.\\n- La prise en charge Android commence desormais a Android 9, avec plusieurs correctifs de compatibilite API 28\\n- Les vues detail des evenements et des objets restent maintenant plus fiablements synchronisees apres les patchs d'entite et les mises a jour declenchees par notification\\n- Tout marquer comme lu s'applique maintenant uniquement aux messages actuellement visibles dans votre liste ou filtre actif\\n- Les listes de messages se rafraichissent plus fiablement pendant les suppressions locales et recuperations en attente",
-          "ja": "PushGo 1.2.6 では、Android 互換性を強化し、メッセージ画面とエンティティ画面の整合性を改善しました。\\n- Android 9 から利用可能になり、API 28 向けの互換性修正を複数追加しました\\n- イベント詳細とオブジェクト詳細は、エンティティパッチ適用後や通知起点の更新後も、より確実に同期されます\\n- 既読にする操作は、現在のリストやフィルターで表示中のメッセージだけに適用されます\\n- ローカル削除や復元の保留中でも、メッセージ一覧がより確実に更新されます",
-          "ko": "PushGo 1.2.6은 Android 호환성을 개선하고 메시지 및 엔터티 화면의 일관성을 높였습니다.\\n- 이제 Android 9부터 지원하며, API 28 호환성 수정이 여러 건 포함됩니다\\n- 이벤트 및 오브젝트 상세 화면이 엔터티 패치와 알림 기반 업데이트 이후에도 더 안정적으로 동기화됩니다\\n- 모두 읽음 처리는 현재 활성 목록이나 필터에 보이는 메시지에만 적용됩니다\\n- 로컬 삭제 및 복구가 대기 중일 때도 메시지 목록이 더 안정적으로 새로고침됩니다",
           "zh-CN": "PushGo 1.2.6 提升了 Android 兼容性，并让消息与实体视图保持更一致。\\n- Android 支持范围现已下探到 Android 9，并修复了多处 API 28 兼容性问题\\n- 事件与对象详情页在实体 patch 更新和通知驱动刷新后，状态同步更加可靠\\n- 全部标记已读现在只会作用于当前列表或筛选条件下可见的消息\\n- 本地删除与恢复处于待处理状态时，消息列表刷新更加及时可靠",
           "zh-TW": "PushGo 1.2.6 提升了 Android 相容性，並讓訊息與實體視圖保持更一致。\\n- Android 支援範圍現已下探到 Android 9，並修復多處 API 28 相容性問題\\n- 事件與物件詳情頁在實體 patch 更新與通知驅動刷新後，狀態同步更加可靠\\n- 全部標示已讀現在只會作用於目前列表或篩選條件下可見的訊息\\n- 本地刪除與復原處於待處理狀態時，訊息列表刷新更加即時可靠"
         },
@@ -79,9 +35,44 @@
         "releaseNotesUrl": "https://github.com/AldenClark/pushgo-android/releases/tag/v1.2.6",
         "versionCode": 1020699,
         "versionName": "v1.2.6"
+      },
+      {
+        "apkSha256": "71511ba54703a157ee194eabc9586f162ac7ae750d01123756f9dd24735a3dc8",
+        "apkUrl": "https://update.pushgo.cn/android/beta/v1.3.0-beta.1/pushgo-android-v1.3.0-beta.1-universal-release.apk",
+        "channel": "beta",
+        "critical": false,
+        "minSdk": 28,
+        "notes": "PushGo 1.3.0 beta 1 refreshes the Android build stack and improves platform compatibility.\\n- Upgraded the Android toolchain baseline and refreshed core dependencies\\n- Improved package install permission, battery settings, and related system handoff flows\\n- Cleaned compatibility and rendering issues surfaced during the latest Android warning audit",
+        "notesI18n": {
+          "en": "PushGo 1.3.0 beta 1 refreshes the Android build stack and improves platform compatibility.\\n- Upgraded the Android toolchain baseline and refreshed core dependencies\\n- Improved package install permission, battery settings, and related system handoff flows\\n- Cleaned compatibility and rendering issues surfaced during the latest Android warning audit",
+          "zh-CN": "PushGo 1.3.0 beta 1 刷新了 Android 构建栈，并提升了平台兼容性。\\n- 升级了 Android 工具链基线并刷新核心依赖\\n- 优化了安装应用权限、电池设置及相关系统跳转流程\\n- 清理了最近一轮 Android warning 审计中暴露的兼容性与渲染问题",
+          "zh-TW": "PushGo 1.3.0 beta 1 刷新了 Android 建構堆疊，並提升了平台相容性。\\n- 升級了 Android 工具鏈基線並刷新核心依賴\\n- 優化了安裝應用權限、電池設定及相關系統跳轉流程\\n- 清理了最近一輪 Android warning 審計中暴露的相容性與渲染問題"
+        },
+        "packages": {
+          "arm64-v8a": {
+            "apkSha256": "ad9c04ea42b49d57ad36da52e25f9c7f893cba0e0f0852272cfc0402c72dce0e",
+            "apkUrl": "https://update.pushgo.cn/android/beta/v1.3.0-beta.1/pushgo-android-v1.3.0-beta.1-arm64-v8a-release.apk"
+          },
+          "armeabi-v7a": {
+            "apkSha256": "540370d2c4d517d487a8195e1c973d70ae45b88f513eef99394a4520b7309dd9",
+            "apkUrl": "https://update.pushgo.cn/android/beta/v1.3.0-beta.1/pushgo-android-v1.3.0-beta.1-armeabi-v7a-release.apk"
+          },
+          "universal": {
+            "apkSha256": "71511ba54703a157ee194eabc9586f162ac7ae750d01123756f9dd24735a3dc8",
+            "apkUrl": "https://update.pushgo.cn/android/beta/v1.3.0-beta.1/pushgo-android-v1.3.0-beta.1-universal-release.apk"
+          },
+          "x86_64": {
+            "apkSha256": "2cfc2c98622727542ff878901adc2211e32e9c01cb61805f77bc8ba2a0248345",
+            "apkUrl": "https://update.pushgo.cn/android/beta/v1.3.0-beta.1/pushgo-android-v1.3.0-beta.1-x86_64-release.apk"
+          }
+        },
+        "publishedAtEpochMs": 1783431913000,
+        "releaseNotesUrl": "https://github.com/AldenClark/pushgo-android/releases/tag/v1.3.0-beta.1",
+        "versionCode": 1030001,
+        "versionName": "v1.3.0-beta.1"
       }
     ],
-    "generatedAtEpochMs": 1781010388000,
+    "generatedAtEpochMs": 1783431913000,
     "policy": {
       "impatientReminderIntervalSeconds": 604800,
       "scheduledCheckIntervalSeconds": 21600
@@ -89,6 +80,6 @@
     "schemaVersion": 1
   },
   "signatures": {
-    "ecdsa-p256-sha256": "MEUCIQDaalL0i2+rWbS8mcIxaD2xU86AYsANqV7UOaSv/A8e4QIgBmZcZ2GoRae94BsWlkPEvgJK/h9UiVd78n6Qct4nihQ="
+    "ecdsa-p256-sha256": "MEYCIQD75DE+v4dGIF+xMN/SWu3m33tiC0o93dsHefeqBf/UmwIhAPL+6GKt4z1YChUo5C3eNI5iWqk23m65PaUlUezABZU6"
   }
 }
