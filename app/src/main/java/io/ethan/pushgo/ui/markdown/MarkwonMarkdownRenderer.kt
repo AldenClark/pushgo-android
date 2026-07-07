@@ -18,6 +18,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.viewinterop.AndroidView
 import coil3.imageLoader
 import io.noties.markwon.AbstractMarkwonPlugin
@@ -57,17 +58,11 @@ fun SelectablePlainTextRenderer(
                 linksClickable = false
                 setTextIsSelectable(true)
                 includeFontPadding = false
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-                    textLocales = LocaleList.forLanguageTags("zh-CN,en-US")
-                }
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                textLocales = LocaleList.forLanguageTags("zh-CN,en-US")
+                hyphenationFrequency = Layout.HYPHENATION_FREQUENCY_NORMAL
+                isFallbackLineSpacing = true
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                     breakStrategy = LineBreaker.BREAK_STRATEGY_HIGH_QUALITY
-                    hyphenationFrequency = Layout.HYPHENATION_FREQUENCY_NORMAL
-                }
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-                    isFallbackLineSpacing = true
-                }
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                     justificationMode = LineBreaker.JUSTIFICATION_MODE_NONE
                 }
             }
@@ -93,6 +88,7 @@ fun FullMarkdownRenderer(
     onAnimatedImagePlay: (() -> Unit)? = null,
 ) {
     val context = LocalContext.current
+    val resources = LocalResources.current
     val uiColors = PushGoThemeExtras.colors
     val color = uiColors.textPrimary.toArgb()
     val textSizeSp = androidx.compose.material3.MaterialTheme.typography.bodyMedium.fontSize.value
@@ -104,7 +100,7 @@ fun FullMarkdownRenderer(
     val tableHeaderBackgroundColor = uiColors.tableHeaderBackground.toArgb()
     val tableOddRowBackgroundColor = uiColors.tableOddRowBackground.toArgb()
     val tableEvenRowBackgroundColor = uiColors.tableEvenRowBackground.toArgb()
-    val dp = context.resources.displayMetrics.density
+    val dp = resources.displayMetrics.density
     val blockMarginPx = (20f * dp).toInt()
     val codeBlockMarginPx = (12f * dp).toInt()
     val tableCellPaddingPx = (10f * dp).toInt()
@@ -179,7 +175,7 @@ fun FullMarkdownRenderer(
                             TypedValue.applyDimension(
                                 TypedValue.COMPLEX_UNIT_SP,
                                 textSizeSp * 0.96f,
-                                context.resources.displayMetrics,
+                                resources.displayMetrics,
                             ).toInt()
                         )
                         .headingBreakColor(quoteColor)
@@ -215,17 +211,11 @@ fun FullMarkdownRenderer(
                 linksClickable = true
                 setTextIsSelectable(true)
                 includeFontPadding = false
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-                    textLocales = LocaleList.forLanguageTags("zh-CN,en-US")
-                }
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                textLocales = LocaleList.forLanguageTags("zh-CN,en-US")
+                hyphenationFrequency = Layout.HYPHENATION_FREQUENCY_NORMAL
+                isFallbackLineSpacing = true
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                     breakStrategy = LineBreaker.BREAK_STRATEGY_HIGH_QUALITY
-                    hyphenationFrequency = Layout.HYPHENATION_FREQUENCY_NORMAL
-                }
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-                    isFallbackLineSpacing = true
-                }
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                     justificationMode = LineBreaker.JUSTIFICATION_MODE_NONE
                 }
             }

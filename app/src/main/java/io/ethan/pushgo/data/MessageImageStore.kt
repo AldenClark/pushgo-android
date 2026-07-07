@@ -3,6 +3,7 @@ package io.ethan.pushgo.data
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import androidx.core.graphics.scale
 import io.ethan.pushgo.util.UrlValidators
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -431,7 +432,7 @@ class MessageImageStore(context: Context) {
         }
 
         val scaled = if (cropped.width != LIST_THUMBNAIL_SIZE || cropped.height != LIST_THUMBNAIL_SIZE) {
-            Bitmap.createScaledBitmap(cropped, LIST_THUMBNAIL_SIZE, LIST_THUMBNAIL_SIZE, true)
+            cropped.scale(LIST_THUMBNAIL_SIZE, LIST_THUMBNAIL_SIZE, true)
         } else {
             cropped
         }

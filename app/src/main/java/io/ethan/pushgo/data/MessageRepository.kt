@@ -1,6 +1,7 @@
 package io.ethan.pushgo.data
 
 import android.content.Context
+import androidx.core.content.edit
 import androidx.paging.Pager
 import androidx.paging.PagingConfig
 import androidx.paging.PagingData
@@ -865,7 +866,9 @@ class MessageRepository(
                 upsertMetadataIndex(entity.id, entity.asModel())
             }
         }
-        prefs.edit().putBoolean(TAG_METADATA_BACKFILL_KEY, true).apply()
+        prefs.edit {
+            putBoolean(TAG_METADATA_BACKFILL_KEY, true)
+        }
     }
 
     private suspend fun pruneTopLevelMessageDuplicates(stableMessageIds: Set<String>) {

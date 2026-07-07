@@ -6,15 +6,9 @@
     <string name="action_delete">Delete</string>
     <string name="action_batch_select">Select</string>
     <string name="action_close_event">Close event</string>
-    <string name="confirm_close_event">This event will be closed. Continue?</string>
     <string name="action_copy">Copy</string>
-    <string name="label_more_actions">More actions</string><string name="filter_all">All</string><string name="filter_open_events">Ongoing events</string><string name="filter_active_things">Active things</string><string name="label_server_address">Server address</string>
-    <string name="label_filter">Filter</string>
-    <string name="label_sort">Sort</string>
-    <string name="message_sort_time_desc">Newest first</string>
-    <string name="message_sort_unread_first">Unread first</string>
     <string name="message_show_unread_only">Show unread only</string>
-    <string name="section_status">Status</string>
+    <string name="label_server_address">Server address</string>
     <string name="label_server_token">Token (optional)</string>
     <string name="label_save">Save</string>
     <string name="label_save_gateway">Save gateway</string>
@@ -28,9 +22,7 @@
     <string name="label_channel_alias">Channel alias</string>
     <string name="label_channel_id">Channel ID</string><string name="label_channel_id_copied">Channel ID copied</string>
     <string name="label_channel_all">All channels</string>
-    <string name="label_channel_actions">Channel actions</string><string name="label_channel_option">%1$s (%2$s)</string>
-    <string name="label_channel_empty_hint">No subscribed channels yet.</string>
-    <string name="label_channel_empty_action">Subscribe now</string>
+    <string name="label_channel_actions">Channel actions</string>
     <string name="label_channel_password">Channel password</string><string name="label_create_channel">Create channel</string>
     <string name="label_subscribe_channel">Subscribe Channel</string>
     <string name="label_add_channel">Add channel</string><string name="label_rename_channel">Rename</string>
@@ -40,8 +32,7 @@
     <string name="label_unsubscribe_channel_title">Unsubscribe %1$s?</string>
     <string name="label_unsubscribe_channel_hint">Choose whether to delete local history.</string>
     <string name="label_unsubscribe_delete_history">Unsubscribe and delete history</string>
-    <string name="label_unsubscribe_keep_history">Unsubscribe and keep history</string><string name="label_channel_select_hint">Create or subscribe to a channel first.</string>
-    <string name="label_channel_manage">Manage subscriptions</string>
+    <string name="label_unsubscribe_keep_history">Unsubscribe and keep history</string>
     <string name="notification_channel_name_with_level">PushGo Messages · %1$s</string>
     <string name="notification_channel_group_messages_name">PushGo message alerts</string>
     <string name="notification_channel_suffix_critical">Critical</string>
@@ -56,39 +47,25 @@
     <string name="message_list_empty_hint">Create or subscribe to a channel first to receive pushes.</string>
     <string name="channel_list_empty_title">No channels</string>
     <string name="channel_list_empty_hint">Create or subscribe to a channel first to receive pushes.</string><string name="label_notification_key">Notification key</string>
-    <string name="label_key_strength">Key strength</string>
-    <string name="label_key_strength_hint">Higher bit strength increases security but may impact decryption speed.</string>
-    <string name="label_configuration">Configuration</string><string name="label_key_encoding">Encoding</string><string name="label_key_encoding_base64">Base64</string>
     <string name="label_key_encoding_hex">Hex</string>
+    <string name="label_key_encoding_base64">Base64</string>
     <string name="label_key_encoding_plaintext">Plain text</string>
     <string name="label_app_version">App version</string><string name="label_app_version_format">%1$s</string>
-    <string name="label_yesterday">Yesterday</string>
-    <string name="label_selected_count">%1$d selected</string>
+    <plurals name="label_selected_count">
+        <item quantity="one">%1$d selected</item>
+        <item quantity="other">%1$d selected</item>
+    </plurals>
     <string name="label_confirm">Confirm</string>
-    <string name="confirm_cleanup_messages">Confirm cleanup</string><string name="confirm_cleanup_read_messages_channel">This will remove read messages in the current channel and cannot be undone.</string><string name="confirm_cleanup_read_messages_all">This will remove all read messages and cannot be undone.</string>
-    <string name="confirm_cleanup_messages_channel">This will remove all messages in the current channel and cannot be undone.</string>
-    <string name="confirm_cleanup_messages_all">This will remove all messages and cannot be undone.</string>
-    <string name="confirm_cleanup_events_channel">This will remove event records in the current channel and cannot be undone.</string>
-    <string name="confirm_cleanup_events_all">This will remove all event records and cannot be undone.</string>
-    <string name="confirm_cleanup_things_channel">This will remove object records in the current channel and cannot be undone.</string>
-    <string name="confirm_cleanup_things_all">This will remove all object records and cannot be undone.</string>
-    <string name="confirm_delete_selected_messages">Delete %1$d selected messages?</string>
-    <string name="confirm_delete_message">This message will be permanently deleted. Continue?</string>
-    <string name="confirm_delete_selected_events">Delete %1$d selected events?</string>
-    <string name="confirm_delete_selected_things">Delete %1$d selected objects?</string>
-    <string name="message_deleted_selected_count">Deleted %1$d items</string>
-    <string name="message_marked_read_selected_count">Marked %1$d messages as read</string>
-    <string name="clean_channel_messages">Clean read messages</string>
-    <string name="clean_channel_messages_hint">Choose what to clean in the current channel.</string>
-    <string name="clean_all_messages">Clear all messages</string>
-    <string name="clean_channel_all">Clear all in channel</string>
-    <string name="clean_channel_read">Clear read in channel</string>
-    <string name="confirm_cleanup_channel_placeholder">This will clear messages in the current channel. This action cannot be undone.</string>
+    <plurals name="message_marked_read_selected_count">
+        <item quantity="one">Marked %1$d message as read</item>
+        <item quantity="other">Marked %1$d messages as read</item>
+    </plurals>
     <string name="label_open_url">Open URL</string>
     <string name="label_search">Search messages</string>
-    <string name="label_search_entities">Search</string>
     <string name="label_search_events">Search events</string>
     <string name="label_search_things">Search objects</string>
+    <string name="filter_open_events">Ongoing events</string>
+    <string name="filter_active_things">Active things</string>
     <string name="label_no_messages">No messages</string>
     <string name="message_severity_low">Low</string>
     <string name="message_severity_medium">Medium</string>
@@ -116,22 +93,7 @@
     <string name="label_notification_settings_hint">Open system notification settings for PushGo.</string>
     <string name="label_transport_fcm">FCM</string>
     <string name="label_transport_private">Private</string>
-    <string name="label_fcm_wakeup_pull_mode">Use wakeup pull mode</string>
-    <string name="label_fcm_wakeup_pull_mode_hint">Send wakeup via FCM, then pull full message over HTTP.</string>
     <string name="label_private_transport_status">Private transport status</string>
-    <string name="label_connection_diagnosis">Network diagnosis</string>
-    <string name="label_connection_diagnosis_hint">Collect network mode, proxy/NAT hints, gateway reflection results, and private-channel logs automatically. You can copy the output when finished.</string>
-    <string name="label_connection_diagnosis_logs">Diagnosis logs</string>
-    <string name="label_connection_diagnosis_running">Collecting</string>
-    <string name="label_connection_diagnosis_finished">Stopped</string>
-    <string name="label_connection_diagnosis_copy">Copy logs</string>
-    <string name="label_connection_diagnosis_restart">Run again</string>
-    <string name="label_connection_diagnosis_network">Network status</string>
-    <string name="label_connection_diagnosis_nat">NAT hint</string>
-    <string name="label_connection_diagnosis_proxy">Proxy</string>
-    <string name="label_connection_diagnosis_gateway">Gateway probe</string>
-    <string name="label_connection_diagnosis_transport">Private transport</string>
-    <string name="label_connection_diagnosis_recommendation">Recommendation</string>
     <string name="private_transport_status_disconnected">Not connected</string>
     <string name="private_transport_status_connecting">Connecting</string>
     <string name="private_transport_status_connected">Connected</string>
@@ -151,18 +113,14 @@
     <string name="section_decryption">Message decryption</string>
     <string name="section_security">Security</string>
     <string name="section_data_pages">Enable data pages</string>
-    <string name="section_storage">Storage</string>
     <string name="section_about">About</string>
-    <string name="section_personalization">Personalization</string><string name="label_decryption_configured">Decryption configured</string>
-    <string name="label_decryption_configured_updated">Decryption configured · Updated %1$s</string>
     <string name="label_decryption_not_configured">Decryption not configured</string>
+    <string name="label_decryption_configured">Decryption configured</string>
     <string name="label_decryption_hint">Only AES-GCM is supported; IV must be included in ciphertext.</string>
-    <string name="label_decryption_subtitle">Keys and encoding</string>
     <string name="label_decryption_state_ok_short">Decrypted</string>
     <string name="label_decryption_state_failed_short">Decrypt failed</string>
     <string name="label_decryption_state_not_configured_short">No key</string>
     <string name="label_decryption_state_alg_mismatch_short">Alg mismatch</string>
-    <string name="label_close">Close</string>
     <string name="label_cancel">Cancel</string>
     <string name="label_undo">Undo</string>
     <string name="label_got_it">Got it</string>
@@ -178,46 +136,8 @@
     <string name="label_set_unrestricted">Set unrestricted</string>
     <string name="label_skip_for_one_month">Ignore for now</string>
     <string name="label_update_install_manual_continue">Continue manually</string>
-    <string name="label_data_page_toggle_hint">Hide from navigation only; auto re-enabled when new data arrives</string>
-    <string name="label_body">Body</string>
-    <string name="label_url">URL</string>
-    <string name="label_image_url">Image URL</string>
-    <string name="label_ciphertext">Ciphertext</string>
-    <string name="label_gateway_payload">Gateway JSON</string>
-    <string name="label_copy_json">Copy JSON</string>
-    <string name="label_send_type_message">Message</string>
     <string name="label_send_type_event">Events</string>
     <string name="label_send_type_thing">Objects</string>
-    <string name="label_event_group_identity">Event Identity</string>
-    <string name="label_event_group_profile">Event Profile</string>
-    <string name="label_thing_group_identity">Object Identity</string>
-    <string name="label_thing_group_profile">Object Profile</string>
-    <string name="label_metadata_json">Metadata (JSON)</string>
-    <string name="label_event_id">Event ID</string>
-    <string name="label_event_state">Event Action</string>
-    <string name="label_thing_action">Object Action</string>
-    <string name="label_event_thing_id">Object ID (Optional)</string>
-    <string name="label_event_description">Event Description</string>
-    <string name="label_event_tags">Event Tags (comma)</string>
-    <string name="label_message_tags">Message Tags (comma)</string>
-    <string name="label_event_links">Event Images (comma)</string>
-    <string name="label_event_impact">Event Severity</string>
-    <string name="label_event_started_at">Event Start Time (optional)</string>
-    <string name="label_event_ended_at">Event End Time (optional)</string>
-    <string name="label_event_attrs">Event Attrs</string>
-    <string name="label_thing_id">Object ID</string>
-    <string name="label_thing_name">Object Title</string>
-    <string name="label_thing_description">Object Description</string>
-    <string name="label_thing_tags">Object Tags (comma)</string>
-    <string name="label_thing_links">Object Images (comma)</string>
-    <string name="label_thing_created_at">Object Created Time (optional)</string>
-    <string name="label_select_date_time">Select Date &amp; Time</string>
-    <string name="label_set_now">Set Now</string>
-    <string name="label_clear">Clear</string>
-    <string name="label_thing_attrs">Object Attrs</string>
-    <string name="message_json_exported_successfully">Messages exported</string>
-    <string name="no_messages_available_to_export">No messages to export</string>
-    <string name="export_messages">Export messages</string>
     <string name="message_gateway_saved">Gateway saved</string>
     <string name="dialog_private_channel_whitelist_title">Keep PushGo running in background</string>
     <string name="dialog_private_channel_whitelist_body">Private channel needs persistent background connectivity. Please add PushGo to your system battery/background whitelist and disable aggressive cleanup, otherwise messages may be delayed or missed.</string>
@@ -226,17 +146,6 @@
     <string name="message_channel_renamed">Channel renamed</string>
     <string name="message_channel_unsubscribed">Channel unsubscribed</string>
     <string name="message_event_closed">Event closed</string>
-    <string name="message_events_cleaned">Events cleaned</string>
-    <string name="message_things_cleaned">Objects cleaned</string>
-    <string name="message_events_exported">Events exported</string>
-    <plurals name="message_channel_unsubscribed_deleted">
-        <item quantity="one">Channel unsubscribed; deleted %1$d message</item>
-        <item quantity="other">Channel unsubscribed; deleted %1$d messages</item>
-    </plurals>
-    <plurals name="message_notifications_summary">
-        <item quantity="one">%1$d unread notification</item>
-        <item quantity="other">%1$d unread notifications</item>
-    </plurals>
     <plurals name="message_notification_group_summary">
         <item quantity="one">%1$d message notification</item>
         <item quantity="other">%1$d message notifications</item>
@@ -248,15 +157,9 @@
     <string name="message_messages_cleared">Messages cleared</string>
     <string name="message_no_messages_to_clear">No messages to clear</string>
     <string name="error_invalid_server_address">Invalid server address (https required)</string>
-    <string name="error_key_required">Please enter the key first</string>
-    <string name="error_key_already_saved">Key already saved; enter a new value to overwrite</string>
     <string name="error_invalid_base64">Invalid Base64</string>
     <string name="error_invalid_hex">Invalid hex</string>
     <string name="error_invalid_key_length">Key length must be 128/192/256-bit.</string>
-    <plurals name="error_key_length_mismatch">
-        <item quantity="one">Key length mismatch: need %1$d byte (%2$d-bit), got %3$d</item>
-        <item quantity="other">Key length mismatch: need %1$d bytes (%2$d-bit), got %3$d</item>
-    </plurals>
     <string name="error_unable_to_get_fcm_token">Unable to get FCM token</string>
     <string name="error_fcm_token_network_unavailable">Unable to get FCM token: network to Google services is unavailable</string>
     <string name="error_fcm_token_project_not_configured">Unable to get FCM token: Firebase project config is invalid for this app</string>
@@ -281,7 +184,6 @@
     <string name="error_gateway_route_not_found" tools:ignore="MissingTranslation">This gateway does not support the requested API route.</string>
     <string name="error_private_disabled_and_fcm_unavailable">Gateway private channel is disabled and this device cannot use FCM. Push is unavailable.</string>
     <string name="error_request_failed">Request failed. Please retry.</string>
-    <string name="error_channel_create_requires_fcm">Creating a new channel requires FCM. Use an existing Channel ID on devices without FCM.</string>
     <string name="error_private_channel_create_failed">Private channel create failed. Please retry.</string>
     <string name="error_private_channel_subscribe_failed">Private channel subscribe failed. Check channel ID/password and try again.</string>
     <string name="error_private_channel_unsubscribe_failed">Private channel unsubscribe failed. Please retry.</string>
@@ -295,127 +197,39 @@
     <string name="error_channel_password_length">Channel password must be 8&#8211;128 characters</string>
     <string name="error_event_missing_channel">Missing channel ID for event</string>
     <string name="error_event_close_failed">Failed to close event</string>
-    <string name="no_events_available_to_export">No events to export</string>
     <string name="ringtone_notification">Notification</string>
-    <string name="ringtone_alert">Alert</string>
-    <string name="ringtone_arcade">Arcade</string>
-    <string name="ringtone_level_up">Level Up</string>
-    <string name="ringtone_bubble_pop">Bubble Pop</string>
-    <string name="ringtone_festive_chime">Festive Chime</string>
     <string name="entity_title_event_fallback">Event %1$s</string>
     <string name="entity_title_thing_fallback">Object %1$s</string>
     <string name="entity_body_event_open">Opened</string>
     <string name="entity_body_event_ongoing">Ongoing</string>
     <string name="entity_body_event_closed">Closed</string>
-    <string name="entity_body_unknown">Unknown</string>
     <string name="entity_body_updated">Updated</string>
     <string name="entity_body_thing_archived">Archived</string>
     <string name="entity_body_thing_deleted">Deleted</string>
     <string name="entity_body_thing_attribute_update_template">Attribute update || %1$s</string>
     <string name="entity_body_thing_attribute_pair_template">%1$s: %2$s</string>
-    <string name="event_meta_severity">Severity: %1$s</string>
     <string name="event_meta_tags_count">Tags: %1$d</string>
-    <string name="event_meta_updated">Updated: %1$s</string>
-    <string name="event_meta_timeline_points">Timeline points: %1$d</string>
     <string name="event_status_created_default">Created</string>
     <string name="event_status_closed_default">Closed</string>
     <string name="event_message_closed_default">Event closed.</string>
-    <string name="label_event_status">Event status</string>
-    <string name="label_event_message">Status message</string>
-    <string name="event_detail_current_state">Current state: %1$s</string>
-    <string name="event_detail_severity_tags">Severity: %1$s · Tags: %2$d</string>
     <string name="event_detail_attributes">Attributes</string>
     <string name="event_detail_attachments">Images</string>
     <string name="event_detail_history_timeline">History timeline</string>
-    <string name="event_detail_attrs_inline">Attrs: %1$s</string>
-    <string name="event_detail_state_inline">State: %1$s</string>
-    <string name="thing_meta_tags_count">Tags: %1$d</string>
-    <string name="thing_meta_updated">Updated: %1$s</string>
-    <string name="thing_meta_related_events_count">Related events: %1$d</string>
-    <string name="thing_meta_messages_count">Messages: %1$d</string>
-    <string name="thing_meta_attrs_count">Attrs: %1$d</string>
-    <string name="thing_meta_metadata_count">Metadata: %1$d</string>
-    <string name="thing_detail_tags_created">Tags: %1$d · Created: %2$s</string>
-    <string name="thing_detail_images_count">Images: %1$d</string>
     <string name="thing_detail_attributes">Attributes</string>
     <string name="thing_detail_created_updated">Created: %1$s · Updated: %2$s</string>
     <string name="thing_detail_metadata_button">Metadata</string>
     <string name="thing_detail_no_metadata">No metadata.</string>
-    <string name="thing_detail_related_events">Related events</string>
     <string name="thing_detail_no_related_events">No related events.</string>
-    <string name="thing_detail_event_state">Event: %1$s · State: %2$s</string>
-    <string name="thing_detail_messages">Messages</string>
     <string name="thing_detail_no_related_messages">No related messages.</string>
     <string name="thing_detail_tab_events">Events</string>
     <string name="thing_detail_tab_messages">Messages</string>
     <string name="thing_detail_tab_updates">Updates</string>
     <string name="thing_detail_no_related_updates">No related updates.</string>
-    <string name="thing_detail_message_id">Message: %1$s</string>
-    <string name="label_connection_diagnosis_share_bundle">Share support bundle</string>
-    <string name="label_connection_diagnosis_export_json">Export JSON</string>
-    <string name="error_connection_diagnosis_open_share_failed">Unable to open share panel: %1$s</string>
-    <string name="label_connection_diagnosis_collecting_progress">Collecting %1$d%% · %2$ds/%3$ds</string>
-    <string name="label_connection_diagnosis_background_probe">Link matrix probing remains active</string>
-    <string name="action_connection_diagnosis_stop">Stop collection</string>
-    <string name="label_connection_diagnosis_redact_on">Redact: On</string>
-    <string name="label_connection_diagnosis_redact_off">Redact: Off</string>
-    <string name="label_connection_diagnosis_live_mode">Live updates</string>
-    <string name="label_connection_diagnosis_background_mode">Background continuous</string>
-    <string name="label_connection_diagnosis_link_matrix">Link matrix</string>
-    <string name="label_connection_diagnosis_link_matrix_empty">No link probe data yet</string>
-    <string name="label_connection_diagnosis_failure_reason">Failure reason: %1$s</string>
-    <string name="action_connection_diagnosis_enhanced_probe">Enhanced probe</string>
-    <string name="label_connection_diagnosis_selection_history">Protocol selection history</string>
-    <string name="label_connection_diagnosis_enhanced_running">Enhanced probe running · %1$s</string>
-    <string name="label_connection_diagnosis_enhanced_running_hint">Running staged checks (DNS/connect/TLS or UDP).</string>
-    <string name="label_connection_diagnosis_enhanced_result">Enhanced probe result · %1$s</string>
-    <string name="label_connection_diagnosis_failed_stage">Failed stage: %1$s</string>
 
-    <string name="label_connection_diagnosis_status_waiting">Waiting to start</string>
-    <string name="label_connection_diagnosis_status_auto_start_detail">A 75-second network diagnosis starts automatically after entering this page.</string>
-    <string name="label_connection_diagnosis_status_running">Running diagnosis</string>
-    <string name="label_connection_diagnosis_status_running_detail">Collecting network, gateway, and private transport states continuously. It will stop automatically after the window ends.</string>
-    <string name="label_connection_diagnosis_status_stopped">Diagnosis stopped</string>
-    <string name="label_connection_diagnosis_status_stopped_detail">Collection stopped manually. You can copy or export logs for troubleshooting.</string>
-    <string name="label_connection_diagnosis_status_completed">Diagnosis completed</string>
-    <string name="label_connection_diagnosis_status_completed_detail">Collection window ended. You can copy or export logs for troubleshooting.</string>
-    <string name="label_connection_diagnosis_status_preparing">Preparing</string>
-    <string name="label_connection_diagnosis_status_preparing_detail">Initializing diagnosis environment.</string>
 
-    <string name="label_connection_diagnosis_not_collected">Not collected yet</string>
-    <string name="label_connection_diagnosis_not_concluded">No conclusion yet</string>
-    <string name="label_connection_diagnosis_not_probed">Not probed yet</string>
-    <string name="label_connection_diagnosis_no_gateway_nat_observation">No gateway egress observation yet</string>
-    <string name="label_connection_diagnosis_nat_reflection_note">This result is based on gateway reflection and is only a NAT hint, not full STUN classification.</string>
-    <string name="label_connection_diagnosis_proxy_none">No system proxy or gateway proxy signal detected</string>
-    <string name="label_connection_diagnosis_proxy_system_and_gateway">System proxy=%1$s · gateway side also observed proxy headers</string>
-    <string name="label_connection_diagnosis_proxy_system_only">System proxy=%1$s</string>
-    <string name="label_connection_diagnosis_proxy_gateway_only">No local system proxy, but gateway side observed proxy headers</string>
-    <string name="label_connection_diagnosis_gateway_all_failed">Continuous failures %1$d times · latest_error=%2$s</string>
-    <string name="label_connection_diagnosis_gateway_summary">Success %1$d/%2$d · RTT %3$d-%4$dms · avg %5$dms · failures %6$d</string>
-    <string name="label_connection_diagnosis_transport_fcm_limited">Still in FCM mode; private transport logs are limited</string>
 
-    <string name="label_connection_diagnosis_recommendation_waiting">Keep collecting until the diagnosis window ends for a more stable conclusion.</string>
-    <string name="label_connection_diagnosis_recommendation_gateway_failure">Gateway probe failure ratio is high. Check basic reachability, DNS, and TLS first.</string>
-    <string name="label_connection_diagnosis_recommendation_proxy_seen">Proxy signal detected in this session. Prioritize checking proxy, enterprise gateway, or VPN impact on long connections and UDP.</string>
-    <string name="label_connection_diagnosis_recommendation_reconnect">HTTP reflection is mostly normal, but private transport still falls back frequently. This looks more like QUIC/TCP long-connection stability or background policy behavior.</string>
-    <string name="label_connection_diagnosis_recommendation_network_changed">Network transport changed during diagnosis. Drops may be related to Wi-Fi/cellular switching or validation jitter.</string>
-    <string name="label_connection_diagnosis_recommendation_default">This appears to be private-channel stability under a single network environment. Continue troubleshooting with copied logs and gateway-side connection records.</string>
 
-    <string name="error_connection_diagnosis_running_mode_locked">Diagnosis is running; mode cannot be changed now.</string>
-    <string name="error_connection_diagnosis_running_profile_locked">Diagnosis is running; profile cannot be changed now.</string>
-    <string name="error_connection_diagnosis_no_report_to_copy">No diagnosis report available to copy.</string>
-    <string name="error_connection_diagnosis_export_failed">Export failed: %1$s</string>
-    <string name="error_connection_diagnosis_bundle_failed">Failed to build support bundle: %1$s</string>
 
-    <string name="message_connection_diagnosis_report_copied">Diagnosis report copied.</string>
-    <string name="message_connection_diagnosis_txt_exported">Diagnosis TXT exported.</string>
-    <string name="message_connection_diagnosis_json_exported">Diagnosis JSON exported.</string>
-    <string name="message_connection_diagnosis_json_fail_only_exported">Diagnosis JSON (failures only) exported.</string>
-    <string name="message_connection_diagnosis_bundle_ready">Support bundle generated. Choose a target app to share.</string>
-    <string name="label_connection_diagnosis_log_stopped_with_report">Diagnosis manually stopped; copyable report generated.</string>
-    <string name="label_connection_diagnosis_log_completed_with_report">Diagnosis completed; copyable report generated.</string>
-    <string name="error_connection_diagnosis_open_share_failed_prefix">Unable to open share panel: </string>
     <string name="section_updates">Updates</string>
     <string name="label_update_auto_check">Auto check updates</string>
     <string name="label_update_auto_check_hint">Check for new versions silently in background.</string>
@@ -466,7 +280,6 @@
     <string name="label_update_install_blocked_action">Open install settings</string>
     <string name="label_update_install_action_required_title">Finish update installation</string>
     <string name="label_update_install_action_required_body">User confirmation is required to continue installing the new package.</string>
-    <string name="label_share">Share</string>
     <string name="message_text_copied">Content copied.</string>
     <string name="message_image_saved">Image saved to Photos.</string>
     <string name="error_message_image_save_failed">Failed to save image.</string>
@@ -493,19 +306,22 @@
     <string name="a11y_action_mark_message_read">Mark message as read</string>
     <string name="a11y_action_delete_message">Delete message</string>
     <string name="a11y_action_show_search_filters">Show search filters</string>
-    <string name="a11y_action_hide_search_filters">Hide search filters</string>
     <string name="a11y_action_save_image">Save image</string>
     <string name="a11y_action_share_image">Share image</string>
     <string name="a11y_action_close_image_preview">Close image preview</string>
     <string name="a11y_selection_mode_entered">Selection mode entered</string>
     <string name="a11y_selection_mode_exited">Selection mode exited</string>
-    <string name="a11y_selection_mode_selection_count">%1$d items selected</string>
-    <string name="a11y_pending_deletion_summary">%1$s. Undo available for %2$d seconds.</string>
+    <plurals name="a11y_selection_mode_selection_count">
+        <item quantity="one">%1$d item selected</item>
+        <item quantity="other">%1$d items selected</item>
+    </plurals>
+    <plurals name="a11y_pending_deletion_summary">
+        <item quantity="one">%1$s. Undo available for %2$d second.</item>
+        <item quantity="other">%1$s. Undo available for %2$d seconds.</item>
+    </plurals>
     <string name="a11y_pane_message_detail">Message details</string>
     <string name="a11y_pane_image_preview">Image preview</string>
     <string name="a11y_pane_channel_management">Manage channels</string>
     <string name="a11y_pane_gateway_settings">Gateway settings</string>
-    <string name="a11y_pane_update_channel">Update channel</string>
-    <string name="a11y_pane_thing_metadata">Object metadata</string>
     <string name="label_unknown_error">Unknown error</string>
 </resources>

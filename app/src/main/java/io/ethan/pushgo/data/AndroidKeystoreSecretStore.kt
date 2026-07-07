@@ -4,6 +4,7 @@ import android.content.Context
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 import android.util.Base64
+import androidx.core.content.edit
 import java.security.KeyStore
 import java.security.MessageDigest
 import javax.crypto.Cipher
@@ -75,7 +76,9 @@ class AndroidKeystoreSecretStore(context: Context) : SecureSecretStore {
     }
 
     override fun clearAll() {
-        prefs.edit().clear().commit()
+        prefs.edit {
+            clear()
+        }
     }
 
     private fun getString(key: String): String? {
@@ -105,11 +108,15 @@ class AndroidKeystoreSecretStore(context: Context) : SecureSecretStore {
             return
         }
         val encrypted = encrypt(normalized) ?: return
-        prefs.edit().putString(key, encrypted).commit()
+        prefs.edit {
+            putString(key, encrypted)
+        }
     }
 
     private fun delete(key: String) {
-        prefs.edit().remove(key).commit()
+        prefs.edit {
+            remove(key)
+        }
     }
 
     private fun channelPasswordKey(gatewayUrl: String, channelId: String): String {

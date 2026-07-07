@@ -187,9 +187,6 @@ class PrivateChannelForegroundService : Service() {
     }
 
     private fun isNotificationPresent(): Boolean {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) {
-            return true
-        }
         val manager = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
         return manager.activeNotifications.any { record -> record.id == NOTIFICATION_ID }
     }

@@ -81,7 +81,7 @@ val updateFeedEcdsaP256PublicKeyB64 = project.resolveSigningProperty("PUSHGO_UPD
     ?.replace("\"", "")
     ?: ""
 
-val buildRustJniLibs by tasks.registering(Exec::class) {
+val buildRustJniLibs = tasks.register<Exec>("buildRustJniLibs") {
     group = "build"
     description = "Build the Rust JNI libraries used by Android packaging."
     workingDir = rustBuildScript.parentFile

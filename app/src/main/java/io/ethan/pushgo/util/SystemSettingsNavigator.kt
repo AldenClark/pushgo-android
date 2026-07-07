@@ -3,7 +3,6 @@ package io.ethan.pushgo.util
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
-import android.os.Build
 import android.os.PowerManager
 import android.provider.Settings
 
@@ -19,22 +18,17 @@ fun Context.openAppNotificationSettings() {
 }
 
 fun Context.isAppSubjectToBatteryOptimization(): Boolean {
-    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) {
-        return false
-    }
     val powerManager = getSystemService(PowerManager::class.java) ?: return false
     return !powerManager.isIgnoringBatteryOptimizations(packageName)
 }
 
 fun Context.openBatteryOptimizationSettings() {
     val packageUri = Uri.fromParts("package", packageName, null)
-    val requestIgnoreIntent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, packageUri)
     val optimizationListIntent = Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
     val appDetailsIntent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, packageUri)
     startActivityWithFallback(
-        primary = requestIgnoreIntent,
-        fallback = optimizationListIntent,
-        fallback2 = appDetailsIntent,
+        primary = optimizationListIntent,
+        fallback = appDetailsIntent,
     )
 }
 

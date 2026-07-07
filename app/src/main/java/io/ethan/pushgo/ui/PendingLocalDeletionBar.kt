@@ -20,6 +20,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.produceState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -59,8 +60,9 @@ fun PendingLocalDeletionBar(
                 delay(200)
             }
         }
-        val pendingDeletionDescription = stringResource(
-            R.string.a11y_pending_deletion_summary,
+        val pendingDeletionDescription = pluralStringResource(
+            R.plurals.a11y_pending_deletion_summary,
+            remainingSeconds,
             entry.summary,
             remainingSeconds,
         )

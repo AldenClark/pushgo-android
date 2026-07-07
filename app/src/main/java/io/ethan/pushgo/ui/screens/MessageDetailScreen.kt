@@ -87,7 +87,7 @@ import io.ethan.pushgo.ui.markdown.FullMarkdownRenderer
 import io.ethan.pushgo.ui.markdown.MarkdownAnimatedImagePlaybackRegistry
 import io.ethan.pushgo.ui.markdown.SelectablePlainTextRenderer
 import io.ethan.pushgo.ui.rememberBottomGestureInset
-import io.ethan.pushgo.ui.theme.PushGoSheetContainerColor
+import io.ethan.pushgo.ui.theme.pushGoSheetContainerColor
 import io.ethan.pushgo.ui.theme.PushGoStateColors
 import io.ethan.pushgo.ui.theme.PushGoThemeExtras
 import io.ethan.pushgo.ui.viewmodel.MessageDetailViewModel
@@ -727,12 +727,7 @@ private fun formatDetailTime(
 }
 
 private fun localeFrom(context: Context): Locale {
-    return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-        context.resources.configuration.locales.get(0)
-    } else {
-        @Suppress("DEPRECATION")
-        context.resources.configuration.locale
-    }
+    return context.resources.configuration.locales.get(0)
 }
 
 private suspend fun saveMessageImageToGallery(

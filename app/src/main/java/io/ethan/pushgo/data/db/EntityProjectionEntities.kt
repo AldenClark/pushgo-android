@@ -669,11 +669,14 @@ private fun patchTextFromPayload(incomingPayload: JSONObject?, keys: List<String
     for (key in keys) {
         if (!incomingPayload.has(key)) continue
         val value = incomingPayload.opt(key)
-        val text = when (value) {
-            null, JSONObject.NULL -> null
-            is String -> value
-            else -> value.toString()
+        val rawText: String? = if (value == null || value == JSONObject.NULL) {
+            null
+        } else if (value is String) {
+            value
+        } else {
+            value.toString()
         }
+        val text = rawText
             ?.trim()
             ?.takeIf { it.isNotEmpty() }
         if (text != null) return text

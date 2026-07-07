@@ -37,6 +37,7 @@ import androidx.compose.ui.layout.positionInWindow
 import androidx.compose.ui.platform.LocalContext
 import io.ethan.pushgo.ui.viewmodel.toUserFacingText
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
@@ -65,7 +66,7 @@ import io.ethan.pushgo.ui.accessibility.pushGoMergedActionSemantics
 import io.ethan.pushgo.ui.accessibility.selectionStateDescription
 import io.ethan.pushgo.ui.rememberBottomBarNestedScrollConnection
 import io.ethan.pushgo.ui.rememberBottomGestureInset
-import io.ethan.pushgo.ui.theme.PushGoSheetContainerColor
+import io.ethan.pushgo.ui.theme.pushGoSheetContainerColor
 import io.ethan.pushgo.ui.theme.PushGoThemeExtras
 import io.ethan.pushgo.ui.markdown.FullMarkdownRenderer
 import io.ethan.pushgo.util.PayloadTimeNormalizer
@@ -698,7 +699,7 @@ fun ThingListScreen(
                                         tint = if (areAllSelectableThingsSelected) uiColors.accentPrimary else uiColors.iconMuted,
                                     )
                                 }
-                                Text(text = stringResource(R.string.label_selected_count, selectedThingIds.size), style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
+                                Text(text = pluralStringResource(R.plurals.label_selected_count, selectedThingIds.size, selectedThingIds.size), style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
                                 IconButton(
                                     onClick = {
                                         val targets = filteredThings.filter { selectedThingIds.contains(it.thingId) }

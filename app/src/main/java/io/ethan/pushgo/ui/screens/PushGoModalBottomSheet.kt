@@ -12,21 +12,22 @@ import androidx.compose.foundation.focusable
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.SheetState
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
-import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.toArgb
-import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import io.ethan.pushgo.ui.accessibility.pushGoPaneSemantics
-import io.ethan.pushgo.ui.theme.PushGoSheetContainerColor
+import io.ethan.pushgo.ui.theme.pushGoSheetContainerColor
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -40,15 +41,16 @@ internal fun PushGoModalBottomSheet(
     content: @Composable ColumnScope.() -> Unit,
 ) {
     val resolvedSheetState = sheetState ?: rememberModalBottomSheetState(skipPartiallyExpanded = true)
-    val configuration = LocalConfiguration.current
+    val density = LocalDensity.current
+    val containerHeight = with(density) { LocalWindowInfo.current.containerSize.height.toDp() }
     val focusRequester = remember { FocusRequester() }
     val resolvedMaxHeightFraction = maxHeightFraction.coerceIn(0.5f, 1f)
-    val maxSheetHeight = configuration.screenHeightDp.dp * resolvedMaxHeightFraction
+    val maxSheetHeight = containerHeight * resolvedMaxHeightFraction
     val minSheetHeight = minHeightFraction
         ?.coerceIn(0f, resolvedMaxHeightFraction)
-        ?.let { configuration.screenHeightDp.dp * it }
+        ?.let { containerHeight * it }
         ?: Dp.Unspecified
-    val sheetContainerColor = PushGoSheetContainerColor()
+    val sheetContainerColor = pushGoSheetContainerColor()
     val activity = LocalContext.current.findActivity()
     @Suppress("DEPRECATION")
     DisposableEffect(activity, sheetContainerColor) {

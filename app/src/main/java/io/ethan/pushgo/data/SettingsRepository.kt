@@ -1,6 +1,7 @@
 package io.ethan.pushgo.data
 
 import android.content.SharedPreferences
+import androidx.core.content.edit
 import io.ethan.pushgo.data.db.AppSettingsDao
 import io.ethan.pushgo.data.db.AppSettingsEntity
 import io.ethan.pushgo.data.model.KeyEncoding
@@ -83,34 +84,36 @@ class SettingsRepository(
         settingsCache.getLong(KEY_UPDATE_IMPATIENT_REMINDER_INTERVAL_SECONDS, AppConstants.updateImpatientIntervalSeconds)
 
     private fun cacheUseFcmChannel(enabled: Boolean) {
-        settingsCache.edit().putBoolean(KEY_USE_FCM_CHANNEL, enabled).commit()
+        settingsCache.edit {
+            putBoolean(KEY_USE_FCM_CHANNEL, enabled)
+        }
     }
 
     private fun cachePageVisibility(settings: AppSettingsEntity) {
-        settingsCache.edit()
-            .putBoolean(KEY_MESSAGE_PAGE_ENABLED, settings.isMessagePageEnabled)
-            .putBoolean(KEY_EVENT_PAGE_ENABLED, settings.isEventPageEnabled)
-            .putBoolean(KEY_THING_PAGE_ENABLED, settings.isThingPageEnabled)
-            .commit()
+        settingsCache.edit {
+            putBoolean(KEY_MESSAGE_PAGE_ENABLED, settings.isMessagePageEnabled)
+            putBoolean(KEY_EVENT_PAGE_ENABLED, settings.isEventPageEnabled)
+            putBoolean(KEY_THING_PAGE_ENABLED, settings.isThingPageEnabled)
+        }
     }
 
     private fun cacheUpdatePreferences(settings: AppSettingsEntity) {
-        settingsCache.edit()
-            .putBoolean(KEY_UPDATE_AUTO_CHECK_ENABLED, settings.updateAutoCheckEnabled)
-            .putBoolean(KEY_UPDATE_BETA_CHANNEL_ENABLED, settings.updateBetaChannelEnabled)
-            .commit()
+        settingsCache.edit {
+            putBoolean(KEY_UPDATE_AUTO_CHECK_ENABLED, settings.updateAutoCheckEnabled)
+            putBoolean(KEY_UPDATE_BETA_CHANNEL_ENABLED, settings.updateBetaChannelEnabled)
+        }
     }
 
     fun setCachedMessageListSortMode(sortMode: MessageListSortMode) {
-        settingsCache.edit()
-            .putString(KEY_MESSAGE_LIST_SORT_MODE, sortMode.persistedValue)
-            .commit()
+        settingsCache.edit {
+            putString(KEY_MESSAGE_LIST_SORT_MODE, sortMode.persistedValue)
+        }
     }
 
     fun setCachedMessageUnreadOnlyFilter(enabled: Boolean) {
-        settingsCache.edit()
-            .putBoolean(KEY_MESSAGE_UNREAD_ONLY_FILTER, enabled)
-            .commit()
+        settingsCache.edit {
+            putBoolean(KEY_MESSAGE_UNREAD_ONLY_FILTER, enabled)
+        }
     }
 
     fun setCachedUpdatePolicyIntervals(
@@ -119,10 +122,10 @@ class SettingsRepository(
     ) {
         val normalizedScheduled = scheduledCheckIntervalSeconds.coerceAtLeast(15 * 60L)
         val normalizedImpatient = impatientReminderIntervalSeconds.coerceAtLeast(15 * 60L)
-        settingsCache.edit()
-            .putLong(KEY_UPDATE_SCHEDULED_CHECK_INTERVAL_SECONDS, normalizedScheduled)
-            .putLong(KEY_UPDATE_IMPATIENT_REMINDER_INTERVAL_SECONDS, normalizedImpatient)
-            .commit()
+        settingsCache.edit {
+            putLong(KEY_UPDATE_SCHEDULED_CHECK_INTERVAL_SECONDS, normalizedScheduled)
+            putLong(KEY_UPDATE_IMPATIENT_REMINDER_INTERVAL_SECONDS, normalizedImpatient)
+        }
     }
 
     private fun defaultSettings(): AppSettingsEntity {

@@ -35,6 +35,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
+import androidx.core.content.edit
 import io.ethan.pushgo.automation.PushGoAutomation
 import io.ethan.pushgo.notifications.NotificationHelper
 import io.ethan.pushgo.ui.PushGoAppRoot
@@ -194,7 +195,9 @@ class MainActivity : AppCompatActivity() {
                 val prefs = getSharedPreferences(STARTUP_PERMISSION_PREFS, MODE_PRIVATE)
                 val alreadyRequested = prefs.getBoolean(KEY_POST_NOTIFICATIONS_REQUESTED, false)
                 if (requestNotificationRuntimePermission && !alreadyRequested) {
-                    prefs.edit().putBoolean(KEY_POST_NOTIFICATIONS_REQUESTED, true).apply()
+                    prefs.edit {
+                        putBoolean(KEY_POST_NOTIFICATIONS_REQUESTED, true)
+                    }
                     requestNotificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
                 } else {
                     showNotificationPermissionDialog = true

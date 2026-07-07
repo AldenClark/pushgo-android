@@ -4,6 +4,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
 
 @Composable
-fun PushGoSheetContainerColor(): Color {
+fun pushGoSheetContainerColor(): Color {
     return PushGoThemeExtras.colors.sheetContainer
 }

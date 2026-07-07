@@ -2,12 +2,18 @@ package io.ethan.pushgo.update
 
 import android.content.Context
 import android.os.Build
-import android.provider.Settings
+import androidx.core.content.edit
 import java.security.MessageDigest
 import java.util.Locale
+import java.util.UUID
 import kotlin.math.roundToInt
 
 class UpdatePolicyEngine(private val context: Context) {
+    companion object {
+        private const val PREFS_NAME = "pushgo_update_policy"
+        private const val KEY_INSTALL_BUCKET_SEED = "install_bucket_seed"
+    }
+
     fun selectBestCandidate(
         payload: UpdateFeedPayload,
         currentVersionCode: Int,
@@ -41,11 +47,7 @@ class UpdatePolicyEngine(private val context: Context) {
     }
 
     private fun deviceBucketFraction(): Double {
-        val androidId = Settings.Secure.getString(context.contentResolver, Settings.Secure.ANDROID_ID)
-            ?.trim()
-            ?.ifEmpty { null }
-            ?: "unknown-device"
-        val seed = "${context.packageName}|$androidId".toByteArray()
+        val seed = "${context.packageName}|${installBucketSeed()}".toByteArray()
         val digest = MessageDigest.getInstance("SHA-256").digest(seed)
         val value = (
             ((digest[0].toInt() and 0xFF) shl 24) or
@@ -55,6 +57,19 @@ class UpdatePolicyEngine(private val context: Context) {
             ) ushr 1
         val ratio = value.toDouble() / Int.MAX_VALUE.toDouble()
         return ((ratio * 10_000).roundToInt().coerceIn(0, 10_000)) / 10_000.0
+    }
+
+    private fun installBucketSeed(): String {
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val existing = prefs.getString(KEY_INSTALL_BUCKET_SEED, null)?.trim()?.ifEmpty { null }
+        if (existing != null) {
+            return existing
+        }
+        val created = UUID.randomUUID().toString()
+        prefs.edit {
+            putString(KEY_INSTALL_BUCKET_SEED, created)
+        }
+        return created
     }
 }
 

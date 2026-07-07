@@ -3,6 +3,7 @@ package io.ethan.pushgo.data
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.os.Environment
 import io.ethan.pushgo.automation.PushGoAutomation
 import io.ethan.pushgo.data.db.OperationLedgerDao
 import io.ethan.pushgo.data.model.DecryptionState
@@ -426,7 +427,11 @@ class AppAutomationController(
             return direct
         }
         val externalFiles = appContext.getExternalFilesDir(null)
-        val externalPrefix = "/sdcard/Android/data/${appContext.packageName}/files/"
+        @Suppress("DEPRECATION")
+        val externalPrefix = File(
+            Environment.getExternalStorageDirectory(),
+            "Android/data/${appContext.packageName}/files"
+        ).path.trimEnd('/') + "/"
         if (externalFiles != null && path.startsWith(externalPrefix)) {
             val relative = path.removePrefix(externalPrefix).trimStart('/')
             return externalFiles.resolve(relative)

@@ -47,7 +47,9 @@ import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
@@ -130,6 +132,7 @@ fun MessageListScreen(
     val effectivePendingScope by container.pendingLocalDeletionCoordinator.effectiveScope.collectAsStateWithLifecycle()
     
     val context = LocalContext.current
+    val resources = LocalResources.current
     val haptic = LocalHapticFeedback.current
     val scope = rememberCoroutineScope()
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -531,7 +534,7 @@ fun MessageListScreen(
                                             tint = if (areAllSelectableMessagesSelected) uiColors.accentPrimary else uiColors.iconMuted,
                                         )
                                     }
-                                    Text(text = stringResource(R.string.label_selected_count, selectedCount), style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
+                                    Text(text = pluralStringResource(R.plurals.label_selected_count, selectedCount, selectedCount), style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
                                     IconButton(onClick = { scope.launch { markSelectedMessagesRead() } }) {
                                         Icon(Icons.Outlined.MarkEmailRead, stringResource(R.string.action_mark_read))
                                     }
@@ -563,10 +566,7 @@ fun MessageListScreen(
                                                             scope.launch {
                                                                 val changed = viewModel.markCurrentScopeRead()
                                                                 if (changed <= 0) return@launch
-                                                                val localizedToastText = context.resources.getString(
-                                                                    R.string.message_marked_read_selected_count,
-                                                                    changed,
-                                                                )
+                                                                val localizedToastText = resources.getQuantityString(R.plurals.message_marked_read_selected_count, changed, changed)
                                                                 Toast.makeText(
                                                                     context,
                                                                     localizedToastText,

@@ -8,10 +8,10 @@ import android.app.PendingIntent
 import android.content.pm.PackageManager
 import android.content.Context
 import android.content.Intent
-import android.net.Uri
 import android.os.Build
 import android.provider.Settings
 import androidx.core.content.ContextCompat
+import androidx.core.net.toUri
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import io.ethan.pushgo.MainActivity
@@ -178,9 +178,6 @@ object UpdateNotifier {
     }
 
     private fun ensureChannel(context: Context) {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
-            return
-        }
         val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         if (manager.getNotificationChannel(UPDATE_CHANNEL_ID) != null) {
             return
@@ -199,14 +196,14 @@ object UpdateNotifier {
     private fun selectRecoverySettingsIntent(context: Context): Intent {
         val unknownSourcesIntent = Intent(
             Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
-            Uri.parse("package:${context.packageName}"),
+            "package:${context.packageName}".toUri(),
         ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         if (unknownSourcesIntent.resolveActivity(context.packageManager) != null) {
             return unknownSourcesIntent
         }
         return Intent(
             Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
-            Uri.parse("package:${context.packageName}"),
+            "package:${context.packageName}".toUri(),
         ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
     }
 }

@@ -303,11 +303,7 @@ class PushGoApp : Application(), SingletonImageLoader.Factory {
         return ImageLoader.Builder(context)
             .components {
                 add(MessageImageStoreFetcher.Factory(imageStoreForCoil))
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-                    add(AnimatedImageDecoder.Factory())
-                } else {
-                    add(GifDecoder.Factory())
-                }
+                add(AnimatedImageDecoder.Factory())
             }
             .memoryCache {
                 MemoryCache.Builder()

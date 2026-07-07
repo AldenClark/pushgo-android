@@ -1,6 +1,7 @@
 package io.ethan.pushgo.util
 
 import android.content.Context
+import androidx.core.content.edit
 import java.util.concurrent.TimeUnit
 
 private const val REMINDER_SNOOZE_PREFS = "pushgo_reminder_snooze"
@@ -25,7 +26,7 @@ private fun Context.getReminderSnoozeUntilMs(key: String): Long {
 
 private fun Context.setReminderSnoozeUntilMs(key: String, untilMs: Long) {
     getSharedPreferences(REMINDER_SNOOZE_PREFS, Context.MODE_PRIVATE)
-        .edit()
-        .putLong(key, untilMs)
-        .apply()
+        .edit {
+            putLong(key, untilMs)
+        }
 }

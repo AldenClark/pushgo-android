@@ -1,7 +1,6 @@
 package io.ethan.pushgo.notifications
 
 import android.app.NotificationManager
-import android.os.Build
 import android.content.Context
 import android.content.Intent
 import androidx.core.content.ContextCompat
@@ -54,7 +53,6 @@ object AlertPlaybackController {
     }
 
     private fun canRunPlaybackWithoutForegroundNotification(context: Context): Boolean {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) return false
         val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager ?: return false
         val records = runCatching { manager.activeNotifications }.getOrNull() ?: return false
         return records.any { it.id == PrivateChannelForegroundService.NOTIFICATION_ID }

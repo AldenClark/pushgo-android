@@ -37,6 +37,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import io.ethan.pushgo.ui.viewmodel.toUserFacingText
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
@@ -598,7 +599,7 @@ fun EventListScreen(
                                         tint = if (areAllSelectableEventsSelected) uiColors.accentPrimary else uiColors.iconMuted,
                                     )
                                 }
-                                Text(text = stringResource(R.string.label_selected_count, selectedEventIds.size), style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
+                                Text(text = pluralStringResource(R.plurals.label_selected_count, selectedEventIds.size, selectedEventIds.size), style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
                                 IconButton(
                                     onClick = {
                                         val targets = filteredEvents.filter { selectedEventIds.contains(it.eventId) }
@@ -837,12 +838,12 @@ private data class EventDisplayAttribute(
 @Composable
 fun EventListRowItem(
     event: EventCardModel,
-    channelDisplayName: String? = null,
     onClick: () -> Unit,
     selectionMode: Boolean,
     selected: Boolean,
     onToggleSelection: () -> Unit,
     modifier: Modifier = Modifier,
+    channelDisplayName: String? = null,
     showDivider: Boolean = true,
 ) {
     val haptic = LocalHapticFeedback.current

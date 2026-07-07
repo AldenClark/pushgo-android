@@ -6,7 +6,7 @@
     <string name="action_delete">删除</string>
     <string name="action_batch_select">批量</string>
     <string name="action_copy">复制</string>
-    <string name="label_more_actions">更多操作</string><string name="filter_all">全部</string><string name="filter_open_events">进行中</string><string name="filter_active_things">活跃</string><string name="label_server_address">服务器地址</string><string name="label_sort">排序</string><string name="message_sort_time_desc">按时间倒序</string><string name="message_sort_unread_first">未读优先</string><string name="message_show_unread_only">只看未读消息</string>
+    <string name="label_server_address">服务器地址</string>
     <string name="label_server_token">认证令牌（可选）</string>
     <string name="label_save">保存</string>
     <string name="label_save_gateway">保存网关设置</string>
@@ -20,9 +20,7 @@
     <string name="label_channel_alias">频道别名</string>
     <string name="label_channel_id">频道 ID</string><string name="label_channel_id_copied">频道 ID 已复制</string>
     <string name="label_channel_all">全部频道</string>
-    <string name="label_channel_actions">频道操作</string><string name="label_channel_option">%1$s (%2$s)</string>
-    <string name="label_channel_empty_hint">还没有订阅频道。</string>
-    <string name="label_channel_empty_action">去订阅</string>
+    <string name="label_channel_actions">频道操作</string>
     <string name="label_channel_password">频道密码</string><string name="label_create_channel">创建频道</string>
     <string name="label_subscribe_channel">订阅频道</string>
     <string name="label_add_channel">添加频道</string><string name="label_rename_channel">重命名</string>
@@ -32,8 +30,7 @@
     <string name="label_unsubscribe_channel_title">取消订阅 %1$s？</string>
     <string name="label_unsubscribe_channel_hint">请选择是否同时删除本地历史消息。</string>
     <string name="label_unsubscribe_delete_history">取消订阅并删除历史消息</string>
-    <string name="label_unsubscribe_keep_history">取消订阅但保留历史消息</string><string name="label_channel_select_hint">请先创建或订阅一个频道。</string>
-    <string name="label_channel_manage">管理订阅</string>
+    <string name="label_unsubscribe_keep_history">取消订阅但保留历史消息</string>
     <string name="notification_channel_name_with_level">PushGo 消息 · %1$s</string>
     <string name="notification_channel_group_messages_name">PushGo 消息通知</string>
     <string name="notification_channel_suffix_critical">紧急</string>
@@ -48,37 +45,17 @@
     <string name="message_list_empty_hint">请先创建或订阅频道以接收推送。</string>
     <string name="channel_list_empty_title">暂无频道</string>
     <string name="channel_list_empty_hint">请先创建或订阅频道以接收推送。</string><string name="label_notification_key">通知密钥</string>
-    <string name="label_key_strength">密钥强度</string>
-    <string name="label_key_strength_hint">更高的位数可提高安全性，但可能会影响解密速度。</string>
-    <string name="label_configuration">配置</string><string name="label_key_encoding">密钥格式</string><string name="label_key_encoding_base64">Base64</string>
     <string name="label_key_encoding_hex">Hex</string>
+    <string name="label_key_encoding_base64">Base64</string>
     <string name="label_key_encoding_plaintext">纯文本</string>
     <string name="label_app_version">应用版本</string><string name="label_app_version_format">%1$s</string>
-    <string name="label_yesterday">昨天</string>
-    <string name="label_selected_count">已选择 %1$d 项</string>
     <string name="label_confirm">确认</string>
-    <string name="confirm_cleanup_messages">确认清除</string><string name="confirm_cleanup_read_messages_channel">将清理当前频道已读消息，且无法撤销。</string><string name="confirm_cleanup_read_messages_all">将清理全部已读消息，且无法撤销。</string>
-    <string name="confirm_cleanup_messages_channel">将清理当前频道全部消息，且无法撤销。</string>
-    <string name="confirm_cleanup_messages_all">将清理全部消息，且无法撤销。</string>
-    <string name="confirm_cleanup_things_channel">将清理当前频道对象记录，且无法撤销。</string>
-    <string name="confirm_cleanup_things_all">将清理全部对象记录，且无法撤销。</string>
-    <string name="confirm_delete_selected_messages">确认删除已选择的 %1$d 条消息？</string>
-    <string name="confirm_delete_message">这条消息将被永久删除。是否继续？</string>
-    <string name="confirm_delete_selected_events">确认删除已选择的 %1$d 条事件？</string>
-    <string name="confirm_delete_selected_things">确认删除已选择的 %1$d 个对象？</string>
-    <string name="message_deleted_selected_count">已删除 %1$d 项</string>
-    <string name="message_marked_read_selected_count">已标记 %1$d 条消息为已读</string>
-    <string name="clean_channel_messages">清理已读消息</string>
-    <string name="clean_channel_messages_hint">请选择要清理的内容。</string>
-    <string name="clean_all_messages">清理全部消息</string>
-    <string name="clean_channel_all">清理当前频道全部消息</string>
-    <string name="clean_channel_read">清理当前频道已读消息</string>
-    <string name="confirm_cleanup_channel_placeholder">将清理当前频道消息，且无法撤销。</string>
     <string name="label_open_url">打开链接</string>
     <string name="label_search">搜索消息</string>
-    <string name="label_search_entities">搜索</string>
     <string name="label_search_events">搜索事件</string>
     <string name="label_search_things">搜索对象</string>
+    <string name="filter_open_events">进行中</string>
+    <string name="filter_active_things">活跃</string>
     <string name="label_no_messages">暂无消息</string>
     <string name="message_severity_low">低</string>
     <string name="message_severity_medium">中</string>
@@ -100,18 +77,14 @@
     <string name="section_decryption">消息解密</string>
     <string name="section_security">安全</string>
     <string name="section_data_pages">启用数据页面</string>
-    <string name="section_storage">存储</string>
     <string name="section_about">关于</string>
-    <string name="section_personalization">个性化</string><string name="label_decryption_configured">解密已配置</string>
-    <string name="label_decryption_configured_updated">解密已配置 · 更新于 %1$s</string>
     <string name="label_decryption_not_configured">解密未配置</string>
+    <string name="label_decryption_configured">解密已配置</string>
     <string name="label_decryption_hint">仅支持 AES-GCM；IV 必须包含在密文中。</string>
-    <string name="label_decryption_subtitle">密钥与编码</string>
     <string name="label_decryption_state_ok_short">已解密</string>
     <string name="label_decryption_state_failed_short">解密失败</string>
     <string name="label_decryption_state_not_configured_short">无密钥</string>
     <string name="label_decryption_state_alg_mismatch_short">算法不匹配</string>
-    <string name="label_close">关闭</string>
     <string name="label_cancel">取消</string>
     <string name="label_undo">撤销</string>
     <string name="label_got_it">知道了</string>
@@ -127,34 +100,8 @@
     <string name="label_set_unrestricted">设为无限制运行</string>
     <string name="label_skip_for_one_month">暂时忽略</string>
     <string name="label_update_install_manual_continue">手动继续安装</string>
-    <string name="label_data_page_toggle_hint">仅从导航隐藏；收到对应新数据后会自动恢复显示</string>
-    <string name="label_body">正文</string>
-    <string name="label_url">链接</string>
-    <string name="label_image_url">图片 URL</string>
-    <string name="label_ciphertext">密文</string>
-    <string name="label_gateway_payload">网关 JSON</string>
-    <string name="label_copy_json">复制 JSON</string>
-    <string name="label_send_type_message">消息</string>
     <string name="label_send_type_event">事件</string>
     <string name="label_send_type_thing">对象</string>
-    <string name="label_event_id">事件 ID</string>
-    <string name="label_event_state">事件动作</string>
-    <string name="label_thing_action">对象动作</string>
-    <string name="label_event_thing_id">对象 ID（可选）</string>
-    <string name="label_event_description">事件描述</string>
-    <string name="label_event_tags">事件标签（逗号分隔）</string>
-    <string name="label_message_tags">消息标签（逗号分隔）</string>
-    <string name="label_event_impact">紧急程度</string>
-    <string name="label_event_attrs">事件 attrs</string>
-    <string name="label_thing_id">对象 ID</string>
-    <string name="label_thing_name">对象标题</string>
-    <string name="label_thing_description">对象描述</string>
-    <string name="label_thing_tags">对象标签（逗号分隔）</string>
-    <string name="label_thing_created_at">对象创建时间（可选）</string>
-    <string name="label_thing_attrs">对象 attrs</string>
-    <string name="message_json_exported_successfully">消息已导出</string>
-    <string name="no_messages_available_to_export">没有可导出的消息</string>
-    <string name="export_messages">导出消息</string>
     <string name="message_gateway_saved">网关已保存</string>
     <string name="dialog_private_channel_whitelist_title">请保持 PushGo 后台运行</string>
     <string name="dialog_private_channel_whitelist_body">私有通道依赖后台长连接。请将 PushGo 加入系统电池/后台白名单，并关闭激进省电清理，否则可能出现消息延迟或收不到消息。</string>
@@ -162,30 +109,18 @@
     <string name="message_channel_subscribed">频道已订阅</string>
     <string name="message_channel_renamed">频道已重命名</string>
     <string name="message_channel_unsubscribed">频道已取消订阅</string>
-    <plurals name="message_channel_unsubscribed_deleted">
-        <item quantity="other">频道已取消订阅，并删除了 %1$d 条消息</item>
-    </plurals>
     <string name="message_messages_cleared">消息已清除</string>
-    <plurals name="message_notifications_summary">
-        <item quantity="other">%1$d 条未读通知</item>
-    </plurals>
     <plurals name="message_notification_group_summary">
         <item quantity="other">%1$d 条消息通知</item>
     </plurals>
     <plurals name="entity_notification_group_summary">
         <item quantity="other">%1$d 条事件或对象通知</item>
     </plurals>
-    <string name="message_things_cleaned">对象已清理</string>
     <string name="message_no_messages_to_clear">没有可清除的消息</string>
     <string name="error_invalid_server_address">无效的服务器地址 (需要 https)</string>
-    <string name="error_key_required">请先输入密钥</string>
-    <string name="error_key_already_saved">密钥已保存；输入新值以覆盖</string>
     <string name="error_invalid_base64">无效的 Base64</string>
     <string name="error_invalid_hex">无效的 Hex</string>
     <string name="error_invalid_key_length">密钥长度必须为 128/192/256 位。</string>
-    <plurals name="error_key_length_mismatch">
-        <item quantity="other">密钥长度不匹配：需要 %1$d 字节 (%2$d 位)，实际 %3$d 字节</item>
-    </plurals>
     <string name="error_unable_to_get_fcm_token">无法获取 FCM 令牌</string>
     <string name="error_fcm_token_network_unavailable">无法获取 FCM 令牌：当前网络无法连接 Google 服务</string>
     <string name="error_fcm_token_project_not_configured">无法获取 FCM 令牌：Firebase 项目配置与当前应用不匹配</string>
@@ -199,23 +134,6 @@
     <string name="error_channel_id_invalid">无效的频道 ID</string>
     <string name="error_channel_password_length">频道密码长度必须在 8&#8211;128 个字符之间</string>
     <string name="ringtone_notification">通知</string>
-    <string name="ringtone_alert">警报</string>
-    <string name="ringtone_arcade">街机</string>
-    <string name="ringtone_bubble_pop">泡泡弹出</string>
-    <string name="ringtone_level_up">升级</string>
-    <string name="ringtone_festive_chime">节日铃声</string>
-    <string name="label_event_group_identity">Event Identity</string>
-    <string name="label_event_group_profile">Event Profile</string>
-    <string name="label_thing_group_identity">Object Identity</string>
-    <string name="label_thing_group_profile">Object Profile</string>
-    <string name="label_metadata_json">Metadata (JSON)</string>
-    <string name="label_event_links">事件图片（逗号分隔）</string>
-    <string name="label_event_started_at">事件开始时间（可选）</string>
-    <string name="label_event_ended_at">事件结束时间（可选）</string>
-    <string name="label_select_date_time">选择日期和时间</string>
-    <string name="label_set_now">设为当前</string>
-    <string name="label_clear">清空</string>
-    <string name="label_thing_links">对象图片（逗号分隔）</string>
     <string name="label_notification_transport">通知通道</string>
     <string name="label_notification_transport_hint">选择 Android 通过 FCM 还是私有通道接收推送。</string>
     <string name="label_notification_transport_private_only_hint">当前设备不支持 FCM，推送将默认使用私有通道。</string>
@@ -225,22 +143,7 @@
     <string name="label_notification_settings_hint">打开系统中的 PushGo 通知设置页面。</string>
     <string name="label_transport_fcm">FCM</string>
     <string name="label_transport_private">私有通道</string>
-    <string name="label_fcm_wakeup_pull_mode">使用唤醒拉取模式</string>
-    <string name="label_fcm_wakeup_pull_mode_hint">先通过 FCM 发送唤醒，再通过 HTTP 拉取完整消息。</string>
     <string name="label_private_transport_status">私有传输状态</string>
-    <string name="label_connection_diagnosis">网络诊断</string>
-    <string name="label_connection_diagnosis_hint">自动采集网络制式、代理/NAT 提示、网关反射结果和私有连接日志，结束后可复制。</string>
-    <string name="label_connection_diagnosis_logs">诊断日志</string>
-    <string name="label_connection_diagnosis_running">采集中</string>
-    <string name="label_connection_diagnosis_finished">已停止</string>
-    <string name="label_connection_diagnosis_copy">复制日志</string>
-    <string name="label_connection_diagnosis_restart">重新诊断</string>
-    <string name="label_connection_diagnosis_network">网络状态</string>
-    <string name="label_connection_diagnosis_nat">NAT 提示</string>
-    <string name="label_connection_diagnosis_proxy">代理</string>
-    <string name="label_connection_diagnosis_gateway">网关探测</string>
-    <string name="label_connection_diagnosis_transport">私有链路</string>
-    <string name="label_connection_diagnosis_recommendation">诊断结论</string>
     <string name="private_transport_status_disconnected">未连接</string>
     <string name="private_transport_status_connecting">连接中</string>
     <string name="private_transport_status_connected">已连接</string>
@@ -258,7 +161,6 @@
     <string name="alert_playback_service_channel_name">PushGo 告警响铃</string>
     <string name="alert_playback_service_channel_description">用于高优先级与持续告警的前台响铃播放。</string>
     <string name="error_request_failed">请求失败，请重试。</string>
-    <string name="error_channel_create_requires_fcm">创建新频道需要 FCM。无 FCM 设备请使用已有频道 ID。</string>
     <string name="error_private_channel_create_failed">私有频道创建失败，请重试。</string>
     <string name="error_private_channel_subscribe_failed">私有频道订阅失败，请检查频道 ID/密码后重试。</string>
     <string name="error_private_channel_unsubscribe_failed">私有频道取消订阅失败，请重试。</string>
@@ -290,116 +192,33 @@
     <string name="entity_body_event_open">已开启</string>
     <string name="entity_body_event_ongoing">进行中</string>
     <string name="entity_body_event_closed">已关闭</string>
-    <string name="entity_body_unknown">未知</string>
     <string name="entity_body_updated">已更新</string>
     <string name="entity_body_thing_archived">已归档</string>
     <string name="entity_body_thing_deleted">已删除</string>
     <string name="entity_body_thing_attribute_update_template">属性更新 || %1$s</string>
     <string name="entity_body_thing_attribute_pair_template">%1$s: %2$s</string>
-    <string name="event_meta_severity">严重程度：%1$s</string>
     <string name="event_meta_tags_count">标签：%1$d</string>
-    <string name="event_meta_updated">更新时间：%1$s</string>
-    <string name="event_meta_timeline_points">时间线节点：%1$d</string>
     <string name="event_status_created_default">已创建</string>
     <string name="event_status_closed_default">已关闭</string>
     <string name="event_message_closed_default">事件已关闭。</string>
-    <string name="label_event_status">事件状态</string>
-    <string name="label_event_message">状态说明</string>
-    <string name="event_detail_current_state">当前状态：%1$s</string>
-    <string name="event_detail_severity_tags">严重程度：%1$s · 标签：%2$d</string>
     <string name="event_detail_attributes">属性</string>
     <string name="event_detail_attachments">图片</string>
     <string name="event_detail_history_timeline">历史时间线</string>
-    <string name="event_detail_attrs_inline">属性：%1$s</string>
-    <string name="event_detail_state_inline">状态：%1$s</string>
-    <string name="thing_meta_tags_count">标签：%1$d</string>
-    <string name="thing_meta_updated">更新时间：%1$s</string>
-    <string name="thing_meta_related_events_count">关联事件：%1$d</string>
-    <string name="thing_meta_messages_count">消息数：%1$d</string>
-    <string name="thing_meta_attrs_count">属性数：%1$d</string>
-    <string name="thing_detail_tags_created">标签：%1$d · 创建时间：%2$s</string>
-    <string name="thing_detail_images_count">图片：%1$d</string>
     <string name="thing_detail_attributes">属性</string>
     <string name="thing_detail_created_updated">创建：%1$s · 更新：%2$s</string>
     <string name="thing_detail_metadata_button">元数据</string>
     <string name="thing_detail_no_metadata">暂无元数据。</string>
-    <string name="thing_detail_related_events">关联事件</string>
     <string name="thing_detail_no_related_events">暂无关联事件。</string>
-    <string name="thing_detail_event_state">事件：%1$s · 状态：%2$s</string>
-    <string name="thing_detail_messages">消息</string>
     <string name="thing_detail_no_related_messages">暂无关联消息。</string>
     <string name="thing_detail_tab_events">事件</string>
     <string name="thing_detail_tab_messages">消息</string>
     <string name="thing_detail_tab_updates">变更</string>
     <string name="thing_detail_no_related_updates">暂无变更记录。</string>
-    <string name="thing_detail_message_id">消息：%1$s</string>
-    <string name="label_connection_diagnosis_share_bundle">分享支持包</string>
-    <string name="label_connection_diagnosis_export_json">导出 JSON</string>
-    <string name="error_connection_diagnosis_open_share_failed">无法打开分享面板：%1$s</string>
-    <string name="label_connection_diagnosis_collecting_progress">采集中 %1$d%% · %2$ds/%3$ds</string>
-    <string name="label_connection_diagnosis_background_probe">链路矩阵探测持续运行中</string>
-    <string name="action_connection_diagnosis_stop">停止采集</string>
-    <string name="label_connection_diagnosis_redact_on">脱敏：开</string>
-    <string name="label_connection_diagnosis_redact_off">脱敏：关</string>
-    <string name="label_connection_diagnosis_live_mode">实时更新</string>
-    <string name="label_connection_diagnosis_background_mode">后台持续</string>
-    <string name="label_connection_diagnosis_link_matrix">链路矩阵</string>
-    <string name="label_connection_diagnosis_link_matrix_empty">尚无链路探测数据</string>
-    <string name="label_connection_diagnosis_failure_reason">失败原因：%1$s</string>
-    <string name="action_connection_diagnosis_enhanced_probe">增强探测</string>
-    <string name="label_connection_diagnosis_selection_history">协议选择历史</string>
-    <string name="label_connection_diagnosis_enhanced_running">增强探测进行中 · %1$s</string>
-    <string name="label_connection_diagnosis_enhanced_running_hint">正在执行分阶段检查（DNS/连接/TLS 或 UDP）。</string>
-    <string name="label_connection_diagnosis_enhanced_result">增强探测结果 · %1$s</string>
-    <string name="label_connection_diagnosis_failed_stage">失败阶段：%1$s</string>
 
-    <string name="label_connection_diagnosis_status_waiting">等待开始</string>
-    <string name="label_connection_diagnosis_status_auto_start_detail">进入页面后会自动开始一次 75 秒网络诊断。</string>
-    <string name="label_connection_diagnosis_status_running">诊断进行中</string>
-    <string name="label_connection_diagnosis_status_running_detail">持续采集网络、网关和私有链路状态，窗口结束后会自动停止。</string>
-    <string name="label_connection_diagnosis_status_stopped">诊断已停止</string>
-    <string name="label_connection_diagnosis_status_stopped_detail">已手动停止采集。你可以复制或导出日志用于排查。</string>
-    <string name="label_connection_diagnosis_status_completed">诊断已完成</string>
-    <string name="label_connection_diagnosis_status_completed_detail">采集窗口已结束。你可以复制或导出日志用于排查。</string>
-    <string name="label_connection_diagnosis_status_preparing">准备中</string>
-    <string name="label_connection_diagnosis_status_preparing_detail">正在初始化诊断环境。</string>
 
-    <string name="label_connection_diagnosis_not_collected">尚未采集</string>
-    <string name="label_connection_diagnosis_not_concluded">尚无诊断结论</string>
-    <string name="label_connection_diagnosis_not_probed">尚未探测</string>
-    <string name="label_connection_diagnosis_no_gateway_nat_observation">尚未拿到网关出口观测结果</string>
-    <string name="label_connection_diagnosis_nat_reflection_note">该结果基于网关反射，仅可作为 NAT 提示，不等同于完整 STUN 分类。</string>
-    <string name="label_connection_diagnosis_proxy_none">未发现系统代理或网关代理迹象</string>
-    <string name="label_connection_diagnosis_proxy_system_and_gateway">系统代理=%1$s · 网关侧也检测到代理头</string>
-    <string name="label_connection_diagnosis_proxy_system_only">系统代理=%1$s</string>
-    <string name="label_connection_diagnosis_proxy_gateway_only">本机未发现系统代理，但网关侧检测到代理头</string>
-    <string name="label_connection_diagnosis_gateway_all_failed">连续失败 %1$d 次 · 最近错误=%2$s</string>
-    <string name="label_connection_diagnosis_gateway_summary">成功 %1$d/%2$d · RTT %3$d-%4$dms · 平均 %5$dms · 失败 %6$d 次</string>
-    <string name="label_connection_diagnosis_transport_fcm_limited">当前仍为 FCM 模式，私有链路日志有限</string>
 
-    <string name="label_connection_diagnosis_recommendation_waiting">建议继续采集到窗口结束，以获得更稳定的结论。</string>
-    <string name="label_connection_diagnosis_recommendation_gateway_failure">网关探测失败占比过高，建议先排查基础可达性、DNS 与 TLS。</string>
-    <string name="label_connection_diagnosis_recommendation_proxy_seen">本次采集存在代理迹象，优先排查代理、企业网关或 VPN 对长连接与 UDP 的影响。</string>
-    <string name="label_connection_diagnosis_recommendation_reconnect">HTTP 反射基本正常，但私有链路仍频繁回退，更像 QUIC/TCP 长连接稳定性或后台策略问题。</string>
-    <string name="label_connection_diagnosis_recommendation_network_changed">诊断期间网络传输发生切换，断链可能与 Wi-Fi/蜂窝切换或验证抖动有关。</string>
-    <string name="label_connection_diagnosis_recommendation_default">更像单一网络环境下的私有通道稳定性问题。建议结合复制日志继续对照网关侧连接记录。</string>
 
-    <string name="error_connection_diagnosis_running_mode_locked">诊断进行中，暂时不能切换模式。</string>
-    <string name="error_connection_diagnosis_running_profile_locked">诊断进行中，暂时不能切换模板。</string>
-    <string name="error_connection_diagnosis_no_report_to_copy">当前没有可复制的诊断报告。</string>
-    <string name="error_connection_diagnosis_export_failed">导出失败：%1$s</string>
-    <string name="error_connection_diagnosis_bundle_failed">生成支持包失败：%1$s</string>
 
-    <string name="message_connection_diagnosis_report_copied">诊断报告已复制。</string>
-    <string name="message_connection_diagnosis_txt_exported">诊断 TXT 已导出。</string>
-    <string name="message_connection_diagnosis_json_exported">诊断 JSON 已导出。</string>
-    <string name="message_connection_diagnosis_json_fail_only_exported">诊断 JSON（仅失败链路）已导出。</string>
-    <string name="message_connection_diagnosis_bundle_ready">支持包已生成，请选择目标应用分享。</string>
-    <string name="label_connection_diagnosis_log_stopped_with_report">诊断已手动停止，已生成可复制报告。</string>
-    <string name="label_connection_diagnosis_log_completed_with_report">诊断已完成，已生成可复制报告。</string>
-    <string name="error_connection_diagnosis_open_share_failed_prefix">无法打开分享面板：</string>
-    <string name="label_filter">筛选</string>
-    <string name="section_status">状态</string>
     <string name="section_updates">更新</string>
     <string name="label_update_auto_check">自动检测更新</string>
     <string name="label_update_auto_check_hint">后台静默检测新版本。</string>
@@ -450,7 +269,6 @@
     <string name="label_update_install_blocked_action">打开安装设置</string>
     <string name="label_update_install_action_required_title">继续完成更新安装</string>
     <string name="label_update_install_action_required_body">继续安装需要你确认系统安装提示。</string>
-    <string name="label_share">分享</string>
     <string name="message_text_copied">内容已复制。</string>
     <string name="message_image_saved">图片已保存到相册。</string>
     <string name="error_message_image_save_failed">保存图片失败。</string>
@@ -477,26 +295,26 @@
     <string name="a11y_action_mark_message_read">标记消息为已读</string>
     <string name="a11y_action_delete_message">删除消息</string>
     <string name="a11y_action_show_search_filters">显示搜索筛选</string>
-    <string name="a11y_action_hide_search_filters">隐藏搜索筛选</string>
     <string name="a11y_action_save_image">保存图片</string>
     <string name="a11y_action_share_image">分享图片</string>
     <string name="a11y_action_close_image_preview">关闭图片预览</string>
     <string name="a11y_selection_mode_entered">已进入选择模式</string>
     <string name="a11y_selection_mode_exited">已退出选择模式</string>
-    <string name="a11y_selection_mode_selection_count">已选择 %1$d 项</string>
-    <string name="a11y_pending_deletion_summary">%1$s。可在 %2$d 秒内撤销。</string>
+    <plurals name="label_selected_count">
+        <item quantity="other">已选择 %1$d 项</item>
+    </plurals>
+    <plurals name="message_marked_read_selected_count">
+        <item quantity="other">已将 %1$d 条消息标记为已读</item>
+    </plurals>
+    <plurals name="a11y_selection_mode_selection_count">
+        <item quantity="other">已选择 %1$d 项</item>
+    </plurals>
+    <plurals name="a11y_pending_deletion_summary">
+        <item quantity="other">%1$s。可在 %2$d 秒内撤销。</item>
+    </plurals>
     <string name="a11y_pane_message_detail">消息详情</string>
     <string name="a11y_pane_image_preview">图片预览</string>
     <string name="a11y_pane_channel_management">管理频道</string>
     <string name="a11y_pane_gateway_settings">网关设置</string>
-    <string name="a11y_pane_update_channel">更新通道</string>
-    <string name="a11y_pane_thing_metadata">对象元数据</string>
     <string name="label_unknown_error">未知错误</string>
-    <string name="confirm_cleanup_events_all">这将删除全部事件记录，且无法撤销。</string>
-    <string name="confirm_cleanup_events_channel">这将删除当前频道的事件记录，且无法撤销。</string>
-    <string name="confirm_close_event">此事件将被关闭，是否继续？</string>
-    <string name="message_events_cleaned">事件已清理</string>
-    <string name="message_events_exported">事件已导出</string>
-    <string name="no_events_available_to_export">没有可导出的事件</string>
-    <string name="thing_meta_metadata_count">元数据：%1$d</string>
 </resources>

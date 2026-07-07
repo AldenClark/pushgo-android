@@ -5,6 +5,7 @@ import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
 import androidx.annotation.VisibleForTesting
+import androidx.core.content.edit
 import io.ethan.pushgo.R
 import io.ethan.pushgo.BuildConfig
 import io.ethan.pushgo.automation.PushGoAutomation
@@ -298,7 +299,9 @@ class PrivateChannelClient(
 
     fun setPerformanceMode(mode: PrivatePerformanceMode) {
         performanceMode = mode
-        prefs.edit().putString(KEY_PERF_MODE, mode.wireValue).apply()
+        prefs.edit {
+            putString(KEY_PERF_MODE, mode.wireValue)
+        }
         nextAllowedPullAtMs = 0L
         syncActiveSessionPowerHint()
         refreshLoop()
@@ -1818,7 +1821,9 @@ class PrivateChannelClient(
                 put("cooldown_until_ms", preference.cooldownUntilMs ?: JSONObject.NULL)
             }
         )
-        prefs.edit().putString(KEY_LOCAL_TRANSPORT_PREF, root.toString()).apply()
+        prefs.edit {
+            putString(KEY_LOCAL_TRANSPORT_PREF, root.toString())
+        }
     }
 
     private fun loadLocalFailureBucketStats(): LocalFailureBucketStats {
@@ -1839,7 +1844,9 @@ class PrivateChannelClient(
             put("route_failures", stats.routeFailures)
             put("updated_at_ms", stats.updatedAtMs)
         }
-        prefs.edit().putString(KEY_LOCAL_FAILURE_BUCKETS, root.toString()).apply()
+        prefs.edit {
+            putString(KEY_LOCAL_FAILURE_BUCKETS, root.toString())
+        }
     }
 
     private fun maybeRepairPrivateRoute(reason: String) {
@@ -2379,7 +2386,9 @@ class PrivateChannelClient(
                 }
             )
         }
-        prefs.edit().putString(KEY_PROFILE_CACHE, obj.toString()).apply()
+        prefs.edit {
+            putString(KEY_PROFILE_CACHE, obj.toString())
+        }
     }
 
     private fun isPrivateTransportProfileCacheFresh(fetchedAtMs: Long): Boolean {
@@ -2818,7 +2827,9 @@ class PrivateChannelClient(
             return
         }
         forceProfileRefreshOnce = true
-        prefs.edit().putString(KEY_LAST_PRIVATE_PROFILE_REFRESH_VERSION, currentVersion).apply()
+        prefs.edit {
+            putString(KEY_LAST_PRIVATE_PROFILE_REFRESH_VERSION, currentVersion)
+        }
     }
 
     fun pinTransport(transport: String, ttlMs: Long = 0L): Boolean {
@@ -2879,7 +2890,9 @@ class PrivateChannelClient(
         localFailureBucketStats = LocalFailureBucketStats()
         lastFailureBucketFingerprint = null
         lastTransportStatusFingerprint = null
-        prefs.edit().clear().apply()
+        prefs.edit {
+            clear()
+        }
         if (handle > 0L) {
             scope.launch {
                 stopNativeSessionHandle(handle, "automation_reset")
@@ -2930,7 +2943,9 @@ class PrivateChannelClient(
             put("detail", detail ?: "")
             put("updated_at_ms", status.updatedAtMs)
         }
-        prefs.edit().putString(KEY_TRANSPORT_STATUS, obj.toString()).apply()
+        prefs.edit {
+            putString(KEY_TRANSPORT_STATUS, obj.toString())
+        }
         transportStatusState.value = status
         connectionSnapshotState.value = buildConnectionSnapshot()
         val fingerprint = "$route|$transport|$stage|${detail.orEmpty()}"
@@ -3065,7 +3080,9 @@ class PrivateChannelClient(
             put("resume_token", state.resumeToken ?: "")
             put("last_acked_seq", state.lastAckedSeq)
         }
-        prefs.edit().putString(KEY_STATE, obj.toString()).apply()
+        prefs.edit {
+            putString(KEY_STATE, obj.toString())
+        }
     }
 
     private data class DeviceState(
