@@ -85,11 +85,11 @@ internal val LightExtendedColors = PushGoExtendedColors(
         background = Color(0xFFEEF1F5),
     ),
     stateSuccess = PushGoStateColors(
-        foreground = Color(0xFF15803D),
+        foreground = Color(0xFF166534),
         background = Color(0xFFE2F5E8),
     ),
     stateWarning = PushGoStateColors(
-        foreground = Color(0xFFD97706),
+        foreground = Color(0xFFB45309),
         background = Color(0xFFFFF4D8),
     ),
     stateDanger = PushGoStateColors(

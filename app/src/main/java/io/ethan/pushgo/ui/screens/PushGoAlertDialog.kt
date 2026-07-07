@@ -5,11 +5,14 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+import io.ethan.pushgo.ui.accessibility.pushGoPaneSemantics
 import io.ethan.pushgo.ui.theme.PushGoThemeExtras
 
 @Composable
 internal fun PushGoAlertDialog(
     onDismissRequest: () -> Unit,
+    paneTitle: String? = null,
     title: @Composable (() -> Unit)? = null,
     text: @Composable (() -> Unit)? = null,
     confirmButton: @Composable () -> Unit,
@@ -17,6 +20,7 @@ internal fun PushGoAlertDialog(
 ) {
     val uiColors = PushGoThemeExtras.colors
     AlertDialog(
+        modifier = Modifier.pushGoPaneSemantics(paneTitle),
         onDismissRequest = onDismissRequest,
         title = title,
         text = text,

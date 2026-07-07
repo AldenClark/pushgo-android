@@ -16,6 +16,7 @@ import io.ethan.pushgo.data.PushTokenProvider
 import io.ethan.pushgo.data.SecureSecretStore
 import io.ethan.pushgo.data.SettingsRepository
 import io.ethan.pushgo.data.db.PushGoDatabase
+import io.ethan.pushgo.data.model.KeyEncoding
 import io.ethan.pushgo.notifications.MessageStateCoordinator
 import io.ethan.pushgo.notifications.PrivateChannelClient
 import io.ethan.pushgo.notifications.WarpLinkNativeBridge
@@ -34,6 +35,7 @@ import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
 import org.junit.After
+import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
@@ -275,6 +277,35 @@ class RuntimePrivateChannelStateFlowInstrumentedTest {
             "RUNTIME_SETTINGS_UI " +
                 "switch_fcm_to_private_ui_ms=$switchToPrivateUiMs switch_private_to_fcm_ui_ms=$switchBackToFcmUiMs"
         )
+    }
+
+    @Test
+    fun settingsViewModel_saveDecryptionConfig_preservesUntouchedExistingKey() = runBlocking {
+        val original = "0123456789abcdef".toByteArray()
+        harness.settingsRepository.setNotificationKeyBytes(original)
+        harness.settingsRepository.setKeyEncoding(KeyEncoding.BASE64)
+
+        val vm = buildSettingsViewModelOnMain()
+        val initialState = awaitUiState(vm) { state ->
+            state.isDecryptionConfigured && state.keyEncoding == KeyEncoding.BASE64
+        }
+        assertTrue(initialState.decryptionKeyInput.isEmpty())
+
+        withContext(Dispatchers.Main) {
+            vm.updateKeyEncoding(KeyEncoding.HEX)
+            vm.saveDecryptionConfig()
+        }
+        val savedState = awaitUiState(vm) { state ->
+            state.isDecryptionConfigured &&
+                state.keyEncoding == KeyEncoding.HEX &&
+                !state.isSavingDecryption &&
+                state.successMessage != null
+        }
+
+        assertTrue(savedState.isDecryptionConfigured)
+        assertArrayEquals(original, harness.settingsRepository.getNotificationKeyBytes())
+        assertEquals(KeyEncoding.HEX, harness.settingsRepository.getKeyEncoding())
+        assertNotNull(harness.settingsRepository.getNotificationKeyUpdatedAt())
     }
 
     private fun buildSettingsViewModel(): SettingsViewModel {

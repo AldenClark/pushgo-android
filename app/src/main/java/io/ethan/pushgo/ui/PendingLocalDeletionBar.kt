@@ -20,10 +20,15 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.produceState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import io.ethan.pushgo.R
+import io.ethan.pushgo.ui.accessibility.pushGoLiveRegion
 import io.ethan.pushgo.ui.theme.PushGoThemeExtras
 import kotlinx.coroutines.delay
 import kotlin.math.ceil
@@ -34,6 +39,7 @@ fun PendingLocalDeletionBar(
     onUndo: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val context = LocalContext.current
     AnimatedVisibility(
         visible = pendingDeletion != null,
         modifier = modifier,
@@ -57,6 +63,15 @@ fun PendingLocalDeletionBar(
         }
 
         Surface(
+            modifier = Modifier
+                .pushGoLiveRegion()
+                .semantics(mergeDescendants = true) {
+                    contentDescription = context.getString(
+                        R.string.a11y_pending_deletion_summary,
+                        entry.summary,
+                        remainingSeconds,
+                    )
+                },
             color = uiColors.surfaceRaised,
             contentColor = uiColors.textPrimary,
             shape = RoundedCornerShape(18.dp),
@@ -84,7 +99,7 @@ fun PendingLocalDeletionBar(
                     color = uiColors.textSecondary,
                 )
                 TextButton(onClick = onUndo) {
-                    Text(text = androidx.compose.ui.res.stringResource(R.string.label_undo))
+                    Text(text = stringResource(R.string.label_undo))
                 }
             }
         }

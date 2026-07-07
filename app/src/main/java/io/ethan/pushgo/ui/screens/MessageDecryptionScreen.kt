@@ -58,10 +58,13 @@ import io.ethan.pushgo.ui.theme.pushGoOutlinedTextFieldColors
 import io.ethan.pushgo.ui.theme.pushGoSegmentedButtonColors
 import io.ethan.pushgo.ui.viewmodel.SettingsViewModel
 import io.ethan.pushgo.ui.announceForAccessibility
+import io.ethan.pushgo.ui.accessibility.toggleStateDescription
 
 import android.widget.Toast
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.ui.semantics.semantics
 
 @Composable
 fun MessageDecryptionScreen(
@@ -151,6 +154,7 @@ fun DecryptionKeyForm(
 ) {
     val uiColors = PushGoThemeExtras.colors
     var showKey by remember { mutableStateOf(false) }
+    val visibilityStateLabel = toggleStateDescription(showKey)
 
     Column(
         modifier = modifier,
@@ -197,7 +201,11 @@ fun DecryptionKeyForm(
             visualTransformation = if (showKey) VisualTransformation.None else PasswordVisualTransformation(),
             trailingIcon = {
                 IconButton(
-                    modifier = Modifier.testTag("action.settings.decryption.toggle_visibility"),
+                    modifier = Modifier
+                        .testTag("action.settings.decryption.toggle_visibility")
+                        .semantics {
+                            stateDescription = visibilityStateLabel
+                        },
                     onClick = { showKey = !showKey },
                 ) {
                     Icon(

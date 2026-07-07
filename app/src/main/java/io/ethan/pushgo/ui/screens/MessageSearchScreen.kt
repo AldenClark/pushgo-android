@@ -32,6 +32,8 @@ import io.ethan.pushgo.ui.theme.PushGoThemeExtras
 import io.ethan.pushgo.markdown.MessageBodyResolver
 import io.ethan.pushgo.markdown.MessagePreviewExtractor
 import io.ethan.pushgo.ui.PushGoViewModelFactory
+import io.ethan.pushgo.ui.accessibility.joinAccessibilitySummary
+import io.ethan.pushgo.ui.accessibility.pushGoMergedActionSemantics
 import io.ethan.pushgo.ui.rememberBottomGestureInset
 import io.ethan.pushgo.ui.viewmodel.MessageSearchViewModel
 import java.time.ZoneId
@@ -94,10 +96,20 @@ private fun SearchResultRow(message: PushMessage, onClick: () -> Unit) {
         MessagePreviewExtractor.listPreview(resolvedBody.rawText)
     }
     val hasBodyText = bodyPreview.isNotBlank()
+    val rowSummary = joinAccessibilitySummary(
+        message.title.ifBlank { stringResource(R.string.label_no_title) },
+        timeText,
+        bodyPreview.takeIf { it.isNotBlank() },
+    )
     Column(
         modifier = Modifier
             .fillMaxWidth()
             .clickable { onClick() }
+            .pushGoMergedActionSemantics(
+                summary = rowSummary,
+                onClickLabel = stringResource(R.string.a11y_action_open_message_result),
+                onClickAction = onClick,
+            )
             .padding(vertical = 8.dp),
     ) {
         Text(

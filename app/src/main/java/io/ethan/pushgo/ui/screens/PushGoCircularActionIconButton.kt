@@ -9,12 +9,17 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.onClick
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 
 @Composable
 internal fun PushGoCircularActionIconButton(
     imageVector: ImageVector,
-    contentDescription: String?,
+    accessibilityLabel: String,
     onClick: () -> Unit,
     containerColor: Color,
     contentColor: Color,
@@ -23,12 +28,20 @@ internal fun PushGoCircularActionIconButton(
     IconButton(
         onClick = onClick,
         modifier = modifier
-            .size(40.dp)
-            .background(containerColor, CircleShape),
+            .size(48.dp)
+            .background(containerColor, CircleShape)
+            .semantics {
+                role = Role.Button
+                contentDescription = accessibilityLabel
+                onClick(label = accessibilityLabel) {
+                    onClick()
+                    true
+                }
+            },
     ) {
         Icon(
             imageVector = imageVector,
-            contentDescription = contentDescription,
+            contentDescription = null,
             tint = contentColor,
             modifier = Modifier.size(20.dp),
         )

@@ -99,6 +99,7 @@ class SettingsViewModel(
         private set
     var isDecryptionConfigured by mutableStateOf(false)
         private set
+    private var hasEditedDecryptionKeyInput = false
 
     var isMessagePageEnabled by mutableStateOf(true)
         private set
@@ -653,6 +654,7 @@ class SettingsViewModel(
 
     fun updateDecryptionKeyInput(value: String) {
         decryptionKeyInput = value
+        hasEditedDecryptionKeyInput = true
     }
 
     fun updateKeyEncoding(value: KeyEncoding) {
@@ -988,10 +990,16 @@ class SettingsViewModel(
             try {
                 val trimmed = decryptionKeyInput.trim()
                 if (trimmed.isEmpty()) {
-                    settingsRepository.setNotificationKeyBytes(null)
-                    decryptionUpdatedAt = null
-                    isDecryptionConfigured = false
+                    if (!hasEditedDecryptionKeyInput && isDecryptionConfigured) {
+                        settingsRepository.setKeyEncoding(keyEncoding)
+                        decryptionUpdatedAt = settingsRepository.getNotificationKeyUpdatedAt()
+                    } else {
+                        settingsRepository.setNotificationKeyBytes(null)
+                        decryptionUpdatedAt = null
+                        isDecryptionConfigured = false
+                    }
                     decryptionKeyInput = ""
+                    hasEditedDecryptionKeyInput = false
                     successMessage = ResMessage(R.string.message_decryption_saved)
                     return@launch
                 }
@@ -1004,6 +1012,7 @@ class SettingsViewModel(
                 decryptionUpdatedAt = settingsRepository.getNotificationKeyUpdatedAt() ?: Instant.now()
                 isDecryptionConfigured = true
                 decryptionKeyInput = ""
+                hasEditedDecryptionKeyInput = false
                 successMessage = ResMessage(R.string.message_decryption_saved)
             } catch (ex: NotificationKeyValidationException) {
                 errorMessage = when (ex) {

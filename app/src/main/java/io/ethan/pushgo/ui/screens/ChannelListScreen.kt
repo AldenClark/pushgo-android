@@ -61,6 +61,8 @@ import io.ethan.pushgo.R
 import io.ethan.pushgo.data.AppContainer
 import io.ethan.pushgo.data.model.ChannelSubscription
 import io.ethan.pushgo.ui.PendingLocalDeletionCoordinator
+import io.ethan.pushgo.ui.accessibility.joinAccessibilitySummary
+import io.ethan.pushgo.ui.accessibility.pushGoMergedActionSemantics
 import io.ethan.pushgo.ui.rememberBottomBarNestedScrollConnection
 import io.ethan.pushgo.ui.rememberBottomGestureInset
 import io.ethan.pushgo.ui.viewmodel.SettingsViewModel
@@ -214,14 +216,16 @@ fun ChannelListScreen(
     }
     if (pendingChannelRemoval != null) {
         val target = pendingChannelRemoval
+        val unsubscribeTitle = stringResource(
+            R.string.label_unsubscribe_channel_title,
+            target?.displayName ?: "",
+        )
         PushGoAlertDialog(
             onDismissRequest = { pendingChannelRemoval = null },
+            paneTitle = unsubscribeTitle,
             title = {
                 Text(
-                    text = stringResource(
-                        R.string.label_unsubscribe_channel_title,
-                        target?.displayName ?: ""
-                    )
+                    text = unsubscribeTitle
                 )
             },
             text = {
@@ -272,14 +276,16 @@ fun ChannelListScreen(
 
     if (pendingChannelRename != null) {
         val target = pendingChannelRename
+        val renameTitle = stringResource(
+            R.string.label_rename_channel_title,
+            target?.displayName ?: "",
+        )
         PushGoAlertDialog(
             onDismissRequest = { pendingChannelRename = null },
+            paneTitle = renameTitle,
             title = {
                 Text(
-                    text = stringResource(
-                        R.string.label_rename_channel_title,
-                        target?.displayName ?: ""
-                    )
+                    text = renameTitle
                 )
             },
             text = {
@@ -327,6 +333,7 @@ fun ChannelListScreen(
             modifier = Modifier.testTag("sheet.channels.entry"),
             onDismissRequest = { showChannelEntrySheet = false },
             sheetState = sheetState,
+            paneTitle = stringResource(R.string.a11y_pane_channel_management),
         ) {
             Column(
                 modifier = Modifier
@@ -454,7 +461,7 @@ private enum class ChannelEntryMode(val labelRes: Int) {
 
 @Composable
 
-private fun ChannelRow(
+internal fun ChannelRow(
     subscription: ChannelSubscription,
     onRename: () -> Unit,
     onDelete: () -> Unit,
@@ -462,6 +469,10 @@ private fun ChannelRow(
 ) {
     val uiColors = PushGoThemeExtras.colors
     var menuExpanded by remember { mutableStateOf(false) }
+    val rowSummary = joinAccessibilitySummary(
+        subscription.displayName,
+        subscription.channelId,
+    )
 
     Row(
         modifier = Modifier
@@ -469,6 +480,11 @@ private fun ChannelRow(
             .heightIn(min = 64.dp)
             .background(PushGoThemeExtras.colors.fieldContainer)
             .clickable { onCopy() }
+            .pushGoMergedActionSemantics(
+                summary = rowSummary,
+                onClickLabel = stringResource(R.string.a11y_action_copy_channel_id),
+                onClickAction = onCopy,
+            )
             .padding(horizontal = 20.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {

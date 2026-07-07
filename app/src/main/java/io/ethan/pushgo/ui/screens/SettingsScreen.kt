@@ -77,6 +77,8 @@ import androidx.compose.ui.unit.sp
 import io.ethan.pushgo.R
 import io.ethan.pushgo.ui.rememberBottomGestureInset
 import io.ethan.pushgo.ui.announceForAccessibility
+import io.ethan.pushgo.ui.accessibility.pushGoMergedActionSemantics
+import io.ethan.pushgo.ui.accessibility.toggleStateDescription
 import io.ethan.pushgo.ui.theme.PushGoThemeExtras
 import io.ethan.pushgo.ui.theme.pushGoDangerButtonColors
 import io.ethan.pushgo.ui.theme.pushGoOutlinedTextFieldColors
@@ -439,6 +441,7 @@ fun SettingsScreen(
             modifier = Modifier.testTag("sheet.settings.decryption"),
             onDismissRequest = { showDecryptionSheet = false },
             sheetState = sheetState,
+            paneTitle = stringResource(R.string.section_decryption),
         ) {
             Column(
                 modifier = Modifier
@@ -470,6 +473,7 @@ fun SettingsScreen(
             modifier = Modifier.testTag("sheet.settings.gateway"),
             onDismissRequest = { showGatewaySheet = false },
             sheetState = sheetState,
+            paneTitle = stringResource(R.string.a11y_pane_gateway_settings),
         ) {
             Column(
                 modifier = Modifier
@@ -496,6 +500,7 @@ fun SettingsScreen(
     if (uiState.shouldShowPrivateChannelWhitelistDialog) {
         PushGoAlertDialog(
             onDismissRequest = viewModel::consumePrivateChannelWhitelistDialog,
+            paneTitle = stringResource(R.string.dialog_private_channel_whitelist_title),
             title = { Text(text = stringResource(R.string.dialog_private_channel_whitelist_title)) },
             text = { Text(text = stringResource(R.string.dialog_private_channel_whitelist_body)) },
             confirmButton = {
@@ -509,6 +514,7 @@ fun SettingsScreen(
     if (uiState.shouldShowInstallPermissionDialog) {
         PushGoAlertDialog(
             onDismissRequest = viewModel::consumeInstallPermissionDialog,
+            paneTitle = stringResource(R.string.label_update_install_permission_title),
             title = { Text(text = stringResource(R.string.label_update_install_permission_title)) },
             text = { Text(text = stringResource(R.string.label_update_install_permission_body)) },
             confirmButton = {
@@ -550,6 +556,7 @@ fun SettingsScreen(
             ?: stringResource(R.string.label_unknown_error)
         PushGoAlertDialog(
             onDismissRequest = viewModel::consumeInstallBlockedDialog,
+            paneTitle = stringResource(R.string.label_update_install_blocked_title),
             title = { Text(text = stringResource(R.string.label_update_install_blocked_title)) },
             text = {
                 Text(
@@ -675,7 +682,7 @@ private fun SettingsRow(
 }
 
 @Composable
-private fun SettingsToggleRow(
+internal fun SettingsToggleRow(
     testTag: String,
     icon: androidx.compose.ui.graphics.vector.ImageVector,
     title: String,
@@ -689,7 +696,13 @@ private fun SettingsToggleRow(
             modifier = Modifier
                 .fillMaxWidth()
                 .testTag(testTag)
-                .clickable { onCheckedChange(!checked) },
+                .clickable { onCheckedChange(!checked) }
+                .pushGoMergedActionSemantics(
+                    summary = title,
+                    stateDescription = toggleStateDescription(checked),
+                    onClickLabel = title,
+                    onClickAction = { onCheckedChange(!checked) },
+                ),
             headlineContent = { Text(title) },
             supportingContent = { if (!subtitle.isNullOrBlank()) Text(subtitle) },
             leadingContent = {

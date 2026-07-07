@@ -22,8 +22,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
+import io.ethan.pushgo.R
 import io.ethan.pushgo.ui.theme.PushGoThemeExtras
 
 @Composable
@@ -35,6 +40,7 @@ internal fun PushGoSearchBar(
     trailingContent: @Composable RowScope.() -> Unit = {},
 ) {
     val uiColors = PushGoThemeExtras.colors
+    val emptyStateLabel = stringResource(R.string.a11y_value_empty)
     Row(
         modifier = modifier
             .fillMaxWidth()
@@ -49,7 +55,12 @@ internal fun PushGoSearchBar(
         BasicTextField(
             value = value,
             onValueChange = onValueChange,
-            modifier = Modifier.weight(1f),
+            modifier = Modifier
+                .weight(1f)
+                .semantics {
+                    contentDescription = placeholderText
+                    stateDescription = value.ifBlank { emptyStateLabel }
+                },
             textStyle = MaterialTheme.typography.bodyLarge.copy(color = uiColors.textPrimary),
             singleLine = true,
             cursorBrush = SolidColor(uiColors.accentPrimary),

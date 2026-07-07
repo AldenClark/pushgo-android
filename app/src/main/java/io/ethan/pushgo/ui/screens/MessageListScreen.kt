@@ -36,6 +36,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.input.pointer.pointerInput
@@ -79,6 +80,10 @@ import io.ethan.pushgo.ui.viewmodel.toUserFacingText
 import io.ethan.pushgo.ui.PendingLocalDeletionCoordinator
 import io.ethan.pushgo.ui.PushGoViewModelFactory
 import io.ethan.pushgo.ui.announceForAccessibility
+import io.ethan.pushgo.ui.accessibility.joinAccessibilitySummary
+import io.ethan.pushgo.ui.accessibility.messageReadStateDescription
+import io.ethan.pushgo.ui.accessibility.pushGoMergedActionSemantics
+import io.ethan.pushgo.ui.accessibility.selectionStateDescription
 import io.ethan.pushgo.ui.rememberBottomBarNestedScrollConnection
 import io.ethan.pushgo.ui.rememberBottomGestureInset
 import io.ethan.pushgo.ui.theme.PushGoThemeExtras
@@ -134,6 +139,7 @@ fun MessageListScreen(
     
     var channelNameMap by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
     var isSelectionMode by remember { mutableStateOf(false) }
+    var lastSelectionMode by remember { mutableStateOf(false) }
     var selectedMessageIds by remember { mutableStateOf(emptySet<String>()) }
     var initialSelectionStateForDrag by remember { mutableStateOf<Boolean?>(null) }
     var isPullRefreshing by remember { mutableStateOf(false) }
@@ -222,6 +228,15 @@ fun MessageListScreen(
                 haptic.performHapticFeedback(HapticFeedbackType.LongPress)
             }
         }
+    }
+
+    LaunchedEffect(isSelectionMode) {
+        if (isSelectionMode && !lastSelectionMode) {
+            announceForAccessibility(context, context.getString(R.string.a11y_selection_mode_entered))
+        } else if (!isSelectionMode && lastSelectionMode) {
+            announceForAccessibility(context, context.getString(R.string.a11y_selection_mode_exited))
+        }
+        lastSelectionMode = isSelectionMode
     }
 
     suspend fun scheduleDeletion(targetMessages: List<PushMessage>) {
@@ -846,7 +861,7 @@ private fun FilterMenuIcon(
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun MessageRow(
+internal fun MessageRow(
     modifier: Modifier = Modifier,
     message: PushMessage,
     imageModels: List<Any>,
@@ -867,6 +882,25 @@ private fun MessageRow(
     var offsetX by remember { mutableFloatStateOf(0f) }
     val timeText = remember(message.receivedAt) { formatMessageTime(context, message.receivedAt, ZoneId.systemDefault()) }
     val bodyPreview = remember(message.bodyPreview) { message.bodyPreview?.trim().orEmpty() }
+    val severityLabel = when (message.severity) {
+        MessageSeverity.LOW -> stringResource(R.string.message_severity_low)
+        MessageSeverity.MEDIUM -> stringResource(R.string.message_severity_medium)
+        MessageSeverity.HIGH -> stringResource(R.string.message_severity_high)
+        MessageSeverity.CRITICAL -> stringResource(R.string.message_severity_critical)
+        null -> null
+    }
+    val rowSummary = joinAccessibilitySummary(
+        message.title.ifBlank { stringResource(R.string.app_name) },
+        timeText,
+        channelDisplayName,
+        severityLabel,
+        bodyPreview.takeIf { it.isNotBlank() },
+        if (imageModels.isNotEmpty()) "${imageModels.size} image attachments" else null,
+    )
+    val rowStateDescription = joinAccessibilitySummary(
+        messageReadStateDescription(message.isRead),
+        if (selectionMode) selectionStateDescription(selected) else null,
+    ).takeIf { it.isNotBlank() }
 
     val uiColors = PushGoThemeExtras.colors
     Box(modifier = modifier.fillMaxWidth().background(uiColors.fieldContainer)) {
@@ -875,7 +909,7 @@ private fun MessageRow(
                 if (hasMarkReadAction) {
                     PushGoCircularActionIconButton(
                         imageVector = Icons.Outlined.MarkEmailRead,
-                        contentDescription = null,
+                        accessibilityLabel = stringResource(R.string.a11y_action_mark_message_read),
                         onClick = { offsetX = 0f; onMarkRead() },
                         containerColor = uiColors.stateInfo.background,
                         contentColor = uiColors.stateInfo.foreground,
@@ -884,7 +918,7 @@ private fun MessageRow(
                 }
                 PushGoCircularActionIconButton(
                     imageVector = Icons.Outlined.Delete,
-                    contentDescription = null,
+                    accessibilityLabel = stringResource(R.string.a11y_action_delete_message),
                     onClick = { offsetX = 0f; onDelete() },
                     containerColor = uiColors.stateDanger.background,
                     contentColor = uiColors.stateDanger.foreground,
@@ -905,6 +939,54 @@ private fun MessageRow(
                         orientation = Orientation.Horizontal,
                         onDragStopped = { offsetX = if (offsetX < -actionWidthPx / 2) -actionWidthPx else 0f }
                     )
+                )
+                .pushGoMergedActionSemantics(
+                    summary = rowSummary,
+                    stateDescription = rowStateDescription,
+                    selectedState = if (selectionMode) selected else null,
+                    onClickLabel = if (selectionMode) {
+                        stringResource(R.string.a11y_action_toggle_selection)
+                    } else {
+                        stringResource(R.string.a11y_action_open_message)
+                    },
+                    onClickAction = { if (selectionMode) onToggleSelection() else onClick() },
+                    onLongClickLabel = if (selectionMode) null else stringResource(R.string.a11y_action_enter_selection_mode),
+                    onLongClickAction = if (selectionMode) {
+                        null
+                    } else {
+                        {
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            onToggleSelection()
+                        }
+                    },
+                    customActions = if (selectionMode) {
+                        emptyList()
+                    } else {
+                        buildList {
+                            if (hasMarkReadAction) {
+                                add(
+                                    CustomAccessibilityAction(
+                                        label = context.getString(R.string.a11y_action_mark_message_read),
+                                        action = {
+                                            offsetX = 0f
+                                            onMarkRead()
+                                            true
+                                        },
+                                    )
+                                )
+                            }
+                            add(
+                                CustomAccessibilityAction(
+                                    label = context.getString(R.string.a11y_action_delete_message),
+                                    action = {
+                                        offsetX = 0f
+                                        onDelete()
+                                        true
+                                    },
+                                )
+                            )
+                        }
+                    },
                 )
                 .padding(horizontal = ScreenHorizontalPadding, vertical = 12.dp)
         ) {

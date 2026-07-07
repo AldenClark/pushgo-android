@@ -39,6 +39,7 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import io.ethan.pushgo.MainActivity
 import io.ethan.pushgo.R
 import io.ethan.pushgo.automation.PushGoAutomation
 import io.ethan.pushgo.data.AppContainer
@@ -95,6 +96,7 @@ fun PushGoAppRoot(
     var selectedMessagePreview by remember { mutableStateOf<PushMessage?>(null) }
     var pendingEventIdToOpen by remember { mutableStateOf<String?>(null) }
     var pendingThingIdToOpen by remember { mutableStateOf<String?>(null) }
+    var pendingThingDetailTabToOpen by remember { mutableStateOf<String?>(null) }
     var openedEntityType by remember { mutableStateOf<String?>(null) }
     var openedEntityId by remember { mutableStateOf<String?>(null) }
     var messageBatchMode by remember { mutableStateOf(false) }
@@ -234,6 +236,7 @@ fun PushGoAppRoot(
         } else if (entityType == "thing" && entityId != null) {
             navController.navigate(ThingsRoute) { popUpTo(navController.graph.findStartDestination().id) { saveState = true }; launchSingleTop = true; restoreState = true }
             pendingThingIdToOpen = entityId
+            pendingThingDetailTabToOpen = startIntent.getStringExtra(MainActivity.EXTRA_THING_DETAIL_TAB)
         } else {
             selectedMessageId = startIntent?.getStringExtra(NotificationHelper.EXTRA_MESSAGE_ID)
         }
@@ -372,7 +375,12 @@ fun PushGoAppRoot(
                 onChannelBottomBarVisibilityChanged = { bottomBarVisible = it },
                 pendingEventIdToOpen = pendingEventIdToOpen, onPendingEventOpened = { pendingEventIdToOpen = null },
                 onEventDetailOpened = { openedEntityType = "event"; openedEntityId = it }, onEventDetailClosed = { openedEntityType = null; openedEntityId = null },
-                pendingThingIdToOpen = pendingThingIdToOpen, onPendingThingOpened = { pendingThingIdToOpen = null },
+                pendingThingIdToOpen = pendingThingIdToOpen,
+                pendingThingDetailTabToOpen = pendingThingDetailTabToOpen,
+                onPendingThingOpened = {
+                    pendingThingIdToOpen = null
+                    pendingThingDetailTabToOpen = null
+                },
                 onThingDetailOpened = { openedEntityType = "thing"; openedEntityId = it }, onThingDetailClosed = { openedEntityType = null; openedEntityId = null }
             )
             if (selectedMessageId != null) {
@@ -420,6 +428,10 @@ fun PushGoAppRoot(
                     autoUpdateDialogVisible = false
                 }
             },
+            paneTitle = stringResource(
+                R.string.label_update_available_title,
+                availableUpdate.versionName,
+            ),
             title = {
                 Text(
                     text = stringResource(
@@ -473,6 +485,7 @@ fun PushGoAppRoot(
     if (!isOnSettingsRoute && settingsViewModel.shouldShowInstallPermissionDialog) {
         PushGoAlertDialog(
             onDismissRequest = settingsViewModel::consumeInstallPermissionDialog,
+            paneTitle = stringResource(R.string.label_update_install_permission_title),
             title = { Text(text = stringResource(R.string.label_update_install_permission_title)) },
             text = { Text(text = stringResource(R.string.label_update_install_permission_body)) },
             confirmButton = {
@@ -514,6 +527,7 @@ fun PushGoAppRoot(
             ?: stringResource(R.string.label_unknown_error)
         PushGoAlertDialog(
             onDismissRequest = settingsViewModel::consumeInstallBlockedDialog,
+            paneTitle = stringResource(R.string.label_update_install_blocked_title),
             title = { Text(text = stringResource(R.string.label_update_install_blocked_title)) },
             text = {
                 Text(
@@ -579,7 +593,7 @@ private fun PushGoNavHost(
     thingCount: Int, thingRefreshToken: Long, onThingBatchModeChanged: (Boolean) -> Unit, onThingBottomBarVisibilityChanged: (Boolean) -> Unit, thingScrollToTopToken: Long,
     onChannelBottomBarVisibilityChanged: (Boolean) -> Unit,
     pendingEventIdToOpen: String?, onPendingEventOpened: () -> Unit, onEventDetailOpened: (String) -> Unit, onEventDetailClosed: () -> Unit,
-    pendingThingIdToOpen: String?, onPendingThingOpened: () -> Unit, onThingDetailOpened: (String) -> Unit, onThingDetailClosed: () -> Unit
+    pendingThingIdToOpen: String?, pendingThingDetailTabToOpen: String?, onPendingThingOpened: () -> Unit, onThingDetailOpened: (String) -> Unit, onThingDetailClosed: () -> Unit
 ) {
     NavHost(
         navController = navController, startDestination = initialRoute, modifier = Modifier.padding(padding),
@@ -617,6 +631,7 @@ private fun PushGoNavHost(
                 container,
                 thingRefreshToken,
                 pendingThingIdToOpen,
+                pendingThingDetailTabToOpen,
                 onPendingThingOpened,
                 onThingDetailOpened,
                 onThingDetailClosed,

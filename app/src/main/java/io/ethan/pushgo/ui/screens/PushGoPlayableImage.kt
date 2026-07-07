@@ -24,6 +24,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import coil3.DrawableImage
 import coil3.Image
@@ -33,6 +34,7 @@ import coil3.gif.repeatCount
 import coil3.request.ImageRequest
 import coil3.request.crossfade
 import io.ethan.pushgo.data.ImageAssetMetadataStore
+import io.ethan.pushgo.R
 import io.ethan.pushgo.ui.theme.PushGoThemeExtras
 import java.io.File
 import java.util.Locale
@@ -54,6 +56,7 @@ fun PushGoPlayableImage(
     onPlayClick: (() -> Unit)? = null,
     onPlaybackFinished: (() -> Unit)? = null,
     onClick: (() -> Unit)? = null,
+    onClickLabel: String? = null,
     onImageLoadStateChanged: ((PushGoImageLoadState) -> Unit)? = null,
 ) {
     val context = LocalContext.current
@@ -91,7 +94,10 @@ fun PushGoPlayableImage(
     }
 
     val imageClickModifier = if (onClick != null && imageLoadState.isLoaded) {
-        Modifier.clickable(onClick = onClick)
+        Modifier.clickable(
+            onClickLabel = onClickLabel,
+            onClick = onClick,
+        )
     } else {
         Modifier
     }
@@ -154,7 +160,7 @@ fun PushGoPlayableImage(
             ) {
                 Icon(
                     imageVector = Icons.Filled.PlayArrow,
-                    contentDescription = null,
+                    contentDescription = stringResource(R.string.a11y_action_play_image),
                     tint = uiColors.overlayForeground,
                 )
             }

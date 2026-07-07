@@ -59,6 +59,10 @@ import io.ethan.pushgo.notifications.ForegroundNotificationTopMetrics
 import io.ethan.pushgo.notifications.ProviderIngressCoordinator
 import io.ethan.pushgo.ui.PendingLocalDeletionCoordinator
 import io.ethan.pushgo.ui.PushGoViewModelFactory
+import io.ethan.pushgo.ui.announceForAccessibility
+import io.ethan.pushgo.ui.accessibility.joinAccessibilitySummary
+import io.ethan.pushgo.ui.accessibility.pushGoMergedActionSemantics
+import io.ethan.pushgo.ui.accessibility.selectionStateDescription
 import io.ethan.pushgo.ui.rememberBottomBarNestedScrollConnection
 import io.ethan.pushgo.ui.rememberBottomGestureInset
 import io.ethan.pushgo.ui.theme.PushGoSheetContainerColor
@@ -170,6 +174,7 @@ fun ThingListScreen(
     container: AppContainer,
     refreshToken: Long,
     openThingId: String?,
+    openThingDetailTab: String?,
     onOpenThingHandled: () -> Unit,
     onThingDetailOpened: (String) -> Unit,
     onThingDetailClosed: () -> Unit,
@@ -184,11 +189,13 @@ fun ThingListScreen(
     var hasMoreThings by remember { mutableStateOf(true) }
     var isLoadingMoreThings by remember { mutableStateOf(false) }
     var selectedThing by remember { mutableStateOf<ThingCardModel?>(null) }
+    var selectedThingInitialTab by remember { mutableStateOf<ThingDetailTab?>(null) }
     var selectedRelatedMessage by remember { mutableStateOf<ThingRelatedMessage?>(null) }
     var selectedRelatedEvent by remember { mutableStateOf<EventCardModel?>(null) }
     var selectedRelatedUpdate by remember { mutableStateOf<ThingRelatedUpdate?>(null) }
     
     var isSelectionMode by remember { mutableStateOf(false) }
+    var lastSelectionMode by remember { mutableStateOf(false) }
     var selectedThingIds by remember { mutableStateOf<Set<String>>(emptySet()) }
     var initialSelectionStateForDrag by remember { mutableStateOf<Boolean?>(null) }
     var isPullRefreshing by remember { mutableStateOf(false) }
@@ -246,6 +253,15 @@ fun ThingListScreen(
 
     fun showToast(message: String) {
         Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
+    }
+
+    LaunchedEffect(isSelectionMode) {
+        if (isSelectionMode && !lastSelectionMode) {
+            announceForAccessibility(context, context.getString(R.string.a11y_selection_mode_entered))
+        } else if (!isSelectionMode && lastSelectionMode) {
+            announceForAccessibility(context, context.getString(R.string.a11y_selection_mode_exited))
+        }
+        lastSelectionMode = isSelectionMode
     }
 
     fun updateSelectionAtRailY(railLocalY: Float, targetState: Boolean, filteredThings: List<ThingCardModel>) {
@@ -514,6 +530,7 @@ fun ThingListScreen(
         val target = openThingId?.trim()?.takeIf { it.isNotEmpty() } ?: return@LaunchedEffect
         val matched = allThings.firstOrNull { it.thingId == target }
         if (matched != null) {
+            selectedThingInitialTab = ThingDetailTab.fromWireValue(openThingDetailTab)
             selectedThing = loadThingDetailModel(target) ?: matched
             onThingDetailOpened(matched.thingId)
             onOpenThingHandled()
@@ -521,6 +538,7 @@ fun ThingListScreen(
         }
         val detailThing = loadThingDetailModel(target)
         if (detailThing != null) {
+            selectedThingInitialTab = ThingDetailTab.fromWireValue(openThingDetailTab)
             selectedThing = detailThing
             onThingDetailOpened(target)
             onOpenThingHandled()
@@ -537,6 +555,7 @@ fun ThingListScreen(
         val currentThing = selectedThing
         if (currentThing != null && pendingScope.suppressesThing(currentThing.thingId, currentThing.channelId)) {
             selectedThing = null
+            selectedThingInitialTab = null
             onThingDetailClosed()
         }
         val currentRelatedEvent = selectedRelatedEvent
@@ -550,14 +569,17 @@ fun ThingListScreen(
         PushGoModalBottomSheet(
             onDismissRequest = {
                 selectedThing = null
+                selectedThingInitialTab = null
                 selectedRelatedMessage = null
                 selectedRelatedEvent = null
                 selectedRelatedUpdate = null
                 onThingDetailClosed()
             },
+            paneTitle = thing.title,
         ) {
             ThingDetailSheet(
                 thing = thing,
+                initialTab = selectedThingInitialTab,
                 channelNameMap = channelNameMap,
                 bottomGestureInset = bottomGestureInset,
                 onOpenRelatedEvent = { selectedRelatedEvent = it },
@@ -577,6 +599,7 @@ fun ThingListScreen(
         val event = selectedRelatedEvent!!
         PushGoModalBottomSheet(
             onDismissRequest = { selectedRelatedEvent = null },
+            paneTitle = event.title,
         ) {
             EventDetailSheet(
                 event = event,
@@ -623,6 +646,7 @@ fun ThingListScreen(
         val message = selectedRelatedMessage!!
         PushGoModalBottomSheet(
             onDismissRequest = { selectedRelatedMessage = null },
+            paneTitle = message.message.title,
         ) {
             ThingRelatedMessageDetailSheet(message = message)
         }
@@ -632,6 +656,7 @@ fun ThingListScreen(
         val update = selectedRelatedUpdate!!
         PushGoModalBottomSheet(
             onDismissRequest = { selectedRelatedUpdate = null },
+            paneTitle = update.title,
         ) {
             ThingUpdateDetailSheet(update = update)
         }
@@ -877,7 +902,7 @@ private fun FilterMenuIcon(
 }
 
 @Composable
-private fun ThingRow(
+internal fun ThingRow(
     thing: ThingCardModel,
     channelDisplayName: String? = null,
     onClick: () -> Unit,
@@ -910,6 +935,19 @@ private fun ThingRow(
             .distinct()
             .toList()
     }
+    val rowSummary = joinAccessibilitySummary(
+        thing.title,
+        formatLocalRelativeTimeV2(context, thing.updatedAt),
+        channelDisplayName,
+        metaSummary,
+        if (attachmentPreviewUrls.isNotEmpty() || !thing.imageUrl.isNullOrBlank()) {
+            "${attachmentPreviewUrls.size + if (thing.imageUrl.isNullOrBlank()) 0 else 1} image attachments"
+        } else {
+            null
+        },
+    )
+    val rowStateDescription = (if (selectionMode) selectionStateDescription(selected) else null)
+        ?.takeIf { it.isNotBlank() }
     Box(
         modifier = Modifier
             .fillMaxWidth()
@@ -929,6 +967,32 @@ private fun ThingRow(
                     },
                     onLongClick = {
                         if (!selectionMode) {
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            onToggleSelection()
+                        }
+                    },
+                )
+                .pushGoMergedActionSemantics(
+                    summary = rowSummary,
+                    stateDescription = rowStateDescription,
+                    selectedState = if (selectionMode) selected else null,
+                    onClickLabel = if (selectionMode) {
+                        stringResource(R.string.a11y_action_toggle_selection)
+                    } else {
+                        stringResource(R.string.a11y_action_open_thing)
+                    },
+                    onClickAction = {
+                        if (selectionMode) {
+                            onToggleSelection()
+                        } else {
+                            onClick()
+                        }
+                    },
+                    onLongClickLabel = if (selectionMode) null else stringResource(R.string.a11y_action_enter_selection_mode),
+                    onLongClickAction = if (selectionMode) {
+                        null
+                    } else {
+                        {
                             haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                             onToggleSelection()
                         }
@@ -1227,6 +1291,7 @@ private fun mergeThingCardsInternal(existing: List<ThingCardModel>, incoming: Li
 @Composable
 private fun ThingDetailSheet(
     thing: ThingCardModel,
+    initialTab: ThingDetailTab?,
     channelNameMap: Map<String, String>,
     bottomGestureInset: Dp,
     onOpenRelatedEvent: (EventCardModel) -> Unit,
@@ -1236,7 +1301,7 @@ private fun ThingDetailSheet(
 ) {
     var previewImageUrl by remember { mutableStateOf<String?>(null) }
     var showMetadataSheet by remember { mutableStateOf(false) }
-    var selectedTab by remember { mutableStateOf(ThingDetailTab.Events) }
+    var selectedTab by remember(thing.thingId, initialTab) { mutableStateOf(initialTab ?: ThingDetailTab.Events) }
     val uiColors = PushGoThemeExtras.colors
     val attrsEntries = remember(thing.attrsJson) { parseThingDisplayAttributes(thing.attrsJson) }
     val metadataEntries = remember(thing.metadataJson) { parseThingDisplayAttributes(thing.metadataJson) }
@@ -1737,6 +1802,18 @@ private enum class ThingDetailTab(val labelRes: Int) {
     Events(R.string.thing_detail_tab_events),
     Messages(R.string.thing_detail_tab_messages),
     Updates(R.string.thing_detail_tab_updates),
+    ;
+
+    companion object {
+        fun fromWireValue(raw: String?): ThingDetailTab? {
+            return when (raw?.trim()?.lowercase(Locale.ROOT)) {
+                "events" -> Events
+                "messages" -> Messages
+                "updates" -> Updates
+                else -> null
+            }
+        }
+    }
 }
 
 @Composable

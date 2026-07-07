@@ -55,6 +55,11 @@ import io.ethan.pushgo.notifications.ForegroundNotificationPresentationState
 import io.ethan.pushgo.notifications.ForegroundNotificationTopMetrics
 import io.ethan.pushgo.notifications.ProviderIngressCoordinator
 import io.ethan.pushgo.ui.PendingLocalDeletionCoordinator
+import io.ethan.pushgo.ui.announceForAccessibility
+import io.ethan.pushgo.ui.accessibility.eventLifecycleStateDescription
+import io.ethan.pushgo.ui.accessibility.joinAccessibilitySummary
+import io.ethan.pushgo.ui.accessibility.pushGoMergedActionSemantics
+import io.ethan.pushgo.ui.accessibility.selectionStateDescription
 import io.ethan.pushgo.ui.rememberBottomBarNestedScrollConnection
 import io.ethan.pushgo.ui.rememberBottomGestureInset
 import io.ethan.pushgo.ui.theme.PushGoStateColors
@@ -186,6 +191,7 @@ fun EventListScreen(
     var isLoadingMoreEvents by remember { mutableStateOf(false) }
     var selectedEvent by remember { mutableStateOf<EventCardModel?>(null) }
     var isSelectionMode by remember { mutableStateOf(false) }
+    var lastSelectionMode by remember { mutableStateOf(false) }
     var selectedEventIds by remember { mutableStateOf<Set<String>>(emptySet()) }
     var isPullRefreshing by remember { mutableStateOf(false) }
     var searchQuery by remember { mutableStateOf("") }
@@ -230,6 +236,15 @@ fun EventListScreen(
 
     fun showToast(message: String) {
         Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
+    }
+
+    LaunchedEffect(isSelectionMode) {
+        if (isSelectionMode && !lastSelectionMode) {
+            announceForAccessibility(context, context.getString(R.string.a11y_selection_mode_entered))
+        } else if (!isSelectionMode && lastSelectionMode) {
+            announceForAccessibility(context, context.getString(R.string.a11y_selection_mode_exited))
+        }
+        lastSelectionMode = isSelectionMode
     }
 
     fun isPendingLocalDeletion(event: EventCardModel): Boolean {
@@ -530,6 +545,7 @@ fun EventListScreen(
         val event = selectedEvent!!
         PushGoModalBottomSheet(
             onDismissRequest = { selectedEvent = null; onEventDetailClosed() },
+            paneTitle = event.title,
         ) {
             EventDetailSheet(
                 event = event,
@@ -611,7 +627,7 @@ fun EventListScreen(
                                             FilterMenuIcon(
                                                 active = active,
                                                 inactiveTint = uiColors.iconMuted,
-                                                contentDescription = stringResource(R.string.label_channel_id),
+                                                contentDescription = stringResource(R.string.a11y_action_show_search_filters),
                                             )
                                         }
                                         DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
@@ -833,6 +849,21 @@ fun EventListRowItem(
     val imageAttachments = event.attachmentUrls.filter(::isImageAttachmentUrl)
     val isClosed = event.state == EventLifecycleState.Closed
     val mutedTextColor = uiColors.textSecondary
+    val statusText = normalizedEventStatus(event.status) ?: stringResource(R.string.event_status_created_default)
+    val rowSummary = joinAccessibilitySummary(
+        event.title,
+        formatLocalRelativeTime(context, event.updatedAt),
+        statusText,
+        channelDisplayName,
+        event.summary,
+        event.message,
+        if (event.tags.isNotEmpty()) stringResource(R.string.event_meta_tags_count, event.tags.size) else null,
+        if (imageAttachments.isNotEmpty()) "${imageAttachments.size} image attachments" else null,
+    )
+    val rowStateDescription = joinAccessibilitySummary(
+        eventLifecycleStateDescription(isClosed),
+        if (selectionMode) selectionStateDescription(selected) else null,
+    ).takeIf { it.isNotBlank() }
     Box(
         modifier = modifier
             .fillMaxWidth()
@@ -852,6 +883,32 @@ fun EventListRowItem(
                     },
                     onLongClick = {
                         if (!selectionMode) {
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            onToggleSelection()
+                        }
+                    },
+                )
+                .pushGoMergedActionSemantics(
+                    summary = rowSummary,
+                    stateDescription = rowStateDescription,
+                    selectedState = if (selectionMode) selected else null,
+                    onClickLabel = if (selectionMode) {
+                        stringResource(R.string.a11y_action_toggle_selection)
+                    } else {
+                        stringResource(R.string.a11y_action_open_event)
+                    },
+                    onClickAction = {
+                        if (selectionMode) {
+                            onToggleSelection()
+                        } else {
+                            onClick()
+                        }
+                    },
+                    onLongClickLabel = if (selectionMode) null else stringResource(R.string.a11y_action_enter_selection_mode),
+                    onLongClickAction = if (selectionMode) {
+                        null
+                    } else {
+                        {
                             haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                             onToggleSelection()
                         }
@@ -886,7 +943,7 @@ fun EventListRowItem(
                         )
                     }
                     EventStatusBadge(
-                        statusText = normalizedEventStatus(event.status) ?: stringResource(R.string.event_status_created_default),
+                        statusText = statusText,
                         state = event.state,
                         severity = event.severity,
                     )

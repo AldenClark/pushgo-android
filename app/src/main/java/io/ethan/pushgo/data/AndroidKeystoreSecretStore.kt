@@ -75,7 +75,7 @@ class AndroidKeystoreSecretStore(context: Context) : SecureSecretStore {
     }
 
     override fun clearAll() {
-        prefs.edit().clear().apply()
+        prefs.edit().clear().commit()
     }
 
     private fun getString(key: String): String? {
@@ -105,11 +105,11 @@ class AndroidKeystoreSecretStore(context: Context) : SecureSecretStore {
             return
         }
         val encrypted = encrypt(normalized) ?: return
-        prefs.edit().putString(key, encrypted).apply()
+        prefs.edit().putString(key, encrypted).commit()
     }
 
     private fun delete(key: String) {
-        prefs.edit().remove(key).apply()
+        prefs.edit().remove(key).commit()
     }
 
     private fun channelPasswordKey(gatewayUrl: String, channelId: String): String {

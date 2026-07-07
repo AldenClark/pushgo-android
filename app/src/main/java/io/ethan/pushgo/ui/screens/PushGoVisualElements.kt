@@ -16,6 +16,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.ui.unit.dp
+import io.ethan.pushgo.ui.accessibility.pushGoDecorativeSemantics
 import io.ethan.pushgo.ui.theme.PushGoThemeExtras
 
 @Composable
@@ -55,9 +56,10 @@ internal fun PushGoSelectionIndicator(
         contentDescription = null,
         tint = if (selected) uiColors.accentPrimary else uiColors.dividerStrong,
         modifier = modifier
-            .size(24.dp)
+            .size(32.dp)
             .padding(top = 2.dp)
-            .clickable(onClick = onClick),
+            .clickable(onClick = onClick)
+            .pushGoDecorativeSemantics(),
     )
 }
 

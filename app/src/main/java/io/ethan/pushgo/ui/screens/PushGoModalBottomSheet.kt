@@ -8,18 +8,23 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.focusable
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.SheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import io.ethan.pushgo.ui.accessibility.pushGoPaneSemantics
 import io.ethan.pushgo.ui.theme.PushGoSheetContainerColor
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -30,10 +35,12 @@ internal fun PushGoModalBottomSheet(
     sheetState: SheetState? = null,
     minHeightFraction: Float? = null,
     maxHeightFraction: Float = 1f,
+    paneTitle: String? = null,
     content: @Composable ColumnScope.() -> Unit,
 ) {
     val resolvedSheetState = sheetState ?: rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val configuration = LocalConfiguration.current
+    val focusRequester = FocusRequester()
     val resolvedMaxHeightFraction = maxHeightFraction.coerceIn(0.5f, 1f)
     val maxSheetHeight = configuration.screenHeightDp.dp * resolvedMaxHeightFraction
     val minSheetHeight = minHeightFraction
@@ -55,6 +62,11 @@ internal fun PushGoModalBottomSheet(
             }
         }
     }
+    LaunchedEffect(paneTitle) {
+        if (!paneTitle.isNullOrBlank()) {
+            focusRequester.requestFocus()
+        }
+    }
     ModalBottomSheet(
         modifier = modifier,
         onDismissRequest = onDismissRequest,
@@ -66,7 +78,10 @@ internal fun PushGoModalBottomSheet(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .heightIn(min = minSheetHeight, max = maxSheetHeight),
+                    .heightIn(min = minSheetHeight, max = maxSheetHeight)
+                    .focusRequester(focusRequester)
+                    .focusable()
+                    .pushGoPaneSemantics(paneTitle),
                 content = content,
             )
         },

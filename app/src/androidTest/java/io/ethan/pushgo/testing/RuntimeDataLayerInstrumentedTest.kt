@@ -531,6 +531,8 @@ class RuntimeDataLayerInstrumentedTest {
             tags = filter.tags.toList(),
             tagCount = filter.tags.size,
             serverId = filter.serverId,
+            excludedIds = emptyList(),
+            excludedCount = 0,
             prioritizeUnread = 0,
         )
         val result = source.load(
@@ -559,6 +561,8 @@ class RuntimeDataLayerInstrumentedTest {
             tags = filter.tags.toList(),
             tagCount = filter.tags.size,
             serverId = filter.serverId,
+            excludedIds = emptyList(),
+            excludedCount = 0,
             prioritizeUnread = 0,
         )
         val loaded = mutableListOf<MessageEntity>()

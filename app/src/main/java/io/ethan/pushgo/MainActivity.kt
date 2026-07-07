@@ -58,6 +58,8 @@ class MainActivity : AppCompatActivity() {
     companion object {
         private const val STARTUP_PERMISSION_PREFS = "pushgo_notification_permission"
         private const val KEY_POST_NOTIFICATIONS_REQUESTED = "post_notifications_requested"
+
+        const val EXTRA_THING_DETAIL_TAB = "extra_thing_detail_tab"
     }
 
     private var latestIntent by mutableStateOf<Intent?>(null)
@@ -239,6 +241,7 @@ class MainActivity : AppCompatActivity() {
         val uiColors = PushGoThemeExtras.colors
         PushGoAlertDialog(
             onDismissRequest = onDismiss,
+            paneTitle = title,
             title = {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
