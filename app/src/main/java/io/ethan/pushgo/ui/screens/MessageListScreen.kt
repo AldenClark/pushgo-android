@@ -136,7 +136,8 @@ fun MessageListScreen(
     val listState = rememberLazyListState()
     val bottomGestureInset = rememberBottomGestureInset()
     val bottomBarNestedScrollConnection = rememberBottomBarNestedScrollConnection(onBottomBarVisibilityChanged)
-    
+    val selectionModeEnteredLabel = stringResource(R.string.a11y_selection_mode_entered)
+    val selectionModeExitedLabel = stringResource(R.string.a11y_selection_mode_exited)
     var channelNameMap by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
     var isSelectionMode by remember { mutableStateOf(false) }
     var lastSelectionMode by remember { mutableStateOf(false) }
@@ -232,9 +233,9 @@ fun MessageListScreen(
 
     LaunchedEffect(isSelectionMode) {
         if (isSelectionMode && !lastSelectionMode) {
-            announceForAccessibility(context, context.getString(R.string.a11y_selection_mode_entered))
+            announceForAccessibility(context, selectionModeEnteredLabel)
         } else if (!isSelectionMode && lastSelectionMode) {
-            announceForAccessibility(context, context.getString(R.string.a11y_selection_mode_exited))
+            announceForAccessibility(context, selectionModeExitedLabel)
         }
         lastSelectionMode = isSelectionMode
     }
@@ -901,6 +902,8 @@ internal fun MessageRow(
         messageReadStateDescription(message.isRead),
         if (selectionMode) selectionStateDescription(selected) else null,
     ).takeIf { it.isNotBlank() }
+    val markMessageReadActionLabel = stringResource(R.string.a11y_action_mark_message_read)
+    val deleteMessageActionLabel = stringResource(R.string.a11y_action_delete_message)
 
     val uiColors = PushGoThemeExtras.colors
     Box(modifier = modifier.fillMaxWidth().background(uiColors.fieldContainer)) {
@@ -966,7 +969,7 @@ internal fun MessageRow(
                             if (hasMarkReadAction) {
                                 add(
                                     CustomAccessibilityAction(
-                                        label = context.getString(R.string.a11y_action_mark_message_read),
+                                        label = markMessageReadActionLabel,
                                         action = {
                                             offsetX = 0f
                                             onMarkRead()
@@ -977,7 +980,7 @@ internal fun MessageRow(
                             }
                             add(
                                 CustomAccessibilityAction(
-                                    label = context.getString(R.string.a11y_action_delete_message),
+                                    label = deleteMessageActionLabel,
                                     action = {
                                         offsetX = 0f
                                         onDelete()

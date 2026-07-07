@@ -425,9 +425,12 @@ class PushGoApp : Application(), SingletonImageLoader.Factory {
             || message.contains("TIMEOUT")
     }
 
+    @Suppress("DEPRECATION")
+    private fun firebaseTokenTask() = FirebaseMessaging.getInstance().token
+
     private suspend fun requestFcmTokenOnce(): String = withTimeout(io.ethan.pushgo.data.AppConstants.fcmTokenTimeoutMs) {
         suspendCancellableCoroutine { cont ->
-            FirebaseMessaging.getInstance().token
+            firebaseTokenTask()
                 .addOnSuccessListener { token ->
                     if (cont.isActive) {
                         cont.resume(token)

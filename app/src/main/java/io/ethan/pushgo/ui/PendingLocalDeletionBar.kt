@@ -20,7 +20,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.produceState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -39,7 +38,6 @@ fun PendingLocalDeletionBar(
     onUndo: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val context = LocalContext.current
     AnimatedVisibility(
         visible = pendingDeletion != null,
         modifier = modifier,
@@ -61,16 +59,17 @@ fun PendingLocalDeletionBar(
                 delay(200)
             }
         }
+        val pendingDeletionDescription = stringResource(
+            R.string.a11y_pending_deletion_summary,
+            entry.summary,
+            remainingSeconds,
+        )
 
         Surface(
             modifier = Modifier
                 .pushGoLiveRegion()
                 .semantics(mergeDescendants = true) {
-                    contentDescription = context.getString(
-                        R.string.a11y_pending_deletion_summary,
-                        entry.summary,
-                        remainingSeconds,
-                    )
+                    contentDescription = pendingDeletionDescription
                 },
             color = uiColors.surfaceRaised,
             contentColor = uiColors.textPrimary,

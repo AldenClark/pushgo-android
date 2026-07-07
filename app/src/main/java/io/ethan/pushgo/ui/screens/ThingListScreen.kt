@@ -213,6 +213,8 @@ fun ThingListScreen(
     val closeEventBodyDefault = stringResource(R.string.event_message_closed_default)
     val missingChannelMessage = stringResource(R.string.error_event_missing_channel)
     val closeEventSuccessMessage = stringResource(R.string.message_event_closed)
+    val selectionModeEnteredLabel = stringResource(R.string.a11y_selection_mode_entered)
+    val selectionModeExitedLabel = stringResource(R.string.a11y_selection_mode_exited)
     val haptic = LocalHapticFeedback.current
     val scope = rememberCoroutineScope()
     val listState = rememberLazyListState()
@@ -257,9 +259,9 @@ fun ThingListScreen(
 
     LaunchedEffect(isSelectionMode) {
         if (isSelectionMode && !lastSelectionMode) {
-            announceForAccessibility(context, context.getString(R.string.a11y_selection_mode_entered))
+            announceForAccessibility(context, selectionModeEnteredLabel)
         } else if (!isSelectionMode && lastSelectionMode) {
-            announceForAccessibility(context, context.getString(R.string.a11y_selection_mode_exited))
+            announceForAccessibility(context, selectionModeExitedLabel)
         }
         lastSelectionMode = isSelectionMode
     }

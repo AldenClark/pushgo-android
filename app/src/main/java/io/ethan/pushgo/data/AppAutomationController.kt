@@ -611,10 +611,14 @@ private fun JSONObject.optStringCompat(vararg keys: String): String? {
 private fun JSONObject.optBooleanCompat(vararg keys: String): Boolean? {
     keys.forEach { key ->
         if (!has(key) || isNull(key)) return@forEach
-        return when (val value = opt(key)) {
-            is Boolean -> value
-            is Number -> value.toInt() != 0
-            is String -> when (value.trim().lowercase()) {
+        val value = opt(key)
+        if (value == null || value == JSONObject.NULL) {
+            return@forEach
+        }
+        return when {
+            value is Boolean -> value
+            value is Number -> value.toInt() != 0
+            value is String -> when (value.trim().lowercase()) {
                 "true", "1", "yes", "on" -> true
                 "false", "0", "no", "off" -> false
                 else -> null
@@ -654,9 +658,14 @@ private fun JSONObject.optInstantCompat(vararg keys: String): Instant? {
 private fun JSONObject.optJSONArrayCompat(vararg keys: String): JSONArray? {
     keys.forEach { key ->
         val value = opt(key)
-        when (value) {
-            is JSONArray -> return value
-            is String -> runCatching { JSONArray(value) }.getOrNull()?.let { return it }
+        if (value == null || value == JSONObject.NULL) {
+            return@forEach
+        }
+        if (value is JSONArray) {
+            return value
+        }
+        if (value is String) {
+            runCatching { JSONArray(value) }.getOrNull()?.let { return it }
         }
     }
     return null
@@ -665,13 +674,16 @@ private fun JSONObject.optJSONArrayCompat(vararg keys: String): JSONArray? {
 private fun JSONObject.optJsonStringCompat(vararg keys: String): String? {
     keys.forEach { key ->
         val value = opt(key)
-        when (value) {
-            is JSONObject, is JSONArray -> return value.toString()
-            is String -> {
-                val trimmed = value.trim()
-                if (trimmed.isNotEmpty()) {
-                    return trimmed
-                }
+        if (value == null || value == JSONObject.NULL) {
+            return@forEach
+        }
+        if (value is JSONObject || value is JSONArray) {
+            return value.toString()
+        }
+        if (value is String) {
+            val trimmed = value.trim()
+            if (trimmed.isNotEmpty()) {
+                return trimmed
             }
         }
     }
@@ -680,34 +692,34 @@ private fun JSONObject.optJsonStringCompat(vararg keys: String): String? {
 
 private fun JSONObject.optRawPayloadObject(): JSONObject? {
     val value = opt("raw_payload")
-    return when (value) {
-        is JSONObject -> value
-        is String -> runCatching { JSONObject(value) }.getOrNull()
+    val direct = when {
+        value == null || value == JSONObject.NULL -> null
+        value is JSONObject -> value
+        value is String -> runCatching { JSONObject(value) }.getOrNull()
         else -> null
     }
-        ?: optJsonStringCompat("raw_payload_json", "raw_payload")
-            ?.let { raw ->
-                runCatching { JSONObject(raw) }.getOrNull()
-            }
+    return direct ?: optJsonStringCompat("raw_payload_json", "raw_payload")
+        ?.let { raw ->
+            runCatching { JSONObject(raw) }.getOrNull()
+        }
 }
 
 private fun JSONObject.optJsonValueCompat(vararg keys: String): Any? {
     keys.forEach { key ->
         val value = opt(key)
-        when (value) {
-            null, JSONObject.NULL -> Unit
-            is String -> {
-                val trimmed = value.trim()
-                if (trimmed.isEmpty()) {
-                    Unit
-                } else {
-                    runCatching { JSONArray(trimmed) }.getOrNull()?.let { return it }
-                    runCatching { JSONObject(trimmed) }.getOrNull()?.let { return it }
-                    return trimmed
-                }
-            }
-            else -> return value
+        if (value == null || value == JSONObject.NULL) {
+            return@forEach
         }
+        if (value is String) {
+            val trimmed = value.trim()
+            if (trimmed.isEmpty()) {
+                return@forEach
+            }
+            runCatching { JSONArray(trimmed) }.getOrNull()?.let { return it }
+            runCatching { JSONObject(trimmed) }.getOrNull()?.let { return it }
+            return trimmed
+        }
+        return value
     }
     return null
 }

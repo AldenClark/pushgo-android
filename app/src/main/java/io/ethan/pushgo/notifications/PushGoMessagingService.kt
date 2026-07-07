@@ -21,6 +21,7 @@ class PushGoMessagingService : FirebaseMessagingService() {
         }
     }
 
+    @Deprecated("Firebase still dispatches FCM token refresh through this callback.")
     override fun onNewToken(token: String) {
         val app = application as PushGoApp
         app.handlePushTokenUpdate(token)

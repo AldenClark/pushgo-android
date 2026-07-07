@@ -11,10 +11,13 @@ interface PushTokenProvider {
 }
 
 class FirebasePushTokenProvider : PushTokenProvider {
+    @Suppress("DEPRECATION")
+    private fun firebaseTokenTask() = FirebaseMessaging.getInstance().token
+
     override suspend fun fetchToken(timeoutMs: Long): String? {
         return withTimeoutOrNull(timeoutMs) {
             suspendCancellableCoroutine { cont ->
-                FirebaseMessaging.getInstance().token
+                firebaseTokenTask()
                     .addOnSuccessListener { token ->
                         if (cont.isActive) {
                             cont.resume(token)

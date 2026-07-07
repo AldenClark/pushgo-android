@@ -15,6 +15,7 @@ import androidx.compose.material3.SheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.remember
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.toArgb
@@ -40,7 +41,7 @@ internal fun PushGoModalBottomSheet(
 ) {
     val resolvedSheetState = sheetState ?: rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val configuration = LocalConfiguration.current
-    val focusRequester = FocusRequester()
+    val focusRequester = remember { FocusRequester() }
     val resolvedMaxHeightFraction = maxHeightFraction.coerceIn(0.5f, 1f)
     val maxSheetHeight = configuration.screenHeightDp.dp * resolvedMaxHeightFraction
     val minSheetHeight = minHeightFraction
