@@ -138,22 +138,22 @@ class RuntimeComposeUiAutomatorInstrumentedTest {
 
             searchReadyMs = elapsedMs {
                 val searchResult = withTimeout(12_000) {
-                    container.messageRepository.searchMessages(
+                    container.messageRepository.searchMessagesSnapshot(
                         rawQuery = "runtime",
                         unreadOnly = false,
                         limit = 50,
-                    ).first()
+                    )
                 }
                 assertTrue("proxy search result should not be empty", searchResult.isNotEmpty())
             }
 
             unreadFilterToggleMs = elapsedMs {
                 val unreadResult = withTimeout(12_000) {
-                    container.messageRepository.searchMessages(
+                    container.messageRepository.searchMessagesSnapshot(
                         rawQuery = "runtime",
                         unreadOnly = true,
                         limit = 100,
-                    ).first()
+                    )
                 }
                 assertTrue("proxy unread filter result should not be empty", unreadResult.isNotEmpty())
             }

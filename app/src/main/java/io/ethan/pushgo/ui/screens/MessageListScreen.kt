@@ -72,12 +72,11 @@ import androidx.paging.compose.itemContentType
 import io.ethan.pushgo.R
 import io.ethan.pushgo.automation.PushGoAutomation
 import io.ethan.pushgo.data.AppContainer
-import io.ethan.pushgo.data.model.PushMessage
+import io.ethan.pushgo.data.model.MessageListItem
 import io.ethan.pushgo.data.model.MessageSeverity
 import io.ethan.pushgo.notifications.ForegroundNotificationPresentationState
 import io.ethan.pushgo.notifications.ForegroundNotificationTopMetrics
 import io.ethan.pushgo.notifications.ProviderIngressCoordinator
-import io.ethan.pushgo.markdown.MessageBodyResolver
 import io.ethan.pushgo.ui.viewmodel.toUserFacingText
 import io.ethan.pushgo.ui.PendingLocalDeletionCoordinator
 import io.ethan.pushgo.ui.PushGoViewModelFactory
@@ -100,7 +99,6 @@ import java.time.temporal.ChronoUnit
 import java.util.*
 import kotlin.math.roundToInt
 import androidx.compose.ui.graphics.SolidColor
-import androidx.compose.foundation.lazy.items
 
 private val ScreenHorizontalPadding = 12.dp
 private const val MessageListImagePreviewMaxItems = 3
@@ -111,7 +109,7 @@ fun MessageListScreen(
     navController: NavHostController,
     container: AppContainer,
     factory: PushGoViewModelFactory,
-    onMessageClick: (PushMessage) -> Unit,
+    onMessageClick: (String) -> Unit,
     onBatchModeChanged: (Boolean) -> Unit,
     onBottomBarVisibilityChanged: (Boolean) -> Unit,
     suppressForegroundNotificationAtTop: Boolean,
@@ -127,7 +125,7 @@ fun MessageListScreen(
     val facetChannelCounts by viewModel.facetChannelCounts.collectAsStateWithLifecycle()
     val facetTagCounts by viewModel.facetTagCounts.collectAsStateWithLifecycle()
     val query by searchViewModel.queryState.collectAsStateWithLifecycle()
-    val searchResults by searchViewModel.results.collectAsStateWithLifecycle()
+    val searchResults = searchViewModel.results.collectAsLazyPagingItems()
     val pendingLocalDeletion by container.pendingLocalDeletionCoordinator.pendingDeletion.collectAsStateWithLifecycle()
     val effectivePendingScope by container.pendingLocalDeletionCoordinator.effectiveScope.collectAsStateWithLifecycle()
     
@@ -151,7 +149,7 @@ fun MessageListScreen(
     var selectionRailTopInWindow by remember { mutableFloatStateOf(0f) }
     val messagesTabLabel = stringResource(R.string.tab_messages)
 
-    fun isPendingLocalDeletion(message: PushMessage): Boolean {
+    fun isPendingLocalDeletion(message: MessageListItem): Boolean {
         return effectivePendingScope.suppressesMessage(
             id = message.id,
             channelId = message.channel,
@@ -162,7 +160,7 @@ fun MessageListScreen(
         return channel?.trim().orEmpty()
     }
 
-    fun normalizedTags(message: PushMessage): Set<String> {
+    fun normalizedTags(message: MessageListItem): Set<String> {
         return message.tags
             .asSequence()
             .map { it.trim().lowercase() }
@@ -170,23 +168,23 @@ fun MessageListScreen(
             .toSet()
     }
 
-    fun matchesChannelSelection(message: PushMessage, selectedChannels: Set<String>): Boolean {
+    fun matchesChannelSelection(message: MessageListItem, selectedChannels: Set<String>): Boolean {
         if (selectedChannels.isEmpty()) return true
         return selectedChannels.contains(normalizedChannel(message.channel))
     }
 
-    fun matchesTagSelection(message: PushMessage, selectedTags: Set<String>): Boolean {
+    fun matchesTagSelection(message: MessageListItem, selectedTags: Set<String>): Boolean {
         if (selectedTags.isEmpty()) return true
         val tags = normalizedTags(message)
         return selectedTags.any(tags::contains)
     }
 
-    fun matchesFacetFilter(message: PushMessage, selectedChannels: Set<String>, selectedTags: Set<String>): Boolean {
+    fun matchesFacetFilter(message: MessageListItem, selectedChannels: Set<String>, selectedTags: Set<String>): Boolean {
         return matchesChannelSelection(message, selectedChannels) && matchesTagSelection(message, selectedTags)
     }
 
-    val visibleSearchResults = remember(searchResults, effectivePendingScope) {
-        searchResults.filterNot(::isPendingLocalDeletion)
+    val visibleSearchResults = remember(searchResults.itemSnapshotList.items, effectivePendingScope) {
+        searchResults.itemSnapshotList.items.filterNot(::isPendingLocalDeletion)
     }
 
     fun exitSelectionMode() {
@@ -243,7 +241,7 @@ fun MessageListScreen(
         lastSelectionMode = isSelectionMode
     }
 
-    suspend fun scheduleDeletion(targetMessages: List<PushMessage>) {
+    suspend fun scheduleDeletion(targetMessages: List<MessageListItem>) {
         val uniqueMessages = targetMessages
             .associateBy { it.id }
             .values
@@ -397,7 +395,7 @@ fun MessageListScreen(
         val unreadRowIndex = if (query.isBlank()) {
             messages.itemSnapshotList.items.indexOfFirst { !it.isRead }
         } else {
-            searchResults.indexOfFirst { !it.isRead }
+            searchResults.itemSnapshotList.items.indexOfFirst { !it.isRead }
         }
         if (unreadRowIndex >= 0) {
             listState.animateScrollToItem(unreadRowIndex + 1)
@@ -724,8 +722,8 @@ fun MessageListScreen(
                                     selectedTags = selectedTags,
                                 )
                             ) {
-                                val listImageModels = remember(message.rawPayloadJson) {
-                                    container.messageImageStore.resolveListImageModels(message.rawPayloadJson, MessageListImagePreviewMaxItems)
+                                val listImageModels = remember(message.listPayloadJson) {
+                                    container.messageImageStore.resolveListImageModels(message.listPayloadJson, MessageListImagePreviewMaxItems)
                                 }
                                 MessageRow(
                                     modifier = Modifier.animateItem().testTag("message.row.${message.id}"),
@@ -739,11 +737,7 @@ fun MessageListScreen(
                                         if (isSelectionMode) {
                                             toggleSelection(message.id)
                                         } else {
-                                            scope.launch {
-                                                val body = MessageBodyResolver.resolve(message.rawPayloadJson, message.body).rawText
-                                                container.messageImageStore.preheatDetailAssets(message.rawPayloadJson, body)
-                                            }
-                                            onMessageClick(message)
+                                            onMessageClick(message.id)
                                         }
                                     },
                                     onMarkRead = { viewModel.markRead(message.id) },
@@ -756,38 +750,33 @@ fun MessageListScreen(
                         }
                     }
                 } else {
-                    if (filteredSearchResults.isEmpty()) {
+                    if (filteredSearchResults.isEmpty() && searchResults.loadState.refresh is LoadState.NotLoading) {
                         item { AppEmptyState(icon = Icons.Default.Search, title = stringResource(R.string.label_no_search_results), description = stringResource(R.string.message_list_empty_hint)) }
                     } else {
-                        items(items = filteredSearchResults, key = { it.id }) { message ->
-                            val listImageModels = remember(message.rawPayloadJson) {
-                                container.messageImageStore.resolveListImageModels(message.rawPayloadJson, MessageListImagePreviewMaxItems)
+                        items(count = searchResults.itemCount, key = searchResults.itemKey { it.id }) { index ->
+                            val message = searchResults[index]
+                            if (message != null && !isPendingLocalDeletion(message) && matchesFacetFilter(message, selectedChannels, selectedTags)) {
+                                val listImageModels = remember(message.listPayloadJson) {
+                                    container.messageImageStore.resolveListImageModels(message.listPayloadJson, MessageListImagePreviewMaxItems)
+                                }
+                                MessageRow(
+                                    modifier = Modifier.animateItem().testTag("message.row.${message.id}"),
+                                    message = message,
+                                    imageModels = listImageModels,
+                                    channelDisplayName = resolveChannelDisplayName(
+                                        rawChannelId = message.channel,
+                                        channelNameMap = channelNameMap,
+                                    ),
+                                    onClick = {
+                                        if (isSelectionMode) toggleSelection(message.id) else onMessageClick(message.id)
+                                    },
+                                    onMarkRead = { viewModel.markRead(message.id) },
+                                    onDelete = { scope.launch { scheduleDeletion(listOf(message)) } },
+                                    selectionMode = isSelectionMode,
+                                    selected = selectedMessageIds.contains(message.id),
+                                    onToggleSelection = { toggleSelection(message.id) },
+                                )
                             }
-                            MessageRow(
-                                modifier = Modifier.animateItem().testTag("message.row.${message.id}"),
-                                message = message,
-                                imageModels = listImageModels,
-                                channelDisplayName = resolveChannelDisplayName(
-                                    rawChannelId = message.channel,
-                                    channelNameMap = channelNameMap,
-                                ),
-                                onClick = {
-                                    if (isSelectionMode) {
-                                        toggleSelection(message.id)
-                                    } else {
-                                        scope.launch {
-                                            val body = MessageBodyResolver.resolve(message.rawPayloadJson, message.body).rawText
-                                            container.messageImageStore.preheatDetailAssets(message.rawPayloadJson, body)
-                                        }
-                                        onMessageClick(message)
-                                    }
-                                },
-                                onMarkRead = { viewModel.markRead(message.id) },
-                                onDelete = { scope.launch { scheduleDeletion(listOf(message)) } },
-                                selectionMode = isSelectionMode,
-                                selected = selectedMessageIds.contains(message.id),
-                                onToggleSelection = { toggleSelection(message.id) },
-                            )
                         }
                     }
                 }
@@ -797,7 +786,7 @@ fun MessageListScreen(
                     Box(
                         modifier = Modifier.align(Alignment.TopStart).fillMaxHeight().width(72.dp)
                             .onGloballyPositioned { selectionRailTopInWindow = it.positionInWindow().y }
-                            .pointerInput(query, visibleSearchResults.size, messages.itemCount, listTopInWindow, selectionRailTopInWindow) {
+                            .pointerInput(query, searchResults.itemCount, messages.itemCount, listTopInWindow, selectionRailTopInWindow) {
                                 detectDragGestures(
                                     onDragStart = { point ->
                                         val listLocalY = point.y + (selectionRailTopInWindow - listTopInWindow)
@@ -864,7 +853,7 @@ private fun FilterMenuIcon(
 @Composable
 internal fun MessageRow(
     modifier: Modifier = Modifier,
-    message: PushMessage,
+    message: MessageListItem,
     imageModels: List<Any>,
     channelDisplayName: String?,
     onClick: () -> Unit,
@@ -882,7 +871,7 @@ internal fun MessageRow(
     val actionWidthPx = with(density) { actionWidth.toPx() }
     var offsetX by remember { mutableFloatStateOf(0f) }
     val timeText = remember(message.receivedAt) { formatMessageTime(context, message.receivedAt, ZoneId.systemDefault()) }
-    val bodyPreview = remember(message.bodyPreview) { message.bodyPreview?.trim().orEmpty() }
+    val bodyPreview = remember(message.bodyPreview) { message.bodyPreview.trim() }
     val severityLabel = when (message.severity) {
         MessageSeverity.LOW -> stringResource(R.string.message_severity_low)
         MessageSeverity.MEDIUM -> stringResource(R.string.message_severity_medium)
@@ -1018,7 +1007,7 @@ internal fun MessageRow(
 
 @Composable
 fun MessageRowContent(
-    message: PushMessage,
+    message: MessageListItem,
     imageModels: List<Any>,
     appName: String,
     timeText: String,

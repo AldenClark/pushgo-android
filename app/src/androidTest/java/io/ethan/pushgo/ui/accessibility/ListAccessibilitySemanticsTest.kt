@@ -6,8 +6,8 @@ import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import io.ethan.pushgo.R
 import io.ethan.pushgo.data.model.DecryptionState
+import io.ethan.pushgo.data.model.MessageListItem
 import io.ethan.pushgo.data.model.MessageStatus
-import io.ethan.pushgo.data.model.PushMessage
 import io.ethan.pushgo.ui.screens.EventCardModel
 import io.ethan.pushgo.ui.screens.EventLifecycleState
 import io.ethan.pushgo.ui.screens.EventListRowItem
@@ -28,16 +28,15 @@ class ListAccessibilitySemanticsTest {
 
     @Test
     fun messageRow_exposesSummaryStateAndPrimaryActions() {
-        val message = PushMessage(
+        val message = MessageListItem(
             id = "message-1",
             messageId = "message-1",
             title = "Server alert",
-            body = "CPU usage reached 95%",
             channel = "ops",
             url = null,
             isRead = false,
             receivedAt = Instant.parse("2026-07-07T00:00:00Z"),
-            rawPayloadJson = """{"severity":"high","tags":"[\"ops\"]"}""",
+            listPayloadJson = """{"severity":"high","tags":"[\"ops\"]"}""",
             status = MessageStatus.NORMAL,
             decryptionState = DecryptionState.DECRYPT_OK,
             notificationId = null,

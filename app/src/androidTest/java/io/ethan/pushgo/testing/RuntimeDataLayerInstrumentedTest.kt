@@ -11,6 +11,7 @@ import io.ethan.pushgo.data.EntityRepository
 import io.ethan.pushgo.data.IncomingEntityRecord
 import io.ethan.pushgo.data.MessageRepository
 import io.ethan.pushgo.data.db.MessageEntity
+import io.ethan.pushgo.data.db.MessageListRow
 import io.ethan.pushgo.data.db.PushGoDatabase
 import io.ethan.pushgo.data.model.MessageFilter
 import io.ethan.pushgo.data.model.MessageStatus
@@ -88,7 +89,7 @@ class RuntimeDataLayerInstrumentedTest {
                 assertEquals(size, ftsCount(db, "runtime*"))
             }
             metrics.ftsPageMs = elapsedMs {
-                val result = messages.searchMessages("runtime", unreadOnly = false, limit = PAGE_SIZE).first()
+                val result = messages.searchMessagesSnapshot("runtime", unreadOnly = false, limit = PAGE_SIZE)
                 assertEquals(min(PAGE_SIZE, size), result.size)
             }
             metrics.channelFilterMs = elapsedMs {
@@ -97,7 +98,7 @@ class RuntimeDataLayerInstrumentedTest {
             }
             metrics.tagFilterMs = elapsedMs {
                 val result = loadMessagePage(db, MessageFilter(tags = setOf("task")), PAGE_SIZE).data
-                assertTrue(result.all { payloadTags(it.rawPayloadJson).contains("task") })
+                assertTrue(result.all { payloadTags(it.listPayloadJson).contains("task") })
             }
             metrics.unreadFilterMs = elapsedMs {
                 val result = loadMessagePage(db, MessageFilter(unreadOnly = true), PAGE_SIZE).data
@@ -206,9 +207,9 @@ class RuntimeDataLayerInstrumentedTest {
             title = "TaskUnique message",
         )
         assertTrue(messages.insertIncoming(task))
-        assertTrue(messages.searchMessages("tag:task", unreadOnly = false).first().any { it.messageId == "task-message-1" })
-        assertTrue(messages.searchMessages("tag:ops", unreadOnly = false).first().any { it.messageId == "task-message-1" })
-        assertEquals(1, metadataCount(db, keyName = "state", value = "triage-open"))
+        assertTrue(messages.searchMessagesSnapshot("tag:task", unreadOnly = false, limit = 20).any { it.messageId == "task-message-1" })
+        assertTrue(messages.searchMessagesSnapshot("tag:ops", unreadOnly = false, limit = 20).any { it.messageId == "task-message-1" })
+        assertEquals(1, metadataCount(db, keyName = "metadata_state", value = "triage-open"))
 
         val eventRecord = incomingEntity(
             entityType = "event",
@@ -241,7 +242,7 @@ class RuntimeDataLayerInstrumentedTest {
         }
         println("RUNTIME_DATA_LAYER eventProjectionQueryMs=$eventProjectionMs thingProjectionQueryMs=$thingProjectionMs")
 
-        val ftsMatches = messages.searchMessages("runtime", unreadOnly = false, limit = 20).first()
+        val ftsMatches = messages.searchMessagesSnapshot("runtime", unreadOnly = false, limit = 20)
         assertTrue(ftsMatches.isNotEmpty())
         assertEquals(1, ftsCount(db, "TaskUnique*"))
     }
@@ -404,7 +405,7 @@ class RuntimeDataLayerInstrumentedTest {
             assertEquals(100_000, ftsCount(db, "runtime*"))
         }
         metrics.ftsPageMs = elapsedMs {
-            assertEquals(PAGE_SIZE, messages.searchMessages("runtime", unreadOnly = false, limit = PAGE_SIZE).first().size)
+            assertEquals(PAGE_SIZE, messages.searchMessagesSnapshot("runtime", unreadOnly = false, limit = PAGE_SIZE).size)
         }
         metrics.channelFilterMs = elapsedMs {
             assertTrue(loadMessagePage(db, MessageFilter(channels = setOf("runtime-channel-1")), PAGE_SIZE).data.isNotEmpty())
@@ -444,9 +445,7 @@ class RuntimeDataLayerInstrumentedTest {
     private fun openExistingDatabase(): OpenedDatabase {
         lateinit var opened: PushGoDatabase
         val ms = elapsedBlockingMs {
-            opened = Room.databaseBuilder(context, PushGoDatabase::class.java, DATABASE_NAME)
-                .setJournalMode(RoomDatabase.JournalMode.WRITE_AHEAD_LOGGING)
-                .build()
+            opened = PushGoDatabase.build(context)
             opened.openHelper.writableDatabase.query("PRAGMA journal_mode=WAL").close()
             opened.openHelper.writableDatabase.query("PRAGMA synchronous=NORMAL").close()
         }
@@ -522,7 +521,7 @@ class RuntimeDataLayerInstrumentedTest {
         db: PushGoDatabase,
         filter: MessageFilter,
         pageSize: Int,
-    ): PagingSource.LoadResult.Page<Int, MessageEntity> {
+    ): PagingSource.LoadResult.Page<Int, MessageListRow> {
         val source = db.messageDao().observeMessages(
             readState = if (filter.unreadOnly) false else null,
             withUrl = if (filter.withUrlOnly) 1 else 0,
@@ -544,7 +543,7 @@ class RuntimeDataLayerInstrumentedTest {
         )
         assertTrue(result is PagingSource.LoadResult.Page)
         @Suppress("UNCHECKED_CAST")
-        return result as PagingSource.LoadResult.Page<Int, MessageEntity>
+        return result as PagingSource.LoadResult.Page<Int, MessageListRow>
     }
 
     private suspend fun loadPages(
@@ -552,7 +551,7 @@ class RuntimeDataLayerInstrumentedTest {
         filter: MessageFilter,
         pageSize: Int,
         pageCount: Int,
-    ): List<MessageEntity> {
+    ): List<MessageListRow> {
         val source = db.messageDao().observeMessages(
             readState = if (filter.unreadOnly) false else null,
             withUrl = if (filter.withUrlOnly) 1 else 0,
@@ -565,11 +564,11 @@ class RuntimeDataLayerInstrumentedTest {
             excludedCount = 0,
             prioritizeUnread = 0,
         )
-        val loaded = mutableListOf<MessageEntity>()
+        val loaded = mutableListOf<MessageListRow>()
         var result = source.load(PagingSource.LoadParams.Refresh(null, pageSize, false))
         repeat(pageCount) {
             assertTrue(result is PagingSource.LoadResult.Page)
-            val page = result as PagingSource.LoadResult.Page<Int, MessageEntity>
+            val page = result as PagingSource.LoadResult.Page<Int, MessageListRow>
             loaded += page.data
             val next = page.nextKey ?: return loaded
             result = source.load(PagingSource.LoadParams.Append(next, pageSize, false))
@@ -712,7 +711,7 @@ class RuntimeDataLayerInstrumentedTest {
         }.getOrDefault(emptyList())
     }
 
-    private fun assertNewestFirst(messages: List<MessageEntity>) {
+    private fun assertNewestFirst(messages: List<MessageListRow>) {
         messages.zipWithNext().forEach { (left, right) ->
             val ordered = left.receivedAt > right.receivedAt ||
                 (left.receivedAt == right.receivedAt && left.id >= right.id)
@@ -798,7 +797,7 @@ class RuntimeDataLayerInstrumentedTest {
     )
 
     private companion object {
-        private const val DATABASE_NAME = "pushgo-runtime-quality.db"
+        private const val DATABASE_NAME = "pushgo.db"
         private const val BASE_TIME_MS = 1_710_000_000_000L
         private const val PAGE_SIZE = 50
         private const val INSERT_BATCH_SIZE = 1_000

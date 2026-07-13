@@ -17,53 +17,15 @@ interface MessageChannelStatsDao {
     )
     fun observeChannelCounts(): Flow<List<MessageChannelCount>>
 
-    @Query("SELECT COALESCE(SUM(unread_count), 0) FROM message_channel_counts")
+    @Query("SELECT unread_count FROM message_global_stats WHERE id = 1")
     fun observeUnreadCount(): Flow<Int>
 
-    @Query("SELECT COALESCE(SUM(unread_count), 0) FROM message_channel_counts")
+    @Query("SELECT unread_count FROM message_global_stats WHERE id = 1")
     suspend fun unreadCount(): Int
 
-    @Query(
-        """
-        INSERT OR REPLACE INTO message_channel_counts(channel, total_count, unread_count, latest_received_at)
-        VALUES(
-            :channel,
-            COALESCE((SELECT total_count FROM message_channel_counts WHERE channel = :channel), 0) + :totalCount,
-            COALESCE((SELECT unread_count FROM message_channel_counts WHERE channel = :channel), 0) + :unreadCount,
-            MAX(COALESCE((SELECT latest_received_at FROM message_channel_counts WHERE channel = :channel), 0), :latestReceivedAt)
-        )
-        """
-    )
-    suspend fun applyPositiveDelta(
-        channel: String,
-        totalCount: Int,
-        unreadCount: Int,
-        latestReceivedAt: Long,
-    )
+    @Query("SELECT total_count FROM message_global_stats WHERE id = 1")
+    suspend fun totalCount(): Int
 
-    @Query(
-        """
-        UPDATE message_channel_counts
-        SET total_count = MAX(total_count - :totalCount, 0),
-            unread_count = MAX(unread_count - :unreadCount, 0)
-        WHERE channel = :channel
-        """
-    )
-    suspend fun applyNegativeDelta(
-        channel: String,
-        totalCount: Int,
-        unreadCount: Int,
-    )
-
-    @Query("UPDATE message_channel_counts SET latest_received_at = :latestReceivedAt WHERE channel = :channel")
-    suspend fun setLatestReceivedAt(channel: String, latestReceivedAt: Long)
-
-    @Query("DELETE FROM message_channel_counts WHERE total_count <= 0")
-    suspend fun deleteEmptyRows()
-
-    @Query("DELETE FROM message_channel_counts WHERE channel = :channel")
-    suspend fun deleteChannel(channel: String)
-
-    @Query("DELETE FROM message_channel_counts")
-    suspend fun deleteAll()
+    @Query("SELECT revision FROM message_store_revision WHERE id = 1")
+    fun observeStoreRevision(): Flow<Long>
 }

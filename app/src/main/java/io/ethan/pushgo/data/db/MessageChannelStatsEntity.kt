@@ -17,4 +17,8 @@ data class MessageChannelStatsEntity(
     val unreadCount: Int,
     @ColumnInfo(name = "latest_received_at")
     val latestReceivedAt: Long,
+    @ColumnInfo(name = "latest_unread_at")
+    val latestUnreadAt: Long?,
+    @ColumnInfo(name = "updated_at_epoch_ms", defaultValue = "0")
+    val updatedAtEpochMs: Long,
 )

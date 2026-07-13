@@ -5,6 +5,7 @@ import android.database.sqlite.SQLiteDatabase
 import androidx.room.ColumnInfo
 import androidx.room.Database
 import androidx.room.Entity
+import androidx.room.Fts4
 import androidx.room.PrimaryKey
 import androidx.room.Room
 import androidx.room.RoomDatabase
@@ -50,7 +51,7 @@ class PushGoDatabaseMigrationDeviceTest {
 
         val container = AppContainer(context, appScope)
         val subscriptions = container.channelStore.loadSubscriptions(GATEWAY_URL)
-        val messages = container.messageRepository.getAll()
+        val messages = container.messageRepository.loadAllForExport()
 
         assertEquals(GATEWAY_URL, container.settingsRepository.getServerAddress())
         assertEquals(true, container.settingsRepository.getUpdateAutoCheckEnabled())
@@ -59,7 +60,9 @@ class PushGoDatabaseMigrationDeviceTest {
         assertEquals(CHANNEL_ID, subscriptions.single().channelId)
         assertEquals(1, messages.size)
         assertEquals(MESSAGE_ID, messages.single().messageId)
-        assertEquals(23, readUserVersion(context.getDatabasePath("pushgo.db")))
+        assertEquals(24, readUserVersion(context.getDatabasePath("pushgo.db")))
+        assertEquals(1, container.messageRepository.totalCount())
+        assertEquals(1, container.messageRepository.unreadCount())
         assertTrue(context.getDatabasePath("pushgo.db").exists())
         assertTrue(context.getDatabasePath("pushgo-v21.db").exists())
 
@@ -72,11 +75,67 @@ class PushGoDatabaseMigrationDeviceTest {
         seedEmptyLegacyV22Database()
 
         val container = AppContainer(context, appScope)
-        val messages = container.messageRepository.getAll()
+        val messages = container.messageRepository.loadAllForExport()
 
         assertEquals(1, messages.size)
         assertEquals(MESSAGE_ID, messages.single().messageId)
         assertEquals(GATEWAY_URL, container.settingsRepository.getServerAddress())
+
+        container.database.close()
+    }
+
+    @Test
+    fun appContainer_migratesCurrentV23InPlaceAndBuildsPerformanceState() = runBlocking {
+        seedLegacyV23Database()
+
+        val container = AppContainer(context, appScope)
+        val messages = container.messageRepository.loadAllForExport()
+
+        assertEquals(1, messages.size)
+        assertEquals(MESSAGE_ID, messages.single().messageId)
+        assertEquals(1, container.messageRepository.totalCount())
+        assertEquals(1, container.messageRepository.unreadCount())
+        assertEquals(24, readUserVersion(context.getDatabasePath("pushgo.db")))
+        val sqlite = container.database.openHelper.writableDatabase
+        val revision = sqlite.query(
+            "SELECT revision FROM message_store_revision WHERE id = 1"
+        ).use { cursor ->
+            assertTrue(cursor.moveToFirst())
+            cursor.getLong(0)
+        }
+        assertEquals(0L, revision)
+        val summaryState = sqlite.query(
+            "SELECT status FROM message_derived_state WHERE component = 'message_summary_projection'"
+        ).use { cursor ->
+            assertTrue(cursor.moveToFirst())
+            cursor.getString(0)
+        }
+        assertEquals("stale", summaryState)
+        sqlite.execSQL(
+            """
+            INSERT INTO messages(
+                id, message_id, title, body, channel, url, is_read, received_at, raw_payload_json,
+                status, decryption_state, notification_id, server_id, body_preview, entity_type,
+                entity_id, event_id, thing_id, event_state, event_time_epoch, occurred_at_epoch,
+                list_payload_json
+            ) VALUES('trigger-probe', 'trigger-probe', 'Probe', 'Probe', 'beta', NULL, 0,
+                1710000300000, '{}', 'NORMAL', NULL, NULL, NULL, 'Probe', '', NULL, NULL,
+                NULL, NULL, NULL, NULL, '{}')
+            """.trimIndent()
+        )
+        sqlite.execSQL("UPDATE messages SET is_read = 1 WHERE id = 'msg-local-v23'")
+        sqlite.execSQL("DELETE FROM messages WHERE id = 'trigger-probe'")
+        val triggerFacts = sqlite.query(
+            "SELECT total_count, unread_count FROM message_global_stats WHERE id = 1"
+        ).use { cursor ->
+            assertTrue(cursor.moveToFirst())
+            cursor.getInt(0) to cursor.getInt(1)
+        }
+        assertEquals(1 to 0, triggerFacts)
+        val updatedRevision = sqlite.query(
+            "SELECT revision FROM message_store_revision WHERE id = 1"
+        ).use { cursor -> cursor.moveToFirst(); cursor.getLong(0) }
+        assertEquals(3L, updatedRevision)
 
         container.database.close()
     }
@@ -133,6 +192,40 @@ class PushGoDatabaseMigrationDeviceTest {
         }
     }
 
+    private fun seedLegacyV23Database() {
+        val db = Room.databaseBuilder(context, LegacyPushGoV23Database::class.java, "pushgo.db")
+            .build()
+        val sqlite = db.openHelper.writableDatabase
+        sqlite.execSQL(
+            """
+            INSERT INTO messages(
+                id, message_id, title, body, channel, url, is_read, received_at, raw_payload_json,
+                status, decryption_state, notification_id, server_id, body_preview, entity_type,
+                entity_id, event_id, thing_id, event_state, event_time_epoch, occurred_at_epoch
+            ) VALUES(?, ?, ?, ?, ?, NULL, 0, ?, ?, ?, NULL, NULL, NULL, ?, '', NULL, NULL, NULL, NULL, NULL, NULL)
+            """.trimIndent(),
+            arrayOf<Any>(
+                "msg-local-v23",
+                MESSAGE_ID,
+                "Current title",
+                "Current body",
+                CHANNEL_ID,
+                1_710_000_200_000L,
+                """{"entity_type":"message","tags":["upgrade"]}""",
+                "NORMAL",
+                "Current body",
+            ),
+        )
+        sqlite.execSQL(
+            """
+            INSERT INTO message_channel_counts(channel, total_count, unread_count, latest_received_at)
+            VALUES(?, 1, 1, ?)
+            """.trimIndent(),
+            arrayOf<Any>(CHANNEL_ID, 1_710_000_200_000L),
+        )
+        db.close()
+    }
+
     private fun cleanupDatabaseFamily(name: String) {
         context.deleteDatabase(name)
         context.getDatabasePath(name).delete()
@@ -178,12 +271,53 @@ data class LegacyAppSettingsEntity(
     val isThingPageEnabled: Boolean = true,
 )
 
+@Entity(tableName = "messages")
+data class LegacyMessageV21Entity(
+    @PrimaryKey val id: String,
+    @ColumnInfo(name = "message_id") val messageId: String?,
+    val title: String,
+    val body: String,
+    val channel: String?,
+    val url: String?,
+    @ColumnInfo(name = "is_read") val isRead: Boolean,
+    @ColumnInfo(name = "received_at") val receivedAt: Long,
+    @ColumnInfo(name = "raw_payload_json") val rawPayloadJson: String,
+    val status: String,
+    @ColumnInfo(name = "decryption_state") val decryptionState: String?,
+    @ColumnInfo(name = "notification_id") val notificationId: String?,
+    @ColumnInfo(name = "server_id") val serverId: String?,
+    @ColumnInfo(name = "body_preview") val bodyPreview: String,
+    @ColumnInfo(name = "entity_type") val entityType: String,
+    @ColumnInfo(name = "entity_id") val entityId: String?,
+    @ColumnInfo(name = "event_id") val eventId: String?,
+    @ColumnInfo(name = "thing_id") val thingId: String?,
+    @ColumnInfo(name = "event_state") val eventState: String?,
+    @ColumnInfo(name = "event_time_epoch") val eventTimeEpoch: Long?,
+    @ColumnInfo(name = "occurred_at_epoch") val occurredAtEpoch: Long?,
+)
+
+@Entity(tableName = "message_channel_counts")
+data class LegacyMessageChannelStatsV21Entity(
+    @PrimaryKey val channel: String,
+    @ColumnInfo(name = "total_count") val totalCount: Int,
+    @ColumnInfo(name = "unread_count") val unreadCount: Int,
+    @ColumnInfo(name = "latest_received_at") val latestReceivedAt: Long,
+)
+
+@Fts4(contentEntity = LegacyMessageV21Entity::class)
+@Entity(tableName = "message_fts")
+data class LegacyMessageFtsV21(
+    val title: String,
+    val body: String,
+    val channel: String?,
+)
+
 @Database(
     entities = [
-        MessageEntity::class,
+        LegacyMessageV21Entity::class,
         MessageMetadataIndexEntity::class,
-        MessageFts::class,
-        MessageChannelStatsEntity::class,
+        LegacyMessageFtsV21::class,
+        LegacyMessageChannelStatsV21Entity::class,
         InboundDeliveryLedgerEntity::class,
         InboundDeliveryAckOutboxEntity::class,
         OperationLedgerEntity::class,
@@ -202,3 +336,28 @@ data class LegacyAppSettingsEntity(
     exportSchema = false,
 )
 abstract class LegacyPushGoV21Database : RoomDatabase()
+
+@Database(
+    entities = [
+        LegacyMessageV21Entity::class,
+        MessageMetadataIndexEntity::class,
+        LegacyMessageFtsV21::class,
+        LegacyMessageChannelStatsV21Entity::class,
+        InboundDeliveryLedgerEntity::class,
+        InboundDeliveryAckOutboxEntity::class,
+        OperationLedgerEntity::class,
+        EventChangeLogEntity::class,
+        ThingChangeLogEntity::class,
+        ThingSubEventEntity::class,
+        TopLevelEventHeadEntity::class,
+        ThingHeadEntity::class,
+        ThingSubMessageEntity::class,
+        PendingThingMessageEntity::class,
+        PendingThingEventEntity::class,
+        ChannelSubscriptionEntity::class,
+        AppSettingsEntity::class,
+    ],
+    version = 23,
+    exportSchema = false,
+)
+abstract class LegacyPushGoV23Database : RoomDatabase()

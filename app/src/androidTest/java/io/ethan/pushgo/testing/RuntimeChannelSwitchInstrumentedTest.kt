@@ -273,9 +273,7 @@ class RuntimeChannelSwitchInstrumentedTest {
     }
 
     private fun openRepositories(settingsCacheName: String) {
-        val openedDb = Room.databaseBuilder(context, PushGoDatabase::class.java, DATABASE_NAME)
-            .setJournalMode(RoomDatabase.JournalMode.WRITE_AHEAD_LOGGING)
-            .build()
+        val openedDb = PushGoDatabase.build(context)
         openedDb.openHelper.writableDatabase.query("PRAGMA journal_mode=WAL").close()
         openedDb.openHelper.writableDatabase.query("PRAGMA synchronous=NORMAL").close()
         db = openedDb

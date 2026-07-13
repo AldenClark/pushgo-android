@@ -114,7 +114,7 @@ class RuntimeComposeUiBaselineInstrumentedTest {
         val searchReadyMs = elapsedMs {
             searchViewModel.updateQuery("tag:task")
             val result = withTimeout(20_000) {
-                searchViewModel.results.firstOrNull { it.isNotEmpty() } ?: emptyList()
+                container.messageRepository.searchMessagesSnapshot("tag:task", unreadOnly = false, limit = 100)
             }
             println("RUNTIME_COMPOSE_LIST_PROXY checkpoint_search_result_size=${result.size}")
         }
@@ -123,7 +123,7 @@ class RuntimeComposeUiBaselineInstrumentedTest {
             listViewModel.toggleUnreadOnlyFilter()
             val unreadState = listViewModel.filterState.value.unreadOnly
             val unread = withTimeout(10_000) {
-                container.messageRepository.searchMessages("runtime", unreadOnly = true, limit = 100).first()
+                container.messageRepository.searchMessagesSnapshot("runtime", unreadOnly = true, limit = 100)
             }
             println(
                 "RUNTIME_COMPOSE_LIST_PROXY checkpoint_unread_state=$unreadState " +
@@ -135,7 +135,7 @@ class RuntimeComposeUiBaselineInstrumentedTest {
             listViewModel.toggleChannel("runtime-channel-1")
             val selected = listViewModel.filterState.value.channels.contains("runtime-channel-1")
             val channelScoped = withTimeout(10_000) {
-                container.messageRepository.searchMessages("runtime channel", unreadOnly = false, limit = 100).first()
+                container.messageRepository.searchMessagesSnapshot("runtime channel", unreadOnly = false, limit = 100)
             }
             println(
                 "RUNTIME_COMPOSE_LIST_PROXY checkpoint_channel_selected=$selected " +
@@ -147,7 +147,7 @@ class RuntimeComposeUiBaselineInstrumentedTest {
             listViewModel.toggleTag("task")
             val selected = listViewModel.filterState.value.tags.contains("task")
             val tagged = withTimeout(10_000) {
-                container.messageRepository.searchMessages("tag:task", unreadOnly = false, limit = 100).first()
+                container.messageRepository.searchMessagesSnapshot("tag:task", unreadOnly = false, limit = 100)
             }
             println(
                 "RUNTIME_COMPOSE_LIST_PROXY checkpoint_tag_selected=$selected " +

@@ -44,7 +44,6 @@ import io.ethan.pushgo.R
 import io.ethan.pushgo.automation.PushGoAutomation
 import io.ethan.pushgo.data.AppContainer
 import io.ethan.pushgo.data.AutomationSnapshot
-import io.ethan.pushgo.data.model.PushMessage
 import io.ethan.pushgo.notifications.NotificationHelper
 import io.ethan.pushgo.update.UpdateInstallIntentLauncher
 import io.ethan.pushgo.update.UpdateNotifier
@@ -93,7 +92,6 @@ fun PushGoAppRoot(
     val settingsViewModel: SettingsViewModel = viewModel(factory = factory)
     
     var selectedMessageId by remember { mutableStateOf<String?>(null) }
-    var selectedMessagePreview by remember { mutableStateOf<PushMessage?>(null) }
     var pendingEventIdToOpen by remember { mutableStateOf<String?>(null) }
     var pendingThingIdToOpen by remember { mutableStateOf<String?>(null) }
     var pendingThingDetailTabToOpen by remember { mutableStateOf<String?>(null) }
@@ -257,7 +255,6 @@ fun PushGoAppRoot(
         val currentMessageId = selectedMessageId ?: return@LaunchedEffect
         if (effectivePendingScope.suppressesMessageId(currentMessageId)) {
             selectedMessageId = null
-            selectedMessagePreview = null
         }
     }
 
@@ -358,9 +355,8 @@ fun PushGoAppRoot(
             PushGoNavHost(
                 navController = navController, container = container, factory = factory, settingsViewModel = settingsViewModel,
                 initialRoute = initialRoute, padding = padding,
-                onMessageClick = { message ->
-                    selectedMessagePreview = message
-                    selectedMessageId = message.id
+                onMessageClick = { messageId ->
+                    selectedMessageId = messageId
                 }, onMessageBatchModeChanged = { messageBatchMode = it },
                 onMessageBottomBarVisibilityChanged = { bottomBarVisible = it },
                 messageDetailVisible = selectedMessageId != null,
@@ -386,13 +382,11 @@ fun PushGoAppRoot(
             if (selectedMessageId != null) {
                 MessageDetailScreen(
                     messageId = selectedMessageId!!, repository = container.messageRepository,
-                    initialMessage = selectedMessagePreview?.takeIf { it.id == selectedMessageId },
                     stateCoordinator = container.messageStateCoordinator,
                     pendingLocalDeletionCoordinator = container.pendingLocalDeletionCoordinator,
                     channelRepository = container.channelRepository,
                     imageStore = container.messageImageStore, onDismiss = {
                         selectedMessageId = null
-                        selectedMessagePreview = null
                     }
                 )
             }
@@ -587,7 +581,7 @@ private fun PushGoUnreadBadge(text: String) {
 @Composable
 private fun PushGoNavHost(
     navController: NavHostController, container: AppContainer, factory: PushGoViewModelFactory, settingsViewModel: SettingsViewModel,
-    initialRoute: Any, padding: PaddingValues, onMessageClick: (PushMessage) -> Unit, onMessageBatchModeChanged: (Boolean) -> Unit,
+    initialRoute: Any, padding: PaddingValues, onMessageClick: (String) -> Unit, onMessageBatchModeChanged: (Boolean) -> Unit,
     onMessageBottomBarVisibilityChanged: (Boolean) -> Unit, messageDetailVisible: Boolean, messageScrollToUnreadToken: Long, messageScrollToTopToken: Long,
     eventCount: Int, eventRefreshToken: Long, onEventBatchModeChanged: (Boolean) -> Unit, onEventBottomBarVisibilityChanged: (Boolean) -> Unit, eventScrollToTopToken: Long,
     thingCount: Int, thingRefreshToken: Long, onThingBatchModeChanged: (Boolean) -> Unit, onThingBottomBarVisibilityChanged: (Boolean) -> Unit, thingScrollToTopToken: Long,

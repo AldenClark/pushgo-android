@@ -1548,7 +1548,7 @@ private fun ThingDetailSheet(
                                             .padding(vertical = 10.dp),
                                     ) {
                                         MessageRowContent(
-                                            message = rowMessage,
+                                            message = rowMessage.asListItem(),
                                             imageModels = rowMessage.imageUrls.take(3).map { it as Any },
                                             appName = stringResource(R.string.app_name),
                                             timeText = formatMessageTime(

@@ -1064,7 +1064,7 @@ class SettingsViewModel(
         isChannelModeLoaded = true
     }
 
-    suspend fun loadAllMessages() = messageRepository.getAll()
+    suspend fun loadAllMessages() = messageRepository.loadAllForExport()
 
     fun updateMessagePageVisibility(enabled: Boolean) {
         viewModelScope.launch {

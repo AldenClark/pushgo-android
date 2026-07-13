@@ -7,7 +7,7 @@ import io.ethan.pushgo.data.SettingsRepository
 import io.ethan.pushgo.notifications.MessageStateCoordinator
 import io.ethan.pushgo.data.model.MessageFilter
 import io.ethan.pushgo.data.model.MessageFacetOptionCount
-import io.ethan.pushgo.data.model.PushMessage
+import io.ethan.pushgo.data.model.MessageListItem
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -34,7 +34,7 @@ class MessageListViewModel(
     private val filter = MutableStateFlow(initialFilter)
     private val locallySuppressedMessageIds = MutableStateFlow<Set<String>>(emptySet())
 
-    val messages: Flow<PagingData<PushMessage>> = combine(
+    val messages: Flow<PagingData<MessageListItem>> = combine(
         filter,
         locallySuppressedMessageIds,
     ) { currentFilter, suppressedIds ->

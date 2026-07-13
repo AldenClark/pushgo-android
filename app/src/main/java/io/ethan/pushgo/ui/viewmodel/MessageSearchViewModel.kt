@@ -2,17 +2,18 @@ package io.ethan.pushgo.ui.viewmodel
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import androidx.paging.PagingData
+import androidx.paging.cachedIn
 import io.ethan.pushgo.data.MessageRepository
-import io.ethan.pushgo.data.model.PushMessage
+import io.ethan.pushgo.data.model.MessageListItem
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.flatMapLatest
-import kotlinx.coroutines.flow.stateIn
 
 @OptIn(FlowPreview::class, ExperimentalCoroutinesApi::class)
 class MessageSearchViewModel(
@@ -23,9 +24,8 @@ class MessageSearchViewModel(
     private val locallySuppressedMessageIds = MutableStateFlow<Set<String>>(emptySet())
 
     val queryState: StateFlow<String> = query
-        .stateIn(viewModelScope, SharingStarted.Lazily, "")
 
-    val results: StateFlow<List<PushMessage>> = combine(
+    val results: Flow<PagingData<MessageListItem>> = combine(
         query.debounce(200),
         unreadOnly,
         locallySuppressedMessageIds,
@@ -35,7 +35,7 @@ class MessageSearchViewModel(
         .flatMapLatest { (rawQuery, currentUnreadOnly, suppressedIds) ->
             repository.searchMessages(rawQuery, currentUnreadOnly, excludedIds = suppressedIds)
         }
-        .stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
+        .cachedIn(viewModelScope)
 
     fun updateQuery(value: String) {
         query.value = value

@@ -8,7 +8,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
@@ -25,12 +24,12 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavHostController
+import androidx.paging.compose.collectAsLazyPagingItems
+import androidx.paging.compose.itemKey
 import io.ethan.pushgo.R
 import io.ethan.pushgo.automation.PushGoAutomation
-import io.ethan.pushgo.data.model.PushMessage
+import io.ethan.pushgo.data.model.MessageListItem
 import io.ethan.pushgo.ui.theme.PushGoThemeExtras
-import io.ethan.pushgo.markdown.MessageBodyResolver
-import io.ethan.pushgo.markdown.MessagePreviewExtractor
 import io.ethan.pushgo.ui.PushGoViewModelFactory
 import io.ethan.pushgo.ui.accessibility.joinAccessibilitySummary
 import io.ethan.pushgo.ui.accessibility.pushGoMergedActionSemantics
@@ -45,16 +44,16 @@ fun MessageSearchScreen(
 ) {
     val viewModel: MessageSearchViewModel = viewModel(factory = factory)
     val query by viewModel.queryState.collectAsStateWithLifecycle()
-    val results by viewModel.results.collectAsStateWithLifecycle()
+    val results = viewModel.results.collectAsLazyPagingItems()
     val bottomGestureInset = rememberBottomGestureInset()
 
-    LaunchedEffect(query, results.size) {
+    LaunchedEffect(query, results.itemCount, results.loadState.refresh) {
         PushGoAutomation.writeEvent(
             type = "search.results_updated",
             command = null,
             details = org.json.JSONObject()
                 .put("search_query", query)
-                .put("result_count", results.size),
+                .put("result_count", results.itemCount),
         )
     }
 
@@ -71,30 +70,27 @@ fun MessageSearchScreen(
             verticalArrangement = Arrangement.spacedBy(8.dp),
             contentPadding = androidx.compose.foundation.layout.PaddingValues(bottom = bottomGestureInset + 16.dp),
         ) {
-            items(results, key = { it.id }) { message ->
-                SearchResultRow(
-                    message = message,
-                    onClick = { navController.navigate("detail/${message.id}") },
-                )
+            items(count = results.itemCount, key = results.itemKey { it.id }) { index ->
+                results[index]?.let { message ->
+                    SearchResultRow(
+                        message = message,
+                        onClick = { navController.navigate("detail/${message.id}") },
+                    )
+                }
             }
         }
     }
 }
 
 @Composable
-private fun SearchResultRow(message: PushMessage, onClick: () -> Unit) {
+private fun SearchResultRow(message: MessageListItem, onClick: () -> Unit) {
     val context = LocalContext.current
     val configuration = LocalConfiguration.current
     val timeText = remember(message.receivedAt, configuration) {
         formatMessageTime(context, message.receivedAt, ZoneId.systemDefault())
     }
-    val resolvedBody = remember(message.rawPayloadJson, message.body) {
-        MessageBodyResolver.resolve(message.rawPayloadJson, message.body)
-    }
     val uiColors = PushGoThemeExtras.colors
-    val bodyPreview = remember(resolvedBody.rawText) {
-        MessagePreviewExtractor.listPreview(resolvedBody.rawText)
-    }
+    val bodyPreview = remember(message.bodyPreview) { message.bodyPreview.trim() }
     val hasBodyText = bodyPreview.isNotBlank()
     val rowSummary = joinAccessibilitySummary(
         message.title.ifBlank { stringResource(R.string.label_no_title) },

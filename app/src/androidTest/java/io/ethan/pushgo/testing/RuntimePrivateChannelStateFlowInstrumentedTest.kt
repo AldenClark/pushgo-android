@@ -444,9 +444,7 @@ class RuntimePrivateChannelStateFlowInstrumentedTest {
     }
 
     private fun openHarness(): RuntimeHarness {
-        val database = Room.databaseBuilder(context, PushGoDatabase::class.java, DATABASE_NAME)
-            .setJournalMode(RoomDatabase.JournalMode.WRITE_AHEAD_LOGGING)
-            .build()
+        val database = PushGoDatabase.build(context)
         database.openHelper.writableDatabase.query("PRAGMA journal_mode=WAL").close()
         database.openHelper.writableDatabase.query("PRAGMA synchronous=NORMAL").close()
         val secretStore = StateflowSecretStore(context)

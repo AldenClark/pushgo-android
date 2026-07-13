@@ -10,6 +10,11 @@ plugins {
     id("com.google.gms.google-services") apply false
 }
 
+ksp {
+    arg("room.schemaLocation", file("schemas").path)
+    arg("room.incremental", "true")
+}
+
 fun Project.resolveSigningProperty(name: String): String? {
     val fromGradle = providers.gradleProperty(name).orNull
     if (!fromGradle.isNullOrBlank()) return fromGradle

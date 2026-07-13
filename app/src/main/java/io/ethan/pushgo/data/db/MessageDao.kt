@@ -21,7 +21,11 @@ interface MessageDao {
 
     @Query(
         """
-        SELECT * FROM messages
+        SELECT id, message_id, title, channel, url, is_read, received_at,
+               CASE WHEN list_payload_json = '{}' THEN raw_payload_json ELSE list_payload_json END
+                   AS list_payload_json,
+               status, decryption_state, notification_id, server_id, body_preview
+        FROM messages
         WHERE (:readState IS NULL OR is_read = :readState)
           AND (:excludedCount = 0 OR id NOT IN (:excludedIds))
           AND (:withUrl = 0 OR url IS NOT NULL)
@@ -61,14 +65,23 @@ interface MessageDao {
         prioritizeUnread: Int,
         excludedIds: List<String>,
         excludedCount: Int,
-    ): PagingSource<Int, MessageEntity>
+    ): PagingSource<Int, MessageListRow>
 
     @Query(
         """
-        SELECT COALESCE(NULLIF(TRIM(m.channel), ''), '') AS value, COUNT(*) AS count
-        FROM messages m
-        WHERE (:excludedCount = 0 OR m.id NOT IN (:excludedIds))
-        GROUP BY COALESCE(NULLIF(TRIM(m.channel), ''), '')
+        SELECT stats.channel AS value,
+               stats.total_count - CASE WHEN :excludedCount = 0 THEN 0 ELSE (
+                   SELECT COUNT(*) FROM messages m
+                   WHERE m.id IN (:excludedIds)
+                     AND COALESCE(NULLIF(TRIM(m.channel), ''), '') = stats.channel
+               ) END AS count
+        FROM message_channel_counts stats
+        WHERE stats.total_count > 0
+          AND stats.total_count - CASE WHEN :excludedCount = 0 THEN 0 ELSE (
+              SELECT COUNT(*) FROM messages m
+              WHERE m.id IN (:excludedIds)
+                AND COALESCE(NULLIF(TRIM(m.channel), ''), '') = stats.channel
+          ) END > 0
         ORDER BY count DESC, value ASC
         """
     )
@@ -97,7 +110,11 @@ interface MessageDao {
 
     @Query(
         """
-        SELECT m.* FROM messages m
+        SELECT m.id, m.message_id, m.title, m.channel, m.url, m.is_read, m.received_at,
+               CASE WHEN m.list_payload_json = '{}' THEN m.raw_payload_json ELSE m.list_payload_json END
+                   AS list_payload_json,
+               m.status, m.decryption_state, m.notification_id, m.server_id, m.body_preview
+        FROM messages m
         JOIN message_fts f ON m.rowid = f.rowid
         WHERE message_fts MATCH :query
           AND (:readState IS NULL OR m.is_read = :readState)
@@ -105,20 +122,22 @@ interface MessageDao {
         ORDER BY
           m.received_at DESC,
           m.id DESC
-        LIMIT :limit
         """
     )
     fun searchMessages(
         query: String,
         readState: Boolean?,
-        limit: Int,
         excludedIds: List<String>,
         excludedCount: Int,
-    ): Flow<List<MessageEntity>>
+    ): PagingSource<Int, MessageListRow>
 
     @Query(
         """
-        SELECT m.* FROM messages m
+        SELECT m.id, m.message_id, m.title, m.channel, m.url, m.is_read, m.received_at,
+               CASE WHEN m.list_payload_json = '{}' THEN m.raw_payload_json ELSE m.list_payload_json END
+                   AS list_payload_json,
+               m.status, m.decryption_state, m.notification_id, m.server_id, m.body_preview
+        FROM messages m
         WHERE m.id IN (
             SELECT mi.message_id
             FROM message_metadata_index mi
@@ -132,21 +151,23 @@ interface MessageDao {
         ORDER BY
           m.received_at DESC,
           m.id DESC
-        LIMIT :limit
         """
     )
     fun searchMessagesByTags(
         tags: List<String>,
         tagCount: Int,
         readState: Boolean?,
-        limit: Int,
         excludedIds: List<String>,
         excludedCount: Int,
-    ): Flow<List<MessageEntity>>
+    ): PagingSource<Int, MessageListRow>
 
     @Query(
         """
-        SELECT m.* FROM messages m
+        SELECT m.id, m.message_id, m.title, m.channel, m.url, m.is_read, m.received_at,
+               CASE WHEN m.list_payload_json = '{}' THEN m.raw_payload_json ELSE m.list_payload_json END
+                   AS list_payload_json,
+               m.status, m.decryption_state, m.notification_id, m.server_id, m.body_preview
+        FROM messages m
         JOIN message_fts f ON m.rowid = f.rowid
         WHERE message_fts MATCH :query
           AND (:readState IS NULL OR m.is_read = :readState)
@@ -162,7 +183,6 @@ interface MessageDao {
         ORDER BY
           m.received_at DESC,
           m.id DESC
-        LIMIT :limit
         """
     )
     fun searchMessagesByTextAndTags(
@@ -170,10 +190,9 @@ interface MessageDao {
         tags: List<String>,
         tagCount: Int,
         readState: Boolean?,
-        limit: Int,
         excludedIds: List<String>,
         excludedCount: Int,
-    ): Flow<List<MessageEntity>>
+    ): PagingSource<Int, MessageListRow>
 
     @Query("SELECT * FROM messages WHERE id = :id LIMIT 1")
     suspend fun getById(id: String): MessageEntity?
@@ -191,7 +210,25 @@ interface MessageDao {
     suspend fun getByMessageIds(messageIds: List<String>): List<MessageEntity>
 
     @Query("SELECT * FROM messages ORDER BY received_at DESC")
-    suspend fun getAll(): List<MessageEntity>
+    suspend fun loadAllForExport(): List<MessageEntity>
+
+    @Query(
+        """
+        SELECT * FROM messages
+        WHERE received_at < :beforeReceivedAt
+           OR (received_at = :beforeReceivedAt AND id < :beforeId)
+        ORDER BY received_at DESC, id DESC
+        LIMIT :limit
+        """
+    )
+    suspend fun getMetadataBackfillPage(
+        beforeReceivedAt: Long,
+        beforeId: String,
+        limit: Int,
+    ): List<MessageEntity>
+
+    @Query("UPDATE messages SET list_payload_json = :listPayloadJson WHERE id = :id")
+    suspend fun updateListPayload(id: String, listPayloadJson: String): Int
 
     @Query(
         """
@@ -413,145 +450,4 @@ interface MessageDao {
         """
     )
     suspend fun deleteBefore(readState: Boolean?, cutoff: Long)
-
-    @Query(
-        """
-        SELECT
-          COALESCE(NULLIF(TRIM(channel), ''), '') AS channel,
-          COUNT(*) AS total_count,
-          COALESCE(SUM(CASE WHEN is_read = 0 THEN 1 ELSE 0 END), 0) AS unread_count,
-          COALESCE(MAX(received_at), 0) AS latest_received_at
-        FROM messages
-        WHERE (
-            :channel IS NULL
-            OR (:channel = '' AND (channel IS NULL OR channel = ''))
-            OR (:channel != '' AND channel = :channel)
-        )
-          AND (:readState IS NULL OR is_read = :readState)
-        GROUP BY COALESCE(NULLIF(TRIM(channel), ''), '')
-        """
-    )
-    suspend fun getChannelAggregates(
-        channel: String?,
-        readState: Boolean?,
-    ): List<MessageChannelStatsAggregate>
-
-    @Query(
-        """
-        SELECT
-          COALESCE(NULLIF(TRIM(channel), ''), '') AS channel,
-          COUNT(*) AS total_count,
-          COALESCE(SUM(CASE WHEN is_read = 0 THEN 1 ELSE 0 END), 0) AS unread_count,
-          COALESCE(MAX(received_at), 0) AS latest_received_at
-        FROM messages
-        WHERE (:readState IS NULL OR is_read = :readState)
-          AND received_at < :cutoff
-        GROUP BY COALESCE(NULLIF(TRIM(channel), ''), '')
-        """
-    )
-    suspend fun getChannelAggregatesBefore(
-        readState: Boolean?,
-        cutoff: Long,
-    ): List<MessageChannelStatsAggregate>
-
-    @Query(
-        """
-        SELECT
-          COALESCE(NULLIF(TRIM(channel), ''), '') AS channel,
-          COUNT(*) AS total_count,
-          COUNT(*) AS unread_count,
-          COALESCE(MAX(received_at), 0) AS latest_received_at
-        FROM messages
-        WHERE is_read = 0
-        GROUP BY COALESCE(NULLIF(TRIM(channel), ''), '')
-        """
-    )
-    suspend fun getUnreadAggregates(): List<MessageChannelStatsAggregate>
-
-    @Query(
-        """
-        SELECT
-          COALESCE(NULLIF(TRIM(channel), ''), '') AS channel,
-          COUNT(*) AS total_count,
-          COUNT(*) AS unread_count,
-          COALESCE(MAX(received_at), 0) AS latest_received_at
-        FROM messages
-        WHERE is_read = 0
-          AND id IN (:ids)
-        GROUP BY COALESCE(NULLIF(TRIM(channel), ''), '')
-        """
-    )
-    suspend fun getUnreadAggregatesByIds(ids: List<String>): List<MessageChannelStatsAggregate>
-
-    @Query(
-        """
-        SELECT
-          COALESCE(NULLIF(TRIM(channel), ''), '') AS channel,
-          COUNT(*) AS total_count,
-          COALESCE(SUM(CASE WHEN is_read = 0 THEN 1 ELSE 0 END), 0) AS unread_count,
-          COALESCE(MAX(received_at), 0) AS latest_received_at
-        FROM messages
-        WHERE id IN (:ids)
-        GROUP BY COALESCE(NULLIF(TRIM(channel), ''), '')
-        """
-    )
-    suspend fun getChannelAggregatesByIds(ids: List<String>): List<MessageChannelStatsAggregate>
-
-    @Query(
-        """
-        SELECT
-          COALESCE(NULLIF(TRIM(channel), ''), '') AS channel,
-          COUNT(*) AS total_count,
-          COALESCE(SUM(CASE WHEN is_read = 0 THEN 1 ELSE 0 END), 0) AS unread_count,
-          COALESCE(MAX(received_at), 0) AS latest_received_at
-        FROM messages
-        WHERE id IN (
-          SELECT id FROM messages
-          WHERE is_read = 1
-            AND (
-              :excludedSize = 0
-              OR channel IS NULL
-              OR channel NOT IN (:excludedChannels)
-            )
-          ORDER BY received_at ASC
-          LIMIT :limit
-        )
-        GROUP BY COALESCE(NULLIF(TRIM(channel), ''), '')
-        """
-    )
-    suspend fun getOldestReadAggregatesExcludingChannels(
-        limit: Int,
-        excludedChannels: List<String>,
-        excludedSize: Int,
-    ): List<MessageChannelStatsAggregate>
-
-    @Query(
-        """
-        SELECT
-          COALESCE(NULLIF(TRIM(channel), ''), '') AS channel,
-          COUNT(*) AS total_count,
-          COALESCE(SUM(CASE WHEN is_read = 0 THEN 1 ELSE 0 END), 0) AS unread_count,
-          COALESCE(MAX(received_at), 0) AS latest_received_at
-        FROM messages
-        WHERE id IN (
-          SELECT id FROM messages
-          WHERE is_read = 1
-          ORDER BY received_at ASC
-          LIMIT :limit
-        )
-        GROUP BY COALESCE(NULLIF(TRIM(channel), ''), '')
-        """
-    )
-    suspend fun getOldestReadAggregates(limit: Int): List<MessageChannelStatsAggregate>
-
-    @Query(
-        """
-        SELECT MAX(received_at) FROM messages
-        WHERE (
-            (:channel = '' AND (channel IS NULL OR TRIM(channel) = ''))
-            OR (:channel != '' AND TRIM(channel) = :channel)
-        )
-        """
-    )
-    suspend fun latestReceivedAtByNormalizedChannel(channel: String): Long?
 }

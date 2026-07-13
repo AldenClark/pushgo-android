@@ -17,6 +17,9 @@ import java.io.File
         MessageMetadataIndexEntity::class,
         MessageFts::class,
         MessageChannelStatsEntity::class,
+        MessageGlobalStatsEntity::class,
+        MessageStoreRevisionEntity::class,
+        MessageDerivedStateEntity::class,
         InboundDeliveryLedgerEntity::class,
         InboundDeliveryAckOutboxEntity::class,
         OperationLedgerEntity::class,
@@ -31,8 +34,8 @@ import java.io.File
         ChannelSubscriptionEntity::class,
         AppSettingsEntity::class,
     ],
-    version = 23,
-    exportSchema = false,
+    version = 24,
+    exportSchema = true,
 )
 abstract class PushGoDatabase : RoomDatabase() {
     abstract fun messageDao(): MessageDao
@@ -112,6 +115,56 @@ abstract class PushGoDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_23_24 = object : Migration(23, 24) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE messages ADD COLUMN list_payload_json TEXT NOT NULL DEFAULT '{}'")
+                db.execSQL("ALTER TABLE message_channel_counts ADD COLUMN latest_unread_at INTEGER")
+                db.execSQL(
+                    "ALTER TABLE message_channel_counts ADD COLUMN updated_at_epoch_ms INTEGER NOT NULL DEFAULT 0"
+                )
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS message_global_stats (
+                        id INTEGER NOT NULL PRIMARY KEY,
+                        total_count INTEGER NOT NULL,
+                        unread_count INTEGER NOT NULL,
+                        updated_at_epoch_ms INTEGER NOT NULL
+                    )
+                    """.trimIndent()
+                )
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS message_store_revision (
+                        id INTEGER NOT NULL PRIMARY KEY,
+                        revision INTEGER NOT NULL,
+                        updated_at_epoch_ms INTEGER NOT NULL
+                    )
+                    """.trimIndent()
+                )
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS message_derived_state (
+                        component TEXT NOT NULL PRIMARY KEY,
+                        schema_version INTEGER NOT NULL,
+                        status TEXT NOT NULL,
+                        source_revision INTEGER NOT NULL,
+                        cursor_local_message_id TEXT,
+                        updated_at_epoch_ms INTEGER NOT NULL,
+                        last_error TEXT
+                    )
+                    """.trimIndent()
+                )
+                installRoomDeclaredMessageIndexes(db)
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS index_message_channel_counts_latest_received_at " +
+                        "ON message_channel_counts(latest_received_at)"
+                )
+                rebuildMessageStats(db)
+                installMessageStatsTriggers(db)
+                check(messageStatsAreConsistent(db)) { "message stats migration invariant failed" }
+            }
+        }
+
         fun build(context: Context): PushGoDatabase {
             return runCatching { newBuilder(context).build() }.getOrElse { error ->
                 PushGoAutomation.recordRuntimeError(
@@ -126,12 +179,18 @@ abstract class PushGoDatabase : RoomDatabase() {
         private fun newBuilder(context: Context): RoomDatabase.Builder<PushGoDatabase> {
             prepareDatabaseFile(context)
             return Room.databaseBuilder(context, PushGoDatabase::class.java, DATABASE_NAME)
-                .addMigrations(MIGRATION_21_22, MIGRATION_22_23)
+                .addMigrations(MIGRATION_21_22, MIGRATION_22_23, MIGRATION_23_24)
                 .setJournalMode(RoomDatabase.JournalMode.WRITE_AHEAD_LOGGING)
                 .addCallback(object : RoomDatabase.Callback() {
                     override fun onOpen(db: SupportSQLiteDatabase) {
                         super.onOpen(db)
                         normalizeEpochColumnsToMillisOnce(db)
+                        ensureMessageStatsSeedRows(db)
+                        installMessagePerformanceIndexes(db)
+                        installMessageStatsTriggers(db)
+                        if (!messageStatsAreConsistent(db)) {
+                            rebuildMessageStats(db)
+                        }
                         // Enforce messageId as a required business key at DB boundary.
                         db.execSQL(
                             """
@@ -193,6 +252,235 @@ abstract class PushGoDatabase : RoomDatabase() {
                         db.query("PRAGMA optimize").close()
                     }
                 })
+        }
+
+        private fun rebuildMessageStats(db: SupportSQLiteDatabase) {
+            val now = "CAST(strftime('%s', 'now') AS INTEGER) * 1000"
+            db.execSQL("DELETE FROM message_global_stats")
+            db.execSQL(
+                """
+                INSERT INTO message_global_stats(id, total_count, unread_count, updated_at_epoch_ms)
+                SELECT 1, COUNT(*), COALESCE(SUM(CASE WHEN is_read = 0 THEN 1 ELSE 0 END), 0), $now
+                FROM messages
+                """.trimIndent()
+            )
+            db.execSQL("DELETE FROM message_channel_counts")
+            db.execSQL(
+                """
+                INSERT INTO message_channel_counts(
+                    channel, total_count, unread_count, latest_received_at,
+                    latest_unread_at, updated_at_epoch_ms
+                )
+                SELECT COALESCE(NULLIF(TRIM(channel), ''), ''), COUNT(*),
+                       COALESCE(SUM(CASE WHEN is_read = 0 THEN 1 ELSE 0 END), 0),
+                       MAX(received_at), MAX(CASE WHEN is_read = 0 THEN received_at END), $now
+                FROM messages
+                GROUP BY COALESCE(NULLIF(TRIM(channel), ''), '')
+                """.trimIndent()
+            )
+            db.execSQL("DELETE FROM message_store_revision")
+            db.execSQL(
+                "INSERT INTO message_store_revision(id, revision, updated_at_epoch_ms) VALUES(1, 0, $now)"
+            )
+            db.execSQL(
+                """
+                INSERT OR REPLACE INTO message_derived_state(
+                    component, schema_version, status, source_revision,
+                    cursor_local_message_id, updated_at_epoch_ms, last_error
+                ) VALUES('message_metadata_index', 1, 'stale', 0, NULL, $now, NULL)
+                """.trimIndent()
+            )
+            db.execSQL(
+                """
+                INSERT OR REPLACE INTO message_derived_state(
+                    component, schema_version, status, source_revision,
+                    cursor_local_message_id, updated_at_epoch_ms, last_error
+                ) VALUES('message_summary_projection', 1, 'stale', 0, NULL, $now, NULL)
+                """.trimIndent()
+            )
+        }
+
+        private fun messageStatsAreConsistent(db: SupportSQLiteDatabase): Boolean {
+            return db.query(
+                """
+                SELECT
+                    (SELECT total_count FROM message_global_stats WHERE id = 1),
+                    (SELECT unread_count FROM message_global_stats WHERE id = 1),
+                    (SELECT COUNT(*) FROM messages),
+                    (SELECT COALESCE(SUM(CASE WHEN is_read = 0 THEN 1 ELSE 0 END), 0) FROM messages),
+                    (SELECT COALESCE(SUM(total_count), 0) FROM message_channel_counts),
+                    (SELECT COALESCE(SUM(unread_count), 0) FROM message_channel_counts)
+                """.trimIndent()
+            ).use { cursor ->
+                cursor.moveToFirst() &&
+                    cursor.getLong(0) == cursor.getLong(2) &&
+                    cursor.getLong(1) == cursor.getLong(3) &&
+                    cursor.getLong(0) == cursor.getLong(4) &&
+                    cursor.getLong(1) == cursor.getLong(5)
+            }
+        }
+
+        private fun installMessagePerformanceIndexes(db: SupportSQLiteDatabase) {
+            db.execSQL(
+                "CREATE INDEX IF NOT EXISTS index_messages_read_received_id " +
+                    "ON messages(is_read, received_at DESC, id DESC)"
+            )
+            db.execSQL(
+                "CREATE INDEX IF NOT EXISTS index_messages_channel_key_read_received_id " +
+                    "ON messages(COALESCE(NULLIF(TRIM(channel), ''), ''), is_read, received_at DESC, id DESC)"
+            )
+            db.execSQL(
+                "CREATE INDEX IF NOT EXISTS index_messages_channel_key_received_id " +
+                    "ON messages(COALESCE(NULLIF(TRIM(channel), ''), ''), received_at DESC, id DESC)"
+            )
+        }
+
+        /** Migration fixtures and older installs may lack indices still declared by MessageEntity. */
+        private fun installRoomDeclaredMessageIndexes(db: SupportSQLiteDatabase) {
+            db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS index_messages_message_id_unique ON messages(message_id)")
+            db.execSQL("CREATE INDEX IF NOT EXISTS index_messages_channel_received_at ON messages(channel, received_at)")
+            db.execSQL("CREATE INDEX IF NOT EXISTS index_messages_is_read_received_at ON messages(is_read, received_at)")
+            db.execSQL("CREATE INDEX IF NOT EXISTS index_messages_received_at ON messages(received_at)")
+            db.execSQL("CREATE INDEX IF NOT EXISTS index_messages_entity_type_event_time_epoch ON messages(entity_type, event_time_epoch)")
+            db.execSQL("CREATE INDEX IF NOT EXISTS index_messages_event_id_event_time_epoch ON messages(event_id, event_time_epoch)")
+            db.execSQL("CREATE INDEX IF NOT EXISTS index_messages_thing_id_occurred_at_epoch_event_time_epoch ON messages(thing_id, occurred_at_epoch, event_time_epoch)")
+        }
+
+        private fun installMessageStatsTriggers(db: SupportSQLiteDatabase) {
+            val now = "CAST(strftime('%s', 'now') AS INTEGER) * 1000"
+            val newKey = "COALESCE(NULLIF(TRIM(NEW.channel), ''), '')"
+            val oldKey = "COALESCE(NULLIF(TRIM(OLD.channel), ''), '')"
+            val addNewChannel = """
+                INSERT INTO message_channel_counts(
+                    channel, total_count, unread_count, latest_received_at,
+                    latest_unread_at, updated_at_epoch_ms
+                ) VALUES(
+                    $newKey,
+                    1,
+                    CASE WHEN NEW.is_read = 0 THEN 1 ELSE 0 END,
+                    NEW.received_at,
+                    CASE WHEN NEW.is_read = 0 THEN NEW.received_at END,
+                    $now
+                ) ON CONFLICT(channel) DO UPDATE SET
+                    total_count = total_count + 1,
+                    unread_count = unread_count + excluded.unread_count,
+                    latest_received_at = CASE
+                        WHEN latest_received_at IS NULL OR excluded.latest_received_at > latest_received_at
+                        THEN excluded.latest_received_at ELSE latest_received_at END,
+                    latest_unread_at = CASE
+                        WHEN excluded.latest_unread_at IS NOT NULL
+                             AND (latest_unread_at IS NULL OR excluded.latest_unread_at > latest_unread_at)
+                        THEN excluded.latest_unread_at ELSE latest_unread_at END,
+                    updated_at_epoch_ms = excluded.updated_at_epoch_ms;
+            """.trimIndent()
+            val removeOldChannel = """
+                UPDATE message_channel_counts
+                SET total_count = total_count - 1,
+                    unread_count = unread_count - CASE WHEN OLD.is_read = 0 THEN 1 ELSE 0 END,
+                    updated_at_epoch_ms = $now
+                WHERE channel = $oldKey;
+                DELETE FROM message_channel_counts WHERE channel = $oldKey AND total_count <= 0;
+                UPDATE message_channel_counts
+                SET latest_received_at = CASE
+                    WHEN OLD.received_at >= latest_received_at THEN (
+                        SELECT received_at FROM messages
+                        WHERE COALESCE(NULLIF(TRIM(channel), ''), '') = $oldKey
+                        ORDER BY received_at DESC, id DESC LIMIT 1
+                    ) ELSE latest_received_at END,
+                    latest_unread_at = CASE
+                    WHEN OLD.is_read = 0 AND OLD.received_at >= latest_unread_at THEN (
+                        SELECT received_at FROM messages
+                        WHERE is_read = 0 AND COALESCE(NULLIF(TRIM(channel), ''), '') = $oldKey
+                        ORDER BY received_at DESC, id DESC LIMIT 1
+                    ) ELSE latest_unread_at END
+                WHERE channel = $oldKey;
+            """.trimIndent()
+
+            db.execSQL("DROP TRIGGER IF EXISTS messages_stats_after_insert")
+            db.execSQL("DROP TRIGGER IF EXISTS messages_stats_after_delete")
+            db.execSQL("DROP TRIGGER IF EXISTS messages_stats_after_update")
+            db.execSQL("DROP TRIGGER IF EXISTS messages_revision_after_update")
+            db.execSQL(
+                """
+                CREATE TRIGGER messages_stats_after_insert AFTER INSERT ON messages BEGIN
+                    UPDATE message_global_stats
+                    SET total_count = total_count + 1,
+                        unread_count = unread_count + (1 - NEW.is_read),
+                        updated_at_epoch_ms = $now WHERE id = 1;
+                    $addNewChannel
+                    UPDATE message_store_revision
+                    SET revision = revision + 1, updated_at_epoch_ms = $now WHERE id = 1;
+                END
+                """.trimIndent()
+            )
+            db.execSQL(
+                """
+                CREATE TRIGGER messages_stats_after_delete AFTER DELETE ON messages BEGIN
+                    UPDATE message_global_stats
+                    SET total_count = total_count - 1,
+                        unread_count = unread_count - (1 - OLD.is_read),
+                        updated_at_epoch_ms = $now WHERE id = 1;
+                    $removeOldChannel
+                    UPDATE message_store_revision
+                    SET revision = revision + 1, updated_at_epoch_ms = $now WHERE id = 1;
+                END
+                """.trimIndent()
+            )
+            db.execSQL(
+                """
+                CREATE TRIGGER messages_stats_after_update
+                AFTER UPDATE OF is_read, channel, received_at ON messages BEGIN
+                    UPDATE message_global_stats
+                    SET unread_count = unread_count + OLD.is_read - NEW.is_read,
+                        updated_at_epoch_ms = $now WHERE id = 1;
+                    $removeOldChannel
+                    $addNewChannel
+                END
+                """.trimIndent()
+            )
+            db.execSQL(
+                """
+                CREATE TRIGGER messages_revision_after_update
+                AFTER UPDATE OF message_id, title, body, channel, url, is_read, received_at,
+                    raw_payload_json, status, decryption_state, notification_id, server_id,
+                    body_preview, entity_type, entity_id, event_id, thing_id, event_state,
+                    event_time_epoch, occurred_at_epoch
+                ON messages BEGIN
+                    UPDATE message_store_revision
+                    SET revision = revision + 1, updated_at_epoch_ms = $now WHERE id = 1;
+                END
+                """.trimIndent()
+            )
+        }
+
+        private fun ensureMessageStatsSeedRows(db: SupportSQLiteDatabase) {
+            val now = "CAST(strftime('%s', 'now') AS INTEGER) * 1000"
+            db.execSQL(
+                """
+                INSERT OR IGNORE INTO message_global_stats(id, total_count, unread_count, updated_at_epoch_ms)
+                SELECT 1, COUNT(*), COALESCE(SUM(CASE WHEN is_read = 0 THEN 1 ELSE 0 END), 0), $now
+                FROM messages
+                """.trimIndent()
+            )
+            db.execSQL(
+                "INSERT OR IGNORE INTO message_store_revision(id, revision, updated_at_epoch_ms) VALUES(1, 0, $now)"
+            )
+            db.execSQL(
+                """
+                INSERT OR IGNORE INTO message_derived_state(
+                    component, schema_version, status, source_revision,
+                    cursor_local_message_id, updated_at_epoch_ms, last_error
+                ) VALUES('message_metadata_index', 1, 'stale', 0, NULL, $now, NULL)
+                """.trimIndent()
+            )
+            db.execSQL(
+                """
+                INSERT OR IGNORE INTO message_derived_state(
+                    component, schema_version, status, source_revision,
+                    cursor_local_message_id, updated_at_epoch_ms, last_error
+                ) VALUES('message_summary_projection', 1, 'stale', 0, NULL, $now, NULL)
+                """.trimIndent()
+            )
         }
 
         private fun prepareDatabaseFile(context: Context) {

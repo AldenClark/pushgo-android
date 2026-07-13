@@ -61,6 +61,8 @@ data class MessageEntity(
     val eventTimeEpoch: Long?,
     @ColumnInfo(name = "occurred_at_epoch")
     val occurredAtEpoch: Long?,
+    @ColumnInfo(name = "list_payload_json", defaultValue = "'{}'")
+    val listPayloadJson: String = "{}",
 ) {
     fun asModel(): PushMessage {
         val state = decryptionState?.let { runCatching { DecryptionState.valueOf(it) }.getOrNull() }
@@ -136,7 +138,29 @@ data class MessageEntity(
                 eventState = projection.eventState,
                 eventTimeEpoch = projection.eventTimeEpoch,
                 occurredAtEpoch = projection.occurredAtEpoch,
+                listPayloadJson = buildListPayloadJson(message.rawPayloadJson),
             )
+        }
+
+        fun buildListPayloadJson(rawPayloadJson: String): String {
+            val source = runCatching { JSONObject(rawPayloadJson) }.getOrNull() ?: return "{}"
+            val result = JSONObject()
+            val keys = listOf(
+                "severity", "tags", "images", "metadata", "entity_type", "entity_id",
+                "event_id", "thing_id", "event_state", "encrypted", "is_encrypted",
+                "isEncrypted", "encryption_state", "encryptionState", "ciphertext",
+            )
+            keys.forEach { key ->
+                if (source.has(key) && !source.isNull(key)) {
+                    result.put(key, source.opt(key))
+                }
+            }
+            source.optJSONObject("aps")?.let { aps ->
+                if (aps.has("thread-id")) {
+                    result.put("aps", JSONObject().put("thread-id", aps.opt("thread-id")))
+                }
+            }
+            return result.toString()
         }
 
         private fun deriveEntityProjection(
