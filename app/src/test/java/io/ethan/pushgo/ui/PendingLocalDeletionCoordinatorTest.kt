@@ -3,10 +3,15 @@ package io.ethan.pushgo.ui
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicInteger
+import kotlin.coroutines.CoroutineContext
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -17,7 +22,7 @@ import org.junit.Test
 
 class PendingLocalDeletionCoordinatorTest {
     @Test
-    fun schedulingNewDeletionCommitsPreviousEntryImmediately() = runBlocking {
+    fun schedulingNewDeletionQueuesWithoutShorteningPreviousUndoWindow() = runBlocking {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         val commits = CopyOnWriteArrayList<String>()
         val firstCommit = CountDownLatch(1)
@@ -26,6 +31,7 @@ class PendingLocalDeletionCoordinatorTest {
                 appScope = scope,
                 countdownMillis = 5_000L,
                 elapsedRealtimeMillis = { System.nanoTime() / 1_000_000L },
+                completionDispatcher = Dispatchers.Unconfined,
             )
 
             coordinator.schedule(
@@ -44,11 +50,17 @@ class PendingLocalDeletionCoordinatorTest {
                 },
             )
 
-            assertTrue(firstCommit.await(1, TimeUnit.SECONDS))
-            assertEquals(listOf("first"), commits.toList())
+            assertFalse(firstCommit.await(100, TimeUnit.MILLISECONDS))
+            assertTrue(commits.isEmpty())
             val pending = coordinator.pendingDeletion.value
             assertNotNull(pending)
-            assertEquals(setOf("m2"), pending?.scope?.messageIds)
+            assertEquals(setOf("m1"), pending?.scope?.messageIds)
+            assertEquals(setOf("m1", "m2"), coordinator.effectiveScope.value.messageIds)
+
+            coordinator.undoCurrent()
+
+            assertEquals(setOf("m2"), coordinator.pendingDeletion.value?.scope?.messageIds)
+            assertEquals(setOf("m2"), coordinator.effectiveScope.value.messageIds)
         } finally {
             scope.cancel()
         }
@@ -63,6 +75,7 @@ class PendingLocalDeletionCoordinatorTest {
                 appScope = scope,
                 countdownMillis = 100L,
                 elapsedRealtimeMillis = { System.nanoTime() / 1_000_000L },
+                completionDispatcher = Dispatchers.Unconfined,
             )
 
             coordinator.schedule(
@@ -91,6 +104,7 @@ class PendingLocalDeletionCoordinatorTest {
                 appScope = scope,
                 countdownMillis = 5L,
                 elapsedRealtimeMillis = { System.nanoTime() / 1_000_000L },
+                completionDispatcher = Dispatchers.Unconfined,
             )
 
             coordinator.schedule(
@@ -122,12 +136,14 @@ class PendingLocalDeletionCoordinatorTest {
                 appScope = scope,
                 countdownMillis = 20L,
                 elapsedRealtimeMillis = { System.nanoTime() / 1_000_000L },
+                completionDispatcher = Dispatchers.Unconfined,
             )
 
             coordinator.schedule(
                 summary = "message",
                 scope = PendingLocalDeletionCoordinator.Scope(messageIds = setOf("m1")),
                 onCommit = {
+                    delay(5L)
                     committed = true
                     commitLatch.countDown()
                 },
@@ -152,6 +168,7 @@ class PendingLocalDeletionCoordinatorTest {
                 appScope = scope,
                 countdownMillis = 5_000L,
                 elapsedRealtimeMillis = { System.nanoTime() / 1_000_000L },
+                completionDispatcher = Dispatchers.Unconfined,
             )
 
             coordinator.schedule(
@@ -174,6 +191,223 @@ class PendingLocalDeletionCoordinatorTest {
             assertTrue(completionLatch.await(1, TimeUnit.SECONDS))
             assertTrue(committed)
             assertNull(coordinator.pendingDeletion.value)
+        } finally {
+            scope.cancel()
+        }
+    }
+
+    @Test
+    fun effectiveScopeRemainsActiveUntilCommitFinishes() = runBlocking {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val commitStarted = CountDownLatch(1)
+        val releaseCommit = CountDownLatch(1)
+        try {
+            val coordinator = PendingLocalDeletionCoordinator(
+                appScope = scope,
+                countdownMillis = 5_000L,
+                elapsedRealtimeMillis = { System.nanoTime() / 1_000_000L },
+                completionDispatcher = Dispatchers.Unconfined,
+            )
+
+            coordinator.schedule(
+                summary = "event",
+                scope = PendingLocalDeletionCoordinator.Scope(eventIds = setOf("event-1")),
+                onCommit = {
+                    commitStarted.countDown()
+                    assertTrue(releaseCommit.await(1, TimeUnit.SECONDS))
+                },
+            )
+
+            val commitJob = scope.launch {
+                coordinator.commitCurrentIfNeeded()
+            }
+            assertTrue(commitStarted.await(1, TimeUnit.SECONDS))
+            assertNull(coordinator.pendingDeletion.value)
+            assertTrue(
+                coordinator.effectiveScope.value.suppressesEvent(
+                    id = "event-1",
+                    channelId = null,
+                ),
+            )
+
+            releaseCommit.countDown()
+            commitJob.join()
+            assertFalse(
+                coordinator.effectiveScope.value.suppressesEvent(
+                    id = "event-1",
+                    channelId = null,
+                ),
+            )
+        } finally {
+            releaseCommit.countDown()
+            scope.cancel()
+        }
+    }
+
+    @Test
+    fun completionCallbackUsesConfiguredDispatcher() = runBlocking {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val dispatchCount = AtomicInteger(0)
+        val completionDispatcher = object : CoroutineDispatcher() {
+            override fun dispatch(context: CoroutineContext, block: Runnable) {
+                dispatchCount.incrementAndGet()
+                block.run()
+            }
+        }
+        try {
+            val coordinator = PendingLocalDeletionCoordinator(
+                appScope = scope,
+                countdownMillis = 5_000L,
+                elapsedRealtimeMillis = { System.nanoTime() / 1_000_000L },
+                completionDispatcher = completionDispatcher,
+            )
+
+            coordinator.schedule(
+                summary = "message",
+                scope = PendingLocalDeletionCoordinator.Scope(messageIds = setOf("m1")),
+                onCommit = {},
+                onCompletion = {},
+            )
+            coordinator.commitCurrentIfNeeded()
+
+            assertEquals(1, dispatchCount.get())
+        } finally {
+            scope.cancel()
+        }
+    }
+
+    @Test
+    fun finishingOlderCommitDoesNotClearNewerPendingScope() = runBlocking {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val firstCommitStarted = CountDownLatch(1)
+        val releaseFirstCommit = CountDownLatch(1)
+        try {
+            val coordinator = PendingLocalDeletionCoordinator(
+                appScope = scope,
+                countdownMillis = 5_000L,
+                elapsedRealtimeMillis = { System.nanoTime() / 1_000_000L },
+                completionDispatcher = Dispatchers.Unconfined,
+            )
+
+            coordinator.schedule(
+                summary = "first event",
+                scope = PendingLocalDeletionCoordinator.Scope(eventIds = setOf("event-1")),
+                onCommit = {
+                    firstCommitStarted.countDown()
+                    assertTrue(releaseFirstCommit.await(1, TimeUnit.SECONDS))
+                },
+            )
+            val firstCommit = scope.launch {
+                coordinator.commitCurrentIfNeeded()
+            }
+            assertTrue(firstCommitStarted.await(1, TimeUnit.SECONDS))
+
+            coordinator.schedule(
+                summary = "second thing",
+                scope = PendingLocalDeletionCoordinator.Scope(thingIds = setOf("thing-2")),
+                onCommit = {},
+            )
+            assertTrue(coordinator.effectiveScope.value.suppressesEvent("event-1", null))
+            assertTrue(coordinator.effectiveScope.value.suppressesThing("thing-2", null))
+
+            releaseFirstCommit.countDown()
+            firstCommit.join()
+
+            assertFalse(coordinator.effectiveScope.value.suppressesEvent("event-1", null))
+            assertTrue(coordinator.effectiveScope.value.suppressesThing("thing-2", null))
+            assertEquals("second thing", coordinator.pendingDeletion.value?.summary)
+        } finally {
+            releaseFirstCommit.countDown()
+            scope.cancel()
+        }
+    }
+
+    @Test
+    fun inactiveInteractionPausesCountdownUntilReactivated() = runBlocking {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val commitLatch = CountDownLatch(1)
+        try {
+            val coordinator = PendingLocalDeletionCoordinator(
+                appScope = scope,
+                countdownMillis = 80L,
+                elapsedRealtimeMillis = { System.nanoTime() / 1_000_000L },
+                completionDispatcher = Dispatchers.Unconfined,
+            )
+
+            coordinator.schedule(
+                summary = "message",
+                scope = PendingLocalDeletionCoordinator.Scope(),
+                onCommit = { commitLatch.countDown() },
+            )
+            Thread.sleep(25)
+            coordinator.setInteractionActive(false)
+            val frozenRemaining = coordinator.pendingDeletion.value?.frozenRemainingMillis ?: 0L
+
+            assertFalse(commitLatch.await(120, TimeUnit.MILLISECONDS))
+            assertTrue(frozenRemaining > 0L)
+            assertFalse(coordinator.pendingDeletion.value?.isCountdownActive ?: true)
+
+            coordinator.setInteractionActive(true)
+            assertTrue(commitLatch.await(1, TimeUnit.SECONDS))
+        } finally {
+            scope.cancel()
+        }
+    }
+
+    @Test
+    fun staleLifecycleUpdateCannotOverrideNewerBackgroundState() = runBlocking {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        try {
+            val coordinator = PendingLocalDeletionCoordinator(
+                appScope = scope,
+                countdownMillis = 5_000L,
+                elapsedRealtimeMillis = { System.nanoTime() / 1_000_000L },
+                completionDispatcher = Dispatchers.Unconfined,
+            )
+            coordinator.schedule(
+                summary = "message",
+                scope = PendingLocalDeletionCoordinator.Scope(),
+                onCommit = {},
+            )
+
+            coordinator.setInteractionActive(false, generation = 2L)
+            coordinator.setInteractionActive(true, generation = 1L)
+
+            assertFalse(coordinator.pendingDeletion.value?.isCountdownActive ?: true)
+
+            coordinator.setInteractionActive(true, generation = 3L)
+            assertTrue(coordinator.pendingDeletion.value?.isCountdownActive == true)
+        } finally {
+            scope.cancel()
+        }
+    }
+
+    @Test
+    fun concurrentCommitClaimsEntryOnlyOnce() = runBlocking {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val commitCount = AtomicInteger(0)
+        try {
+            val coordinator = PendingLocalDeletionCoordinator(
+                appScope = scope,
+                countdownMillis = 5_000L,
+                elapsedRealtimeMillis = { System.nanoTime() / 1_000_000L },
+                completionDispatcher = Dispatchers.Unconfined,
+            )
+            coordinator.schedule(
+                summary = "message",
+                scope = PendingLocalDeletionCoordinator.Scope(),
+                onCommit = {
+                    commitCount.incrementAndGet()
+                    Thread.sleep(40)
+                },
+            )
+
+            val first = scope.launch { coordinator.commitCurrentIfNeeded() }
+            val second = scope.launch { coordinator.commitCurrentIfNeeded() }
+            first.join()
+            second.join()
+
+            assertEquals(1, commitCount.get())
         } finally {
             scope.cancel()
         }

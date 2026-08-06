@@ -198,7 +198,8 @@ fun EventListScreen(
     var channelNameMap by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
     var pendingCloseEvent by remember { mutableStateOf<EventCardModel?>(null) }
     val context = LocalContext.current
-    val pendingLocalDeletion by container.pendingLocalDeletionCoordinator.pendingDeletion.collectAsStateWithLifecycle()
+    val appContext = context.applicationContext
+    val effectivePendingScope by container.pendingLocalDeletionCoordinator.effectiveScope.collectAsStateWithLifecycle()
     val closeEventFailedMessage = stringResource(R.string.error_event_close_failed)
     val closeEventStatusDefault = stringResource(R.string.event_status_closed_default)
     val closeEventBodyDefault = stringResource(R.string.event_message_closed_default)
@@ -212,12 +213,11 @@ fun EventListScreen(
     var listTopInWindow by remember { mutableFloatStateOf(0f) }
 
     fun showToast(message: String) {
-        Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
+        Toast.makeText(appContext, message, Toast.LENGTH_SHORT).show()
     }
 
     fun isPendingLocalDeletion(event: EventCardModel): Boolean {
-        val pendingScope = pendingLocalDeletion?.scope ?: return false
-        return pendingScope.suppressesEvent(
+        return effectivePendingScope.suppressesEvent(
             id = event.eventId,
             channelId = event.channelId,
         )
@@ -418,7 +418,7 @@ fun EventListScreen(
         listState.animateScrollToItem(0)
     }
 
-    val filteredEvents = remember(allEvents, searchQuery, selectedChannelFilters, selectedTagFilters, showOnlyOpen, pendingLocalDeletion?.id) {
+    val filteredEvents = remember(allEvents, searchQuery, selectedChannelFilters, selectedTagFilters, showOnlyOpen, effectivePendingScope) {
         val query = searchQuery.trim().lowercase()
         allEvents.filter { event ->
             (selectedChannelFilters.isEmpty() || selectedChannelFilters.contains(event.channelId.orEmpty().trim())) &&
@@ -443,7 +443,7 @@ fun EventListScreen(
             }
     }
 
-    val channelOptions = remember(allEvents, pendingLocalDeletion?.id) {
+    val channelOptions = remember(allEvents, effectivePendingScope) {
         allEvents
             .asSequence()
             .filter { event ->
@@ -454,7 +454,7 @@ fun EventListScreen(
             .sorted()
             .toList()
     }
-    val tagOptions = remember(allEvents, pendingLocalDeletion?.id) {
+    val tagOptions = remember(allEvents, effectivePendingScope) {
         allEvents
             .asSequence()
             .filter { event ->
@@ -489,10 +489,9 @@ fun EventListScreen(
         }
     }
 
-    LaunchedEffect(pendingLocalDeletion?.id) {
-        val pendingScope = pendingLocalDeletion?.scope ?: return@LaunchedEffect
+    LaunchedEffect(effectivePendingScope) {
         val currentEvent = selectedEvent
-        if (currentEvent != null && pendingScope.suppressesEvent(currentEvent.eventId, currentEvent.channelId)) {
+        if (currentEvent != null && effectivePendingScope.suppressesEvent(currentEvent.eventId, currentEvent.channelId)) {
             selectedEvent = null
             onEventDetailClosed()
         }

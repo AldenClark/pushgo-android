@@ -65,7 +65,9 @@ class AppContainer(
         store = channelStore,
         settingsRepository = settingsRepository,
         messageStateCoordinator = messageStateCoordinator,
+        messageRepository = messageRepository,
         entityRepository = entityRepository,
+        database = database,
         pushTokenProvider = pushTokenProvider,
         service = ChannelSubscriptionService(ioDispatcher = coroutineDispatchers.io),
     )

@@ -57,6 +57,7 @@ import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.ethan.pushgo.R
 import io.ethan.pushgo.data.AppContainer
 import io.ethan.pushgo.data.model.ChannelSubscription
@@ -71,6 +72,7 @@ import io.ethan.pushgo.ui.theme.pushGoOutlinedTextFieldColors
 import io.ethan.pushgo.ui.theme.PushGoThemeExtras
 import io.ethan.pushgo.ui.theme.pushGoPrimaryButtonColors
 import io.ethan.pushgo.ui.theme.pushGoSegmentedButtonColors
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 
 @Composable
@@ -87,6 +89,10 @@ fun ChannelListScreen(
     val scope = rememberCoroutineScope()
     val bottomGestureInset = rememberBottomGestureInset()
     val bottomBarNestedScrollConnection = rememberBottomBarNestedScrollConnection(onBottomBarVisibilityChanged)
+    val effectivePendingScope by container.pendingLocalDeletionCoordinator.effectiveScope.collectAsStateWithLifecycle()
+    val visibleChannelSubscriptions = viewModel.channelSubscriptions.filterNot {
+        effectivePendingScope.suppressesChannel(it.channelId)
+    }
 
     LaunchedEffect(viewModel.errorMessage) {
         val message = viewModel.errorMessage
@@ -184,7 +190,7 @@ fun ChannelListScreen(
                 .nestedScroll(bottomBarNestedScrollConnection),
             contentPadding = androidx.compose.foundation.layout.PaddingValues(bottom = bottomGestureInset + 24.dp),
         ) {
-            if (viewModel.channelSubscriptions.isEmpty()) {
+            if (visibleChannelSubscriptions.isEmpty()) {
                 item {
                     AppEmptyState(
                         icon = Icons.Outlined.Group,
@@ -193,7 +199,7 @@ fun ChannelListScreen(
                     )
                 }
             } else {
-                items(viewModel.channelSubscriptions, key = { it.channelId }) { subscription ->
+                items(visibleChannelSubscriptions, key = { it.channelId }) { subscription ->
                     ChannelRow(
                         subscription = subscription,
                         onRename = {
@@ -236,22 +242,40 @@ fun ChannelListScreen(
                     PushGoDestructiveTextButton(
                         text = stringResource(R.string.label_unsubscribe_delete_history),
                         onClick = {
-                            target?.channelId?.let { channelId ->
-                                scope.launch {
-                                    val unsubscribed = viewModel.unsubscribeChannel(context, channelId)
-                                    if (unsubscribed) {
-                                        val summary = target.displayName.ifBlank { target.channelId }
-                                        container.pendingLocalDeletionCoordinator.schedule(
-                                            summary = summary,
-                                            scope = PendingLocalDeletionCoordinator.Scope(
-                                                channelIds = setOf(channelId.trim())
-                                            ),
-                                            onCommit = {
-                                                container.channelRepository.deleteLocalHistoryForChannel(channelId)
-                                            }
-                                        )
-                                    }
-                                    pendingChannelRemoval = null
+                            val removalTarget = target ?: return@PushGoDestructiveTextButton
+                            // Claim this dialog action synchronously. Snapshot reads below may
+                            // suspend; leaving the dialog actionable would allow a duplicate or
+                            // conflicting "keep history" unsubscribe to be queued meanwhile.
+                            pendingChannelRemoval = null
+                            scope.launch {
+                                try {
+                                    val channelId = removalTarget.channelId
+                                    val summary = removalTarget.displayName.ifBlank { channelId }
+                                    val appContext = context.applicationContext
+                                    val expectedGateway = container.channelRepository.loadGatewayConfig().first
+                                    val expectedUpdatedAt = removalTarget.updatedAt
+                                    val expectedUseProvider = viewModel.channelRemovalUsesProvider(appContext)
+                                    container.pendingLocalDeletionCoordinator.schedule(
+                                        summary = summary,
+                                        scope = PendingLocalDeletionCoordinator.Scope(
+                                            channelIds = setOf(channelId.trim())
+                                        ),
+                                        onCommit = {
+                                            viewModel.unsubscribeChannelAndDeleteHistory(
+                                                context = appContext,
+                                                channelId = channelId,
+                                                expectedGateway = expectedGateway,
+                                                expectedUpdatedAt = expectedUpdatedAt,
+                                                expectedUseProvider = expectedUseProvider,
+                                            )
+                                        },
+                                        onCompletion = viewModel::handleUnsubscribeAndDeleteHistoryCompletion,
+                                    )
+                                } catch (error: Exception) {
+                                    if (error is CancellationException) throw error
+                                    viewModel.handleUnsubscribeAndDeleteHistoryCompletion(
+                                        Result.failure(error)
+                                    )
                                 }
                             }
                         },

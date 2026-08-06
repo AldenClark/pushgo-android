@@ -245,6 +245,30 @@ class EntityRepository(
         return EntityProjectionDetail(head = head, history = history)
     }
 
+    suspend fun getNotificationEntityKeysByChannel(channelId: String): List<Pair<String, String>> {
+        val normalizedChannel = channelId.trim()
+        if (normalizedChannel.isEmpty()) return emptyList()
+        return database.withTransaction {
+            buildList {
+                eventChangeLogDao.getEntityIdsByChannel(normalizedChannel).forEach {
+                    add("event" to it)
+                }
+                thingSubEventDao.getEntityIdsByChannel(normalizedChannel).forEach {
+                    add("event" to it)
+                }
+                topLevelEventHeadDao.getEntityIdsByChannel(normalizedChannel).forEach {
+                    add("event" to it)
+                }
+                thingChangeLogDao.getEntityIdsByChannel(normalizedChannel).forEach {
+                    add("thing" to it)
+                }
+                thingHeadDao.getEntityIdsByChannel(normalizedChannel).forEach {
+                    add("thing" to it)
+                }
+            }.filter { (_, entityId) -> entityId.isNotBlank() }.distinct()
+        }
+    }
+
     suspend fun insertIncoming(
         entity: IncomingEntityRecord,
         providerAckIdentity: ProviderAckIdentity? = null,

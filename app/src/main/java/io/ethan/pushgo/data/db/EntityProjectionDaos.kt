@@ -45,6 +45,9 @@ interface EventChangeLogDao {
     @Query("DELETE FROM event_change_logs WHERE channel = :channelId")
     suspend fun deleteByChannel(channelId: String): Int
 
+    @Query("SELECT entity_id FROM event_change_logs WHERE channel = :channelId")
+    suspend fun getEntityIdsByChannel(channelId: String): List<String>
+
     @Query(
         """
         SELECT title FROM event_change_logs
@@ -94,6 +97,9 @@ interface ThingChangeLogDao {
 
     @Query("DELETE FROM thing_change_logs WHERE channel = :channelId")
     suspend fun deleteByChannel(channelId: String): Int
+
+    @Query("SELECT entity_id FROM thing_change_logs WHERE channel = :channelId")
+    suspend fun getEntityIdsByChannel(channelId: String): List<String>
 
     @Query(
         """
@@ -159,6 +165,9 @@ interface ThingSubEventDao {
 
     @Query("DELETE FROM thing_sub_events WHERE channel = :channelId")
     suspend fun deleteByChannel(channelId: String): Int
+
+    @Query("SELECT entity_id FROM thing_sub_events WHERE channel = :channelId")
+    suspend fun getEntityIdsByChannel(channelId: String): List<String>
 
     @Query(
         """
@@ -226,6 +235,9 @@ interface TopLevelEventHeadDao {
 
     @Query("DELETE FROM top_level_event_heads WHERE channel = :channelId")
     suspend fun deleteByChannel(channelId: String): Int
+
+    @Query("SELECT entity_id FROM top_level_event_heads WHERE channel = :channelId")
+    suspend fun getEntityIdsByChannel(channelId: String): List<String>
 
     @Query(
         """
@@ -296,6 +308,9 @@ interface ThingHeadDao {
     @Query("DELETE FROM thing_heads WHERE channel = :channelId")
     suspend fun deleteByChannel(channelId: String): Int
 
+    @Query("SELECT entity_id FROM thing_heads WHERE channel = :channelId")
+    suspend fun getEntityIdsByChannel(channelId: String): List<String>
+
     @Query(
         """
         SELECT title FROM thing_heads
@@ -359,4 +374,7 @@ interface ThingSubMessageDao {
 
     @Query("DELETE FROM thing_sub_messages WHERE channel = :channelId")
     suspend fun deleteByChannel(channelId: String): Int
+
+    @Query("SELECT id FROM thing_sub_messages WHERE channel = :channelId")
+    suspend fun getIdsByChannel(channelId: String): List<String>
 }

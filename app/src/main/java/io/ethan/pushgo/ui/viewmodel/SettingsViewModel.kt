@@ -35,6 +35,7 @@ import io.ethan.pushgo.update.UpdateInstallUiEvents
 import io.ethan.pushgo.util.FcmSupport
 import io.ethan.pushgo.util.UrlValidators
 import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -43,6 +44,7 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.withContext
 import java.time.Instant
 import java.time.temporal.ChronoUnit
 
@@ -519,6 +521,10 @@ class SettingsViewModel(
         return useFcmChannel && isFcmSupported
     }
 
+    fun channelRemovalUsesProvider(context: Context): Boolean {
+        return shouldUseFcm(context.applicationContext)
+    }
+
     private suspend fun fetchFcmTokenWithRetry(): String {
         var lastError: Throwable? = null
         repeat(FCM_TOKEN_MAX_ATTEMPTS) { attempt ->
@@ -982,6 +988,200 @@ class SettingsViewModel(
             isRemovingChannel = false
         }
         return false
+    }
+
+    suspend fun unsubscribeChannelAndDeleteHistory(
+        context: Context,
+        channelId: String,
+        expectedGateway: String,
+        expectedUpdatedAt: Long,
+        expectedUseProvider: Boolean,
+    ) {
+        val normalizedChannelId = ChannelIdValidator.normalize(channelId)
+        channelRepository.requireUnchangedActiveSubscription(
+            rawChannelId = normalizedChannelId,
+            expectedGatewayUrl = expectedGateway,
+            expectedUpdatedAt = expectedUpdatedAt,
+        )
+        channelRepository.channelPassword(
+            expectedGatewayUrl = expectedGateway,
+            channelId = normalizedChannelId,
+        )
+            ?: throw ChannelSubscriptionException.local(
+                message = "Channel password missing",
+                code = "channel_password_missing",
+                category = io.ethan.pushgo.data.GatewayErrorCategory.VALIDATION,
+            )
+        val useProvider = withContext(Dispatchers.Main.immediate) {
+            shouldUseFcm(context)
+        }
+        if (useProvider != expectedUseProvider) {
+            throw ChannelSubscriptionException.local(
+                message = "Channel delivery mode changed while removal was pending",
+                code = "channel_delivery_mode_changed_during_removal",
+                category = io.ethan.pushgo.data.GatewayErrorCategory.VALIDATION,
+            )
+        }
+
+        if (useProvider) {
+            val token = withContext(Dispatchers.Main.immediate) {
+                settingsRepository.getFcmToken()?.trim().takeUnless { it.isNullOrEmpty() }
+                    ?: requireFcmToken(context)
+            } ?: throw ChannelSubscriptionException.local(
+                message = "Request failed",
+                code = "provider_token_missing",
+                category = io.ethan.pushgo.data.GatewayErrorCategory.VALIDATION,
+            )
+            channelRepository.syncProviderDeviceToken(
+                deviceToken = token,
+                expectedGatewayUrl = expectedGateway,
+            )
+            channelRepository.unsubscribeProviderRemote(
+                rawChannelId = normalizedChannelId,
+                deviceToken = token,
+                expectedGatewayUrl = expectedGateway,
+            )
+            try {
+                channelRepository.deleteLocalHistoryAndSubscription(
+                    rawChannelId = normalizedChannelId,
+                    expectedGatewayUrl = expectedGateway,
+                    expectedUpdatedAt = expectedUpdatedAt,
+                )
+            } catch (localError: Throwable) {
+                val currentPassword = loadCompensationPasswordOrThrow(
+                    localError = localError,
+                    channelId = normalizedChannelId,
+                    expectedGateway = expectedGateway,
+                )
+                if (currentPassword != null) {
+                    compensateOrThrow(localError) {
+                        channelRepository.restoreProviderSubscriptionRemote(
+                            rawChannelId = normalizedChannelId,
+                            password = currentPassword,
+                            deviceToken = token,
+                            expectedGatewayUrl = expectedGateway,
+                        )
+                    }
+                }
+                throw localError
+            }
+        } else {
+            val privateGateway = channelRepository.loadGatewayConfig().first
+            if (privateGateway.trim().removeSuffix("/") != expectedGateway.trim().removeSuffix("/")) {
+                throw gatewayChangedDuringRemoval()
+            }
+            if (!privateChannelClient.privateUnsubscribeChannel(normalizedChannelId)) {
+                throw ChannelSubscriptionException.local(
+                    message = "Private channel unsubscribe failed",
+                    code = "private_channel_unsubscribe_failed",
+                    category = io.ethan.pushgo.data.GatewayErrorCategory.INTERNAL,
+                )
+            }
+            try {
+                channelRepository.deleteLocalHistoryAndSubscription(
+                    rawChannelId = normalizedChannelId,
+                    expectedGatewayUrl = expectedGateway,
+                    expectedUpdatedAt = expectedUpdatedAt,
+                )
+            } catch (localError: Throwable) {
+                val currentPassword = loadCompensationPasswordOrThrow(
+                    localError = localError,
+                    channelId = normalizedChannelId,
+                    expectedGateway = expectedGateway,
+                )
+                if (currentPassword != null) {
+                    compensateOrThrow(localError) {
+                        val compensationGateway = channelRepository.loadGatewayConfig().first
+                        if (compensationGateway.trim().removeSuffix("/") != expectedGateway.trim().removeSuffix("/")) {
+                            throw gatewayChangedDuringRemoval()
+                        }
+                        if (!privateChannelClient.privateSubscribeChannel(normalizedChannelId, currentPassword)) {
+                            throw IllegalStateException("private channel compensation returned false")
+                        }
+                    }
+                }
+                throw localError
+            }
+        }
+        withContext(Dispatchers.Main.immediate) {
+            // Remote unsubscribe and the Room transaction are already committed.
+            // A read-side refresh failure must not turn that durable success into a
+            // misleading operation failure or briefly resurrect the deleted row.
+            channelSubscriptions = channelSubscriptions.filterNot {
+                it.channelId.trim() == normalizedChannelId &&
+                    it.updatedAt == expectedUpdatedAt
+            }
+            runCatching { refreshChannelSubscriptions() }
+                .onFailure { error ->
+                    io.ethan.pushgo.util.SilentSink.w(
+                        TAG,
+                        "post-commit channel subscription refresh failed",
+                        error,
+                    )
+                }
+        }
+    }
+
+    fun handleUnsubscribeAndDeleteHistoryCompletion(result: Result<Unit>) {
+        viewModelScope.launch {
+            runCatching { refreshChannelSubscriptions() }
+            if (result.isSuccess) {
+                successMessage = ResMessage(R.string.message_channel_unsubscribed)
+                return@launch
+            }
+            val error = result.exceptionOrNull() ?: return@launch
+            errorMessage = when (error) {
+                is ChannelIdException -> ResMessage(error.resId)
+                is ChannelSubscriptionException -> error.toUiErrorMessage(
+                    R.string.error_gateway_local_operation_failed
+                )
+                else -> error.toUiErrorMessage(R.string.error_gateway_local_operation_failed)
+            }
+        }
+    }
+
+    private suspend fun compensateOrThrow(
+        localError: Throwable,
+        compensate: suspend () -> Unit,
+    ) {
+        try {
+            compensate()
+        } catch (compensationError: Throwable) {
+            throw ChannelSubscriptionException(
+                message = "Channel removal local transaction and remote compensation both failed",
+                code = "channel_removal_compensation_failed",
+                category = io.ethan.pushgo.data.GatewayErrorCategory.INTERNAL,
+                detail = "local=${localError.message}; compensation=${compensationError.message}",
+            )
+        }
+    }
+
+    private suspend fun loadCompensationPasswordOrThrow(
+        localError: Throwable,
+        channelId: String,
+        expectedGateway: String,
+    ): String? {
+        return try {
+            channelRepository.channelPassword(
+                expectedGatewayUrl = expectedGateway,
+                channelId = channelId,
+            )
+        } catch (credentialReadError: Throwable) {
+            throw ChannelSubscriptionException(
+                message = "Channel removal compensation state could not be verified",
+                code = "channel_removal_compensation_state_unavailable",
+                category = io.ethan.pushgo.data.GatewayErrorCategory.INTERNAL,
+                detail = "local=${localError.message}; credential_read=${credentialReadError.message}",
+            )
+        }
+    }
+
+    private fun gatewayChangedDuringRemoval(): ChannelSubscriptionException {
+        return ChannelSubscriptionException.local(
+            message = "Gateway changed while channel removal was pending",
+            code = "gateway_changed_during_channel_removal",
+            category = io.ethan.pushgo.data.GatewayErrorCategory.VALIDATION,
+        )
     }
 
     fun saveDecryptionConfig() {

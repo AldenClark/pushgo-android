@@ -76,6 +76,8 @@ class PushGoApp : Application(), SingletonImageLoader.Factory {
     private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val imageStoreForCoil by lazy { MessageImageStore(this) }
     private var startedActivities: Int = 0
+    private var resumedActivities: Int = 0
+    private var pendingDeletionLifecycleGeneration: Long = 0L
 
     override fun onCreate() {
         super.onCreate()
@@ -152,16 +154,28 @@ class PushGoApp : Application(), SingletonImageLoader.Factory {
                 startedActivities = (startedActivities - 1).coerceAtLeast(0)
                 container.privateChannelClient.setForeground(startedActivities > 0)
                 PrivateChannelServiceManager.refreshForMode(this@PushGoApp, isEffectiveFcmModeEnabled())
-                if (startedActivities == 0) {
+            }
+
+            override fun onActivityCreated(activity: android.app.Activity, savedInstanceState: Bundle?) {}
+            override fun onActivityResumed(activity: android.app.Activity) {
+                resumedActivities += 1
+                if (resumedActivities == 1) {
+                    val generation = ++pendingDeletionLifecycleGeneration
                     appScope.launch {
-                        container.pendingLocalDeletionCoordinator.commitCurrentIfNeeded()
+                        container.pendingLocalDeletionCoordinator.setInteractionActive(true, generation)
                     }
                 }
             }
 
-            override fun onActivityCreated(activity: android.app.Activity, savedInstanceState: Bundle?) {}
-            override fun onActivityResumed(activity: android.app.Activity) {}
-            override fun onActivityPaused(activity: android.app.Activity) {}
+            override fun onActivityPaused(activity: android.app.Activity) {
+                resumedActivities = (resumedActivities - 1).coerceAtLeast(0)
+                if (resumedActivities == 0) {
+                    val generation = ++pendingDeletionLifecycleGeneration
+                    appScope.launch {
+                        container.pendingLocalDeletionCoordinator.setInteractionActive(false, generation)
+                    }
+                }
+            }
             override fun onActivitySaveInstanceState(activity: android.app.Activity, outState: Bundle) {}
             override fun onActivityDestroyed(activity: android.app.Activity) {}
         })

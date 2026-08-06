@@ -181,8 +181,14 @@ interface PendingThingMessageDao {
     )
     suspend fun loadByThingId(thingId: String): List<PendingThingMessageEntity>
 
+    @Query("SELECT id FROM pending_thing_messages WHERE channel = :channelId")
+    suspend fun getIdsByChannel(channelId: String): List<String>
+
     @Query("DELETE FROM pending_thing_messages WHERE id IN (:ids)")
     suspend fun deleteByIds(ids: List<String>): Int
+
+    @Query("DELETE FROM pending_thing_messages WHERE channel = :channelId")
+    suspend fun deleteByChannel(channelId: String): Int
 }
 
 @Dao

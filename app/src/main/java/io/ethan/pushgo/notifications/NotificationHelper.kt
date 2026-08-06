@@ -296,6 +296,24 @@ object NotificationHelper {
         reconcileActiveNotificationGroups(context)
     }
 
+    fun cancelEntityNotifications(
+        context: Context,
+        entityKeys: Collection<Pair<String, String>>,
+    ) {
+        if (entityKeys.isEmpty()) return
+        val manager = NotificationManagerCompat.from(context)
+        entityKeys.asSequence()
+            .map { (entityType, entityId) -> entityType.trim() to entityId.trim() }
+            .filter { (entityType, entityId) -> entityType.isNotEmpty() && entityId.isNotEmpty() }
+            .distinct()
+            .forEach { (entityType, entityId) ->
+                val notificationId = "$entityType:$entityId".hashCode()
+                manager.cancel(notificationId)
+                AlertPlaybackController.stopForNotification(context, notificationId)
+            }
+        reconcileActiveNotificationGroups(context)
+    }
+
     fun stopAlertPlaybackForLaunchIntent(
         context: Context,
         intent: Intent?,

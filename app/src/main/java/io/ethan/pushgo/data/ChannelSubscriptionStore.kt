@@ -54,7 +54,29 @@ class ChannelSubscriptionStore(
     }
 
     suspend fun softDeleteSubscription(gatewayUrl: String, channelId: String) {
-        dao.softDelete(gatewayUrl, channelId, System.currentTimeMillis())
+        markDeletedInDatabase(gatewayUrl, channelId, System.currentTimeMillis())
+        removePassword(gatewayUrl, channelId)
+    }
+
+    suspend fun markDeletedInDatabase(gatewayUrl: String, channelId: String, deletedAt: Long): Int {
+        return dao.softDelete(gatewayUrl, channelId, deletedAt)
+    }
+
+    suspend fun markDeletedInDatabaseIfUnchanged(
+        gatewayUrl: String,
+        channelId: String,
+        expectedUpdatedAt: Long,
+        deletedAt: Long,
+    ): Int {
+        return dao.softDeleteIfUnchanged(
+            gatewayUrl = gatewayUrl,
+            channelId = channelId,
+            expectedUpdatedAt = expectedUpdatedAt,
+            deletedAt = deletedAt,
+        )
+    }
+
+    fun removePassword(gatewayUrl: String, channelId: String) {
         secretStore.removeChannelPassword(gatewayUrl, channelId)
     }
 

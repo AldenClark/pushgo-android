@@ -49,7 +49,24 @@ interface ChannelSubscriptionDao {
         WHERE channel_id = :channelId AND gateway_url = :gatewayUrl
         """
     )
-    suspend fun softDelete(gatewayUrl: String, channelId: String, deletedAt: Long)
+    suspend fun softDelete(gatewayUrl: String, channelId: String, deletedAt: Long): Int
+
+    @Query(
+        """
+        UPDATE channel_subscriptions
+        SET is_deleted = 1, deleted_at = :deletedAt
+        WHERE channel_id = :channelId
+          AND gateway_url = :gatewayUrl
+          AND is_deleted = 0
+          AND updated_at = :expectedUpdatedAt
+        """
+    )
+    suspend fun softDeleteIfUnchanged(
+        gatewayUrl: String,
+        channelId: String,
+        expectedUpdatedAt: Long,
+        deletedAt: Long,
+    ): Int
 
     @Query("SELECT COUNT(*) FROM channel_subscriptions")
     suspend fun count(): Int

@@ -117,6 +117,21 @@ class MessageStateCoordinator(
         return deleted
     }
 
+    suspend fun reconcileExternallyDeletedMessages(
+        messageIds: Collection<String>,
+        entityKeys: Collection<Pair<String, String>> = emptyList(),
+    ) {
+        val normalizedIds = messageIds
+            .asSequence()
+            .map { it.trim() }
+            .filter { it.isNotEmpty() }
+            .distinct()
+            .toList()
+        cancelNotifications(normalizedIds)
+        NotificationHelper.cancelEntityNotifications(appContext, entityKeys)
+        refreshUnreadCount()
+    }
+
     private fun cancelNotifications(messageIds: List<String>) {
         NotificationHelper.cancelMessageNotifications(appContext, messageIds)
     }

@@ -23,6 +23,14 @@ class EntityBatchDeletePathContractTest {
     }
 
     @Test
+    fun channelRemovalAlsoClearsPendingThingMessagesThatCouldReplayLater() {
+        val repository = readSource("src/main/java/io/ethan/pushgo/data/MessageRepository.kt")
+        val channelRepository = readSource("src/main/java/io/ethan/pushgo/data/ChannelSubscriptionRepository.kt")
+        assertTrue(repository.contains("pendingThingMessageDao.deleteByChannel(normalizedChannel)"))
+        assertTrue(channelRepository.contains("messageRepository.deleteByChannel(channelId)"))
+    }
+
+    @Test
     fun batchUiPathsUseSingleRepositoryBatchCallsInsteadOfPerItemLoops() {
         val eventScreen = readSource("src/main/java/io/ethan/pushgo/ui/screens/EventListScreen.kt")
         val thingScreen = readSource("src/main/java/io/ethan/pushgo/ui/screens/ThingListScreen.kt")
@@ -32,6 +40,60 @@ class EntityBatchDeletePathContractTest {
 
         assertTrue(thingScreen.contains("container.entityRepository.deleteThings(uniqueThings.map { it.thingId })"))
         assertFalse(thingScreen.contains("uniqueThings.forEach { thing ->"))
+    }
+
+    @Test
+    fun eventAndThingScreensUseEffectiveDeletionScopeThroughCommitCompletion() {
+        val eventScreen = readSource("src/main/java/io/ethan/pushgo/ui/screens/EventListScreen.kt")
+        val thingScreen = readSource("src/main/java/io/ethan/pushgo/ui/screens/ThingListScreen.kt")
+
+        assertTrue(eventScreen.contains("pendingLocalDeletionCoordinator.effectiveScope.collectAsStateWithLifecycle()"))
+        assertTrue(eventScreen.contains("LaunchedEffect(effectivePendingScope)"))
+        assertFalse(eventScreen.contains("pendingLocalDeletionCoordinator.pendingDeletion.collectAsStateWithLifecycle()"))
+
+        assertTrue(thingScreen.contains("pendingLocalDeletionCoordinator.effectiveScope.collectAsStateWithLifecycle()"))
+        assertTrue(thingScreen.contains("LaunchedEffect(effectivePendingScope)"))
+        assertFalse(thingScreen.contains("pendingLocalDeletionCoordinator.pendingDeletion.collectAsStateWithLifecycle()"))
+    }
+
+    @Test
+    fun messageDetailClosesForChannelWideEffectiveDeletionScope() {
+        val detailScreen = readSource("src/main/java/io/ethan/pushgo/ui/screens/MessageDetailScreen.kt")
+
+        assertTrue(detailScreen.contains("pendingLocalDeletionCoordinator.effectiveScope.collectAsStateWithLifecycle()"))
+        assertTrue(detailScreen.contains("effectivePendingScope.suppressesMessage(visibleMessage.id, visibleMessage.channel)"))
+    }
+
+    @Test
+    fun channelRemovalIntentBindsGatewayVersionAndDeliveryModeBeforeCommit() {
+        val channelScreen = readSource("src/main/java/io/ethan/pushgo/ui/screens/ChannelListScreen.kt")
+        val settingsViewModel = readSource("src/main/java/io/ethan/pushgo/ui/viewmodel/SettingsViewModel.kt")
+
+        assertTrue(channelScreen.contains("expectedUseProvider = viewModel.channelRemovalUsesProvider(appContext)"))
+        assertTrue(channelScreen.contains("expectedUpdatedAt = removalTarget.updatedAt"))
+        assertTrue(settingsViewModel.contains("if (useProvider != expectedUseProvider)"))
+        assertTrue(settingsViewModel.contains("channel_delivery_mode_changed_during_removal"))
+    }
+
+    @Test
+    fun channelRemovalDialogIsClaimedBeforeSnapshotReadsAndCompensationUsesOriginalGateway() {
+        val channelScreen = readSource("src/main/java/io/ethan/pushgo/ui/screens/ChannelListScreen.kt")
+        val settingsViewModel = readSource("src/main/java/io/ethan/pushgo/ui/viewmodel/SettingsViewModel.kt")
+
+        val actionStart = channelScreen.indexOf("Claim this dialog action synchronously")
+        val claim = channelScreen.indexOf(
+            "pendingChannelRemoval = null",
+            startIndex = actionStart.coerceAtLeast(0),
+        )
+        val snapshotRead = channelScreen.indexOf(
+            "loadGatewayConfig().first",
+            startIndex = claim.coerceAtLeast(0),
+        )
+        assertTrue(actionStart >= 0)
+        assertTrue(claim >= 0)
+        assertTrue(snapshotRead > claim)
+        assertTrue(channelScreen.contains("if (error is CancellationException) throw error"))
+        assertTrue(settingsViewModel.contains("expectedGatewayUrl = expectedGateway"))
     }
 
     private fun readSource(relativePath: String): String {

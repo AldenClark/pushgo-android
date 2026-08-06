@@ -259,6 +259,18 @@ class MessageRepository(
         return dao.getIdsByChannelRead(channel, readState)
     }
 
+    suspend fun getAllMessageIdsByChannel(channel: String): List<String> {
+        val normalizedChannel = channel.trim()
+        if (normalizedChannel.isEmpty()) return emptyList()
+        return database.withTransaction {
+            buildList {
+                addAll(dao.getIdsByChannelRead(normalizedChannel, null))
+                addAll(thingSubMessageDao.getIdsByChannel(normalizedChannel))
+                addAll(pendingThingMessageDao.getIdsByChannel(normalizedChannel))
+            }.distinct()
+        }
+    }
+
     suspend fun getUnreadIds(
         filter: MessageFilter,
         excludedIds: Set<String> = emptySet(),
@@ -648,7 +660,13 @@ class MessageRepository(
     }
 
     suspend fun deleteByChannel(channel: String): Int {
-        return deleteByChannelRead(channel = channel, readState = null)
+        val normalizedChannel = channel.trim()
+        if (normalizedChannel.isEmpty()) return 0
+        return database.withTransaction {
+            dao.deleteByChannelRead(normalizedChannel, null) +
+                thingSubMessageDao.deleteByChannel(normalizedChannel) +
+                pendingThingMessageDao.deleteByChannel(normalizedChannel)
+        }
     }
 
     suspend fun deleteByChannelRead(channel: String?, readState: Boolean?): Int {

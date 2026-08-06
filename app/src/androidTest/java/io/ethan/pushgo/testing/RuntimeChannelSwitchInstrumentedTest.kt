@@ -316,7 +316,9 @@ class RuntimeChannelSwitchInstrumentedTest {
             store = ChannelSubscriptionStore(openedDb.channelSubscriptionDao(), secretStore),
             settingsRepository = settingsRepository,
             messageStateCoordinator = MessageStateCoordinator(context, messageRepository),
+            messageRepository = messageRepository,
             entityRepository = entityRepository,
+            database = openedDb,
             pushTokenProvider = object : PushTokenProvider {
                 override suspend fun fetchToken(timeoutMs: Long): String? = null
             },

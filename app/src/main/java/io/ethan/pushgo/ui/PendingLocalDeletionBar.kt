@@ -49,12 +49,11 @@ fun PendingLocalDeletionBar(
         val uiColors = PushGoThemeExtras.colors
         val remainingSeconds by produceState(
             initialValue = remainingSecondsFor(entry),
-            key1 = entry.id,
-            key2 = entry.deadlineElapsedRealtimeMillis,
+            key1 = entry,
         ) {
             while (true) {
                 value = remainingSecondsFor(entry)
-                if (value <= 0) {
+                if (value <= 0 || !entry.isCountdownActive) {
                     break
                 }
                 delay(200)
@@ -110,6 +109,6 @@ fun PendingLocalDeletionBar(
 private fun remainingSecondsFor(
     pendingDeletion: PendingLocalDeletionCoordinator.PendingDeletion,
 ): Int {
-    val remainingMillis = (pendingDeletion.deadlineElapsedRealtimeMillis - android.os.SystemClock.elapsedRealtime()).coerceAtLeast(0L)
+    val remainingMillis = pendingDeletion.remainingMillis(android.os.SystemClock.elapsedRealtime())
     return ceil(remainingMillis / 1_000.0).toInt()
 }

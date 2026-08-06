@@ -1,8 +1,11 @@
 package io.ethan.pushgo.data
 
+import androidx.room.withTransaction
+import io.ethan.pushgo.data.db.PushGoDatabase
 import io.ethan.pushgo.data.model.ChannelSubscription
 import io.ethan.pushgo.notifications.MessageStateCoordinator
 import io.ethan.pushgo.util.UrlValidators
+import io.ethan.pushgo.util.SilentSink
 import kotlinx.coroutines.withTimeout
 import org.json.JSONObject
 import java.net.URLEncoder
@@ -11,7 +14,9 @@ class ChannelSubscriptionRepository(
     private val store: ChannelSubscriptionStore,
     private val settingsRepository: SettingsRepository,
     private val messageStateCoordinator: MessageStateCoordinator,
+    private val messageRepository: MessageRepository,
     private val entityRepository: EntityRepository,
+    private val database: PushGoDatabase,
     private val pushTokenProvider: PushTokenProvider,
     service: ChannelSubscriptionService? = null,
 ) {
@@ -147,6 +152,35 @@ class ChannelSubscriptionRepository(
         return store.passwordFor(config.address, trimmed)?.trim()?.ifEmpty { null }
     }
 
+    suspend fun channelPassword(
+        expectedGatewayUrl: String,
+        channelId: String,
+    ): String? {
+        val trimmed = channelId.trim()
+        if (trimmed.isEmpty()) return null
+        val config = resolveServerConfig()
+        requireExpectedGateway(config, expectedGatewayUrl)
+        return store.passwordFor(config.address, trimmed)?.trim()?.ifEmpty { null }
+    }
+
+    suspend fun requireUnchangedActiveSubscription(
+        rawChannelId: String,
+        expectedGatewayUrl: String,
+        expectedUpdatedAt: Long,
+    ): ChannelSubscription {
+        val channelId = ChannelIdValidator.normalize(rawChannelId)
+        val config = resolveServerConfig()
+        requireExpectedGateway(config, expectedGatewayUrl)
+        return store.loadSubscriptions(config.address)
+            .firstOrNull { it.channelId.trim() == channelId }
+            ?.takeIf { it.updatedAt == expectedUpdatedAt }
+            ?: throw ChannelSubscriptionException.local(
+                message = "Channel subscription changed while removal was pending",
+                code = "channel_subscription_changed_during_removal",
+                category = GatewayErrorCategory.VALIDATION,
+            )
+    }
+
     suspend fun channelExists(rawChannelId: String): ChannelExistsResult {
         val channelId = ChannelIdValidator.normalize(rawChannelId)
         val config = resolveServerConfig()
@@ -218,6 +252,26 @@ class ChannelSubscriptionRepository(
     ) {
         val channelId = ChannelIdValidator.normalize(rawChannelId)
         val config = resolveServerConfig()
+        unsubscribeProviderRemote(channelId, deviceToken, config)
+        store.softDeleteSubscription(config.address, channelId)
+    }
+
+    suspend fun unsubscribeProviderRemote(
+        rawChannelId: String,
+        deviceToken: String?,
+        expectedGatewayUrl: String? = null,
+    ) {
+        val channelId = ChannelIdValidator.normalize(rawChannelId)
+        val config = resolveServerConfig()
+        requireExpectedGateway(config, expectedGatewayUrl)
+        unsubscribeProviderRemote(channelId, deviceToken, config)
+    }
+
+    private suspend fun unsubscribeProviderRemote(
+        channelId: String,
+        deviceToken: String?,
+        config: ServerConfig,
+    ) {
         val token = deviceToken?.trim()?.takeIf { it.isNotEmpty() }
             ?: throw ChannelSubscriptionException.local(
                 message = "Request failed",
@@ -244,14 +298,59 @@ class ChannelSubscriptionRepository(
                 channelId = channelId,
             )
         }
-        store.softDeleteSubscription(config.address, channelId)
+    }
+
+    suspend fun restoreProviderSubscriptionRemote(
+        rawChannelId: String,
+        password: String,
+        deviceToken: String?,
+        expectedGatewayUrl: String? = null,
+    ) {
+        val channelId = ChannelIdValidator.normalize(rawChannelId)
+        val normalizedPassword = ChannelPasswordValidator.normalize(password)
+        val token = deviceToken?.trim()?.takeIf { it.isNotEmpty() }
+            ?: throw ChannelSubscriptionException.local(
+                message = "Request failed",
+                code = "provider_token_missing",
+                category = GatewayErrorCategory.VALIDATION,
+            )
+        val config = resolveServerConfig()
+        requireExpectedGateway(config, expectedGatewayUrl)
+        suspend fun subscribe(deviceKey: String): ChannelSubscribeResult {
+            return service.subscribe(
+                baseUrl = config.address,
+                token = config.token,
+                deviceKey = deviceKey,
+                channelId = channelId,
+                channelName = null,
+                password = normalizedPassword,
+            )
+        }
+        var deviceKey = ensureProviderRoute(token, config)
+        val result = try {
+            subscribe(deviceKey)
+        } catch (error: ChannelSubscriptionException) {
+            if (!isDeviceKeyMissingError(error)) throw error
+            deviceKey = ensureProviderRoute(token, config)
+            subscribe(deviceKey)
+        }
+        if (!result.subscribed) {
+            throw ChannelSubscriptionException.local(
+                message = "Request failed",
+                code = "channel_subscribe_failed",
+                category = GatewayErrorCategory.INTERNAL,
+            )
+        }
     }
 
     suspend fun handleTokenUpdate(deviceToken: String) {
         settingsRepository.setFcmToken(deviceToken.trim().ifEmpty { null })
     }
 
-    suspend fun syncProviderDeviceToken(deviceToken: String): String {
+    suspend fun syncProviderDeviceToken(
+        deviceToken: String,
+        expectedGatewayUrl: String? = null,
+    ): String {
         val normalized = deviceToken.trim()
         if (normalized.isEmpty()) {
             throw ChannelSubscriptionException.local(
@@ -261,6 +360,7 @@ class ChannelSubscriptionRepository(
             )
         }
         val config = resolveServerConfig()
+        requireExpectedGateway(config, expectedGatewayUrl)
         return ensureProviderRoute(normalized, config)
     }
 
@@ -521,13 +621,62 @@ class ChannelSubscriptionRepository(
         store.softDeleteSubscription(config.address, channelId)
     }
 
-    suspend fun deleteLocalHistoryForChannel(rawChannelId: String): Int {
+    suspend fun deleteLocalHistoryAndSubscription(
+        rawChannelId: String,
+        expectedGatewayUrl: String,
+        expectedUpdatedAt: Long,
+    ): Int {
         val channelId = ChannelIdValidator.normalize(rawChannelId)
-        var deleted = 0
-        deleted += messageStateCoordinator.deleteMessagesByChannel(channelId)
-        deleted += entityRepository.deleteEvents(channelId)
-        deleted += entityRepository.deleteThings(channelId)
+        val config = resolveServerConfig()
+        requireExpectedGateway(config, expectedGatewayUrl)
+        val deletedAt = System.currentTimeMillis()
+        val (deleted, notificationKeys) = database.withTransaction {
+            val messageIds = messageRepository.getAllMessageIdsByChannel(channelId)
+            val entityKeys = entityRepository.getNotificationEntityKeysByChannel(channelId)
+            var count = 0
+            count += messageRepository.deleteByChannel(channelId)
+            count += entityRepository.deleteEvents(channelId)
+            count += entityRepository.deleteThings(channelId)
+            val updatedSubscriptions = store.markDeletedInDatabaseIfUnchanged(
+                gatewayUrl = config.address,
+                channelId = channelId,
+                expectedUpdatedAt = expectedUpdatedAt,
+                deletedAt = deletedAt,
+            )
+            if (updatedSubscriptions != 1) {
+                throw ChannelSubscriptionException.local(
+                    message = "Channel subscription changed during atomic channel removal",
+                    code = "channel_subscription_changed_during_removal",
+                    category = GatewayErrorCategory.VALIDATION,
+                )
+            }
+            count to (messageIds to entityKeys)
+        }
+        runCatching {
+            store.removePassword(config.address, channelId)
+        }.onFailure { error ->
+            SilentSink.w(TAG, "post-commit channel password cleanup failed", error)
+        }
+        runCatching {
+            messageStateCoordinator.reconcileExternallyDeletedMessages(
+                messageIds = notificationKeys.first,
+                entityKeys = notificationKeys.second,
+            )
+        }.onFailure { error ->
+            SilentSink.w(TAG, "post-commit channel notification reconciliation failed", error)
+        }
         return deleted
+    }
+
+    private fun requireExpectedGateway(config: ServerConfig, expectedGatewayUrl: String?) {
+        val expected = expectedGatewayUrl?.trim()?.removeSuffix("/")?.takeIf { it.isNotEmpty() } ?: return
+        if (config.address.trim().removeSuffix("/") != expected) {
+            throw ChannelSubscriptionException.local(
+                message = "Gateway changed while channel removal was pending",
+                code = "gateway_changed_during_channel_removal",
+                category = GatewayErrorCategory.VALIDATION,
+            )
+        }
     }
 
     suspend fun closeEvent(

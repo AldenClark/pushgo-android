@@ -16,7 +16,11 @@ import io.ethan.pushgo.data.PushTokenProvider
 import io.ethan.pushgo.data.SecureSecretStore
 import io.ethan.pushgo.data.SettingsRepository
 import io.ethan.pushgo.data.db.PushGoDatabase
+import io.ethan.pushgo.data.db.ChannelSubscriptionEntity
+import io.ethan.pushgo.data.db.PendingThingMessageEntity
 import io.ethan.pushgo.data.model.KeyEncoding
+import io.ethan.pushgo.data.model.MessageStatus
+import io.ethan.pushgo.data.model.PushMessage
 import io.ethan.pushgo.notifications.MessageStateCoordinator
 import io.ethan.pushgo.notifications.PrivateChannelClient
 import io.ethan.pushgo.notifications.WarpLinkNativeBridge
@@ -308,6 +312,134 @@ class RuntimePrivateChannelStateFlowInstrumentedTest {
         assertNotNull(harness.settingsRepository.getNotificationKeyUpdatedAt())
     }
 
+    @Test
+    fun channelRemovalTransactionRollsBackHistoryWhenSubscriptionUpdateFails() = runBlocking {
+        val gateway = harness.channelRepository.loadGatewayConfig().first
+        val channelId = "rollback-channel"
+        val message = testMessage(id = "rollback-message", channelId = channelId)
+        harness.messageRepository.insert(message)
+
+        val result = runCatching {
+            harness.channelRepository.deleteLocalHistoryAndSubscription(
+                rawChannelId = channelId,
+                expectedGatewayUrl = gateway,
+                expectedUpdatedAt = 0L,
+            )
+        }
+
+        assertTrue(result.isFailure)
+        assertNotNull(harness.messageRepository.getById(message.id))
+    }
+
+    @Test
+    fun channelRemovalTransactionCommitsSubscriptionAndHistoryTogether() = runBlocking {
+        val gateway = harness.channelRepository.loadGatewayConfig().first
+        val channelId = "atomic-channel"
+        val now = System.currentTimeMillis()
+        harness.database.channelSubscriptionDao().insert(
+            ChannelSubscriptionEntity(
+                gatewayUrl = gateway,
+                channelId = channelId,
+                displayName = "Atomic",
+                updatedAt = now,
+                lastSyncedAt = now,
+                isDeleted = false,
+                deletedAt = null,
+            )
+        )
+        val message = testMessage(id = "atomic-message", channelId = channelId)
+        harness.messageRepository.insert(message)
+        val pendingThingId = "pending-thing"
+        harness.database.pendingThingMessageDao().insert(
+            PendingThingMessageEntity(
+                id = "pending-thing-message",
+                messageId = "pending-thing-message",
+                title = "Pending",
+                body = "Pending body",
+                channel = channelId,
+                url = null,
+                receivedAt = now,
+                rawPayloadJson = "{}",
+                status = MessageStatus.NORMAL.name,
+                decryptionState = null,
+                notificationId = null,
+                serverId = null,
+                bodyPreview = "Pending body",
+                entityType = "message",
+                entityId = "pending-thing-message",
+                eventId = null,
+                thingId = pendingThingId,
+                eventState = null,
+                eventTimeEpoch = null,
+                occurredAtEpoch = null,
+            )
+        )
+
+        harness.channelRepository.deleteLocalHistoryAndSubscription(
+            rawChannelId = channelId,
+            expectedGatewayUrl = gateway,
+            expectedUpdatedAt = now,
+        )
+
+        assertNull(harness.messageRepository.getById(message.id))
+        assertTrue(harness.database.pendingThingMessageDao().loadByThingId(pendingThingId).isEmpty())
+        assertTrue(harness.database.channelSubscriptionDao().getById(gateway, channelId)?.isDeleted == true)
+    }
+
+    @Test
+    fun channelRemovalTransactionRejectsStaleSubscriptionVersion() = runBlocking {
+        val gateway = harness.channelRepository.loadGatewayConfig().first
+        val channelId = "stale-version-channel"
+        val now = System.currentTimeMillis()
+        harness.database.channelSubscriptionDao().insert(
+            ChannelSubscriptionEntity(
+                gatewayUrl = gateway,
+                channelId = channelId,
+                displayName = "Current",
+                updatedAt = now,
+                lastSyncedAt = now,
+                isDeleted = false,
+                deletedAt = null,
+            )
+        )
+        val message = testMessage(id = "stale-version-message", channelId = channelId)
+        harness.messageRepository.insert(message)
+
+        val result = runCatching {
+            harness.channelRepository.deleteLocalHistoryAndSubscription(
+                rawChannelId = channelId,
+                expectedGatewayUrl = gateway,
+                expectedUpdatedAt = now - 1,
+            )
+        }
+
+        assertTrue(result.isFailure)
+        assertNotNull(harness.messageRepository.getById(message.id))
+        assertTrue(harness.database.channelSubscriptionDao().getById(gateway, channelId)?.isDeleted == false)
+    }
+
+    private fun testMessage(id: String, channelId: String): PushMessage {
+        return PushMessage(
+            id = id,
+            messageId = id,
+            title = id,
+            body = "body",
+            channel = channelId,
+            url = null,
+            isRead = false,
+            receivedAt = Instant.now(),
+            rawPayloadJson = JSONObject().apply {
+                put("entity_type", "message")
+                put("entity_id", id)
+                put("channel_id", channelId)
+            }.toString(),
+            status = MessageStatus.NORMAL,
+            decryptionState = null,
+            notificationId = null,
+            serverId = null,
+        )
+    }
+
     private fun buildSettingsViewModel(): SettingsViewModel {
         return SettingsViewModel(
             settingsRepository = harness.settingsRepository,
@@ -485,7 +617,9 @@ class RuntimePrivateChannelStateFlowInstrumentedTest {
             store = ChannelSubscriptionStore(database.channelSubscriptionDao(), secretStore),
             settingsRepository = settingsRepository,
             messageStateCoordinator = MessageStateCoordinator(context, messageRepository),
+            messageRepository = messageRepository,
             entityRepository = entityRepository,
+            database = database,
             pushTokenProvider = object : PushTokenProvider {
                 override suspend fun fetchToken(timeoutMs: Long): String? = null
             },
