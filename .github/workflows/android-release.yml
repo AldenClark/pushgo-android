@@ -214,6 +214,17 @@ jobs:
             echo "$key=$value" >> "$GITHUB_OUTPUT"
           done < <(./gradlew -q :app:printReleaseVersionInfo -Ppushgo.versionName=${{ steps.tag.outputs.tag_name }})
 
+      - name: Validate checked-in Android release contract
+        shell: bash
+        run: scripts/verify_android_release_contract.sh "${GITHUB_REF_NAME}"
+
+      - name: Validate version contract and run tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "${{ steps.version.outputs.versionName }}" = "${GITHUB_REF_NAME}"
+          ./gradlew --no-daemon :app:testDebugUnitTest :app:lintDebug -Ppushgo.versionName=${GITHUB_REF_NAME}
+
       - name: Build release APKs
         shell: bash
         run: ./gradlew --no-daemon clean :app:assembleRelease -Ppushgo.versionName=${{ steps.tag.outputs.tag_name }}

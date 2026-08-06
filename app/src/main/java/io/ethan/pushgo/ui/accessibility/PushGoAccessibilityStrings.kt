@@ -1,14 +1,8 @@
 package io.ethan.pushgo.ui.accessibility
 
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import io.ethan.pushgo.R
-
-@Composable
-internal fun selectionStateDescription(selected: Boolean): String {
-    return stringResource(if (selected) R.string.a11y_state_selected else R.string.a11y_state_not_selected)
-}
 
 @Composable
 internal fun toggleStateDescription(enabled: Boolean): String {
@@ -23,13 +17,4 @@ internal fun messageReadStateDescription(isRead: Boolean): String {
 @Composable
 internal fun eventLifecycleStateDescription(isClosed: Boolean): String {
     return stringResource(if (isClosed) R.string.a11y_state_closed else R.string.a11y_state_open)
-}
-
-@Composable
-internal fun selectionModeAnnouncement(selectedCount: Int): String {
-    return if (selectedCount > 0) {
-        pluralStringResource(R.plurals.a11y_selection_mode_selection_count, selectedCount, selectedCount)
-    } else {
-        stringResource(R.string.a11y_selection_mode_entered)
-    }
 }

@@ -62,7 +62,9 @@ data class EventChangeLogEntity(
         fun fromIncoming(entity: IncomingEntityRecord): EventChangeLogEntity {
             val eventId = entity.eventId?.trim()?.takeIf { it.isNotEmpty() } ?: entity.entityId
             return EventChangeLogEntity(
-                id = entity.deliveryId ?: "${eventId}:${entity.receivedAt.toEpochMilli()}",
+                id = entity.localDeliveryKey
+                    ?: entity.deliveryId
+                    ?: "${eventId}:${entity.receivedAt.toEpochMilli()}",
                 entityId = entity.entityId,
                 channel = entity.channel,
                 title = entity.title,
@@ -133,7 +135,9 @@ data class ThingChangeLogEntity(
         fun fromIncoming(entity: IncomingEntityRecord): ThingChangeLogEntity {
             val thingId = entity.thingId?.trim()?.takeIf { it.isNotEmpty() } ?: entity.entityId
             return ThingChangeLogEntity(
-                id = entity.deliveryId ?: "${thingId}:${entity.receivedAt.toEpochMilli()}",
+                id = entity.localDeliveryKey
+                    ?: entity.deliveryId
+                    ?: "${thingId}:${entity.receivedAt.toEpochMilli()}",
                 entityId = entity.entityId,
                 channel = entity.channel,
                 title = entity.title,
@@ -205,7 +209,9 @@ data class ThingSubEventEntity(
             val thingId = entity.thingId?.trim()?.takeIf { it.isNotEmpty() } ?: entity.entityId
             val eventId = entity.eventId?.trim()?.takeIf { it.isNotEmpty() } ?: entity.entityId
             return ThingSubEventEntity(
-                id = entity.deliveryId ?: "${thingId}:${eventId}:${entity.receivedAt.toEpochMilli()}",
+                id = entity.localDeliveryKey
+                    ?: entity.deliveryId
+                    ?: "${thingId}:${eventId}:${entity.receivedAt.toEpochMilli()}",
                 entityId = entity.entityId,
                 channel = entity.channel,
                 title = entity.title,
@@ -273,7 +279,7 @@ data class TopLevelEventHeadEntity(
     companion object {
         fun fromIncoming(entity: IncomingEntityRecord): TopLevelEventHeadEntity {
             val eventId = entity.eventId?.trim()?.takeIf { it.isNotEmpty() } ?: entity.entityId
-            val sourceId = entity.deliveryId ?: "event-head:$eventId"
+            val sourceId = entity.localDeliveryKey ?: entity.deliveryId ?: "event-head:$eventId"
             val now = entity.receivedAt.toEpochMilli()
             return TopLevelEventHeadEntity(
                 eventId = eventId,
@@ -381,7 +387,7 @@ data class ThingHeadEntity(
     companion object {
         fun fromIncoming(entity: IncomingEntityRecord): ThingHeadEntity {
             val thingId = entity.thingId?.trim()?.takeIf { it.isNotEmpty() } ?: entity.entityId
-            val sourceId = entity.deliveryId ?: "thing-head:$thingId"
+            val sourceId = entity.localDeliveryKey ?: entity.deliveryId ?: "thing-head:$thingId"
             val now = entity.receivedAt.toEpochMilli()
             return ThingHeadEntity(
                 thingId = thingId,

@@ -36,6 +36,14 @@ class AndroidKeystoreSecretStore(context: Context) : SecureSecretStore {
         putString(SECRET_GATEWAY_TOKEN, token?.trim()?.ifEmpty { null })
     }
 
+    override fun gatewayAckToken(gatewayUrl: String): String? {
+        return getString(gatewayAckTokenKey(gatewayUrl))?.trim()?.ifEmpty { null }
+    }
+
+    override fun setGatewayAckToken(gatewayUrl: String, token: String?) {
+        putString(gatewayAckTokenKey(gatewayUrl), token?.trim()?.ifEmpty { null })
+    }
+
     override fun fcmToken(): String? {
         return getString(SECRET_FCM_TOKEN)?.trim()?.ifEmpty { null }
     }
@@ -121,6 +129,10 @@ class AndroidKeystoreSecretStore(context: Context) : SecureSecretStore {
 
     private fun channelPasswordKey(gatewayUrl: String, channelId: String): String {
         return "channel_password_${sha256Hex("${gatewayUrl.trim()}|${channelId.trim()}")}"
+    }
+
+    private fun gatewayAckTokenKey(gatewayUrl: String): String {
+        return "gateway_ack_token_${sha256Hex(gatewayUrl.trim())}"
     }
 
     private fun sha256Hex(value: String): String {

@@ -273,7 +273,7 @@ class RuntimeChannelSwitchInstrumentedTest {
     }
 
     private fun openRepositories(settingsCacheName: String) {
-        val openedDb = PushGoDatabase.build(context)
+        val openedDb = PushGoDatabase.buildForTest(context, DATABASE_NAME)
         openedDb.openHelper.writableDatabase.query("PRAGMA journal_mode=WAL").close()
         openedDb.openHelper.writableDatabase.query("PRAGMA synchronous=NORMAL").close()
         db = openedDb
@@ -285,6 +285,7 @@ class RuntimeChannelSwitchInstrumentedTest {
             settingsCache = context.getSharedPreferences(settingsCacheName, Context.MODE_PRIVATE),
         )
         inboundDeliveryLedgerRepository = InboundDeliveryLedgerRepository(
+            database = openedDb,
             inboundDeliveryLedgerDao = openedDb.inboundDeliveryLedgerDao(),
             inboundDeliveryAckOutboxDao = openedDb.inboundDeliveryAckOutboxDao(),
         )
@@ -513,6 +514,15 @@ private class SharedPrefsSecretStore(context: Context) : SecureSecretStore {
     override fun gatewayToken(): String? = prefs.getString("gateway_token", null)?.trim()?.ifEmpty { null }
     override fun setGatewayToken(token: String?) {
         prefs.edit().putString("gateway_token", token?.trim()?.ifEmpty { null }).commit()
+    }
+
+    override fun gatewayAckToken(gatewayUrl: String): String? =
+        prefs.getString("gateway_ack_token:${gatewayUrl.trim()}", null)?.trim()?.ifEmpty { null }
+
+    override fun setGatewayAckToken(gatewayUrl: String, token: String?) {
+        prefs.edit()
+            .putString("gateway_ack_token:${gatewayUrl.trim()}", token?.trim()?.ifEmpty { null })
+            .commit()
     }
 
     override fun fcmToken(): String? = prefs.getString("fcm_token", null)?.trim()?.ifEmpty { null }

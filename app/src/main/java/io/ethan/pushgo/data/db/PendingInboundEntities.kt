@@ -89,7 +89,7 @@ data class PendingThingMessageEntity(
     tableName = "pending_thing_events",
     indices = [
         Index(value = ["thing_id", "event_time_epoch", "received_at"]),
-        Index(value = ["delivery_id"], unique = true),
+        Index(value = ["delivery_id"]),
     ],
 )
 data class PendingThingEventEntity(
@@ -137,6 +137,7 @@ data class PendingThingEventEntity(
             eventState = eventState,
             eventTimeEpoch = eventTimeEpoch,
             observedTimeEpoch = null,
+            localDeliveryKey = id,
         )
     }
 
@@ -145,7 +146,9 @@ data class PendingThingEventEntity(
             val thingId = entity.thingId?.trim().orEmpty()
             val eventId = entity.eventId?.trim()?.takeIf { it.isNotEmpty() } ?: entity.entityId
             return PendingThingEventEntity(
-                id = entity.deliveryId ?: "${thingId}:${eventId}:${entity.receivedAt.toEpochMilli()}",
+                id = entity.localDeliveryKey
+                    ?: entity.deliveryId
+                    ?: "${thingId}:${eventId}:${entity.receivedAt.toEpochMilli()}",
                 entityId = entity.entityId,
                 channel = entity.channel,
                 title = entity.title,

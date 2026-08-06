@@ -7,6 +7,7 @@ import io.ethan.pushgo.data.EntityRepository
 import io.ethan.pushgo.data.InboundDeliveryLedgerRepository
 import io.ethan.pushgo.data.IncomingEntityRecord
 import io.ethan.pushgo.data.MessageRepository
+import io.ethan.pushgo.data.ProviderAckIdentity
 import io.ethan.pushgo.data.SettingsRepository
 import io.ethan.pushgo.data.model.PushMessage
 
@@ -16,6 +17,7 @@ sealed interface InboundPersistenceRequest {
         val level: String?,
         val imageUrl: String?,
         val shouldNotify: Boolean,
+        val providerAckIdentity: ProviderAckIdentity? = null,
     ) : InboundPersistenceRequest
 
     data class Entity(
@@ -25,6 +27,7 @@ sealed interface InboundPersistenceRequest {
         val notificationBody: String,
         val shouldNotify: Boolean,
         val hasExplicitTitle: Boolean = true,
+        val providerAckIdentity: ProviderAckIdentity? = null,
     ) : InboundPersistenceRequest
 }
 
@@ -83,7 +86,9 @@ object InboundPersistenceCoordinator {
         inbound: InboundPersistenceRequest.Message,
         beforeMessageNotify: suspend (PushMessage, String?) -> Unit,
     ): InboundPersistenceOutcome {
-        val inserted = runCatching { messageRepository.insertIncoming(inbound.message) }
+        val inserted = runCatching {
+            messageRepository.insertIncoming(inbound.message, inbound.providerAckIdentity)
+        }
             .onFailure { error ->
                 io.ethan.pushgo.util.SilentSink.e(TAG, "message persist failed", error)
                 PushGoAutomation.recordRuntimeError(
@@ -109,7 +114,10 @@ object InboundPersistenceCoordinator {
                     InboundPersistenceStatus.DUPLICATE
                 },
                 notified = false,
-                shouldAck = inboundDeliveryLedgerRepository.shouldAck(inbound.message.deliveryId),
+                shouldAck = inboundDeliveryLedgerRepository.shouldAck(
+                    inbound.message.deliveryId,
+                    inbound.providerAckIdentity,
+                ),
             )
         }
 
@@ -118,7 +126,10 @@ object InboundPersistenceCoordinator {
             return InboundPersistenceOutcome(
                 status = InboundPersistenceStatus.PERSISTED_MAIN,
                 notified = false,
-                shouldAck = inboundDeliveryLedgerRepository.shouldAck(inbound.message.deliveryId),
+                shouldAck = inboundDeliveryLedgerRepository.shouldAck(
+                    inbound.message.deliveryId,
+                    inbound.providerAckIdentity,
+                ),
             )
         }
 
@@ -131,7 +142,10 @@ object InboundPersistenceCoordinator {
         return InboundPersistenceOutcome(
             status = InboundPersistenceStatus.PERSISTED_MAIN,
             notified = true,
-            shouldAck = inboundDeliveryLedgerRepository.shouldAck(inbound.message.deliveryId),
+            shouldAck = inboundDeliveryLedgerRepository.shouldAck(
+                inbound.message.deliveryId,
+                inbound.providerAckIdentity,
+            ),
         )
     }
 
@@ -172,7 +186,12 @@ object InboundPersistenceCoordinator {
                 notificationTitle = resolvedTitle,
             )
         }
-        val inserted = runCatching { entityRepository.insertIncoming(resolvedInbound.record) }
+        val inserted = runCatching {
+            entityRepository.insertIncoming(
+                resolvedInbound.record,
+                resolvedInbound.providerAckIdentity,
+            )
+        }
             .onFailure { error ->
                 io.ethan.pushgo.util.SilentSink.e(
                     TAG,
@@ -207,7 +226,10 @@ object InboundPersistenceCoordinator {
                     InboundPersistenceStatus.DUPLICATE
                 },
                 notified = false,
-                shouldAck = inboundDeliveryLedgerRepository.shouldAck(displayInbound.record.deliveryId),
+                shouldAck = inboundDeliveryLedgerRepository.shouldAck(
+                    displayInbound.record.deliveryId,
+                    displayInbound.providerAckIdentity,
+                ),
             )
         }
         if (!displayInbound.shouldNotify) {
@@ -220,7 +242,10 @@ object InboundPersistenceCoordinator {
             return InboundPersistenceOutcome(
                 status = InboundPersistenceStatus.PERSISTED_MAIN,
                 notified = false,
-                shouldAck = inboundDeliveryLedgerRepository.shouldAck(displayInbound.record.deliveryId),
+                shouldAck = inboundDeliveryLedgerRepository.shouldAck(
+                    displayInbound.record.deliveryId,
+                    displayInbound.providerAckIdentity,
+                ),
             )
         }
 
@@ -244,7 +269,10 @@ object InboundPersistenceCoordinator {
         return InboundPersistenceOutcome(
             status = InboundPersistenceStatus.PERSISTED_MAIN,
             notified = true,
-            shouldAck = inboundDeliveryLedgerRepository.shouldAck(displayInbound.record.deliveryId),
+            shouldAck = inboundDeliveryLedgerRepository.shouldAck(
+                displayInbound.record.deliveryId,
+                displayInbound.providerAckIdentity,
+            ),
         )
     }
 

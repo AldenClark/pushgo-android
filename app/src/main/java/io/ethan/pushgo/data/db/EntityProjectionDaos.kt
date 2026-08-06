@@ -12,8 +12,8 @@ interface EventChangeLogDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insert(record: EventChangeLogEntity)
 
-    @Query("SELECT * FROM event_change_logs WHERE delivery_id = :deliveryId LIMIT 1")
-    suspend fun getByDeliveryId(deliveryId: String): EventChangeLogEntity?
+    @Query("SELECT * FROM event_change_logs WHERE id = :id LIMIT 1")
+    suspend fun getById(id: String): EventChangeLogEntity?
 
     @Query(
         """
@@ -62,8 +62,8 @@ interface ThingChangeLogDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insert(record: ThingChangeLogEntity)
 
-    @Query("SELECT * FROM thing_change_logs WHERE delivery_id = :deliveryId LIMIT 1")
-    suspend fun getByDeliveryId(deliveryId: String): ThingChangeLogEntity?
+    @Query("SELECT * FROM thing_change_logs WHERE id = :id LIMIT 1")
+    suspend fun getById(id: String): ThingChangeLogEntity?
 
     @Query(
         """
@@ -112,8 +112,8 @@ interface ThingSubEventDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insert(record: ThingSubEventEntity)
 
-    @Query("SELECT * FROM thing_sub_events WHERE delivery_id = :deliveryId LIMIT 1")
-    suspend fun getByDeliveryId(deliveryId: String): ThingSubEventEntity?
+    @Query("SELECT * FROM thing_sub_events WHERE id = :id LIMIT 1")
+    suspend fun getById(id: String): ThingSubEventEntity?
 
     @Query(
         """

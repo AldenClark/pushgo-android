@@ -26,6 +26,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
+import org.json.JSONArray
 import org.json.JSONException
 import org.json.JSONObject
 import org.junit.After
@@ -239,7 +240,7 @@ class RuntimeSandboxGatewayInstrumentedTest {
         )
         val pullProbeCode = request(
             method = "POST",
-            path = "/messages/pull",
+            path = "/v2/messages/pull",
             body = JSONObject(),
             authToken = gatewayToken,
         ).code
@@ -250,7 +251,7 @@ class RuntimeSandboxGatewayInstrumentedTest {
         )
         val ackProbeCode = request(
             method = "POST",
-            path = "/messages/ack",
+            path = "/v2/messages/ack",
             body = JSONObject(),
             authToken = gatewayToken,
         ).code
@@ -321,7 +322,7 @@ class RuntimeSandboxGatewayInstrumentedTest {
         val pullWithDeviceKeyResult = if (!pullDeviceKey.isNullOrBlank()) {
             request(
                 method = "POST",
-                path = "/messages/pull",
+                path = "/v2/messages/pull",
                 body = JSONObject().put("device_key", pullDeviceKey),
                 authToken = gatewayToken,
             )
@@ -339,10 +340,10 @@ class RuntimeSandboxGatewayInstrumentedTest {
         val ackWithDeviceKeyResult = if (!pullDeviceKey.isNullOrBlank() && !pulledFirstDeliveryId.isNullOrBlank()) {
             request(
                 method = "POST",
-                path = "/messages/ack",
+                path = "/v2/messages/ack",
                 body = JSONObject()
                     .put("device_key", pullDeviceKey)
-                    .put("delivery_id", pulledFirstDeliveryId),
+                    .put("delivery_ids", JSONArray().put(pulledFirstDeliveryId)),
                 authToken = gatewayToken,
             )
         } else {
@@ -884,10 +885,10 @@ class RuntimeSandboxGatewayInstrumentedTest {
         val pullAckRoutesPresent = isRoutePresentCode(pullProbeCode) || isRoutePresentCode(ackProbeCode)
         val pullAckContractAvailable = (pullWithDeviceKeyCode in 200..299) || (ackWithDeviceKeyCode in 200..299)
         if (!pullAckRoutesPresent) {
-            return "POST_/messages/pull_and_/messages/ack_routes_required"
+            return "POST_/v2/messages/pull_and_/v2/messages/ack_routes_required"
         }
         if (!pullAckContractAvailable) {
-            return "server_observability_contract_for_/messages/pull_or_/messages/ack_(device_key,delivery_id)"
+            return "server_observability_contract_for_/v2/messages/pull_or_/v2/messages/ack_(device_key,delivery_ids)"
         }
         if (privateDispatchAttemptCode == 404 || privateDispatchAttemptCode == 405) {
             return "POST_/message_(channel_id,password,op_id,title,body)_for_private_ack_probe"

@@ -7,6 +7,7 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
@@ -60,7 +61,6 @@ import io.ethan.pushgo.ui.announceForAccessibility
 import io.ethan.pushgo.ui.accessibility.eventLifecycleStateDescription
 import io.ethan.pushgo.ui.accessibility.joinAccessibilitySummary
 import io.ethan.pushgo.ui.accessibility.pushGoMergedActionSemantics
-import io.ethan.pushgo.ui.accessibility.selectionStateDescription
 import io.ethan.pushgo.ui.rememberBottomBarNestedScrollConnection
 import io.ethan.pushgo.ui.rememberBottomGestureInset
 import io.ethan.pushgo.ui.theme.PushGoStateColors
@@ -180,7 +180,6 @@ fun EventListScreen(
     onOpenEventHandled: () -> Unit,
     onEventDetailOpened: (String) -> Unit,
     onEventDetailClosed: () -> Unit,
-    onBatchModeChanged: (Boolean) -> Unit,
     onBottomBarVisibilityChanged: (Boolean) -> Unit,
     scrollToTopToken: Long,
 ) {
@@ -191,9 +190,6 @@ fun EventListScreen(
     var hasMoreEvents by remember { mutableStateOf(true) }
     var isLoadingMoreEvents by remember { mutableStateOf(false) }
     var selectedEvent by remember { mutableStateOf<EventCardModel?>(null) }
-    var isSelectionMode by remember { mutableStateOf(false) }
-    var lastSelectionMode by remember { mutableStateOf(false) }
-    var selectedEventIds by remember { mutableStateOf<Set<String>>(emptySet()) }
     var isPullRefreshing by remember { mutableStateOf(false) }
     var searchQuery by remember { mutableStateOf("") }
     var selectedChannelFilters by remember { mutableStateOf<Set<String>>(emptySet()) }
@@ -209,45 +205,14 @@ fun EventListScreen(
     val closeEventSuccessMessage = stringResource(R.string.message_event_closed)
     val missingChannelMessage = stringResource(R.string.error_event_missing_channel)
     val eventsLabel = stringResource(R.string.label_send_type_event)
-    val selectionModeEnteredLabel = stringResource(R.string.a11y_selection_mode_entered)
-    val selectionModeExitedLabel = stringResource(R.string.a11y_selection_mode_exited)
-    val haptic = LocalHapticFeedback.current
     val scope = rememberCoroutineScope()
     val listState = rememberLazyListState()
     val bottomGestureInset = rememberBottomGestureInset()
     val bottomBarNestedScrollConnection = rememberBottomBarNestedScrollConnection(onBottomBarVisibilityChanged)
     var listTopInWindow by remember { mutableFloatStateOf(0f) }
 
-    fun exitSelectionMode() {
-        isSelectionMode = false
-        selectedEventIds = emptySet()
-    }
-
-    suspend fun exitSelectionModeAfterFlushingPendingDeletion() {
-        container.pendingLocalDeletionCoordinator.commitCurrentIfNeeded()
-        exitSelectionMode()
-    }
-
-    fun toggleSelection(eventId: String) {
-        selectedEventIds = if (selectedEventIds.contains(eventId)) {
-            selectedEventIds - eventId
-        } else {
-            selectedEventIds + eventId
-        }
-        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-    }
-
     fun showToast(message: String) {
         Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
-    }
-
-    LaunchedEffect(isSelectionMode) {
-        if (isSelectionMode && !lastSelectionMode) {
-            announceForAccessibility(context, selectionModeEnteredLabel)
-        } else if (!isSelectionMode && lastSelectionMode) {
-            announceForAccessibility(context, selectionModeExitedLabel)
-        }
-        lastSelectionMode = isSelectionMode
     }
 
     fun isPendingLocalDeletion(event: EventCardModel): Boolean {
@@ -362,7 +327,6 @@ fun EventListScreen(
             selectedEvent = null
             onEventDetailClosed()
         }
-        selectedEventIds = selectedEventIds - eventIds
     }
 
     fun refreshProviderIngressFromPullDown() {
@@ -417,16 +381,11 @@ fun EventListScreen(
     LaunchedEffect(Unit) {
         channelNameMap = container.channelRepository.loadSubscriptionLookup(includeDeleted = true)
     }
-    LaunchedEffect(isSelectionMode) { onBatchModeChanged(isSelectionMode) }
     DisposableEffect(Unit) {
         onDispose {
-            onBatchModeChanged(false)
             onBottomBarVisibilityChanged(true)
             ForegroundNotificationPresentationState.clearEvent()
         }
-    }
-    BackHandler(enabled = isSelectionMode) {
-        scope.launch { exitSelectionModeAfterFlushingPendingDeletion() }
     }
 
     val suppressForegroundNotificationAtTop = selectedEvent == null
@@ -469,10 +428,6 @@ fun EventListScreen(
             !isPendingLocalDeletion(event)
         }
     }
-    val selectableEventIds = remember(filteredEvents) { filteredEvents.mapTo(mutableSetOf()) { it.eventId } }
-    val areAllSelectableEventsSelected = selectableEventIds.isNotEmpty() &&
-        selectedEventIds.containsAll(selectableEventIds)
-
     LaunchedEffect(listState, filteredEvents.size, hasMoreEvents) {
         snapshotFlow {
             val lastVisibleIndex = listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: -1
@@ -536,7 +491,6 @@ fun EventListScreen(
 
     LaunchedEffect(pendingLocalDeletion?.id) {
         val pendingScope = pendingLocalDeletion?.scope ?: return@LaunchedEffect
-        selectedEventIds = selectedEventIds.filterNot(pendingScope.eventIds::contains).toSet()
         val currentEvent = selectedEvent
         if (currentEvent != null && pendingScope.suppressesEvent(currentEvent.eventId, currentEvent.channelId)) {
             selectedEvent = null
@@ -544,7 +498,7 @@ fun EventListScreen(
         }
     }
 
-    if (selectedEvent != null && !isSelectionMode) {
+    if (selectedEvent != null) {
         val event = selectedEvent!!
         PushGoModalBottomSheet(
             onDismissRequest = { selectedEvent = null; onEventDetailClosed() },
@@ -582,41 +536,7 @@ fun EventListScreen(
             item {
                 Column(modifier = Modifier.fillMaxWidth().heightIn(min = 120.dp)) {
                     Box(modifier = Modifier.fillMaxWidth().heightIn(min = 64.dp), contentAlignment = Alignment.Center) {
-                        if (isSelectionMode) {
-                            Row(modifier = Modifier.fillMaxWidth().padding(horizontal = ScreenHorizontalPadding), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                IconButton(
-                                    onClick = {
-                                        selectedEventIds = if (areAllSelectableEventsSelected) {
-                                            emptySet()
-                                        } else {
-                                            selectableEventIds
-                                        }
-                                    }
-                                ) {
-                                    Icon(
-                                        Icons.Outlined.Checklist,
-                                        stringResource(R.string.action_batch_select),
-                                        tint = if (areAllSelectableEventsSelected) uiColors.accentPrimary else uiColors.iconMuted,
-                                    )
-                                }
-                                Text(text = pluralStringResource(R.plurals.label_selected_count, selectedEventIds.size, selectedEventIds.size), style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
-                                IconButton(
-                                    onClick = {
-                                        val targets = filteredEvents.filter { selectedEventIds.contains(it.eventId) }
-                                        scope.launch {
-                                            scheduleDeletion(targets)
-                                        }
-                                    }
-                                ) { Icon(Icons.Outlined.Delete, stringResource(R.string.action_delete)) }
-                                IconButton(onClick = { scope.launch { exitSelectionModeAfterFlushingPendingDeletion() } }) {
-                                    SelectionDoneIcon(
-                                        contentDescription = stringResource(R.string.label_confirm),
-                                        accentColor = uiColors.accentPrimary,
-                                    )
-                                }
-                            }
-                        } else {
-                            Row(modifier = Modifier.fillMaxWidth().padding(horizontal = ScreenHorizontalPadding), verticalAlignment = Alignment.CenterVertically) {
+                        Row(modifier = Modifier.fillMaxWidth().padding(horizontal = ScreenHorizontalPadding), verticalAlignment = Alignment.CenterVertically) {
                                 PushGoSearchBar(
                                     value = searchQuery,
                                     onValueChange = { searchQuery = it },
@@ -634,16 +554,6 @@ fun EventListScreen(
                                             )
                                         }
                                         DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
-                                            DropdownMenuItem(
-                                                text = { Text(text = "选择", style = MaterialTheme.typography.bodyLarge) },
-                                                leadingIcon = { Icon(Icons.Outlined.Checklist, contentDescription = null, modifier = Modifier.size(18.dp)) },
-                                                onClick = {
-                                                    isSelectionMode = true
-                                                    selectedEventIds = emptySet()
-                                                    menuExpanded = false
-                                                },
-                                            )
-
                                             HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
 
                                             DropdownMenuItem(
@@ -725,7 +635,6 @@ fun EventListScreen(
                                         }
                                     }
                                 }
-                            }
                         }
                     }
                     Text(text = stringResource(R.string.label_send_type_event), style = MaterialTheme.typography.headlineMedium.copy(fontWeight = FontWeight.SemiBold, letterSpacing = (-0.5).sp), color = uiColors.textPrimary, modifier = Modifier.padding(start = ScreenHorizontalPadding, top = 8.dp, bottom = 12.dp).semantics { heading() })
@@ -746,16 +655,9 @@ fun EventListScreen(
                         event = event,
                         channelDisplayName = event.channelId?.let { channelNameMap[it] ?: it },
                         onClick = {
-                            if (isSelectionMode) {
-                                toggleSelection(event.eventId)
-                            } else {
-                                selectedEvent = event
-                                onEventDetailOpened(event.eventId)
-                            }
+                            selectedEvent = event
+                            onEventDetailOpened(event.eventId)
                         },
-                        selectionMode = isSelectionMode,
-                        selected = selectedEventIds.contains(event.eventId),
-                        onToggleSelection = { toggleSelection(event.eventId) },
                     )
                 }
             }
@@ -783,24 +685,6 @@ fun EventListScreen(
                     Text(text = stringResource(R.string.label_cancel))
                 }
             },
-        )
-    }
-}
-
-@Composable
-private fun SelectionDoneIcon(contentDescription: String, accentColor: Color) {
-    Box(
-        modifier = Modifier
-            .size(24.dp)
-            .clip(CircleShape)
-            .background(accentColor),
-        contentAlignment = Alignment.Center,
-    ) {
-        Icon(
-            imageVector = Icons.Outlined.Check,
-            contentDescription = contentDescription,
-            tint = Color.White,
-            modifier = Modifier.size(16.dp),
         )
     }
 }
@@ -839,14 +723,10 @@ private data class EventDisplayAttribute(
 fun EventListRowItem(
     event: EventCardModel,
     onClick: () -> Unit,
-    selectionMode: Boolean,
-    selected: Boolean,
-    onToggleSelection: () -> Unit,
     modifier: Modifier = Modifier,
     channelDisplayName: String? = null,
     showDivider: Boolean = true,
 ) {
-    val haptic = LocalHapticFeedback.current
     val context = LocalContext.current
     val uiColors = PushGoThemeExtras.colors
     val imageAttachments = event.attachmentUrls.filter(::isImageAttachmentUrl)
@@ -863,10 +743,7 @@ fun EventListRowItem(
         if (event.tags.isNotEmpty()) stringResource(R.string.event_meta_tags_count, event.tags.size) else null,
         if (imageAttachments.isNotEmpty()) "${imageAttachments.size} image attachments" else null,
     )
-    val rowStateDescription = joinAccessibilitySummary(
-        eventLifecycleStateDescription(isClosed),
-        if (selectionMode) selectionStateDescription(selected) else null,
-    ).takeIf { it.isNotBlank() }
+    val rowStateDescription = eventLifecycleStateDescription(isClosed)
     Box(
         modifier = modifier
             .fillMaxWidth()
@@ -875,47 +752,16 @@ fun EventListRowItem(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .background(if (selected) uiColors.selectedRowFill else uiColors.surfaceBase)
-                .combinedClickable(
-                    onClick = {
-                        if (selectionMode) {
-                            onToggleSelection()
-                        } else {
-                            onClick()
-                        }
-                    },
-                    onLongClick = {
-                        if (!selectionMode) {
-                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                            onToggleSelection()
-                        }
-                    },
-                )
+                .background(uiColors.surfaceBase)
+                .clickable(onClick = onClick)
                 .pushGoMergedActionSemantics(
                     summary = rowSummary,
                     stateDescription = rowStateDescription,
-                    selectedState = if (selectionMode) selected else null,
-                    onClickLabel = if (selectionMode) {
-                        stringResource(R.string.a11y_action_toggle_selection)
-                    } else {
-                        stringResource(R.string.a11y_action_open_event)
-                    },
-                    onClickAction = {
-                        if (selectionMode) {
-                            onToggleSelection()
-                        } else {
-                            onClick()
-                        }
-                    },
-                    onLongClickLabel = if (selectionMode) null else stringResource(R.string.a11y_action_enter_selection_mode),
-                    onLongClickAction = if (selectionMode) {
-                        null
-                    } else {
-                        {
-                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                            onToggleSelection()
-                        }
-                    },
+                    selectedState = null,
+                    onClickLabel = stringResource(R.string.a11y_action_open_event),
+                    onClickAction = onClick,
+                    onLongClickLabel = null,
+                    onLongClickAction = null,
                 )
                 .padding(horizontal = 12.dp, vertical = 10.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -924,9 +770,6 @@ fun EventListRowItem(
                 verticalAlignment = Alignment.Top,
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
             ) {
-                if (selectionMode) {
-                    PushGoSelectionIndicator(selected = selected, onClick = onToggleSelection)
-                }
                 Column(
                     modifier = Modifier.weight(1f),
                     verticalArrangement = Arrangement.spacedBy(6.dp),

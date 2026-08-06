@@ -53,9 +53,6 @@ class ListAccessibilitySemanticsTest {
                     onClick = {},
                     onMarkRead = {},
                     onDelete = {},
-                    selectionMode = false,
-                    selected = false,
-                    onToggleSelection = {},
                 )
             }
         }
@@ -69,7 +66,7 @@ class ListAccessibilitySemanticsTest {
     }
 
     @Test
-    fun eventRow_exposesSummaryAndSelectionState() {
+    fun eventRow_exposesSummaryAndLifecycleState() {
         val event = EventCardModel(
             eventId = "event-1",
             title = "Cooling failure",
@@ -95,17 +92,14 @@ class ListAccessibilitySemanticsTest {
                     event = event,
                     channelDisplayName = "Ops",
                     onClick = {},
-                    selectionMode = true,
-                    selected = true,
-                    onToggleSelection = {},
                 )
             }
         }
 
-        val selectedLabel = composeRule.activity.getString(R.string.a11y_state_selected)
+        val openLabel = composeRule.activity.getString(R.string.a11y_state_open)
         composeRule
             .onNode(hasContentDescriptionContaining("Cooling failure"))
-            .assert(hasStateDescription("Open, $selectedLabel"))
+            .assert(hasStateDescription(openLabel))
     }
 
     @Test
@@ -135,9 +129,6 @@ class ListAccessibilitySemanticsTest {
                     thing = thing,
                     channelDisplayName = "NetOps",
                     onClick = {},
-                    selectionMode = false,
-                    selected = false,
-                    onToggleSelection = {},
                 )
             }
         }

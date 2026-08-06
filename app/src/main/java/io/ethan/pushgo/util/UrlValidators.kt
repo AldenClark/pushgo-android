@@ -18,14 +18,16 @@ object UrlValidators {
         val uri = runCatching { URI(trimmed) }.getOrNull() ?: return null
         val scheme = uri.scheme?.trim()?.lowercase()
         val host = uri.host?.trim()?.lowercase()
-        if (host.isNullOrEmpty()) return null
+        if (host.isNullOrEmpty() || uri.rawUserInfo != null || uri.rawQuery != null || uri.rawFragment != null) {
+            return null
+        }
         val port = uri.port
-        return when (scheme) {
+        val origin = when (scheme) {
             "https" -> {
                 if (port > 0 && port != 443) {
-                    "https://$host:$port"
+                    "https://${urlHost(host)}:$port"
                 } else {
-                    "https://$host"
+                    "https://${urlHost(host)}"
                 }
             }
             "http" -> {
@@ -33,12 +35,17 @@ object UrlValidators {
                     return null
                 }
                 if (port > 0) {
-                    "http://$host:$port"
+                    "http://${urlHost(host)}:$port"
                 } else {
-                    "http://$host"
+                    "http://${urlHost(host)}"
                 }
             }
             else -> null
-        }
+        } ?: return null
+        val path = uri.rawPath.orEmpty().trimEnd('/')
+        return origin + path
     }
+
+    private fun urlHost(host: String): String =
+        if (':' in host && !host.startsWith('[')) "[$host]" else host
 }

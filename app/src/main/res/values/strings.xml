@@ -4,10 +4,31 @@
     <string name="tab_settings">Settings</string><string name="action_mark_read">Mark read</string>
     <string name="action_mark_all_read">Mark all as read</string>
     <string name="action_delete">Delete</string>
-    <string name="action_batch_select">Select</string>
     <string name="action_close_event">Close event</string>
     <string name="action_copy">Copy</string>
     <string name="message_show_unread_only">Show unread only</string>
+    <string name="history_cleanup_chip">Clear message history</string>
+    <string name="history_cleanup_title">Clear message history</string>
+    <string name="history_cleanup_sheet_detail">Choose how much local history to remove. Newer messages stay untouched.</string>
+    <string name="history_cleanup_all_detail">Remove every message stored on this device</string>
+    <string name="history_cleanup_range_detail">Remove messages received before this cutoff</string>
+    <string name="history_cleanup_all">Clear all</string>
+    <string name="history_cleanup_7_days">Older than 7 days</string>
+    <string name="history_cleanup_30_days">Older than 30 days</string>
+    <string name="history_cleanup_3_months">Older than 3 months</string>
+    <string name="history_cleanup_6_months">Older than 6 months</string>
+    <string name="history_cleanup_1_year">Older than 1 year</string>
+    <string name="history_cleanup_confirm_title">Confirm cleanup</string>
+    <string name="history_cleanup_confirm_message">%1$s will permanently remove matching local messages. This cannot be undone.</string>
+    <string name="history_cleanup_confirm_action">Confirm cleanup</string>
+    <string name="history_cleanup_confirm_detail">Review the cleanup range below. This action cannot be undone.</string>
+    <string name="history_cleanup_selected_range">Cleanup range</string>
+    <string name="history_cleanup_cleaning">Cleaning…</string>
+    <string name="history_cleanup_cleaning_detail">Removing matching local messages. Keep the app open.</string>
+    <string name="history_cleanup_complete">Cleanup complete</string>
+    <string name="history_cleanup_success">Removed %1$d messages.</string>
+    <string name="history_cleanup_failed">Cleanup failed</string>
+    <string name="history_cleanup_done">Done</string>
     <string name="label_server_address">Server address</string>
     <string name="label_server_token">Token (optional)</string>
     <string name="label_save">Save</string>
@@ -51,10 +72,6 @@
     <string name="label_key_encoding_base64">Base64</string>
     <string name="label_key_encoding_plaintext">Plain text</string>
     <string name="label_app_version">App version</string><string name="label_app_version_format">%1$s</string>
-    <plurals name="label_selected_count">
-        <item quantity="one">%1$d selected</item>
-        <item quantity="other">%1$d selected</item>
-    </plurals>
     <string name="label_confirm">Confirm</string>
     <plurals name="message_marked_read_selected_count">
         <item quantity="one">Marked %1$d message as read</item>
@@ -286,8 +303,6 @@
     <string name="error_message_image_share_failed">Unable to open share panel.</string>
     <string name="error_image_load_failed">Image failed to load</string>
     <string name="a11y_value_empty">Empty</string>
-    <string name="a11y_state_selected">Selected</string>
-    <string name="a11y_state_not_selected">Not selected</string>
     <string name="a11y_state_on">On</string>
     <string name="a11y_state_off">Off</string>
     <string name="a11y_state_read">Read</string>
@@ -300,8 +315,6 @@
     <string name="a11y_action_open_thing">Open object</string>
     <string name="a11y_action_open_image_preview">Open image preview</string>
     <string name="a11y_action_play_image">Play animated image</string>
-    <string name="a11y_action_enter_selection_mode">Enter selection mode</string>
-    <string name="a11y_action_toggle_selection">Toggle selection</string>
     <string name="a11y_action_copy_channel_id">Copy channel ID</string>
     <string name="a11y_action_mark_message_read">Mark message as read</string>
     <string name="a11y_action_delete_message">Delete message</string>
@@ -309,12 +322,6 @@
     <string name="a11y_action_save_image">Save image</string>
     <string name="a11y_action_share_image">Share image</string>
     <string name="a11y_action_close_image_preview">Close image preview</string>
-    <string name="a11y_selection_mode_entered">Selection mode entered</string>
-    <string name="a11y_selection_mode_exited">Selection mode exited</string>
-    <plurals name="a11y_selection_mode_selection_count">
-        <item quantity="one">%1$d item selected</item>
-        <item quantity="other">%1$d items selected</item>
-    </plurals>
     <plurals name="a11y_pending_deletion_summary">
         <item quantity="one">%1$s. Undo available for %2$d second.</item>
         <item quantity="other">%1$s. Undo available for %2$d seconds.</item>

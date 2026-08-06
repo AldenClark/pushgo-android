@@ -18,36 +18,43 @@ class InboundDeliveryAckWorker(
         val app = applicationContext as? PushGoApp ?: return Result.retry()
         val container = app.containerOrNull() ?: return Result.retry()
 
-        val result = runCatching {
-            ProviderAckDrainCoordinator.drainPendingAcks(
-                loadPendingAckIds = container.inboundDeliveryLedgerRepository::loadPendingAckIds,
-                ackMessage = container.channelRepository::ackMessage,
-                markAcked = container.inboundDeliveryLedgerRepository::markAcked,
-            )
-        }.onFailure { error ->
-            io.ethan.pushgo.util.SilentSink.w(
-                TAG,
-                "provider ack drain failed",
-                error,
-            )
-        }.getOrElse {
-            return Result.retry()
-        }
+        repeat(MAX_DRAIN_BATCHES_PER_RUN) {
+            val result = runCatching {
+                ProviderAckDrainCoordinator.drainPendingAcks(
+                    loadPendingAcks = container.inboundDeliveryLedgerRepository::loadPendingAcks,
+                    ackMessages = container.channelRepository::ackMessages,
+                    markAcked = container.inboundDeliveryLedgerRepository::markAckRecordsAcked,
+                )
+            }.onFailure { error ->
+                io.ethan.pushgo.util.SilentSink.w(
+                    TAG,
+                    "provider ack drain failed",
+                    error,
+                )
+            }.getOrElse {
+                return Result.retry()
+            }
 
-        if (result.hasFailures) {
-            io.ethan.pushgo.util.SilentSink.w(
-                TAG,
-                "provider ack drain retained ${result.failedIds.size} pending deliveries",
-            )
-            return Result.retry()
+            if (result.hasFailures) {
+                container.inboundDeliveryLedgerRepository.deferFailedAcks(result.failed)
+                io.ethan.pushgo.util.SilentSink.w(
+                    TAG,
+                    "provider ack drain retained ${result.failedIds.size} pending deliveries",
+                )
+                return Result.retry()
+            }
+            if (result.attempted.isEmpty()) {
+                return Result.success()
+            }
         }
-        return Result.success()
+        return Result.retry()
     }
 
     companion object {
         const val KEY_DELIVERY_ID = "delivery_id"
         private const val TAG = "InboundDeliveryAck"
         private const val UNIQUE_WORK_NAME = "pushgo-provider-ack-drain"
+        private const val MAX_DRAIN_BATCHES_PER_RUN = 100
 
         fun enqueue(context: Context, deliveryId: String) {
             val normalized = deliveryId.trim()

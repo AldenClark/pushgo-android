@@ -97,9 +97,6 @@ fun PushGoAppRoot(
     var pendingThingDetailTabToOpen by remember { mutableStateOf<String?>(null) }
     var openedEntityType by remember { mutableStateOf<String?>(null) }
     var openedEntityId by remember { mutableStateOf<String?>(null) }
-    var messageBatchMode by remember { mutableStateOf(false) }
-    var eventBatchMode by remember { mutableStateOf(false) }
-    var thingBatchMode by remember { mutableStateOf(false) }
     var messageScrollToUnreadToken by remember { mutableLongStateOf(0L) }
     var messageScrollToTopToken by remember { mutableLongStateOf(0L) }
     var eventScrollToTopToken by remember { mutableLongStateOf(0L) }
@@ -143,12 +140,6 @@ fun PushGoAppRoot(
 
     val currentTopLevelRoute = currentRoute.topLevelRoute()
     val showBottomBar = currentTopLevelRoute != null
-    val hideBottomBarForBatchMode = when (currentTopLevelRoute) {
-        TopLevelRoute.MESSAGES -> messageBatchMode
-        TopLevelRoute.EVENTS -> eventBatchMode
-        TopLevelRoute.THINGS -> thingBatchMode
-        else -> false
-    }
 
     fun handleTopLevelReselection(route: TopLevelRoute) {
         val now = SystemClock.elapsedRealtime()
@@ -264,7 +255,7 @@ fun PushGoAppRoot(
             val uiColors = PushGoThemeExtras.colors
             AnimatedVisibility(
                 // REMOVED selectedMessageId == null to keep TabBar visible when sheet is open
-                visible = showBottomBar && !hideBottomBarForBatchMode && bottomBarVisible,
+                visible = showBottomBar && bottomBarVisible,
                 enter = expandVertically(
                     expandFrom = Alignment.Bottom,
                     clip = false,
@@ -357,15 +348,15 @@ fun PushGoAppRoot(
                 initialRoute = initialRoute, padding = padding,
                 onMessageClick = { messageId ->
                     selectedMessageId = messageId
-                }, onMessageBatchModeChanged = { messageBatchMode = it },
+                },
                 onMessageBottomBarVisibilityChanged = { bottomBarVisible = it },
                 messageDetailVisible = selectedMessageId != null,
                 messageScrollToUnreadToken = messageScrollToUnreadToken,
                 messageScrollToTopToken = messageScrollToTopToken,
-                eventCount = eventCount, eventRefreshToken = eventRefreshToken, onEventBatchModeChanged = { eventBatchMode = it },
+                eventCount = eventCount, eventRefreshToken = eventRefreshToken,
                 onEventBottomBarVisibilityChanged = { bottomBarVisible = it },
                 eventScrollToTopToken = eventScrollToTopToken,
-                thingCount = thingCount, thingRefreshToken = thingRefreshToken, onThingBatchModeChanged = { thingBatchMode = it },
+                thingCount = thingCount, thingRefreshToken = thingRefreshToken,
                 onThingBottomBarVisibilityChanged = { bottomBarVisible = it },
                 thingScrollToTopToken = thingScrollToTopToken,
                 onChannelBottomBarVisibilityChanged = { bottomBarVisible = it },
@@ -581,10 +572,10 @@ private fun PushGoUnreadBadge(text: String) {
 @Composable
 private fun PushGoNavHost(
     navController: NavHostController, container: AppContainer, factory: PushGoViewModelFactory, settingsViewModel: SettingsViewModel,
-    initialRoute: Any, padding: PaddingValues, onMessageClick: (String) -> Unit, onMessageBatchModeChanged: (Boolean) -> Unit,
+    initialRoute: Any, padding: PaddingValues, onMessageClick: (String) -> Unit,
     onMessageBottomBarVisibilityChanged: (Boolean) -> Unit, messageDetailVisible: Boolean, messageScrollToUnreadToken: Long, messageScrollToTopToken: Long,
-    eventCount: Int, eventRefreshToken: Long, onEventBatchModeChanged: (Boolean) -> Unit, onEventBottomBarVisibilityChanged: (Boolean) -> Unit, eventScrollToTopToken: Long,
-    thingCount: Int, thingRefreshToken: Long, onThingBatchModeChanged: (Boolean) -> Unit, onThingBottomBarVisibilityChanged: (Boolean) -> Unit, thingScrollToTopToken: Long,
+    eventCount: Int, eventRefreshToken: Long, onEventBottomBarVisibilityChanged: (Boolean) -> Unit, eventScrollToTopToken: Long,
+    thingCount: Int, thingRefreshToken: Long, onThingBottomBarVisibilityChanged: (Boolean) -> Unit, thingScrollToTopToken: Long,
     onChannelBottomBarVisibilityChanged: (Boolean) -> Unit,
     pendingEventIdToOpen: String?, onPendingEventOpened: () -> Unit, onEventDetailOpened: (String) -> Unit, onEventDetailClosed: () -> Unit,
     pendingThingIdToOpen: String?, pendingThingDetailTabToOpen: String?, onPendingThingOpened: () -> Unit, onThingDetailOpened: (String) -> Unit, onThingDetailClosed: () -> Unit
@@ -599,7 +590,6 @@ private fun PushGoNavHost(
                 container,
                 factory,
                 onMessageClick,
-                onMessageBatchModeChanged,
                 onMessageBottomBarVisibilityChanged,
                 !messageDetailVisible,
                 messageScrollToUnreadToken,
@@ -615,7 +605,6 @@ private fun PushGoNavHost(
                 onPendingEventOpened,
                 onEventDetailOpened,
                 onEventDetailClosed,
-                onEventBatchModeChanged,
                 onEventBottomBarVisibilityChanged,
                 eventScrollToTopToken
             )
@@ -629,7 +618,6 @@ private fun PushGoNavHost(
                 onPendingThingOpened,
                 onThingDetailOpened,
                 onThingDetailClosed,
-                onThingBatchModeChanged,
                 onThingBottomBarVisibilityChanged,
                 thingScrollToTopToken
             )

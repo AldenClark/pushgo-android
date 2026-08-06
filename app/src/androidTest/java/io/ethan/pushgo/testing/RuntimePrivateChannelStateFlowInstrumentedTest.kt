@@ -454,6 +454,7 @@ class RuntimePrivateChannelStateFlowInstrumentedTest {
             settingsCache = context.getSharedPreferences("runtime_private_stateflow_cache", Context.MODE_PRIVATE),
         )
         val inbound = InboundDeliveryLedgerRepository(
+            database = database,
             inboundDeliveryLedgerDao = database.inboundDeliveryLedgerDao(),
             inboundDeliveryAckOutboxDao = database.inboundDeliveryAckOutboxDao(),
         )
@@ -548,6 +549,15 @@ private class StateflowSecretStore(context: Context) : SecureSecretStore {
     override fun gatewayToken(): String? = prefs.getString("gateway_token", null)?.trim()?.ifEmpty { null }
     override fun setGatewayToken(token: String?) {
         prefs.edit().putString("gateway_token", token?.trim()?.ifEmpty { null }).commit()
+    }
+
+    override fun gatewayAckToken(gatewayUrl: String): String? =
+        prefs.getString("gateway_ack_token:${gatewayUrl.trim()}", null)?.trim()?.ifEmpty { null }
+
+    override fun setGatewayAckToken(gatewayUrl: String, token: String?) {
+        prefs.edit()
+            .putString("gateway_ack_token:${gatewayUrl.trim()}", token?.trim()?.ifEmpty { null })
+            .commit()
     }
 
     override fun fcmToken(): String? = prefs.getString("fcm_token", null)?.trim()?.ifEmpty { null }

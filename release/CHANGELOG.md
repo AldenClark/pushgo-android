@@ -20,6 +20,18 @@ PushGo Android policy:
 
 ## [Unreleased]
 
+## [v1.3.0] - 2026-08-04
+
+### Changed
+- Finalized Android `versionName=v1.3.0` and stable `versionCode=1030099`; downgrade to `v1.3.0-beta.1` is intentionally unsupported.
+- Switched provider ingress to non-destructive Pull v2 with exact structured fallback to the beta Pull route.
+- Persisted ACK Gateway/device ownership and protocol contract, routed v2 batches only through `/v2/messages/ack`, and retained legacy single ACK routing for direct deliveries.
+- Added `has_more` Pull draining with the outer queue `delivery_id` as the authoritative identity.
+
+### Fixed
+- Prevented successful Pull from clearing local ACK state before a structurally valid Gateway ACK response confirms the requested batch.
+- Added Room v24→v25 migration for attributable ACK outbox records; unattributable beta markers are rebuilt from server-retained v2 messages.
+
 ### Changed
 - Prepared Android beta version `v1.3.0-beta.1` for the next release cycle.
 - `versionCode` now resolves to beta code `1030001` from `versionName=v1.3.0-beta.1`.

@@ -174,6 +174,14 @@ class SettingsRepository(
         updateSettings { it.copy(token = null) }
     }
 
+    fun getGatewayAckToken(gatewayUrl: String): String? {
+        return secretStore.gatewayAckToken(gatewayUrl.trim())
+    }
+
+    fun setGatewayAckToken(gatewayUrl: String, token: String?) {
+        secretStore.setGatewayAckToken(gatewayUrl.trim(), token?.trim()?.ifEmpty { null })
+    }
+
     fun peekDeviceKey(): String? {
         return secretStore.deviceKey()
     }

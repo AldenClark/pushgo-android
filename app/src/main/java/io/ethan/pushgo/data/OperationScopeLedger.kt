@@ -11,18 +11,19 @@ internal suspend fun claimOperationScope(
     opId: String?,
     deliveryId: String?,
     appliedAt: Long,
+    providerAckIdentity: ProviderAckIdentity? = null,
 ): Boolean {
     val normalizedOpId = opId?.trim()?.takeIf { it.isNotEmpty() } ?: return true
     val normalizedType = canonicalEntityTypeOrEmpty(entityType)
     val normalizedEntityId = entityId?.trim()?.takeIf { it.isNotEmpty() }
     val normalizedChannel = channelId?.trim()?.takeIf { it.isNotEmpty() }
     val normalizedDeliveryId = deliveryId?.trim()?.takeIf { it.isNotEmpty() }
-    val scopeKey = composeOperationScopeKey(
+    val scopeKey = providerAckIdentity.scopedDeliveryStorageKey(composeOperationScopeKey(
         channelId = normalizedChannel,
         entityType = normalizedType,
         entityId = normalizedEntityId,
         opId = normalizedOpId,
-    )
+    ))
     val inserted = operationLedgerDao.insertOrIgnore(
         OperationLedgerEntity(
             scopeKey = scopeKey,

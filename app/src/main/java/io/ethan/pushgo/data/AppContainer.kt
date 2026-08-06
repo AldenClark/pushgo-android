@@ -25,6 +25,7 @@ class AppContainer(
         settingsCache = appContext.getSharedPreferences("pushgo_settings_cache", Context.MODE_PRIVATE),
     )
     val inboundDeliveryLedgerRepository = InboundDeliveryLedgerRepository(
+        database = database,
         inboundDeliveryLedgerDao = database.inboundDeliveryLedgerDao(),
         inboundDeliveryAckOutboxDao = database.inboundDeliveryAckOutboxDao(),
     )

@@ -4,6 +4,7 @@ import android.content.Context
 import io.ethan.pushgo.R
 import io.ethan.pushgo.data.IncomingEntityRecord
 import io.ethan.pushgo.data.ParsedEntityProfile
+import io.ethan.pushgo.data.ProviderAckIdentity
 import io.ethan.pushgo.data.model.MessageStatus
 import io.ethan.pushgo.data.model.PushMessage
 import io.ethan.pushgo.markdown.MessagePreviewExtractor
@@ -111,6 +112,7 @@ object NotificationIngressParser {
         )
         applyDecryptionOverrides(sanitized, normalizedDecryptResult)
         sanitizeIngressPayload(sanitized)
+        val providerAckIdentity = ProviderAckIdentity.fromDirectPayload(sanitized)
         val channel = sanitized["channel_id"]?.trim()?.takeIf { it.isNotEmpty() }
         val url = sanitized["url"]?.let(::normalizeExternalOpenUrl)
         val serverId = sanitized["server_id"]
@@ -182,6 +184,7 @@ object NotificationIngressParser {
                     data = sanitized,
                     isExpired = isExpired,
                 ),
+                providerAckIdentity = providerAckIdentity,
             )
         }
 
@@ -247,6 +250,7 @@ object NotificationIngressParser {
                 isExpired = isExpired,
             ),
             hasExplicitTitle = explicitTitle.trim().isNotEmpty(),
+            providerAckIdentity = providerAckIdentity,
         )
     }
 

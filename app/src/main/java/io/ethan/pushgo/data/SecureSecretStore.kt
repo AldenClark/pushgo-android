@@ -4,6 +4,9 @@ interface SecureSecretStore {
     fun gatewayToken(): String?
     fun setGatewayToken(token: String?)
 
+    fun gatewayAckToken(gatewayUrl: String): String?
+    fun setGatewayAckToken(gatewayUrl: String, token: String?)
+
     fun fcmToken(): String?
     fun setFcmToken(token: String?)
 

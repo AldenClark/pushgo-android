@@ -34,7 +34,7 @@ import java.io.File
         ChannelSubscriptionEntity::class,
         AppSettingsEntity::class,
     ],
-    version = 24,
+    version = 26,
     exportSchema = true,
 )
 abstract class PushGoDatabase : RoomDatabase() {
@@ -165,8 +165,89 @@ abstract class PushGoDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_24_25 = object : Migration(24, 25) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "ALTER TABLE inbound_delivery_ack_outbox " +
+                        "RENAME TO inbound_delivery_ack_outbox_v24"
+                )
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS inbound_delivery_ack_outbox (
+                        delivery_id TEXT NOT NULL,
+                        gateway_url TEXT NOT NULL,
+                        device_key TEXT NOT NULL,
+                        ack_contract TEXT NOT NULL,
+                        source TEXT NOT NULL,
+                        enqueued_at INTEGER NOT NULL,
+                        updated_at INTEGER NOT NULL,
+                        PRIMARY KEY(gateway_url, device_key, delivery_id)
+                    )
+                    """.trimIndent()
+                )
+                // v24 markers contain no Gateway/device identity. Copying them would allow a
+                // later Gateway switch to ACK the wrong server. v2 Pull is non-destructive, so
+                // the server-retained item will be pulled again and recreate an attributable
+                // marker without deleting the local message or inbound ledger.
+                db.execSQL("DROP TABLE inbound_delivery_ack_outbox_v24")
+            }
+        }
+
+        private val MIGRATION_25_26 = object : Migration(25, 26) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "ALTER TABLE inbound_delivery_ledger " +
+                        "RENAME TO inbound_delivery_ledger_v25"
+                )
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS inbound_delivery_ledger (
+                        gateway_url TEXT NOT NULL,
+                        device_key TEXT NOT NULL,
+                        delivery_id TEXT NOT NULL,
+                        channel_id TEXT,
+                        entity_type TEXT NOT NULL,
+                        entity_id TEXT,
+                        op_id TEXT,
+                        applied_at INTEGER NOT NULL,
+                        ack_state TEXT NOT NULL,
+                        acked_at INTEGER,
+                        PRIMARY KEY(gateway_url, device_key, delivery_id)
+                    )
+                    """.trimIndent()
+                )
+                db.execSQL(
+                    """
+                    INSERT INTO inbound_delivery_ledger(
+                        gateway_url, device_key, delivery_id, channel_id, entity_type,
+                        entity_id, op_id, applied_at, ack_state, acked_at
+                    )
+                    SELECT '', '', delivery_id, channel_id, entity_type,
+                           entity_id, op_id, applied_at, ack_state, acked_at
+                    FROM inbound_delivery_ledger_v25
+                    """.trimIndent()
+                )
+                db.execSQL("DROP TABLE inbound_delivery_ledger_v25")
+                db.execSQL(
+                    "ALTER TABLE inbound_delivery_ack_outbox " +
+                        "ADD COLUMN attempt_count INTEGER NOT NULL DEFAULT 0"
+                )
+                db.execSQL("DROP INDEX IF EXISTS index_pending_thing_events_delivery_id")
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS index_pending_thing_events_delivery_id " +
+                        "ON pending_thing_events(delivery_id)"
+                )
+            }
+        }
+
         fun build(context: Context): PushGoDatabase {
-            return runCatching { newBuilder(context).build() }.getOrElse { error ->
+            return runCatching {
+                newBuilder(
+                    context = context,
+                    databaseName = DATABASE_NAME,
+                    prepareLegacyDatabase = true,
+                ).build()
+            }.getOrElse { error ->
                 PushGoAutomation.recordRuntimeError(
                     source = "storage.database.open",
                     error = error,
@@ -176,10 +257,37 @@ abstract class PushGoDatabase : RoomDatabase() {
             }
         }
 
-        private fun newBuilder(context: Context): RoomDatabase.Builder<PushGoDatabase> {
-            prepareDatabaseFile(context)
-            return Room.databaseBuilder(context, PushGoDatabase::class.java, DATABASE_NAME)
-                .addMigrations(MIGRATION_21_22, MIGRATION_22_23, MIGRATION_23_24)
+        internal fun buildForTest(context: Context, databaseName: String): PushGoDatabase {
+            val normalizedName = databaseName.trim()
+            require(normalizedName.matches(Regex("[A-Za-z0-9._-]+"))) {
+                "test database name contains unsupported characters"
+            }
+            require(normalizedName != DATABASE_NAME) {
+                "test database must not use the production database name"
+            }
+            return newBuilder(
+                context = context,
+                databaseName = normalizedName,
+                prepareLegacyDatabase = false,
+            ).build()
+        }
+
+        private fun newBuilder(
+            context: Context,
+            databaseName: String,
+            prepareLegacyDatabase: Boolean,
+        ): RoomDatabase.Builder<PushGoDatabase> {
+            if (prepareLegacyDatabase) {
+                prepareDatabaseFile(context)
+            }
+            return Room.databaseBuilder(context, PushGoDatabase::class.java, databaseName)
+                .addMigrations(
+                    MIGRATION_21_22,
+                    MIGRATION_22_23,
+                    MIGRATION_23_24,
+                    MIGRATION_24_25,
+                    MIGRATION_25_26,
+                )
                 .setJournalMode(RoomDatabase.JournalMode.WRITE_AHEAD_LOGGING)
                 .addCallback(object : RoomDatabase.Callback() {
                     override fun onOpen(db: SupportSQLiteDatabase) {

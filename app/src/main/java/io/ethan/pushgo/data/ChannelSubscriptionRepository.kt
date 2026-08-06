@@ -39,18 +39,25 @@ class ChannelSubscriptionRepository(
     }
 
     suspend fun pullMessage(deliveryId: String): PullItem? {
-        return pullMessages(deliveryId).firstOrNull()
+        return pullMessages(deliveryId).items.firstOrNull()
     }
 
-    suspend fun pullMessages(deliveryId: String? = null): List<PullItem> {
+    suspend fun pullMessages(deliveryId: String? = null): ProviderPullPage {
         val normalizedDeliveryId = deliveryId?.trim()?.takeIf { it.isNotEmpty() }
         val config = resolveServerConfig()
         val deviceKey = resolveProviderDeviceKeyForIngress(config)
-        return service.pullMessages(
+        rememberAckCredential(config)
+        val page = service.pullMessages(
             baseUrl = config.address,
             token = config.token,
             deviceKey = deviceKey,
             deliveryId = normalizedDeliveryId,
+        )
+        return page.copy(
+            destination = ProviderAckDestination(
+                baseUrl = config.address,
+                deviceKey = deviceKey,
+            ),
         )
     }
 
@@ -71,6 +78,60 @@ class ChannelSubscriptionRepository(
             deviceKey = deviceKey,
             deliveryId = normalizedDeliveryId,
         )
+    }
+
+    suspend fun loadAckDestination(): ProviderAckDestination {
+        val config = resolveServerConfig()
+        val deviceKey = resolveProviderDeviceKeyForIngress(config)
+        rememberAckCredential(config)
+        return ProviderAckDestination(
+            baseUrl = config.address,
+            deviceKey = deviceKey,
+        )
+    }
+
+    suspend fun ackMessages(
+        destination: ProviderAckDestination,
+        contract: ProviderAckContract,
+        deliveryIds: Collection<String>,
+    ): ProviderAckAttemptResult {
+        val normalizedDeliveryIds = deliveryIds.mapNotNull { value ->
+            value.trim().takeIf { it.isNotEmpty() }
+        }.distinct()
+        if (normalizedDeliveryIds.isEmpty()) {
+            return ProviderAckAttemptResult(requestedCount = 0, removedCount = 0)
+        }
+        val currentConfig = resolveServerConfig()
+        val normalizedDestinationUrl = destination.baseUrl.trim().removeSuffix("/")
+        val token = if (currentConfig.address.trim().removeSuffix("/") == normalizedDestinationUrl) {
+            currentConfig.token
+        } else {
+            settingsRepository.getGatewayAckToken(normalizedDestinationUrl)
+        }
+        return when (contract) {
+            ProviderAckContract.V2_BATCH -> service.ackMessages(
+                baseUrl = destination.baseUrl,
+                token = token,
+                deviceKey = destination.deviceKey,
+                deliveryIds = normalizedDeliveryIds,
+            ).let { result ->
+                ProviderAckAttemptResult(
+                    requestedCount = result.requestedCount,
+                    removedCount = result.removedCount,
+                )
+            }
+            ProviderAckContract.LEGACY_SINGLE -> ProviderAckAttemptResult(
+                requestedCount = normalizedDeliveryIds.size,
+                removedCount = normalizedDeliveryIds.count { deliveryId ->
+                    service.ackMessage(
+                        baseUrl = destination.baseUrl,
+                        token = token,
+                        deviceKey = destination.deviceKey,
+                        deliveryId = deliveryId,
+                    )
+                },
+            )
+        }
     }
 
     suspend fun loadSubscriptionLookup(includeDeleted: Boolean = true): Map<String, String> {
@@ -541,6 +602,10 @@ class ChannelSubscriptionRepository(
         val token = settingsRepository.getGatewayToken()?.trim()?.ifEmpty { null }
             ?: AppConstants.defaultGatewayToken?.trim()?.ifEmpty { null }
         return ServerConfig(address = address, token = token)
+    }
+
+    private fun rememberAckCredential(config: ServerConfig) {
+        settingsRepository.setGatewayAckToken(config.address, config.token)
     }
 
     private data class ServerConfig(

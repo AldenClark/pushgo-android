@@ -19,6 +19,17 @@ Policy:
 - Fixed warning-heavy Android build and lint issues exposed by the latest toolchain refresh.
 - Fixed stale resource and launcher asset issues that could interfere with release readiness checks.
 
+## [v1.3.0]
+
+### Improved
+- Improved notification recovery so gateway-pulled messages remain available until Android has durably handled them and acknowledged the correct gateway.
+- Improved high-volume recovery with paged Pull and batch acknowledgement, including safe retry after app or network interruption.
+- Preserved compatibility with beta gateways while keeping legacy destructive Pull and single-message acknowledgement behavior separate from the formal v2 protocol.
+
+### Fixed
+- Fixed a gateway-switch edge case that could send an older pending acknowledgement to the newly selected gateway.
+- Fixed delivery identity handling so the gateway queue item ID remains authoritative when payload fields are missing or inconsistent.
+
 ## [v1.2.6]
 
 ### Improved

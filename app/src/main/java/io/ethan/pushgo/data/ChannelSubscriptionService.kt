@@ -1,14 +1,17 @@
 package io.ethan.pushgo.data
 
+import io.ethan.pushgo.util.UrlValidators
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
+import org.json.JSONArray
 import java.io.BufferedReader
 import java.io.InputStreamReader
 import java.net.HttpURLConnection
 import java.net.URL
 import java.net.URLEncoder
+import java.security.MessageDigest
 import java.util.Locale
 
 data class ChannelSubscribeResult(
@@ -62,6 +65,101 @@ data class DeviceRegisterResult(
 data class PullItem(
     val deliveryId: String,
     val payload: Map<String, String>,
+)
+
+enum class ProviderPullContract {
+    V2,
+    LEGACY,
+}
+
+enum class ProviderAckContract(val persistedValue: String) {
+    V2_BATCH("v2_batch"),
+    LEGACY_SINGLE("legacy_single");
+
+    companion object {
+        fun fromPersistedValue(raw: String): ProviderAckContract? =
+            entries.firstOrNull { it.persistedValue == raw.trim() }
+    }
+}
+
+data class ProviderAckDestination(
+    val baseUrl: String,
+    val deviceKey: String,
+)
+
+@ConsistentCopyVisibility
+data class ProviderAckIdentity private constructor(
+    val destination: ProviderAckDestination,
+    val contract: ProviderAckContract,
+    val source: String,
+) {
+    val gatewayUrl: String
+        get() = destination.baseUrl
+
+    val deviceKey: String
+        get() = destination.deviceKey
+
+    companion object {
+        fun create(
+            destination: ProviderAckDestination,
+            contract: ProviderAckContract,
+            source: String,
+        ): ProviderAckIdentity? {
+            val gatewayUrl = UrlValidators.normalizeGatewayBaseUrl(destination.baseUrl) ?: return null
+            val deviceKey = destination.deviceKey.trim().takeIf { it.isNotEmpty() } ?: return null
+            val normalizedSource = source.trim().takeIf { it.isNotEmpty() } ?: return null
+            return ProviderAckIdentity(
+                destination = ProviderAckDestination(
+                    baseUrl = gatewayUrl,
+                    deviceKey = deviceKey,
+                ),
+                contract = contract,
+                source = normalizedSource,
+            )
+        }
+
+        fun fromDirectPayload(payload: Map<String, String>): ProviderAckIdentity? {
+            return create(
+                destination = ProviderAckDestination(
+                    baseUrl = payload["base_url"].orEmpty(),
+                    deviceKey = payload["provider_device_key"].orEmpty(),
+                ),
+                contract = ProviderAckContract.LEGACY_SINGLE,
+                source = "provider_direct",
+            )
+        }
+    }
+}
+
+internal fun ProviderAckIdentity?.scopedDeliveryStorageKey(deliveryId: String): String {
+    val normalizedDeliveryId = deliveryId.trim()
+    val identity = this ?: return normalizedDeliveryId
+    val scope = "${identity.gatewayUrl}\u0000${identity.deviceKey}\u0000$normalizedDeliveryId"
+    val digest = MessageDigest.getInstance("SHA-256").digest(scope.toByteArray(Charsets.UTF_8))
+    return buildString(17 + digest.size * 2) {
+        append("provider-scoped:")
+        digest.forEach { byte ->
+            append(((byte.toInt() ushr 4) and 0x0f).toString(16))
+            append((byte.toInt() and 0x0f).toString(16))
+        }
+    }
+}
+
+data class ProviderAckAttemptResult(
+    val requestedCount: Int,
+    val removedCount: Int,
+)
+
+data class ProviderPullPage(
+    val items: List<PullItem>,
+    val hasMore: Boolean,
+    val contract: ProviderPullContract,
+    val destination: ProviderAckDestination? = null,
+)
+
+data class ProviderBatchAckResult(
+    val requestedCount: Int,
+    val removedCount: Int,
 )
 
 enum class GatewayErrorCategory {
@@ -119,8 +217,10 @@ class ChannelSubscriptionService(
         internal const val DEVICE_ROUTE_ENDPOINT = "/channel/device"
         internal const val DEVICE_CHANNEL_DELETE_ENDPOINT = "/channel/device/delete"
         internal const val PROVIDER_TOKEN_RETIRE_ENDPOINT = "/channel/device/provider-token/retire"
+        internal const val PULL_MESSAGE_V2_ENDPOINT = "/v2/messages/pull"
         internal const val PULL_MESSAGE_ENDPOINT = "/messages/pull"
         internal const val ACK_MESSAGE_ENDPOINT = "/messages/ack"
+        internal const val ACK_MESSAGE_V2_ENDPOINT = "/v2/messages/ack"
     }
 
     data class EventSendResult(
@@ -309,7 +409,7 @@ class ChannelSubscriptionService(
         token: String?,
         deviceKey: String,
         deliveryId: String? = null,
-    ): List<PullItem> = withContext(ioDispatcher) {
+    ): ProviderPullPage = withContext(ioDispatcher) {
         val normalizedDeviceKey = deviceKey.trim()
         if (normalizedDeviceKey.isEmpty()) {
             throw ChannelSubscriptionException.local(
@@ -319,27 +419,35 @@ class ChannelSubscriptionService(
             )
         }
         val normalizedDeliveryId = deliveryId?.trim()?.takeIf { it.isNotEmpty() }
-        val endpoint = buildUrl(baseUrl, PULL_MESSAGE_ENDPOINT)
         val payload = JSONObject().apply {
             put("device_key", normalizedDeviceKey)
             if (normalizedDeliveryId != null) {
                 put("delivery_id", normalizedDeliveryId)
             }
         }
-        val response = execute(endpoint, token, "POST", payload)
+        val (response, contract) = try {
+            execute(buildUrl(baseUrl, PULL_MESSAGE_V2_ENDPOINT), token, "POST", payload) to
+                ProviderPullContract.V2
+        } catch (error: ChannelSubscriptionException) {
+            if (error.httpStatus == 404 && error.matchesCode("route_not_found")) {
+                execute(buildUrl(baseUrl, PULL_MESSAGE_ENDPOINT), token, "POST", payload) to
+                    ProviderPullContract.LEGACY
+            } else {
+                throw error
+            }
+        }
         val data = response.data ?: throw ChannelSubscriptionException.local(
             message = "Request failed",
             code = "gateway_invalid_response",
             category = GatewayErrorCategory.INTERNAL,
         )
-        val items = data.optJSONArray("items") ?: return@withContext emptyList()
-        return@withContext buildList {
-            for (index in 0 until items.length()) {
-                val item = items.optJSONObject(index) ?: continue
+        val wireItems = data.optJSONArray("items")
+        val items = buildList {
+            if (wireItems == null) return@buildList
+            for (index in 0 until wireItems.length()) {
+                val item = wireItems.optJSONObject(index) ?: continue
                 val itemPayload = item.optJSONObject("payload")?.toStringMap() ?: continue
-                val resolvedDeliveryId = item.optString("delivery_id", "")
-                    .trim()
-                    .ifEmpty { normalizedDeliveryId.orEmpty() }
+                val resolvedDeliveryId = item.optString("delivery_id", "").trim()
                 if (resolvedDeliveryId.isEmpty()) continue
                 add(
                     PullItem(
@@ -349,6 +457,11 @@ class ChannelSubscriptionService(
                 )
             }
         }
+        return@withContext ProviderPullPage(
+            items = items,
+            hasMore = contract == ProviderPullContract.V2 && data.optBoolean("has_more", false),
+            contract = contract,
+        )
     }
 
     suspend fun ackMessage(
@@ -385,6 +498,55 @@ class ChannelSubscriptionService(
             category = GatewayErrorCategory.INTERNAL,
         )
         return@withContext data.optBoolean("removed", false)
+    }
+
+    suspend fun ackMessages(
+        baseUrl: String,
+        token: String?,
+        deviceKey: String,
+        deliveryIds: Collection<String>,
+    ): ProviderBatchAckResult = withContext(ioDispatcher) {
+        val normalizedDeviceKey = deviceKey.trim()
+        if (normalizedDeviceKey.isEmpty()) {
+            throw ChannelSubscriptionException.local(
+                message = "Request failed",
+                code = "missing_device_key",
+                category = GatewayErrorCategory.VALIDATION,
+            )
+        }
+        val normalizedDeliveryIds = deliveryIds.mapNotNull { value ->
+            value.trim().takeIf { it.isNotEmpty() }
+        }.distinct().sorted()
+        if (normalizedDeliveryIds.isEmpty() || normalizedDeliveryIds.size > 200) {
+            throw ChannelSubscriptionException.local(
+                message = "Request failed",
+                code = "invalid_delivery_ids",
+                category = GatewayErrorCategory.VALIDATION,
+            )
+        }
+        val payload = JSONObject().apply {
+            put("device_key", normalizedDeviceKey)
+            put("delivery_ids", JSONArray(normalizedDeliveryIds))
+        }
+        val response = execute(buildUrl(baseUrl, ACK_MESSAGE_V2_ENDPOINT), token, "POST", payload)
+        val data = response.data ?: throw ChannelSubscriptionException.local(
+            message = "Request failed",
+            code = "gateway_invalid_response",
+            category = GatewayErrorCategory.INTERNAL,
+        )
+        val requestedCount = data.strictInt("requested_count") ?: -1
+        val removedCount = data.strictInt("removed_count") ?: -1
+        if (requestedCount != normalizedDeliveryIds.size || removedCount !in 0..requestedCount) {
+            throw ChannelSubscriptionException.local(
+                message = "Request failed",
+                code = "gateway_ack_count_mismatch",
+                category = GatewayErrorCategory.INTERNAL,
+            )
+        }
+        ProviderBatchAckResult(
+            requestedCount = requestedCount,
+            removedCount = removedCount,
+        )
     }
 
     suspend fun renameChannel(
@@ -600,6 +762,14 @@ class ChannelSubscriptionService(
             output[key] = value.toString()
         }
         return output
+    }
+
+    private fun JSONObject.strictInt(key: String): Int? {
+        val value = opt(key) as? Number ?: return null
+        val longValue = value.toLong()
+        if (longValue !in Int.MIN_VALUE..Int.MAX_VALUE) return null
+        if (value.toDouble() != longValue.toDouble()) return null
+        return longValue.toInt()
     }
 
     private fun gatewayAcceptLanguageValue(): String {

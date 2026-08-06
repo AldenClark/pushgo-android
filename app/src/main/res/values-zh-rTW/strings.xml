@@ -4,6 +4,28 @@
     <string name="tab_settings">設定</string><string name="action_mark_read">標示為已讀</string>
     <string name="action_mark_all_read">全部標示為已讀</string>
     <string name="action_delete">刪除</string>
+    <string name="history_cleanup_chip">清理歷史訊息</string>
+    <string name="history_cleanup_title">清理歷史訊息</string>
+    <string name="history_cleanup_sheet_detail">選擇要移除的本機歷史範圍，較新的訊息會保留。</string>
+    <string name="history_cleanup_all_detail">刪除此裝置上儲存的全部訊息</string>
+    <string name="history_cleanup_range_detail">刪除早於此時間範圍收到的訊息</string>
+    <string name="history_cleanup_all">全部清理</string>
+    <string name="history_cleanup_7_days">清理7天前</string>
+    <string name="history_cleanup_30_days">清理30天前</string>
+    <string name="history_cleanup_3_months">清理3個月前</string>
+    <string name="history_cleanup_6_months">清理6個月前</string>
+    <string name="history_cleanup_1_year">清理1年前</string>
+    <string name="history_cleanup_confirm_title">確認清理</string>
+    <string name="history_cleanup_confirm_message">%1$s將永久刪除符合條件的本機訊息，此操作無法復原。</string>
+    <string name="history_cleanup_confirm_action">確認清理</string>
+    <string name="history_cleanup_confirm_detail">請確認以下清理範圍。此操作無法復原。</string>
+    <string name="history_cleanup_selected_range">清理範圍</string>
+    <string name="history_cleanup_cleaning">清理中…</string>
+    <string name="history_cleanup_cleaning_detail">正在刪除符合條件的本機訊息，請保持 App 運行。</string>
+    <string name="history_cleanup_complete">清理完成</string>
+    <string name="history_cleanup_success">已清理 %1$d 則訊息。</string>
+    <string name="history_cleanup_failed">清理失敗</string>
+    <string name="history_cleanup_done">完成</string>
     <string name="action_copy">複製</string>
     <string name="label_server_address">伺服器位址</string>
     <string name="label_server_token">認證令牌（可選）</string>
@@ -179,7 +201,6 @@
 
 
 
-    <string name="action_batch_select">批量</string>
     <string name="filter_open_events">進行中</string>
     <string name="filter_active_things">活躍</string>
     <string name="label_gateway_change_channel_reset_hint">切換閘道後，當前裝置上的既有頻道訂閱會被清空。請在新閘道中手動重新建立或重新訂閱頻道。</string>
@@ -272,8 +293,6 @@
     <string name="message_show_unread_only">只顯示未讀</string>
     <string name="message_text_copied">內容已複製。</string>
     <string name="a11y_value_empty">空白</string>
-    <string name="a11y_state_selected">已選取</string>
-    <string name="a11y_state_not_selected">未選取</string>
     <string name="a11y_state_on">開啟</string>
     <string name="a11y_state_off">關閉</string>
     <string name="a11y_state_read">已讀</string>
@@ -286,8 +305,6 @@
     <string name="a11y_action_open_thing">開啟物件</string>
     <string name="a11y_action_open_image_preview">開啟圖片預覽</string>
     <string name="a11y_action_play_image">播放動態圖片</string>
-    <string name="a11y_action_enter_selection_mode">進入選取模式</string>
-    <string name="a11y_action_toggle_selection">切換選取狀態</string>
     <string name="a11y_action_copy_channel_id">複製頻道 ID</string>
     <string name="a11y_action_mark_message_read">將訊息標記為已讀</string>
     <string name="a11y_action_delete_message">刪除訊息</string>
@@ -295,16 +312,8 @@
     <string name="a11y_action_save_image">儲存圖片</string>
     <string name="a11y_action_share_image">分享圖片</string>
     <string name="a11y_action_close_image_preview">關閉圖片預覽</string>
-    <string name="a11y_selection_mode_entered">已進入選取模式</string>
-    <string name="a11y_selection_mode_exited">已退出選取模式</string>
-    <plurals name="label_selected_count">
-        <item quantity="other">已選取 %1$d 項</item>
-    </plurals>
     <plurals name="message_marked_read_selected_count">
         <item quantity="other">已將 %1$d 則訊息標記為已讀</item>
-    </plurals>
-    <plurals name="a11y_selection_mode_selection_count">
-        <item quantity="other">已選取 %1$d 項</item>
     </plurals>
     <plurals name="a11y_pending_deletion_summary">
         <item quantity="other">%1$s。可在 %2$d 秒內還原。</item>

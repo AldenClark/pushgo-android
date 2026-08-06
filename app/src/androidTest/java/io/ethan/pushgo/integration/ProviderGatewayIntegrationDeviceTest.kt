@@ -115,7 +115,7 @@ class ProviderGatewayIntegrationDeviceTest {
         assertEquals(2, container.messageRepository.totalCount())
 
         val emptyPull = container.channelRepository.pullMessages(null)
-        assertTrue(emptyPull.isEmpty())
+        assertTrue(emptyPull.items.isEmpty())
 
         val ackRemoved = container.channelRepository.ackMessage(first)
         assertFalse("ack should be idempotent and non-failing when already removed", ackRemoved)
@@ -158,7 +158,7 @@ class ProviderGatewayIntegrationDeviceTest {
             "expected ingress messages to be persisted either by explicit pull or by background ingestion",
             persisted >= 1 || totalAfterPull > totalBeforePull,
         )
-        assertTrue(container.channelRepository.pullMessages(null).isEmpty())
+        assertTrue(container.channelRepository.pullMessages(null).items.isEmpty())
     }
 
     private fun sendMessage(channelId: String, password: String, opId: String) {

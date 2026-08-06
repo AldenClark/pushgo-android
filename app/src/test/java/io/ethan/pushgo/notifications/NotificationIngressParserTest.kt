@@ -1,5 +1,6 @@
 package io.ethan.pushgo.notifications
 
+import io.ethan.pushgo.data.ProviderAckContract
 import io.ethan.pushgo.util.JsonCompat
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -308,5 +309,46 @@ class NotificationIngressParserTest {
                 )
             )
         )
+    }
+
+    @Test
+    fun parseDirectPayloadCarriesImmutableProviderAckIdentity() {
+        val parsed = NotificationIngressParser.parse(
+            data = mapOf(
+                "entity_type" to "event",
+                "event_id" to "event-provider-source",
+                "entity_id" to "event-provider-source",
+                "delivery_id" to "delivery-provider-source",
+                "base_url" to "HTTPS://Gateway-A.Example/GatewayA/",
+                "provider_device_key" to " device-a ",
+            ),
+            transportMessageId = "transport-provider-source",
+            keyBytes = null,
+            now = Instant.ofEpochSecond(1_710_000_000),
+        ) as InboundPersistenceRequest.Entity
+
+        val identity = requireNotNull(parsed.providerAckIdentity)
+        assertEquals("https://gateway-a.example/GatewayA", identity.gatewayUrl)
+        assertEquals("device-a", identity.deviceKey)
+        assertEquals(ProviderAckContract.LEGACY_SINGLE, identity.contract)
+        assertEquals("provider_direct", identity.source)
+    }
+
+    @Test
+    fun parseDirectPayloadWithoutCompleteProviderSourceDoesNotInventAckIdentity() {
+        val parsed = NotificationIngressParser.parse(
+            data = mapOf(
+                "entity_type" to "event",
+                "event_id" to "event-provider-source-missing",
+                "entity_id" to "event-provider-source-missing",
+                "delivery_id" to "delivery-provider-source-missing",
+                "base_url" to "https://gateway-current.example",
+            ),
+            transportMessageId = "transport-provider-source-missing",
+            keyBytes = null,
+            now = Instant.ofEpochSecond(1_710_000_000),
+        ) as InboundPersistenceRequest.Entity
+
+        assertNull(parsed.providerAckIdentity)
     }
 }

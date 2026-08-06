@@ -157,17 +157,18 @@ class ChannelSubscriptionServiceIngressContractTest {
             responseBody = """{"success":true,"data":{"items":[]}}"""
         ).use { server ->
             val service = ChannelSubscriptionService()
-            val items = service.pullMessages(
+            val page = service.pullMessages(
                 baseUrl = server.baseUrl,
                 token = "token-001",
                 deviceKey = "device-001",
                 deliveryId = null,
             )
-            assertTrue(items.isEmpty())
+            assertTrue(page.items.isEmpty())
+            assertEquals(ProviderPullContract.V2, page.contract)
 
             val request = server.firstRequest()
             assertEquals("POST", request.method)
-            assertEquals("/messages/pull", request.path)
+            assertEquals("/v2/messages/pull", request.path)
             val body = JSONObject(request.body)
             assertEquals("device-001", body.getString("device_key"))
             assertFalse(body.has("delivery_id"))
@@ -182,21 +183,67 @@ class ChannelSubscriptionServiceIngressContractTest {
             """.trimIndent()
         ).use { server ->
             val service = ChannelSubscriptionService()
-            val items = service.pullMessages(
+            val page = service.pullMessages(
                 baseUrl = server.baseUrl,
                 token = "token-001",
                 deviceKey = "device-001",
                 deliveryId = "delivery-123",
             )
-            assertEquals(1, items.size)
-            assertEquals("delivery-123", items[0].deliveryId)
-            assertEquals("ok", items[0].payload["title"])
+            assertEquals(1, page.items.size)
+            assertEquals("delivery-123", page.items[0].deliveryId)
+            assertEquals("ok", page.items[0].payload["title"])
 
             val request = server.firstRequest()
-            assertEquals("/messages/pull", request.path)
+            assertEquals("/v2/messages/pull", request.path)
             val body = JSONObject(request.body)
             assertEquals("device-001", body.getString("device_key"))
             assertEquals("delivery-123", body.getString("delivery_id"))
+        }
+    }
+
+    @Test
+    fun pullMessages_preservesHasMoreAndRequiresOuterDeliveryId() = runBlocking {
+        CapturingGatewayServer(
+            responseBody = """
+                {"success":true,"data":{"has_more":true,"items":[
+                  {"payload":{"delivery_id":"inner-only","title":"drop"}},
+                  {"delivery_id":"outer","payload":{"delivery_id":"inner-conflict","title":"keep"}}
+                ]}}
+            """.trimIndent()
+        ).use { server ->
+            val page = ChannelSubscriptionService().pullMessages(
+                baseUrl = server.baseUrl,
+                token = null,
+                deviceKey = "device-001",
+            )
+
+            assertTrue(page.hasMore)
+            assertEquals(ProviderPullContract.V2, page.contract)
+            assertEquals(listOf("outer"), page.items.map { it.deliveryId })
+        }
+    }
+
+    @Test
+    fun pullMessages_fallsBackOnlyForStructuredV2RouteNotFound() = runBlocking {
+        CapturingGatewayServer(
+            responseBody = """{"success":false,"error_code":"route_not_found","problem":{"code":"route_not_found","category":"not_found","status":404,"retryable":false}}""",
+            responseCode = 404,
+            subsequentResponses = listOf(
+                200 to """{"success":true,"data":{"items":[]}}""",
+            ),
+        ).use { server ->
+            val page = ChannelSubscriptionService().pullMessages(
+                baseUrl = server.baseUrl,
+                token = null,
+                deviceKey = "device-001",
+            )
+            assertTrue(page.items.isEmpty())
+            assertEquals(ProviderPullContract.LEGACY, page.contract)
+            assertFalse(page.hasMore)
+            assertEquals(
+                listOf("/v2/messages/pull", "/messages/pull"),
+                server.allRequests().map { it.path },
+            )
         }
     }
 
@@ -222,11 +269,99 @@ class ChannelSubscriptionServiceIngressContractTest {
             assertEquals("delivery-ack-001", body.getString("delivery_id"))
         }
     }
+
+    @Test
+    fun ackMessages_postsAtomicDeliveryIdBatch() = runBlocking {
+        CapturingGatewayServer(
+            responseBody = """{"success":true,"data":{"removed":true,"requested_count":2,"removed_count":2}}"""
+        ).use { server ->
+            val service = ChannelSubscriptionService()
+            val result = service.ackMessages(
+                baseUrl = server.baseUrl,
+                token = "token-001",
+                deviceKey = "device-001",
+                deliveryIds = listOf("delivery-002", "delivery-001", "delivery-001"),
+            )
+
+            assertEquals(2, result.requestedCount)
+            assertEquals(2, result.removedCount)
+
+            val request = server.firstRequest()
+            assertEquals("POST", request.method)
+            assertEquals("/v2/messages/ack", request.path)
+            val body = JSONObject(request.body)
+            assertEquals("device-001", body.getString("device_key"))
+            assertFalse(body.has("delivery_id"))
+            assertEquals(
+                listOf("delivery-001", "delivery-002"),
+                buildList {
+                    val ids = body.getJSONArray("delivery_ids")
+                    for (index in 0 until ids.length()) add(ids.getString(index))
+                },
+            )
+        }
+    }
+
+    @Test
+    fun ackMessages_rejectsRequestedCountMismatch() = runBlocking {
+        CapturingGatewayServer(
+            responseBody = """{"success":true,"data":{"requested_count":1,"removed_count":1}}"""
+        ).use { server ->
+            try {
+                ChannelSubscriptionService().ackMessages(
+                    baseUrl = server.baseUrl,
+                    token = null,
+                    deviceKey = "device-001",
+                    deliveryIds = listOf("one", "two"),
+                )
+                fail("expected mismatched ACK count to throw")
+            } catch (error: ChannelSubscriptionException) {
+                assertEquals("gateway_ack_count_mismatch", error.code)
+            }
+        }
+    }
+
+    @Test
+    fun ackMessages_rejectsStringEncodedCounts() = runBlocking {
+        CapturingGatewayServer(
+            responseBody = """{"success":true,"data":{"requested_count":"1","removed_count":"1"}}"""
+        ).use { server ->
+            try {
+                ChannelSubscriptionService().ackMessages(
+                    baseUrl = server.baseUrl,
+                    token = null,
+                    deviceKey = "device-001",
+                    deliveryIds = listOf("one"),
+                )
+                fail("expected non-numeric ACK fields to throw")
+            } catch (error: ChannelSubscriptionException) {
+                assertEquals("gateway_ack_count_mismatch", error.code)
+            }
+        }
+    }
+
+    @Test
+    fun ackMessages_acceptsZeroRemovedForIdempotentRetry() = runBlocking {
+        CapturingGatewayServer(
+            responseBody = """{"success":true,"data":{"requested_count":1,"removed_count":0}}"""
+        ).use { server ->
+            val result = ChannelSubscriptionService().ackMessages(
+                baseUrl = server.baseUrl,
+                token = null,
+                deviceKey = "device-001",
+                deliveryIds = listOf("already-removed"),
+            )
+
+            assertEquals(1, result.requestedCount)
+            assertEquals(0, result.removedCount)
+        }
+    }
 }
 
 private class CapturingGatewayServer(
     private val responseBody: String,
     private val responseCode: Int = 200,
+    private val subsequentResponses: List<Pair<Int, String>> = emptyList(),
 ) : Closeable {
     data class RecordedRequest(
         val method: String,
@@ -249,6 +384,8 @@ private class CapturingGatewayServer(
         return requests.first()
     }
 
+    fun allRequests(): List<RecordedRequest> = requests.toList()
+
     override fun close() {
         server.stop(0)
     }
@@ -262,9 +399,12 @@ private class CapturingGatewayServer(
             path = exchange.requestURI.path,
             body = body,
         )
-        val bytes = responseBody.toByteArray(Charsets.UTF_8)
+        val response = subsequentResponses.getOrNull(requests.size - 2)
+        val effectiveCode = response?.first ?: responseCode
+        val effectiveBody = response?.second ?: responseBody
+        val bytes = effectiveBody.toByteArray(Charsets.UTF_8)
         exchange.responseHeaders.add("Content-Type", "application/json")
-        exchange.sendResponseHeaders(responseCode, bytes.size.toLong())
+        exchange.sendResponseHeaders(effectiveCode, bytes.size.toLong())
         exchange.responseBody.use { output ->
             output.write(bytes)
         }

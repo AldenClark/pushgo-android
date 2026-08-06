@@ -41,6 +41,7 @@ data class IncomingEntityRecord(
     val eventState: String?,
     val eventTimeEpoch: Long?,
     val observedTimeEpoch: Long?,
+    val localDeliveryKey: String? = null,
 )
 
 data class EntityProjectionCursor(
@@ -244,38 +245,49 @@ class EntityRepository(
         return EntityProjectionDetail(head = head, history = history)
     }
 
-    suspend fun insertIncoming(entity: IncomingEntityRecord): Boolean {
-        val entityType = entity.entityType.trim().lowercase()
+    suspend fun insertIncoming(
+        entity: IncomingEntityRecord,
+        providerAckIdentity: ProviderAckIdentity? = null,
+    ): Boolean {
+        val scopedEntity = entity.copy(
+            localDeliveryKey = entity.deliveryId
+                ?.trim()
+                ?.takeIf { it.isNotEmpty() }
+                ?.let { providerAckIdentity.scopedDeliveryStorageKey(it) },
+        )
+        val entityType = scopedEntity.entityType.trim().lowercase()
         return database.withTransaction {
             when (entityType) {
                 "event", "thing" -> {
                     val deliveryClaimed = io.ethan.pushgo.data.claimInboundDelivery(
                         inboundDeliveryLedgerDao = inboundDeliveryLedgerDao,
-                        channelId = entity.channel,
+                        channelId = scopedEntity.channel,
                         entityType = entityType,
-                        entityId = entity.entityId,
-                        deliveryId = entity.deliveryId,
-                        opId = entity.opId,
-                        appliedAt = entity.receivedAt.toEpochMilli(),
+                        entityId = scopedEntity.entityId,
+                        deliveryId = scopedEntity.deliveryId,
+                        opId = scopedEntity.opId,
+                        appliedAt = scopedEntity.receivedAt.toEpochMilli(),
+                        providerAckIdentity = providerAckIdentity,
                     )
                     if (!deliveryClaimed) {
                         return@withTransaction false
                     }
                     val claimed = io.ethan.pushgo.data.claimOperationScope(
                         operationLedgerDao = operationLedgerDao,
-                        channelId = entity.channel,
+                        channelId = scopedEntity.channel,
                         entityType = entityType,
-                        entityId = entity.entityId,
-                        opId = entity.opId,
-                        deliveryId = entity.deliveryId,
-                        appliedAt = entity.receivedAt.toEpochMilli(),
+                        entityId = scopedEntity.entityId,
+                        opId = scopedEntity.opId,
+                        deliveryId = scopedEntity.deliveryId,
+                        appliedAt = scopedEntity.receivedAt.toEpochMilli(),
+                        providerAckIdentity = providerAckIdentity,
                     )
                     if (!claimed) {
                         false
                     } else if (entityType == "event") {
-                        insertEventIncoming(entity)
+                        insertEventIncoming(scopedEntity)
                     } else {
-                        insertThingIncoming(entity)
+                        insertThingIncoming(scopedEntity)
                     }
                 }
                 else -> false
@@ -401,10 +413,10 @@ class EntityRepository(
     }
 
     private suspend fun insertEventIncoming(entity: IncomingEntityRecord): Boolean {
-        val deliveryId = entity.deliveryId?.trim()?.takeIf { it.isNotEmpty() }
+        val localDeliveryKey = entity.localDeliveryKey?.trim()?.takeIf { it.isNotEmpty() }
         val thingId = entity.thingId?.trim()?.takeIf { it.isNotEmpty() }
         return if (thingId == null) {
-            if (deliveryId != null && eventChangeLogDao.getByDeliveryId(deliveryId) != null) {
+            if (localDeliveryKey != null && eventChangeLogDao.getById(localDeliveryKey) != null) {
                 false
             } else {
                 eventChangeLogDao.insert(EventChangeLogEntity.fromIncoming(entity))
@@ -421,7 +433,7 @@ class EntityRepository(
             if (!thingHeadDao.existsByThingId(thingId)) {
                 pendingThingEventDao.insert(PendingThingEventEntity.fromIncoming(entity))
                 false
-            } else if (deliveryId != null && thingSubEventDao.getByDeliveryId(deliveryId) != null) {
+            } else if (localDeliveryKey != null && thingSubEventDao.getById(localDeliveryKey) != null) {
                 false
             } else {
                 thingSubEventDao.insert(ThingSubEventEntity.fromIncoming(entity))
@@ -431,8 +443,8 @@ class EntityRepository(
     }
 
     private suspend fun insertThingIncoming(entity: IncomingEntityRecord): Boolean {
-        val deliveryId = entity.deliveryId?.trim()?.takeIf { it.isNotEmpty() }
-        if (deliveryId != null && thingChangeLogDao.getByDeliveryId(deliveryId) != null) {
+        val localDeliveryKey = entity.localDeliveryKey?.trim()?.takeIf { it.isNotEmpty() }
+        if (localDeliveryKey != null && thingChangeLogDao.getById(localDeliveryKey) != null) {
             return false
         }
         thingChangeLogDao.insert(ThingChangeLogEntity.fromIncoming(entity))
@@ -455,8 +467,8 @@ class EntityRepository(
             val consumedIds = mutableListOf<String>()
             pending.forEach { row ->
                 val incoming = row.toIncomingEntityRecord()
-                val deliveryId = incoming.deliveryId?.trim()?.takeIf { it.isNotEmpty() }
-                if (deliveryId != null && thingSubEventDao.getByDeliveryId(deliveryId) != null) {
+                val localDeliveryKey = incoming.localDeliveryKey?.trim()?.takeIf { it.isNotEmpty() }
+                if (localDeliveryKey != null && thingSubEventDao.getById(localDeliveryKey) != null) {
                     consumedIds += row.id
                     return@forEach
                 }

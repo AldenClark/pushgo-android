@@ -6,6 +6,7 @@ import androidx.room.ColumnInfo
 import androidx.room.Database
 import androidx.room.Entity
 import androidx.room.Fts4
+import androidx.room.Index
 import androidx.room.PrimaryKey
 import androidx.room.Room
 import androidx.room.RoomDatabase
@@ -60,7 +61,7 @@ class PushGoDatabaseMigrationDeviceTest {
         assertEquals(CHANNEL_ID, subscriptions.single().channelId)
         assertEquals(1, messages.size)
         assertEquals(MESSAGE_ID, messages.single().messageId)
-        assertEquals(24, readUserVersion(context.getDatabasePath("pushgo.db")))
+        assertEquals(26, readUserVersion(context.getDatabasePath("pushgo.db")))
         assertEquals(1, container.messageRepository.totalCount())
         assertEquals(1, container.messageRepository.unreadCount())
         assertTrue(context.getDatabasePath("pushgo.db").exists())
@@ -95,7 +96,7 @@ class PushGoDatabaseMigrationDeviceTest {
         assertEquals(MESSAGE_ID, messages.single().messageId)
         assertEquals(1, container.messageRepository.totalCount())
         assertEquals(1, container.messageRepository.unreadCount())
-        assertEquals(24, readUserVersion(context.getDatabasePath("pushgo.db")))
+        assertEquals(26, readUserVersion(context.getDatabasePath("pushgo.db")))
         val sqlite = container.database.openHelper.writableDatabase
         val revision = sqlite.query(
             "SELECT revision FROM message_store_revision WHERE id = 1"
@@ -138,6 +139,142 @@ class PushGoDatabaseMigrationDeviceTest {
         assertEquals(3L, updatedRevision)
 
         container.database.close()
+    }
+
+    @Test
+    fun appContainer_migratesV24AckOutboxWithoutGuessingGatewayOwnership() = runBlocking {
+        val legacy = Room.databaseBuilder(
+            context,
+            LegacyPushGoV24Database::class.java,
+            "pushgo.db",
+        ).build()
+        val sqlite = legacy.openHelper.writableDatabase
+        sqlite.execSQL(
+            """
+            INSERT INTO inbound_delivery_ledger(
+                delivery_id, channel_id, entity_type, entity_id, op_id,
+                applied_at, ack_state, acked_at
+            ) VALUES('legacy-ack-1', NULL, 'message', 'message-1', NULL,
+                1710000000000, 'pending', NULL)
+            """.trimIndent()
+        )
+        sqlite.execSQL(
+            """
+            INSERT INTO inbound_delivery_ack_outbox(
+                delivery_id, source, enqueued_at, updated_at
+            ) VALUES('legacy-ack-1', 'provider_pull', 1710000000000, 1710000000000)
+            """.trimIndent()
+        )
+        legacy.close()
+
+        val database = PushGoDatabase.build(context)
+        val migrated = database.openHelper.writableDatabase
+        val pendingOutbox = migrated.query(
+            "SELECT COUNT(*) FROM inbound_delivery_ack_outbox"
+        ).use { cursor -> cursor.moveToFirst(); cursor.getInt(0) }
+        val retainedLedger = migrated.query(
+            "SELECT COUNT(*) FROM inbound_delivery_ledger WHERE delivery_id = 'legacy-ack-1'"
+        ).use { cursor -> cursor.moveToFirst(); cursor.getInt(0) }
+        val columns = migrated.query("PRAGMA table_info(inbound_delivery_ack_outbox)").use { cursor ->
+            buildSet {
+                while (cursor.moveToNext()) {
+                    add(cursor.getString(cursor.getColumnIndexOrThrow("name")))
+                }
+            }
+        }
+
+        val retainedLedgerScope = migrated.query(
+            "SELECT gateway_url, device_key FROM inbound_delivery_ledger " +
+                "WHERE delivery_id = 'legacy-ack-1'"
+        ).use { cursor ->
+            assertTrue(cursor.moveToFirst())
+            cursor.getString(0) to cursor.getString(1)
+        }
+
+        assertEquals(26, readUserVersion(context.getDatabasePath("pushgo.db")))
+        assertEquals(0, pendingOutbox)
+        assertEquals(1, retainedLedger)
+        assertEquals("" to "", retainedLedgerScope)
+        assertTrue(
+            columns.containsAll(
+                setOf("gateway_url", "device_key", "ack_contract", "attempt_count")
+            )
+        )
+        database.close()
+    }
+
+    @Test
+    fun appContainer_migratesV25LedgerAndAckRetryStateWithoutCrossGatewayGuessing() = runBlocking {
+        val legacy = Room.databaseBuilder(
+            context,
+            LegacyPushGoV25Database::class.java,
+            "pushgo.db",
+        ).build()
+        val sqlite = legacy.openHelper.writableDatabase
+        sqlite.execSQL(
+            """
+            INSERT INTO inbound_delivery_ledger(
+                delivery_id, channel_id, entity_type, entity_id, op_id,
+                applied_at, ack_state, acked_at
+            ) VALUES('legacy-v25-delivery', 'alpha', 'event', 'event-1', 'op-1',
+                1710000000000, 'pending', NULL)
+            """.trimIndent()
+        )
+        sqlite.execSQL(
+            """
+            INSERT INTO inbound_delivery_ack_outbox(
+                delivery_id, gateway_url, device_key, ack_contract, source,
+                enqueued_at, updated_at
+            ) VALUES('scoped-v25-delivery', 'https://gateway-a.example', 'device-a',
+                'legacy_single', 'provider_direct', 1710000000000, 1710000000001)
+            """.trimIndent()
+        )
+        legacy.close()
+
+        val database = PushGoDatabase.build(context)
+        val migrated = database.openHelper.writableDatabase
+        val legacyLedger = migrated.query(
+            """
+            SELECT gateway_url, device_key, ack_state
+            FROM inbound_delivery_ledger
+            WHERE delivery_id = 'legacy-v25-delivery'
+            """.trimIndent()
+        ).use { cursor ->
+            assertTrue(cursor.moveToFirst())
+            Triple(cursor.getString(0), cursor.getString(1), cursor.getString(2))
+        }
+        val scopedOutbox = migrated.query(
+            """
+            SELECT gateway_url, device_key, ack_contract, attempt_count
+            FROM inbound_delivery_ack_outbox
+            WHERE delivery_id = 'scoped-v25-delivery'
+            """.trimIndent()
+        ).use { cursor ->
+            assertTrue(cursor.moveToFirst())
+            listOf(cursor.getString(0), cursor.getString(1), cursor.getString(2), cursor.getInt(3))
+        }
+        val pendingDeliveryIndexUnique = migrated.query(
+            "PRAGMA index_list(pending_thing_events)"
+        ).use { cursor ->
+            var unique: Int? = null
+            while (cursor.moveToNext()) {
+                if (cursor.getString(cursor.getColumnIndexOrThrow("name")) ==
+                    "index_pending_thing_events_delivery_id"
+                ) {
+                    unique = cursor.getInt(cursor.getColumnIndexOrThrow("unique"))
+                }
+            }
+            unique
+        }
+
+        assertEquals(26, readUserVersion(context.getDatabasePath("pushgo.db")))
+        assertEquals(Triple("", "", "pending"), legacyLedger)
+        assertEquals(
+            listOf("https://gateway-a.example", "device-a", "legacy_single", 0),
+            scopedOutbox,
+        )
+        assertEquals(0, pendingDeliveryIndexUnique)
+        database.close()
     }
 
     private fun seedLegacyV21Database() {
@@ -318,8 +455,8 @@ data class LegacyMessageFtsV21(
         MessageMetadataIndexEntity::class,
         LegacyMessageFtsV21::class,
         LegacyMessageChannelStatsV21Entity::class,
-        InboundDeliveryLedgerEntity::class,
-        InboundDeliveryAckOutboxEntity::class,
+        LegacyInboundDeliveryLedgerV25Entity::class,
+        LegacyInboundDeliveryAckOutboxV24Entity::class,
         OperationLedgerEntity::class,
         EventChangeLogEntity::class,
         ThingChangeLogEntity::class,
@@ -343,8 +480,8 @@ abstract class LegacyPushGoV21Database : RoomDatabase()
         MessageMetadataIndexEntity::class,
         LegacyMessageFtsV21::class,
         LegacyMessageChannelStatsV21Entity::class,
-        InboundDeliveryLedgerEntity::class,
-        InboundDeliveryAckOutboxEntity::class,
+        LegacyInboundDeliveryLedgerV25Entity::class,
+        LegacyInboundDeliveryAckOutboxV24Entity::class,
         OperationLedgerEntity::class,
         EventChangeLogEntity::class,
         ThingChangeLogEntity::class,
@@ -361,3 +498,128 @@ abstract class LegacyPushGoV21Database : RoomDatabase()
     exportSchema = false,
 )
 abstract class LegacyPushGoV23Database : RoomDatabase()
+
+@Entity(tableName = "inbound_delivery_ledger")
+data class LegacyInboundDeliveryLedgerV25Entity(
+    @ColumnInfo(name = "delivery_id")
+    @PrimaryKey val deliveryId: String,
+    @ColumnInfo(name = "channel_id")
+    val channelId: String?,
+    @ColumnInfo(name = "entity_type")
+    val entityType: String,
+    @ColumnInfo(name = "entity_id")
+    val entityId: String?,
+    @ColumnInfo(name = "op_id")
+    val opId: String?,
+    @ColumnInfo(name = "applied_at")
+    val appliedAt: Long,
+    @ColumnInfo(name = "ack_state")
+    val ackState: String,
+    @ColumnInfo(name = "acked_at")
+    val ackedAt: Long?,
+)
+
+@Entity(tableName = "inbound_delivery_ack_outbox")
+data class LegacyInboundDeliveryAckOutboxV24Entity(
+    @ColumnInfo(name = "delivery_id")
+    @PrimaryKey val deliveryId: String,
+    val source: String,
+    @ColumnInfo(name = "enqueued_at")
+    val enqueuedAt: Long,
+    @ColumnInfo(name = "updated_at")
+    val updatedAt: Long,
+)
+
+@Database(
+    entities = [
+        MessageEntity::class,
+        MessageMetadataIndexEntity::class,
+        MessageFts::class,
+        MessageChannelStatsEntity::class,
+        MessageGlobalStatsEntity::class,
+        MessageStoreRevisionEntity::class,
+        MessageDerivedStateEntity::class,
+        LegacyInboundDeliveryLedgerV25Entity::class,
+        LegacyInboundDeliveryAckOutboxV24Entity::class,
+        OperationLedgerEntity::class,
+        EventChangeLogEntity::class,
+        ThingChangeLogEntity::class,
+        ThingSubEventEntity::class,
+        TopLevelEventHeadEntity::class,
+        ThingHeadEntity::class,
+        ThingSubMessageEntity::class,
+        PendingThingMessageEntity::class,
+        PendingThingEventEntity::class,
+        ChannelSubscriptionEntity::class,
+        AppSettingsEntity::class,
+    ],
+    version = 24,
+    exportSchema = false,
+)
+abstract class LegacyPushGoV24Database : RoomDatabase()
+
+@Entity(
+    tableName = "inbound_delivery_ack_outbox",
+    primaryKeys = ["gateway_url", "device_key", "delivery_id"],
+)
+data class LegacyInboundDeliveryAckOutboxV25Entity(
+    @ColumnInfo(name = "delivery_id") val deliveryId: String,
+    @ColumnInfo(name = "gateway_url") val gatewayUrl: String,
+    @ColumnInfo(name = "device_key") val deviceKey: String,
+    @ColumnInfo(name = "ack_contract") val ackContract: String,
+    val source: String,
+    @ColumnInfo(name = "enqueued_at") val enqueuedAt: Long,
+    @ColumnInfo(name = "updated_at") val updatedAt: Long,
+)
+
+@Entity(
+    tableName = "pending_thing_events",
+    indices = [
+        Index(value = ["thing_id", "event_time_epoch", "received_at"]),
+        Index(value = ["delivery_id"], unique = true),
+    ],
+)
+data class LegacyPendingThingEventV25Entity(
+    @PrimaryKey @ColumnInfo(name = "id") val id: String,
+    @ColumnInfo(name = "entity_id") val entityId: String,
+    val channel: String?,
+    val title: String,
+    val body: String,
+    @ColumnInfo(name = "raw_payload_json") val rawPayloadJson: String,
+    @ColumnInfo(name = "received_at") val receivedAt: Long,
+    @ColumnInfo(name = "op_id") val opId: String?,
+    @ColumnInfo(name = "delivery_id") val deliveryId: String?,
+    @ColumnInfo(name = "server_id") val serverId: String?,
+    @ColumnInfo(name = "event_id") val eventId: String,
+    @ColumnInfo(name = "thing_id") val thingId: String,
+    @ColumnInfo(name = "event_state") val eventState: String?,
+    @ColumnInfo(name = "event_time_epoch") val eventTimeEpoch: Long?,
+)
+
+@Database(
+    entities = [
+        MessageEntity::class,
+        MessageMetadataIndexEntity::class,
+        MessageFts::class,
+        MessageChannelStatsEntity::class,
+        MessageGlobalStatsEntity::class,
+        MessageStoreRevisionEntity::class,
+        MessageDerivedStateEntity::class,
+        LegacyInboundDeliveryLedgerV25Entity::class,
+        LegacyInboundDeliveryAckOutboxV25Entity::class,
+        OperationLedgerEntity::class,
+        EventChangeLogEntity::class,
+        ThingChangeLogEntity::class,
+        ThingSubEventEntity::class,
+        TopLevelEventHeadEntity::class,
+        ThingHeadEntity::class,
+        ThingSubMessageEntity::class,
+        PendingThingMessageEntity::class,
+        LegacyPendingThingEventV25Entity::class,
+        ChannelSubscriptionEntity::class,
+        AppSettingsEntity::class,
+    ],
+    version = 25,
+    exportSchema = false,
+)
+abstract class LegacyPushGoV25Database : RoomDatabase()

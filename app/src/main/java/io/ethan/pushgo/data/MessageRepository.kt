@@ -280,7 +280,10 @@ class MessageRepository(
         )
     }
 
-    suspend fun insertIncoming(message: PushMessage): Boolean {
+    suspend fun insertIncoming(
+        message: PushMessage,
+        providerAckIdentity: ProviderAckIdentity? = null,
+    ): Boolean {
         if (!isMessageEntity(message)) {
             return false
         }
@@ -294,6 +297,7 @@ class MessageRepository(
                 deliveryId = canonicalMessage.deliveryId,
                 opId = canonicalMessage.opId,
                 appliedAt = canonicalMessage.receivedAt.toEpochMilli(),
+                providerAckIdentity = providerAckIdentity,
             )
             if (!deliveryClaimed) {
                 return@withTransaction false
@@ -306,6 +310,7 @@ class MessageRepository(
                 opId = canonicalMessage.opId,
                 deliveryId = canonicalMessage.deliveryId,
                 appliedAt = canonicalMessage.receivedAt.toEpochMilli(),
+                providerAckIdentity = providerAckIdentity,
             )
             if (!claimed) {
                 return@withTransaction false

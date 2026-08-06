@@ -32,6 +32,7 @@ import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -84,7 +85,6 @@ import io.ethan.pushgo.ui.announceForAccessibility
 import io.ethan.pushgo.ui.accessibility.joinAccessibilitySummary
 import io.ethan.pushgo.ui.accessibility.messageReadStateDescription
 import io.ethan.pushgo.ui.accessibility.pushGoMergedActionSemantics
-import io.ethan.pushgo.ui.accessibility.selectionStateDescription
 import io.ethan.pushgo.ui.rememberBottomBarNestedScrollConnection
 import io.ethan.pushgo.ui.rememberBottomGestureInset
 import io.ethan.pushgo.ui.theme.PushGoThemeExtras
@@ -110,7 +110,6 @@ fun MessageListScreen(
     container: AppContainer,
     factory: PushGoViewModelFactory,
     onMessageClick: (String) -> Unit,
-    onBatchModeChanged: (Boolean) -> Unit,
     onBottomBarVisibilityChanged: (Boolean) -> Unit,
     suppressForegroundNotificationAtTop: Boolean,
     scrollToUnreadToken: Long,
@@ -131,22 +130,14 @@ fun MessageListScreen(
     
     val context = LocalContext.current
     val resources = LocalResources.current
-    val haptic = LocalHapticFeedback.current
     val scope = rememberCoroutineScope()
     val lifecycleOwner = LocalLifecycleOwner.current
     val listState = rememberLazyListState()
     val bottomGestureInset = rememberBottomGestureInset()
     val bottomBarNestedScrollConnection = rememberBottomBarNestedScrollConnection(onBottomBarVisibilityChanged)
-    val selectionModeEnteredLabel = stringResource(R.string.a11y_selection_mode_entered)
-    val selectionModeExitedLabel = stringResource(R.string.a11y_selection_mode_exited)
     var channelNameMap by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
-    var isSelectionMode by remember { mutableStateOf(false) }
-    var lastSelectionMode by remember { mutableStateOf(false) }
-    var selectedMessageIds by remember { mutableStateOf(emptySet<String>()) }
-    var initialSelectionStateForDrag by remember { mutableStateOf<Boolean?>(null) }
     var isPullRefreshing by remember { mutableStateOf(false) }
-    var listTopInWindow by remember { mutableFloatStateOf(0f) }
-    var selectionRailTopInWindow by remember { mutableFloatStateOf(0f) }
+    var isHistoryCleanupSheetVisible by rememberSaveable { mutableStateOf(false) }
     val messagesTabLabel = stringResource(R.string.tab_messages)
 
     fun isPendingLocalDeletion(message: MessageListItem): Boolean {
@@ -187,60 +178,6 @@ fun MessageListScreen(
         searchResults.itemSnapshotList.items.filterNot(::isPendingLocalDeletion)
     }
 
-    fun exitSelectionMode() {
-        isSelectionMode = false
-        selectedMessageIds = emptySet()
-        initialSelectionStateForDrag = null
-    }
-
-    suspend fun exitSelectionModeAfterFlushingPendingDeletion() {
-        container.pendingLocalDeletionCoordinator.commitCurrentIfNeeded()
-        exitSelectionMode()
-    }
-
-    fun toggleSelection(messageId: String) {
-        selectedMessageIds = if (selectedMessageIds.contains(messageId)) {
-            selectedMessageIds - messageId
-        } else {
-            selectedMessageIds + messageId
-        }
-        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-    }
-
-    fun messageIdForVisibleItemIndex(itemIndex: Int): String? {
-        val rowIndex = itemIndex - 1
-        if (rowIndex < 0) return null
-        return if (query.isBlank()) {
-            if (rowIndex < messages.itemCount) messages.peek(rowIndex)?.id else null
-        } else {
-            visibleSearchResults.getOrNull(rowIndex)?.id
-        }
-    }
-
-    fun updateSelectionAtRailY(railLocalY: Float, targetState: Boolean) {
-        val listLocalY = railLocalY + (selectionRailTopInWindow - listTopInWindow)
-        val target = listState.layoutInfo.visibleItemsInfo.firstOrNull { item ->
-            listLocalY in item.offset.toFloat()..(item.offset + item.size).toFloat()
-        }
-        val messageId = target?.index?.let { index -> messageIdForVisibleItemIndex(index) }
-        if (messageId != null) {
-            val isSelected = selectedMessageIds.contains(messageId)
-            if (isSelected != targetState) {
-                selectedMessageIds = if (targetState) selectedMessageIds + messageId else selectedMessageIds - messageId
-                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-            }
-        }
-    }
-
-    LaunchedEffect(isSelectionMode) {
-        if (isSelectionMode && !lastSelectionMode) {
-            announceForAccessibility(context, selectionModeEnteredLabel)
-        } else if (!isSelectionMode && lastSelectionMode) {
-            announceForAccessibility(context, selectionModeExitedLabel)
-        }
-        lastSelectionMode = isSelectionMode
-    }
-
     suspend fun scheduleDeletion(targetMessages: List<MessageListItem>) {
         val uniqueMessages = targetMessages
             .associateBy { it.id }
@@ -276,43 +213,6 @@ fun MessageListScreen(
             },
         )
 
-        selectedMessageIds = selectedMessageIds - messageIds
-    }
-
-    suspend fun deleteSelectedMessages() {
-        val selectedMessages = if (query.isBlank()) {
-            messages.itemSnapshotList.items.filter { selectedMessageIds.contains(it.id) }
-        } else {
-            visibleSearchResults
-                .filter { selectedMessageIds.contains(it.id) }
-                .filter { message ->
-                    matchesFacetFilter(
-                        message = message,
-                        selectedChannels = filterState.channels,
-                        selectedTags = filterState.tags,
-                    )
-                }
-        }
-        scheduleDeletion(selectedMessages)
-    }
-
-    suspend fun markSelectedMessagesRead() {
-        val unreadIds = selectedMessageIds.filter { id ->
-            val msg = if (query.isBlank()) {
-                messages.itemSnapshotList.items.firstOrNull { it.id == id }
-            } else {
-                visibleSearchResults.firstOrNull { message ->
-                    message.id == id && matchesFacetFilter(
-                        message = message,
-                        selectedChannels = filterState.channels,
-                        selectedTags = filterState.tags,
-                    )
-                }
-            }
-            msg?.isRead == false
-        }
-        if (unreadIds.isEmpty()) return
-        container.messageStateCoordinator.markRead(unreadIds)
     }
 
     fun refreshProviderIngressFromPullDown() {
@@ -341,13 +241,8 @@ fun MessageListScreen(
         }
     }
 
-    BackHandler(enabled = isSelectionMode) {
-        scope.launch { exitSelectionModeAfterFlushingPendingDeletion() }
-    }
-    LaunchedEffect(isSelectionMode) { onBatchModeChanged(isSelectionMode) }
     DisposableEffect(Unit) {
         onDispose {
-            onBatchModeChanged(false)
             onBottomBarVisibilityChanged(true)
             ForegroundNotificationPresentationState.clearMessage()
         }
@@ -412,7 +307,6 @@ fun MessageListScreen(
         viewModel.setLocallySuppressedMessageIds(suppressedIds)
         searchViewModel.setLocallySuppressedMessageIds(suppressedIds)
         if (suppressedIds.isEmpty()) return@LaunchedEffect
-        selectedMessageIds = selectedMessageIds.filterNot(effectivePendingScope::suppressesMessageId).toSet()
     }
 
     LaunchedEffect(filterState.unreadOnly) {
@@ -481,21 +375,6 @@ fun MessageListScreen(
                     .thenBy { it.first },
             )
     }
-    val selectableMessageIds = remember(
-        query,
-        filteredPagedItems,
-        filteredSearchResults,
-        effectivePendingScope,
-    ) {
-        val source = if (query.isBlank()) {
-            filteredPagedItems
-        } else {
-            filteredSearchResults
-        }
-        source.mapTo(mutableSetOf()) { it.id }
-    }
-    val areAllSelectableMessagesSelected = selectableMessageIds.isNotEmpty() &&
-        selectedMessageIds.containsAll(selectableMessageIds)
     Box(modifier = Modifier.fillMaxSize()) {
         PullToRefreshBox(
             isRefreshing = isPullRefreshing,
@@ -506,45 +385,14 @@ fun MessageListScreen(
                 modifier = Modifier
                     .fillMaxSize()
                     .background(uiColors.surfaceBase)
-                    .nestedScroll(bottomBarNestedScrollConnection)
-                    .onGloballyPositioned { listTopInWindow = it.positionInWindow().y },
+                    .nestedScroll(bottomBarNestedScrollConnection),
                 state = listState,
                 contentPadding = PaddingValues(bottom = bottomGestureInset + 24.dp),
             ) {
                 item {
                     Column(modifier = Modifier.fillMaxWidth().heightIn(min = 120.dp)) {
                         Box(modifier = Modifier.fillMaxWidth().heightIn(min = 64.dp), contentAlignment = Alignment.Center) {
-                            if (isSelectionMode) {
-                                Row(modifier = Modifier.fillMaxWidth().padding(horizontal = ScreenHorizontalPadding), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                    val selectedCount = selectedMessageIds.size
-                                    IconButton(
-                                        onClick = {
-                                            selectedMessageIds = if (areAllSelectableMessagesSelected) {
-                                                emptySet()
-                                            } else {
-                                                selectableMessageIds
-                                            }
-                                        }
-                                    ) {
-                                        Icon(
-                                            Icons.Outlined.Checklist,
-                                            stringResource(R.string.action_batch_select),
-                                            tint = if (areAllSelectableMessagesSelected) uiColors.accentPrimary else uiColors.iconMuted,
-                                        )
-                                    }
-                                    Text(text = pluralStringResource(R.plurals.label_selected_count, selectedCount, selectedCount), style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
-                                    IconButton(onClick = { scope.launch { markSelectedMessagesRead() } }) {
-                                        Icon(Icons.Outlined.MarkEmailRead, stringResource(R.string.action_mark_read))
-                                    }
-                                    IconButton(onClick = { scope.launch { deleteSelectedMessages() } }) {
-                                        Icon(Icons.Outlined.Delete, stringResource(R.string.action_delete))
-                                    }
-                                    IconButton(onClick = { scope.launch { exitSelectionModeAfterFlushingPendingDeletion() } }) {
-                                        SelectionDoneIcon(contentDescription = stringResource(R.string.label_confirm), accentColor = uiColors.accentPrimary)
-                                    }
-                                }
-                            } else {
-                                Row(modifier = Modifier.fillMaxWidth().padding(horizontal = ScreenHorizontalPadding), verticalAlignment = Alignment.CenterVertically) {
+                            Row(modifier = Modifier.fillMaxWidth().padding(horizontal = ScreenHorizontalPadding), verticalAlignment = Alignment.CenterVertically) {
                                     var searchMenuExpanded by remember { mutableStateOf(false) }
                                     PushGoSearchBar(
                                         value = query,
@@ -590,34 +438,26 @@ fun MessageListScreen(
                                                 }
                                             }
                                             DropdownMenu(expanded = searchMenuExpanded, onDismissRequest = { searchMenuExpanded = false }) {
-                                                DropdownMenuItem(
-                                                    text = { Text(text = "选择", style = MaterialTheme.typography.bodyLarge) },
-                                                    leadingIcon = { Icon(Icons.Outlined.Checklist, contentDescription = null, modifier = Modifier.size(18.dp)) },
-                                                    onClick = {
-                                                        isSelectionMode = true
-                                                        selectedMessageIds = emptySet()
-                                                        searchMenuExpanded = false
-                                                    },
-                                                )
-
-                                                DropdownMenuItem(
-                                                    text = { Text(stringResource(R.string.message_show_unread_only)) },
-                                                    leadingIcon = {
-                                                        Icon(
-                                                            Icons.Outlined.MarkEmailUnread,
-                                                            contentDescription = null,
-                                                            modifier = Modifier.size(18.dp),
-                                                        )
-                                                    },
-                                                    onClick = {
-                                                        viewModel.toggleUnreadOnlyFilter()
-                                                    },
-                                                    trailingIcon = {
-                                                        if (filterState.unreadOnly) {
-                                                            Icon(Icons.Outlined.Check, null, modifier = Modifier.size(18.dp))
-                                                        }
-                                                    }
-                                                )
+                                                FlowRow(
+                                                    modifier = Modifier
+                                                        .widthIn(max = 320.dp)
+                                                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                                                ) {
+                                                    FilterChip(
+                                                        selected = filterState.unreadOnly,
+                                                        onClick = viewModel::toggleUnreadOnlyFilter,
+                                                        label = { Text(stringResource(R.string.message_show_unread_only)) },
+                                                    )
+                                                    AssistChip(
+                                                        onClick = {
+                                                            searchMenuExpanded = false
+                                                            isHistoryCleanupSheetVisible = true
+                                                        },
+                                                        label = { Text(stringResource(R.string.history_cleanup_chip)) },
+                                                    )
+                                                }
 
                                                 HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
 
@@ -691,7 +531,6 @@ fun MessageListScreen(
                                             }
                                         }
                                     }
-                                }
                             }
                         }
                         Text(
@@ -733,18 +572,9 @@ fun MessageListScreen(
                                         rawChannelId = message.channel,
                                         channelNameMap = channelNameMap,
                                     ),
-                                    onClick = {
-                                        if (isSelectionMode) {
-                                            toggleSelection(message.id)
-                                        } else {
-                                            onMessageClick(message.id)
-                                        }
-                                    },
+                                    onClick = { onMessageClick(message.id) },
                                     onMarkRead = { viewModel.markRead(message.id) },
                                     onDelete = { scope.launch { scheduleDeletion(listOf(message)) } },
-                                    selectionMode = isSelectionMode,
-                                    selected = selectedMessageIds.contains(message.id),
-                                    onToggleSelection = { toggleSelection(message.id) },
                                 )
                             }
                         }
@@ -767,14 +597,9 @@ fun MessageListScreen(
                                         rawChannelId = message.channel,
                                         channelNameMap = channelNameMap,
                                     ),
-                                    onClick = {
-                                        if (isSelectionMode) toggleSelection(message.id) else onMessageClick(message.id)
-                                    },
+                                    onClick = { onMessageClick(message.id) },
                                     onMarkRead = { viewModel.markRead(message.id) },
                                     onDelete = { scope.launch { scheduleDeletion(listOf(message)) } },
-                                    selectionMode = isSelectionMode,
-                                    selected = selectedMessageIds.contains(message.id),
-                                    onToggleSelection = { toggleSelection(message.id) },
                                 )
                             }
                         }
@@ -782,51 +607,24 @@ fun MessageListScreen(
                 }
             }
 
-                if (isSelectionMode) {
-                    Box(
-                        modifier = Modifier.align(Alignment.TopStart).fillMaxHeight().width(72.dp)
-                            .onGloballyPositioned { selectionRailTopInWindow = it.positionInWindow().y }
-                            .pointerInput(query, searchResults.itemCount, messages.itemCount, listTopInWindow, selectionRailTopInWindow) {
-                                detectDragGestures(
-                                    onDragStart = { point ->
-                                        val listLocalY = point.y + (selectionRailTopInWindow - listTopInWindow)
-                                        val target = listState.layoutInfo.visibleItemsInfo.firstOrNull { item ->
-                                            listLocalY in item.offset.toFloat()..(item.offset + item.size).toFloat()
-                                        }
-                                        val messageId = target?.index?.let { index -> messageIdForVisibleItemIndex(index) }
-                                        if (messageId != null) {
-                                            initialSelectionStateForDrag = !selectedMessageIds.contains(messageId)
-                                            updateSelectionAtRailY(point.y, !selectedMessageIds.contains(messageId))
-                                        }
-                                    },
-                                    onDrag = { change, _ -> initialSelectionStateForDrag?.let { updateSelectionAtRailY(change.position.y, it) } },
-                                    onDragEnd = { initialSelectionStateForDrag = null },
-                                    onDragCancel = { initialSelectionStateForDrag = null }
-                                )
-                            },
-                    )
-                }
             }
         }
 
-}
-
-@Composable
-private fun SelectionDoneIcon(contentDescription: String, accentColor: Color) {
-    Box(
-        modifier = Modifier
-            .size(24.dp)
-            .clip(CircleShape)
-            .background(accentColor),
-        contentAlignment = Alignment.Center,
-    ) {
-        Icon(
-            imageVector = Icons.Outlined.Check,
-            contentDescription = contentDescription,
-            tint = Color.White,
-            modifier = Modifier.size(16.dp),
+        MessageHistoryCleanupFlow(
+            showRangeSheet = isHistoryCleanupSheetVisible,
+            onDismissRangeSheet = { isHistoryCleanupSheetVisible = false },
+            onCleanup = { cutoff ->
+                val deleted = if (cutoff == null) {
+                    container.messageStateCoordinator.deleteAllMessages()
+                } else {
+                    container.messageStateCoordinator.deleteMessagesBefore(readState = null, cutoff = cutoff)
+                }
+                messages.refresh()
+                searchResults.refresh()
+                deleted
+            },
         )
-    }
+
 }
 
 @Composable
@@ -859,13 +657,9 @@ internal fun MessageRow(
     onClick: () -> Unit,
     onMarkRead: () -> Unit,
     onDelete: () -> Unit,
-    selectionMode: Boolean,
-    selected: Boolean,
-    onToggleSelection: () -> Unit,
 ) {
     val density = LocalDensity.current
     val context = LocalContext.current
-    val haptic = LocalHapticFeedback.current
     val hasMarkReadAction = !message.isRead
     val actionWidth = if (hasMarkReadAction) 140.dp else 72.dp
     val actionWidthPx = with(density) { actionWidth.toPx() }
@@ -887,17 +681,13 @@ internal fun MessageRow(
         bodyPreview.takeIf { it.isNotBlank() },
         if (imageModels.isNotEmpty()) "${imageModels.size} image attachments" else null,
     )
-    val rowStateDescription = joinAccessibilitySummary(
-        messageReadStateDescription(message.isRead),
-        if (selectionMode) selectionStateDescription(selected) else null,
-    ).takeIf { it.isNotBlank() }
+    val rowStateDescription = messageReadStateDescription(message.isRead)
     val markMessageReadActionLabel = stringResource(R.string.a11y_action_mark_message_read)
     val deleteMessageActionLabel = stringResource(R.string.a11y_action_delete_message)
 
     val uiColors = PushGoThemeExtras.colors
     Box(modifier = modifier.fillMaxWidth().background(uiColors.fieldContainer)) {
-        if (!selectionMode) {
-            Row(modifier = Modifier.matchParentSize().padding(end = 16.dp), horizontalArrangement = Arrangement.End, verticalAlignment = Alignment.CenterVertically) {
+        Row(modifier = Modifier.matchParentSize().padding(end = 16.dp), horizontalArrangement = Arrangement.End, verticalAlignment = Alignment.CenterVertically) {
                 if (hasMarkReadAction) {
                     PushGoCircularActionIconButton(
                         imageVector = Icons.Outlined.MarkEmailRead,
@@ -915,46 +705,25 @@ internal fun MessageRow(
                     containerColor = uiColors.stateDanger.background,
                     contentColor = uiColors.stateDanger.foreground,
                 )
-            }
         }
         Column(
             modifier = Modifier.offset { IntOffset(offsetX.roundToInt(), 0) }.fillMaxWidth()
-                .background(if (selected) uiColors.selectedRowFill else uiColors.surfaceBase)
-                .combinedClickable(
-                    onClick = { if (selectionMode) onToggleSelection() else onClick() },
-                    onLongClick = { if (!selectionMode) { haptic.performHapticFeedback(HapticFeedbackType.LongPress); onToggleSelection() } }
-                )
-                .then(
-                    if (selectionMode) Modifier 
-                    else Modifier.draggable(
+                .background(uiColors.surfaceBase)
+                .clickable(onClick = onClick)
+                .draggable(
                         state = rememberDraggableState { delta -> offsetX = (offsetX + delta).coerceIn(-actionWidthPx, 0f) },
                         orientation = Orientation.Horizontal,
                         onDragStopped = { offsetX = if (offsetX < -actionWidthPx / 2) -actionWidthPx else 0f }
-                    )
                 )
                 .pushGoMergedActionSemantics(
                     summary = rowSummary,
                     stateDescription = rowStateDescription,
-                    selectedState = if (selectionMode) selected else null,
-                    onClickLabel = if (selectionMode) {
-                        stringResource(R.string.a11y_action_toggle_selection)
-                    } else {
-                        stringResource(R.string.a11y_action_open_message)
-                    },
-                    onClickAction = { if (selectionMode) onToggleSelection() else onClick() },
-                    onLongClickLabel = if (selectionMode) null else stringResource(R.string.a11y_action_enter_selection_mode),
-                    onLongClickAction = if (selectionMode) {
-                        null
-                    } else {
-                        {
-                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                            onToggleSelection()
-                        }
-                    },
-                    customActions = if (selectionMode) {
-                        emptyList()
-                    } else {
-                        buildList {
+                    selectedState = null,
+                    onClickLabel = stringResource(R.string.a11y_action_open_message),
+                    onClickAction = onClick,
+                    onLongClickLabel = null,
+                    onLongClickAction = null,
+                    customActions = buildList {
                             if (hasMarkReadAction) {
                                 add(
                                     CustomAccessibilityAction(
@@ -977,15 +746,11 @@ internal fun MessageRow(
                                     },
                                 )
                             )
-                        }
                     },
                 )
                 .padding(horizontal = ScreenHorizontalPadding, vertical = 12.dp)
         ) {
             Row(verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                if (selectionMode) {
-                    PushGoSelectionIndicator(selected = selected, onClick = onToggleSelection)
-                }
                 Column(modifier = Modifier.weight(1f)) {
                     MessageRowContent(
                         message = message,
