@@ -745,7 +745,10 @@ private class FakeNativeRuntime : WarpLinkNativeBridge.SessionRuntime {
 
     override fun isAvailable(): Boolean = true
     override fun sessionStart(configJson: String): Long = nextHandle++
-    override fun sessionPollEvent(handle: Long, timeoutMs: Int): String? = null
+    override fun sessionPollEvent(
+        handle: Long,
+        timeoutMs: Int,
+    ): WarpLinkNativeBridge.SessionPollResult = WarpLinkNativeBridge.SessionPollResult.Timeout
     override fun sessionStop(handle: Long) = Unit
     override fun sessionReplaceAuthToken(handle: Long, authToken: String?): Boolean = true
     override fun sessionResolveMessage(handle: Long, ackId: Long, status: Int): Boolean {

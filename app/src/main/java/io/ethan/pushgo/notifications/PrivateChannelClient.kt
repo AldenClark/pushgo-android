@@ -23,8 +23,11 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runInterruptible
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -75,6 +78,19 @@ internal fun normalizeAckedDeliveryIds(rawValues: Iterable<String>): Set<String>
         }
     }
     return ackedIds
+}
+
+internal suspend fun startNativeSessionCancellationSafe(configJson: String): Long {
+    val handle = withContext(NonCancellable) {
+        WarpLinkNativeBridge.sessionStart(configJson)
+    }
+    if (handle > 0L && !currentCoroutineContext().isActive) {
+        withContext(NonCancellable + Dispatchers.IO) {
+            WarpLinkNativeBridge.sessionStop(handle)
+        }
+        return 0L
+    }
+    return handle
 }
 
 internal fun normalizePendingAckDeliveryIds(rawValues: Iterable<String>): List<String> {
@@ -768,7 +784,7 @@ class PrivateChannelClient(
     private suspend fun stopNativeSessionHandle(handle: Long, reason: String) {
         if (handle <= 0L) return
         runCatching {
-            runInterruptible(Dispatchers.IO) {
+            withContext(NonCancellable + Dispatchers.IO) {
                 WarpLinkNativeBridge.sessionStop(handle)
             }
         }.onFailure {
@@ -981,37 +997,37 @@ class PrivateChannelClient(
                 "apply local transport preference transport=$initialPinTransport network=$sessionNetworkClass fingerprint=$sessionNetworkFingerprint ttl=${initialPinTtlMs ?: 0}ms",
             )
         }
-        val handle = runInterruptible(Dispatchers.IO) {
-            WarpLinkNativeBridge.sessionStart(
-                JSONObject().apply {
-                    put("session_generation", sessionGeneration)
-                    put("host", host)
-                    put("quic_enabled", effectiveProfile.quicEnabled)
-                    put("quic_port", effectiveProfile.quicPort)
-                    put("wss_enabled", effectiveProfile.wssEnabled)
-                    put("wss_port", effectiveProfile.wssPort)
-                    put("tcp_enabled", effectiveProfile.tcpEnabled)
-                    put("tcp_port", effectiveProfile.tcpPort)
-                    put("wss_path", effectiveProfile.wssPath)
-                    put("wss_subprotocol", effectiveProfile.wsSubprotocol)
-                    put("bearer_token", bearerToken ?: JSONObject.NULL)
-                    put("cert_pin_sha256", privateCertPinSha256() ?: JSONObject.NULL)
-                    put("identity", state.deviceKey)
-                    put("gateway_token", bearerToken ?: JSONObject.NULL)
-                    put("resume_token", state.resumeToken ?: JSONObject.NULL)
-                    put("last_acked_seq", state.lastAckedSeq)
-                    put("perf_tier", effectivePerformanceMode(foregroundActive).wireValue)
-                    put("app_state", if (foregroundActive) "foreground" else "background")
-                    put("ack_wait_timeout_ms", ACK_WAIT_TIMEOUT_MS)
-                    put("connect_budget_ms", effectiveConnectBudgetMs)
-                    put("backoff_max_ms", effectiveBackoffCapMs)
-                    put("scheduler_v2_enabled", true)
-                    put("drain_timeout_ms", 8_000L)
-                    put("cutover_guard_ms", 1_500L)
-                    put("initial_preferred_transport", initialPinTransport ?: JSONObject.NULL)
-                    put("initial_preferred_ttl_ms", initialPinTtlMs ?: JSONObject.NULL)
-                }.toString()
-            )
+        val sessionConfigJson = JSONObject().apply {
+            put("session_generation", sessionGeneration)
+            put("host", host)
+            put("quic_enabled", effectiveProfile.quicEnabled)
+            put("quic_port", effectiveProfile.quicPort)
+            put("wss_enabled", effectiveProfile.wssEnabled)
+            put("wss_port", effectiveProfile.wssPort)
+            put("tcp_enabled", effectiveProfile.tcpEnabled)
+            put("tcp_port", effectiveProfile.tcpPort)
+            put("wss_path", effectiveProfile.wssPath)
+            put("wss_subprotocol", effectiveProfile.wsSubprotocol)
+            put("bearer_token", bearerToken ?: JSONObject.NULL)
+            put("cert_pin_sha256", privateCertPinSha256() ?: JSONObject.NULL)
+            put("identity", state.deviceKey)
+            put("gateway_token", bearerToken ?: JSONObject.NULL)
+            put("resume_token", state.resumeToken ?: JSONObject.NULL)
+            put("last_acked_seq", state.lastAckedSeq)
+            put("perf_tier", effectivePerformanceMode(foregroundActive).wireValue)
+            put("app_state", if (foregroundActive) "foreground" else "background")
+            put("ack_wait_timeout_ms", ACK_WAIT_TIMEOUT_MS)
+            put("connect_budget_ms", effectiveConnectBudgetMs)
+            put("backoff_max_ms", effectiveBackoffCapMs)
+            put("scheduler_v2_enabled", true)
+            put("drain_timeout_ms", 8_000L)
+            put("cutover_guard_ms", 1_500L)
+            put("initial_preferred_transport", initialPinTransport ?: JSONObject.NULL)
+            put("initial_preferred_ttl_ms", initialPinTtlMs ?: JSONObject.NULL)
+        }.toString()
+        val handle = startNativeSessionCancellationSafe(sessionConfigJson)
+        if (handle == 0L && !currentCoroutineContext().isActive) {
+            return false
         }
         if (handle == 0L) {
             onFailure(
@@ -1078,21 +1094,38 @@ class PrivateChannelClient(
                 val pollTimeoutMs = (nextControlSyncAtMs - System.currentTimeMillis())
                     .coerceIn(200L, 5_000L)
                     .toInt()
-                val rawEvent = runInterruptible(Dispatchers.IO) {
+                val pollResult = runInterruptible(Dispatchers.IO) {
                     WarpLinkNativeBridge.sessionPollEvent(handle, pollTimeoutMs)
                 }
-                if (rawEvent == null) {
-                    if (!isCurrentSession(handle, sessionGeneration, loopToken)) {
-                        return false
+                val rawEvent = when (pollResult) {
+                    is WarpLinkNativeBridge.SessionPollResult.Event -> pollResult.eventJson
+                    WarpLinkNativeBridge.SessionPollResult.Timeout -> {
+                        if (!isCurrentSession(handle, sessionGeneration, loopToken)) {
+                            return false
+                        }
+                        if (!welcomeReceived &&
+                            System.currentTimeMillis() - lastEventAtMs >= PRIVATE_WELCOME_STALL_TIMEOUT_MS
+                        ) {
+                            throw IllegalStateException(
+                                "private stream stalled before welcome for ${PRIVATE_WELCOME_STALL_TIMEOUT_MS}ms"
+                            )
+                        }
+                        continue
                     }
-                    if (!welcomeReceived &&
-                        System.currentTimeMillis() - lastEventAtMs >= PRIVATE_WELCOME_STALL_TIMEOUT_MS
-                    ) {
-                        throw IllegalStateException(
-                            "private stream stalled before welcome for ${PRIVATE_WELCOME_STALL_TIMEOUT_MS}ms"
-                        )
+                    WarpLinkNativeBridge.SessionPollResult.Closed -> {
+                        if (!isCurrentSession(handle, sessionGeneration, loopToken)) {
+                            return false
+                        }
+                        throw IllegalStateException("native session event channel closed")
                     }
-                    continue
+                    is WarpLinkNativeBridge.SessionPollResult.Error -> {
+                        if (pollResult.code == "invalid_handle" &&
+                            !isCurrentSession(handle, sessionGeneration, loopToken)
+                        ) {
+                            return false
+                        }
+                        throw IllegalStateException("native session poll failed: ${pollResult.code}")
+                    }
                 }
                 lastEventAtMs = System.currentTimeMillis()
                 val root = JSONObject(rawEvent)

@@ -1,0 +1,14 @@
+# PushGo Android JNI ABI v2. This file is the checked-in descriptor authority.
+class io.ethan.pushgo.notifications.WarpLinkNativeBridge
+abi 2
+nativeAbiVersion ()I
+nativeSessionStart (Ljava/lang/String;)J
+nativeSessionPollEventV2 (JI)Ljava/lang/String;
+nativeSessionStop (J)V
+nativeSessionReplaceAuthToken (JLjava/lang/String;)I
+nativeSessionResolveMessage (JJI)I
+nativeSessionSetPowerHint (JLjava/lang/String;Ljava/lang/String;)I
+nativeSessionRequestProbe (J)I
+nativeSessionForceReconnect (J)I
+nativeSessionPinTransport (JLjava/lang/String;J)I
+nativeSessionClearPin (J)I

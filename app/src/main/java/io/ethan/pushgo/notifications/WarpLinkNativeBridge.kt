@@ -1,12 +1,22 @@
 package io.ethan.pushgo.notifications
 
+import org.json.JSONObject
+
 object WarpLinkNativeBridge {
     private const val TAG = "WarpLinkNativeBridge"
+    const val ABI_VERSION: Int = 2
+
+    sealed interface SessionPollResult {
+        data class Event(val eventJson: String) : SessionPollResult
+        data object Timeout : SessionPollResult
+        data object Closed : SessionPollResult
+        data class Error(val code: String) : SessionPollResult
+    }
 
     internal interface SessionRuntime {
         fun isAvailable(): Boolean
         fun sessionStart(configJson: String): Long
-        fun sessionPollEvent(handle: Long, timeoutMs: Int): String?
+        fun sessionPollEvent(handle: Long, timeoutMs: Int): SessionPollResult
         fun sessionStop(handle: Long)
         fun sessionReplaceAuthToken(handle: Long, authToken: String?): Boolean
         fun sessionResolveMessage(handle: Long, ackId: Long, status: Int): Boolean
@@ -18,6 +28,8 @@ object WarpLinkNativeBridge {
     }
 
     @Volatile
+    private var loadedAbiVersion: Int = 0
+    @Volatile
     private var loaded: Boolean = load()
     @Volatile
     private var testRuntime: SessionRuntime? = null
@@ -25,14 +37,29 @@ object WarpLinkNativeBridge {
     private fun load(): Boolean {
         return try {
             System.loadLibrary("pushgo_quinn_jni")
-            true
-        } catch (error: UnsatisfiedLinkError) {
+            val version = nativeAbiVersion()
+            loadedAbiVersion = version
+            if (version != ABI_VERSION) {
+                io.ethan.pushgo.util.SilentSink.w(
+                    TAG,
+                    "native ABI mismatch expected=$ABI_VERSION actual=$version",
+                )
+                false
+            } else {
+                true
+            }
+        } catch (error: LinkageError) {
             io.ethan.pushgo.util.SilentSink.w(TAG, "load native library failed: ${error.message}")
+            false
+        } catch (error: SecurityException) {
+            io.ethan.pushgo.util.SilentSink.w(TAG, "load native library denied: ${error.message}")
             false
         }
     }
 
     fun isAvailable(): Boolean = testRuntime?.isAvailable() ?: loaded
+
+    fun abiVersion(): Int = if (testRuntime != null) ABI_VERSION else loadedAbiVersion
 
     internal fun installTestRuntime(runtime: SessionRuntime?) {
         testRuntime = runtime
@@ -49,14 +76,37 @@ object WarpLinkNativeBridge {
         }
     }
 
-    fun sessionPollEvent(handle: Long, timeoutMs: Int): String? {
+    fun sessionPollEvent(handle: Long, timeoutMs: Int): SessionPollResult {
         testRuntime?.let { return it.sessionPollEvent(handle, timeoutMs) }
-        if (!loaded || handle == 0L) return null
+        if (!loaded) return SessionPollResult.Error("native_unavailable")
+        if (handle == 0L) return SessionPollResult.Error("invalid_handle")
         return runCatching {
-            nativeSessionPollEvent(handle, timeoutMs)
+            decodePollResult(nativeSessionPollEventV2(handle, timeoutMs))
         }.getOrElse {
             io.ethan.pushgo.util.SilentSink.w(TAG, "native session poll failed: ${it.message}")
-            null
+            SessionPollResult.Error("jni_call_failed")
+        }
+    }
+
+    internal fun decodePollResult(raw: String?): SessionPollResult {
+        if (raw == null) return SessionPollResult.Error("jni_string_allocation_failed")
+        return runCatching {
+            val envelope = JSONObject(raw)
+            when (envelope.optString("status")) {
+                "event" -> {
+                    val event = envelope.optJSONObject("event")
+                        ?: return@runCatching SessionPollResult.Error("malformed_event")
+                    SessionPollResult.Event(event.toString())
+                }
+                "timeout" -> SessionPollResult.Timeout
+                "closed" -> SessionPollResult.Closed
+                "error" -> SessionPollResult.Error(
+                    envelope.optString("code").ifBlank { "native_error" }
+                )
+                else -> SessionPollResult.Error("unknown_poll_status")
+            }
+        }.getOrElse {
+            SessionPollResult.Error("malformed_poll_envelope")
         }
     }
 
@@ -156,10 +206,13 @@ object WarpLinkNativeBridge {
     }
 
     @JvmStatic
+    private external fun nativeAbiVersion(): Int
+
+    @JvmStatic
     private external fun nativeSessionStart(configJson: String): Long
 
     @JvmStatic
-    private external fun nativeSessionPollEvent(handle: Long, timeoutMs: Int): String?
+    private external fun nativeSessionPollEventV2(handle: Long, timeoutMs: Int): String?
 
     @JvmStatic
     private external fun nativeSessionStop(handle: Long)

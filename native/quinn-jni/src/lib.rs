@@ -4,14 +4,14 @@ use std::sync::mpsc as std_mpsc;
 use std::sync::{Arc, LazyLock, Mutex};
 use std::time::{Duration, Instant};
 
+use futures_util::FutureExt;
 use jni::objects::{JClass, JString};
 use jni::sys::{jint, jlong, jstring};
 use jni::{EnvUnowned, Outcome};
 use pushgo_warp_profile::{PrivatePayloadEnvelope, PushgoWireProfile};
 use serde::Deserialize;
 use tokio::runtime::Runtime;
-use tokio::sync::mpsc::error::TryRecvError;
-use tokio::sync::{mpsc, watch};
+use tokio::sync::watch;
 use warp_link::{client_run_with_shutdown, warp_link_core};
 use warp_link_core::{
     AppDecision, ClientApp, ClientAppStateHint, ClientConfig, ClientEvent, ClientPolicy,
@@ -26,6 +26,9 @@ const PRIVATE_TCP_DELAY_BACKGROUND_MS: u64 = 1_000;
 const PRIVATE_WSS_DELAY_BACKGROUND_MS: u64 = 2_800;
 const WIRE_VERSION_V2: u8 = 2;
 const DEFAULT_WSS_SUBPROTOCOL: &str = "pushgo-private.v1";
+const EVENT_QUEUE_CAPACITY: usize = 256;
+const JNI_ABI_VERSION: jint = 2;
+const SESSION_STOP_TIMEOUT: Duration = Duration::from_secs(5);
 
 #[derive(Debug, Clone)]
 struct NativeTransportPreference {
@@ -114,7 +117,7 @@ struct EventApp {
     scheduler_policy: Arc<watch::Sender<NativeSchedulerPolicy>>,
     ack_wait_timeout_ms: u64,
     session_started_at: Instant,
-    tx: mpsc::UnboundedSender<String>,
+    tx: std_mpsc::SyncSender<String>,
 }
 
 impl ClientApp for EventApp {
@@ -140,7 +143,7 @@ impl ClientApp for EventApp {
                         "decode_ok": false,
                     })
                     .to_string();
-                    let _ = self.tx.send(event);
+                    let _ = self.tx.try_send(event);
                     return AppDecision::AckInvalidPayload;
                 }
 
@@ -166,7 +169,7 @@ impl ClientApp for EventApp {
                     "elapsed_ms": elapsed_ms(self.session_started_at),
                 })
                 .to_string();
-                if self.tx.send(event).is_err() {
+                if self.tx.try_send(event).is_err() {
                     if let Ok(mut pending) = self.pending_acks.lock() {
                         pending.remove(&ack_id);
                     }
@@ -184,7 +187,7 @@ impl ClientApp for EventApp {
                 }
             }
             other => {
-                let _ = self.tx.send(event_to_json(
+                let _ = self.tx.try_send(event_to_json(
                     &other,
                     self.session_started_at,
                     self.session_generation,
@@ -249,9 +252,9 @@ impl ClientApp for EventApp {
 }
 
 struct Session {
-    task: Mutex<tokio::task::JoinHandle<()>>,
+    task: Mutex<Option<tokio::task::JoinHandle<()>>>,
     shutdown_tx: watch::Sender<bool>,
-    events: Mutex<mpsc::UnboundedReceiver<String>>,
+    events: Mutex<std_mpsc::Receiver<String>>,
     hello: Arc<Mutex<HelloCtx>>,
     power_hint: Arc<Mutex<Option<ClientPowerHint>>>,
     pending_acks: Arc<Mutex<HashMap<u64, std_mpsc::SyncSender<AppDecision>>>>,
@@ -276,9 +279,7 @@ fn update_scheduler_policy(
     session: &Session,
     mutate: impl FnOnce(&mut NativeSchedulerPolicy),
 ) -> bool {
-    let mut next = session.scheduler_policy.borrow().clone();
-    mutate(&mut next);
-    let _ = session.scheduler_policy.send_replace(next);
+    session.scheduler_policy.send_modify(mutate);
     true
 }
 
@@ -287,17 +288,82 @@ fn shutdown_session(session: Arc<Session>) {
     if let Ok(mut pending) = session.pending_acks.lock() {
         pending.clear();
     }
-    if let Ok(task) = session.task.lock() {
+    let task = session.task.lock().ok().and_then(|mut slot| slot.take());
+    let Some(mut task) = task else {
+        return;
+    };
+    let Ok(runtime) = runtime() else {
         task.abort();
+        return;
+    };
+
+    let completed = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        runtime.block_on(async {
+            tokio::time::timeout(SESSION_STOP_TIMEOUT, &mut task)
+                .await
+                .is_ok()
+        })
+    }))
+    .unwrap_or(false);
+    if !completed {
+        task.abort();
+        let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| runtime.block_on(task)));
     }
 }
 
-#[unsafe(no_mangle)]
-pub extern "system" fn Java_io_ethan_pushgo_notifications_WarpLinkNativeBridge_nativeSessionStart(
-    mut env: EnvUnowned,
-    _class: JClass,
-    config_json: JString,
-) -> jlong {
+#[derive(Debug, PartialEq, Eq)]
+enum NativePollResult {
+    Event(String),
+    Timeout,
+    Closed,
+    InvalidHandle,
+    InternalError,
+}
+
+impl NativePollResult {
+    fn into_json(self) -> String {
+        match self {
+            Self::Event(event) => serde_json::json!({
+                "status": "event",
+                "event": serde_json::from_str::<serde_json::Value>(&event)
+                    .unwrap_or_else(|_| serde_json::json!({
+                        "type": "internal_error",
+                        "error": "native event was not valid JSON",
+                    })),
+            })
+            .to_string(),
+            Self::Timeout => serde_json::json!({ "status": "timeout" }).to_string(),
+            Self::Closed => serde_json::json!({ "status": "closed" }).to_string(),
+            Self::InvalidHandle => {
+                serde_json::json!({ "status": "error", "code": "invalid_handle" }).to_string()
+            }
+            Self::InternalError => {
+                serde_json::json!({ "status": "error", "code": "internal_error" }).to_string()
+            }
+        }
+    }
+}
+
+fn poll_session_events(events: &std_mpsc::Receiver<String>, timeout: Duration) -> NativePollResult {
+    if timeout.is_zero() {
+        return match events.try_recv() {
+            Ok(event) => NativePollResult::Event(event),
+            Err(std_mpsc::TryRecvError::Empty) => NativePollResult::Timeout,
+            Err(std_mpsc::TryRecvError::Disconnected) => NativePollResult::Closed,
+        };
+    }
+    match events.recv_timeout(timeout) {
+        Ok(event) => NativePollResult::Event(event),
+        Err(std_mpsc::RecvTimeoutError::Timeout) => NativePollResult::Timeout,
+        Err(std_mpsc::RecvTimeoutError::Disconnected) => NativePollResult::Closed,
+    }
+}
+
+fn native_abi_version(_env: EnvUnowned, _class: JClass) -> jint {
+    JNI_ABI_VERSION
+}
+
+fn native_session_start(mut env: EnvUnowned, _class: JClass, config_json: JString) -> jlong {
     let Some(config_raw) = jstring_to_rust(&mut env, &config_json) else {
         return 0;
     };
@@ -366,7 +432,7 @@ pub extern "system" fn Java_io_ethan_pushgo_notifications_WarpLinkNativeBridge_n
         wire_profile: std::sync::Arc::new(PushgoWireProfile::new()),
     };
 
-    let (tx, rx) = mpsc::unbounded_channel();
+    let (tx, rx) = std_mpsc::sync_channel(EVENT_QUEUE_CAPACITY);
     let task_tx = tx.clone();
     let hello = Arc::new(Mutex::new(hello));
     let power_hint = Arc::new(Mutex::new(initial_power_hint));
@@ -433,56 +499,64 @@ pub extern "system" fn Java_io_ethan_pushgo_notifications_WarpLinkNativeBridge_n
             "tcp_port": config.tcp_port,
             "wss_port": config.wss_port,
         });
-        let _ = task_tx.send(profile_event.to_string());
-        let result = client_run_with_shutdown(config, app, shutdown_rx).await;
+        let _ = task_tx.try_send(profile_event.to_string());
+        let result =
+            std::panic::AssertUnwindSafe(client_run_with_shutdown(config, app, shutdown_rx))
+                .catch_unwind()
+                .await;
         let terminal_event = match result {
-            Ok(()) => serde_json::json!({
+            Ok(Ok(())) => serde_json::json!({
                 "type": "session_ended",
                 "session_generation": parsed.session_generation,
                 "reason": "client_run_completed",
                 "error": serde_json::Value::Null,
             }),
-            Err(error) => serde_json::json!({
+            Ok(Err(error)) => serde_json::json!({
                 "type": "session_ended",
                 "session_generation": parsed.session_generation,
                 "reason": "client_run_failed",
                 "error": error.to_string(),
             }),
+            Err(_) => serde_json::json!({
+                "type": "session_ended",
+                "session_generation": parsed.session_generation,
+                "reason": "client_run_panicked",
+                "error": "native worker panicked",
+            }),
         };
-        let _ = task_tx.send(terminal_event.to_string());
+        let _ = task_tx.try_send(terminal_event.to_string());
     });
 
     let handle = NEXT_HANDLE.fetch_add(1, Ordering::Relaxed);
+    let session = Arc::new(Session {
+        task: Mutex::new(Some(task)),
+        shutdown_tx,
+        events: Mutex::new(rx),
+        hello,
+        power_hint,
+        pending_acks,
+        probe_request_epoch,
+        scheduler_policy,
+    });
     let previous_sessions = match SESSIONS.lock() {
-        Ok(mut guard) => guard
-            .drain()
-            .map(|(_, session)| session)
-            .collect::<Vec<_>>(),
-        Err(_) => return 0,
+        Ok(mut guard) => {
+            let previous = guard
+                .drain()
+                .map(|(_, previous)| previous)
+                .collect::<Vec<_>>();
+            guard.insert(handle, Arc::clone(&session));
+            previous
+        }
+        Err(_) => {
+            shutdown_session(session);
+            return 0;
+        }
     };
     previous_sessions.into_iter().for_each(shutdown_session);
-    let mut sessions = match SESSIONS.lock() {
-        Ok(guard) => guard,
-        Err(_) => return 0,
-    };
-    sessions.insert(
-        handle,
-        Arc::new(Session {
-            task: Mutex::new(task),
-            shutdown_tx,
-            events: Mutex::new(rx),
-            hello,
-            power_hint,
-            pending_acks,
-            probe_request_epoch,
-            scheduler_policy,
-        }),
-    );
     handle as jlong
 }
 
-#[unsafe(no_mangle)]
-pub extern "system" fn Java_io_ethan_pushgo_notifications_WarpLinkNativeBridge_nativeSessionPollEvent(
+fn native_session_poll_event_v2(
     mut env: EnvUnowned,
     _class: JClass,
     handle: jlong,
@@ -490,47 +564,22 @@ pub extern "system" fn Java_io_ethan_pushgo_notifications_WarpLinkNativeBridge_n
 ) -> jstring {
     let session = match SESSIONS.lock() {
         Ok(guard) => guard.get(&(handle as u64)).cloned(),
-        Err(_) => return std::ptr::null_mut(),
+        Err(_) => {
+            return rust_to_jstring_raw(&mut env, NativePollResult::InternalError.into_json());
+        }
     };
     let Some(session) = session else {
-        return std::ptr::null_mut();
+        return rust_to_jstring_raw(&mut env, NativePollResult::InvalidHandle.into_json());
     };
 
-    let timeout_ms = timeout_ms.max(0) as u64;
-    let deadline = (timeout_ms > 0).then(|| Instant::now() + Duration::from_millis(timeout_ms));
-    let result = loop {
-        let recv_result = {
-            let mut events = match session.events.lock() {
-                Ok(guard) => guard,
-                Err(_) => return std::ptr::null_mut(),
-            };
-            events.try_recv()
-        };
-        match recv_result {
-            Ok(value) => break Some(value),
-            Err(TryRecvError::Disconnected) => break None,
-            Err(TryRecvError::Empty) => {}
-        }
-        if let Some(limit) = deadline
-            && Instant::now() >= limit
-        {
-            break None;
-        }
-        std::thread::sleep(Duration::from_millis(1));
+    let result = match session.events.lock() {
+        Ok(events) => poll_session_events(&events, Duration::from_millis(timeout_ms.max(0) as u64)),
+        Err(_) => NativePollResult::InternalError,
     };
-
-    let Some(text) = result else {
-        return std::ptr::null_mut();
-    };
-    rust_to_jstring_raw(&mut env, text)
+    rust_to_jstring_raw(&mut env, result.into_json())
 }
 
-#[unsafe(no_mangle)]
-pub extern "system" fn Java_io_ethan_pushgo_notifications_WarpLinkNativeBridge_nativeSessionStop(
-    _env: EnvUnowned,
-    _class: JClass,
-    handle: jlong,
-) {
+fn native_session_stop(_env: EnvUnowned, _class: JClass, handle: jlong) {
     let session = match SESSIONS.lock() {
         Ok(mut guard) => guard.remove(&(handle as u64)),
         Err(_) => return,
@@ -541,8 +590,7 @@ pub extern "system" fn Java_io_ethan_pushgo_notifications_WarpLinkNativeBridge_n
     shutdown_session(session);
 }
 
-#[unsafe(no_mangle)]
-pub extern "system" fn Java_io_ethan_pushgo_notifications_WarpLinkNativeBridge_nativeSessionReplaceAuthToken(
+fn native_session_replace_auth_token(
     mut env: EnvUnowned,
     _class: JClass,
     handle: jlong,
@@ -571,8 +619,7 @@ pub extern "system" fn Java_io_ethan_pushgo_notifications_WarpLinkNativeBridge_n
     1
 }
 
-#[unsafe(no_mangle)]
-pub extern "system" fn Java_io_ethan_pushgo_notifications_WarpLinkNativeBridge_nativeSessionResolveMessage(
+fn native_session_resolve_message(
     _env: EnvUnowned,
     _class: JClass,
     handle: jlong,
@@ -604,12 +651,7 @@ pub extern "system" fn Java_io_ethan_pushgo_notifications_WarpLinkNativeBridge_n
     if sender.send(decision).is_ok() { 1 } else { 0 }
 }
 
-#[unsafe(no_mangle)]
-pub extern "system" fn Java_io_ethan_pushgo_notifications_WarpLinkNativeBridge_nativeSessionRequestProbe(
-    _env: EnvUnowned,
-    _class: JClass,
-    handle: jlong,
-) -> jint {
+fn native_session_request_probe(_env: EnvUnowned, _class: JClass, handle: jlong) -> jint {
     if handle == 0 {
         return 0;
     }
@@ -624,12 +666,7 @@ pub extern "system" fn Java_io_ethan_pushgo_notifications_WarpLinkNativeBridge_n
     1
 }
 
-#[unsafe(no_mangle)]
-pub extern "system" fn Java_io_ethan_pushgo_notifications_WarpLinkNativeBridge_nativeSessionForceReconnect(
-    _env: EnvUnowned,
-    _class: JClass,
-    handle: jlong,
-) -> jint {
+fn native_session_force_reconnect(_env: EnvUnowned, _class: JClass, handle: jlong) -> jint {
     if handle == 0 {
         return 0;
     }
@@ -647,8 +684,7 @@ pub extern "system" fn Java_io_ethan_pushgo_notifications_WarpLinkNativeBridge_n
     1
 }
 
-#[unsafe(no_mangle)]
-pub extern "system" fn Java_io_ethan_pushgo_notifications_WarpLinkNativeBridge_nativeSessionPinTransport(
+fn native_session_pin_transport(
     mut env: EnvUnowned,
     _class: JClass,
     handle: jlong,
@@ -688,12 +724,7 @@ pub extern "system" fn Java_io_ethan_pushgo_notifications_WarpLinkNativeBridge_n
     1
 }
 
-#[unsafe(no_mangle)]
-pub extern "system" fn Java_io_ethan_pushgo_notifications_WarpLinkNativeBridge_nativeSessionClearPin(
-    _env: EnvUnowned,
-    _class: JClass,
-    handle: jlong,
-) -> jint {
+fn native_session_clear_pin(_env: EnvUnowned, _class: JClass, handle: jlong) -> jint {
     if handle == 0 {
         return 0;
     }
@@ -712,8 +743,7 @@ pub extern "system" fn Java_io_ethan_pushgo_notifications_WarpLinkNativeBridge_n
     1
 }
 
-#[unsafe(no_mangle)]
-pub extern "system" fn Java_io_ethan_pushgo_notifications_WarpLinkNativeBridge_nativeSessionSetPowerHint(
+fn native_session_set_power_hint(
     mut env: EnvUnowned,
     _class: JClass,
     handle: jlong,
@@ -762,6 +792,126 @@ pub extern "system" fn Java_io_ethan_pushgo_notifications_WarpLinkNativeBridge_n
     };
     *slot = hint;
     1
+}
+
+fn catch_jni<T>(fallback: T, operation: impl FnOnce() -> T) -> T {
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(operation)).unwrap_or(fallback)
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_io_ethan_pushgo_notifications_WarpLinkNativeBridge_nativeAbiVersion(
+    env: EnvUnowned,
+    class: JClass,
+) -> jint {
+    catch_jni(0, || native_abi_version(env, class))
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_io_ethan_pushgo_notifications_WarpLinkNativeBridge_nativeSessionStart(
+    env: EnvUnowned,
+    class: JClass,
+    config_json: JString,
+) -> jlong {
+    catch_jni(0, || native_session_start(env, class, config_json))
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_io_ethan_pushgo_notifications_WarpLinkNativeBridge_nativeSessionPollEventV2(
+    env: EnvUnowned,
+    class: JClass,
+    handle: jlong,
+    timeout_ms: jint,
+) -> jstring {
+    catch_jni(std::ptr::null_mut(), || {
+        native_session_poll_event_v2(env, class, handle, timeout_ms)
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_io_ethan_pushgo_notifications_WarpLinkNativeBridge_nativeSessionStop(
+    env: EnvUnowned,
+    class: JClass,
+    handle: jlong,
+) {
+    catch_jni((), || native_session_stop(env, class, handle));
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_io_ethan_pushgo_notifications_WarpLinkNativeBridge_nativeSessionReplaceAuthToken(
+    env: EnvUnowned,
+    class: JClass,
+    handle: jlong,
+    auth_token: JString,
+) -> jint {
+    catch_jni(0, || {
+        native_session_replace_auth_token(env, class, handle, auth_token)
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_io_ethan_pushgo_notifications_WarpLinkNativeBridge_nativeSessionResolveMessage(
+    env: EnvUnowned,
+    class: JClass,
+    handle: jlong,
+    ack_id: jlong,
+    status: jint,
+) -> jint {
+    catch_jni(0, || {
+        native_session_resolve_message(env, class, handle, ack_id, status)
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_io_ethan_pushgo_notifications_WarpLinkNativeBridge_nativeSessionRequestProbe(
+    env: EnvUnowned,
+    class: JClass,
+    handle: jlong,
+) -> jint {
+    catch_jni(0, || native_session_request_probe(env, class, handle))
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_io_ethan_pushgo_notifications_WarpLinkNativeBridge_nativeSessionForceReconnect(
+    env: EnvUnowned,
+    class: JClass,
+    handle: jlong,
+) -> jint {
+    catch_jni(0, || native_session_force_reconnect(env, class, handle))
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_io_ethan_pushgo_notifications_WarpLinkNativeBridge_nativeSessionPinTransport(
+    env: EnvUnowned,
+    class: JClass,
+    handle: jlong,
+    transport: JString,
+    ttl_ms: jlong,
+) -> jint {
+    catch_jni(0, || {
+        native_session_pin_transport(env, class, handle, transport, ttl_ms)
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_io_ethan_pushgo_notifications_WarpLinkNativeBridge_nativeSessionClearPin(
+    env: EnvUnowned,
+    class: JClass,
+    handle: jlong,
+) -> jint {
+    catch_jni(0, || native_session_clear_pin(env, class, handle))
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_io_ethan_pushgo_notifications_WarpLinkNativeBridge_nativeSessionSetPowerHint(
+    env: EnvUnowned,
+    class: JClass,
+    handle: jlong,
+    app_state: JString,
+    power_tier: JString,
+) -> jint {
+    catch_jni(0, || {
+        native_session_set_power_hint(env, class, handle, app_state, power_tier)
+    })
 }
 
 fn jstring_to_rust(env: &mut EnvUnowned<'_>, value: &JString<'_>) -> Option<String> {
@@ -1044,5 +1194,88 @@ fn parse_power_tier(value: Option<&str>) -> Option<ClientPowerTier> {
         "balanced" => Some(ClientPowerTier::Balanced),
         "low" => Some(ClientPowerTier::Low),
         _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::atomic::AtomicBool;
+
+    #[test]
+    fn poll_session_events_distinguishes_timeout_event_and_close() {
+        let (tx, rx) = std_mpsc::sync_channel(1);
+        assert_eq!(
+            poll_session_events(&rx, Duration::ZERO),
+            NativePollResult::Timeout
+        );
+        tx.send("{\"type\":\"welcome\"}".to_string())
+            .expect("test receiver is alive");
+        assert_eq!(
+            poll_session_events(&rx, Duration::ZERO),
+            NativePollResult::Event("{\"type\":\"welcome\"}".to_string())
+        );
+        drop(tx);
+        assert_eq!(
+            poll_session_events(&rx, Duration::ZERO),
+            NativePollResult::Closed
+        );
+    }
+
+    #[test]
+    fn scheduler_policy_updates_do_not_lose_concurrent_epochs() {
+        let (sender, _receiver) = watch::channel(NativeSchedulerPolicy::default());
+        let sender = Arc::new(sender);
+        let workers = (0..8)
+            .map(|_| {
+                let sender = Arc::clone(&sender);
+                std::thread::spawn(move || {
+                    for _ in 0..1_000 {
+                        sender.send_modify(|policy| {
+                            policy.reconnect_epoch = policy.reconnect_epoch.saturating_add(1);
+                            policy.control_epoch = policy.control_epoch.saturating_add(1);
+                        });
+                    }
+                })
+            })
+            .collect::<Vec<_>>();
+        for worker in workers {
+            worker.join().expect("policy worker must not panic");
+        }
+        assert_eq!(sender.borrow().reconnect_epoch, 8_000);
+        assert_eq!(sender.borrow().control_epoch, 8_000);
+    }
+
+    #[test]
+    fn shutdown_session_waits_until_worker_observes_cancellation() {
+        let runtime = runtime().expect("test runtime must initialize");
+        let (shutdown_tx, mut shutdown_rx) = watch::channel(false);
+        let completed = Arc::new(AtomicBool::new(false));
+        let worker_completed = Arc::clone(&completed);
+        let task = runtime.spawn(async move {
+            while !*shutdown_rx.borrow() {
+                if shutdown_rx.changed().await.is_err() {
+                    break;
+                }
+            }
+            worker_completed.store(true, Ordering::Release);
+        });
+        let (_event_tx, events) = std_mpsc::sync_channel(1);
+        let (scheduler_policy, _scheduler_policy_rx) =
+            watch::channel(NativeSchedulerPolicy::default());
+        let session = Arc::new(Session {
+            task: Mutex::new(Some(task)),
+            shutdown_tx,
+            events: Mutex::new(events),
+            hello: Arc::new(Mutex::new(HelloCtx::default())),
+            power_hint: Arc::new(Mutex::new(None)),
+            pending_acks: Arc::new(Mutex::new(HashMap::new())),
+            probe_request_epoch: Arc::new(AtomicU64::new(0)),
+            scheduler_policy: Arc::new(scheduler_policy),
+        });
+
+        shutdown_session(session);
+
+        assert!(completed.load(Ordering::Acquire));
     }
 }

@@ -16,12 +16,11 @@ jobs:
   release:
     runs-on: ubuntu-latest
     env:
-      ANDROID_API_LEVEL: "31"
       CARGO_TERM_COLOR: always
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           fetch-depth: 0
 
@@ -124,26 +123,31 @@ jobs:
           echo "PUSHGO_UPDATE_NOTES_FILE=$update_notes_file" >> "$GITHUB_ENV"
 
       - name: Set up Java
-        uses: actions/setup-java@v5
+        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
         with:
           distribution: temurin
           java-version: "21"
 
       - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@v6
+        uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb # v6
 
       - name: Set up Android SDK
-        uses: android-actions/setup-android@v4
+        uses: android-actions/setup-android@40fd30fb8d7440372e1316f5d1809ec01dcd3699 # v4
 
       - name: Install Android SDK components
         shell: bash
         run: |
           set -euo pipefail
+          min_sdk="$(sed -n 's/^pushgo.androidMinSdk=//p' gradle.properties)"
+          ndk_version="$(sed -n 's/^pushgo.androidNdkVersion=//p' gradle.properties)"
           sdkmanager --install \
             "platform-tools" \
             "build-tools;36.0.0" \
-            "platforms;android-36" \
-            "ndk;29.0.13846066"
+            "platforms;android-37" \
+            "ndk;${ndk_version}" \
+            "emulator" \
+            "system-images;android-${min_sdk};google_apis;x86_64"
+          echo "ANDROID_NDK_HOME=${ANDROID_SDK_ROOT}/ndk/${ndk_version}" >> "$GITHUB_ENV"
 
       - name: Export Android build tools
         shell: bash
@@ -157,21 +161,118 @@ jobs:
           echo "${build_tools_dir}" >> "$GITHUB_PATH"
 
       - name: Set up Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: aarch64-linux-android,armv7-linux-androideabi,x86_64-linux-android
+        shell: bash
+        run: |
+          set -euo pipefail
+          rustup show active-toolchain
+          test "$(rustc --version | awk '{print $2}')" = "1.97.1"
+          rustup target add aarch64-linux-android armv7-linux-androideabi x86_64-linux-android
 
       - name: Restore Rust cache
-        uses: Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
         with:
           workspaces: |
             native/quinn-jni -> native/quinn-jni/target
 
-      - name: Install cargo-ndk
+      - name: Install pinned Rust release tools
         shell: bash
-        run: cargo install cargo-ndk --locked
+        run: |
+          set -euo pipefail
+          cargo_ndk_version="$(sed -n 's/^pushgo.cargoNdkVersion=//p' gradle.properties)"
+          cargo install cargo-ndk --version "$cargo_ndk_version" --locked
+          test "$(cargo ndk --version | awk '{print $NF}')" = "$cargo_ndk_version"
+          cargo install cargo-deny --version 0.20.2 --locked
+          test "$(cargo deny --version | awk '{print $2}')" = "0.20.2"
+          cargo install cargo-audit --version 0.22.2 --locked
+          test "$(cargo audit --version | awk '{print $2}')" = "0.22.2"
 
-      - name: Prepare release signing
+      - name: Read release version
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+          while IFS='=' read -r key value; do
+            echo "$key=$value" >> "$GITHUB_OUTPUT"
+          done < <(./gradlew -q :app:printReleaseVersionInfo -Ppushgo.versionName=${{ steps.tag.outputs.tag_name }})
+
+      - name: Validate checked-in Android release contract
+        shell: bash
+        run: scripts/verify_android_release_contract.sh "${GITHUB_REF_NAME}"
+
+      - name: Validate version contract and run tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "${{ steps.version.outputs.versionName }}" = "${GITHUB_REF_NAME}"
+          scripts/verify_jni_contract.sh
+          cargo fmt --manifest-path native/quinn-jni/Cargo.toml -- --check
+          cargo clippy --manifest-path native/quinn-jni/Cargo.toml --all-targets --locked -- -D warnings
+          cargo test --manifest-path native/quinn-jni/Cargo.toml --locked
+          cargo audit --file native/quinn-jni/Cargo.lock --deny warnings
+          cargo deny --manifest-path native/quinn-jni/Cargo.toml \
+            --config native/quinn-jni/deny.toml --frozen check -D warnings
+          ./gradlew --no-daemon :app:testDebugUnitTest :app:lintDebug -Ppushgo.versionName=${GITHUB_REF_NAME}
+
+      - name: Run real JNI instrumentation with CheckJNI at minSdk
+        shell: bash
+        run: |
+          set -euo pipefail
+          min_sdk="$(sed -n 's/^pushgo.androidMinSdk=//p' gradle.properties)"
+          avd_name="pushgo-api${min_sdk}-jni"
+          sdk_root="${ANDROID_SDK_ROOT}"
+          echo "no" | avdmanager create avd --force \
+            --name "$avd_name" \
+            --package "system-images;android-${min_sdk};google_apis;x86_64" \
+            --device "pixel_2"
+          if [[ -e /dev/kvm ]]; then
+            sudo chmod 666 /dev/kvm
+          fi
+          "${sdk_root}/emulator/emulator" \
+            -avd "$avd_name" \
+            -no-window \
+            -noaudio \
+            -no-boot-anim \
+            -no-snapshot \
+            -gpu swiftshader_indirect \
+            > "$RUNNER_TEMP/pushgo-api${min_sdk}-emulator.log" 2>&1 &
+          emulator_pid=$!
+          cleanup() {
+            adb emu kill >/dev/null 2>&1 || true
+            kill "$emulator_pid" >/dev/null 2>&1 || true
+          }
+          trap cleanup EXIT
+          adb wait-for-device
+          for _ in $(seq 1 180); do
+            if [[ "$(adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" == "1" ]]; then
+              break
+            fi
+            sleep 2
+          done
+          test "$(adb shell getprop sys.boot_completed | tr -d '\r')" = "1"
+          adb root
+          adb wait-for-device
+          adb shell setprop debug.checkjni 1
+          adb shell stop
+          adb shell start
+          adb wait-for-device
+          for _ in $(seq 1 90); do
+            if [[ "$(adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" == "1" ]]; then
+              break
+            fi
+            sleep 2
+          done
+          test "$(adb shell getprop sys.boot_completed | tr -d '\r')" = "1"
+          test "$(adb shell getprop debug.checkjni | tr -d '\r')" = "1"
+          adb logcat -c
+          ./gradlew --no-daemon :app:connectedDebugAndroidTest \
+            -Pandroid.testInstrumentationRunnerArguments.class=io.ethan.pushgo.notifications.WarpLinkNativeBridgeInstrumentedTest
+          adb logcat -d > "$RUNNER_TEMP/pushgo-api${min_sdk}-checkjni.log"
+          if rg -n "JNI DETECTED ERROR IN APPLICATION|CheckJNI.*(error|fatal)" "$RUNNER_TEMP/pushgo-api${min_sdk}-checkjni.log"; then
+            echo "CheckJNI reported a JNI contract violation" >&2
+            exit 1
+          fi
+
+      - name: Prepare release signing after untrusted tests
         shell: bash
         run: |
           set -euo pipefail
@@ -204,26 +305,6 @@ jobs:
           PUSHGO_RELEASE_KEY_ALIAS: ${{ secrets.PUSHGO_RELEASE_KEY_ALIAS }}
           PUSHGO_RELEASE_KEY_PASSWORD: ${{ secrets.PUSHGO_RELEASE_KEY_PASSWORD }}
           PUSHGO_PRIVATE_CERT_PIN_SHA256: ${{ secrets.PUSHGO_PRIVATE_CERT_PIN_SHA256 }}
-
-      - name: Read release version
-        id: version
-        shell: bash
-        run: |
-          set -euo pipefail
-          while IFS='=' read -r key value; do
-            echo "$key=$value" >> "$GITHUB_OUTPUT"
-          done < <(./gradlew -q :app:printReleaseVersionInfo -Ppushgo.versionName=${{ steps.tag.outputs.tag_name }})
-
-      - name: Validate checked-in Android release contract
-        shell: bash
-        run: scripts/verify_android_release_contract.sh "${GITHUB_REF_NAME}"
-
-      - name: Validate version contract and run tests
-        shell: bash
-        run: |
-          set -euo pipefail
-          test "${{ steps.version.outputs.versionName }}" = "${GITHUB_REF_NAME}"
-          ./gradlew --no-daemon :app:testDebugUnitTest :app:lintDebug -Ppushgo.versionName=${GITHUB_REF_NAME}
 
       - name: Build release APKs
         shell: bash

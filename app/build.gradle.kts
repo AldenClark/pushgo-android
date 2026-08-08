@@ -72,7 +72,11 @@ val enableAbiSplits = when (val value = providers.gradleProperty("pushgo.enableA
     else -> error("Invalid pushgo.enableAbiSplits value: $value")
 }
 val rustBuildScript: File = rootProject.file("native/quinn-jni/build-android.sh")
+val verifyJniContractScript: File = rootProject.file("scripts/verify_jni_contract.sh")
 val generatedRustJniDir: File = layout.buildDirectory.dir("generated/rustJniLibs/main").get().asFile
+val androidMinSdk = providers.gradleProperty("pushgo.androidMinSdk").get().toInt()
+val androidNdkVersion = providers.gradleProperty("pushgo.androidNdkVersion").get()
+val cargoNdkVersion = providers.gradleProperty("pushgo.cargoNdkVersion").get()
 val privateCertPinSha256 = project.resolveSigningProperty("PUSHGO_PRIVATE_CERT_PIN_SHA256")
     ?.trim()
     ?.replace("\"", "")
@@ -92,6 +96,9 @@ val buildRustJniLibs = tasks.register<Exec>("buildRustJniLibs") {
     workingDir = rustBuildScript.parentFile
     commandLine("bash", rustBuildScript.absolutePath)
     environment("PUSHGO_ANDROID_JNI_OUT_DIR", generatedRustJniDir.absolutePath)
+    environment("PUSHGO_ANDROID_MIN_SDK", androidMinSdk.toString())
+    environment("PUSHGO_ANDROID_NDK_VERSION", androidNdkVersion)
+    environment("PUSHGO_CARGO_NDK_VERSION", cargoNdkVersion)
     inputs.file(rustBuildScript)
     listOf(
         rootProject.file("native/quinn-jni/Cargo.toml"),
@@ -104,9 +111,21 @@ val buildRustJniLibs = tasks.register<Exec>("buildRustJniLibs") {
     outputs.dir(generatedRustJniDir)
 }
 
+val verifyRustJniContract = tasks.register<Exec>("verifyRustJniContract") {
+    group = "verification"
+    description = "Verify the versioned Rust/Kotlin JNI ABI contract."
+    workingDir = rootProject.projectDir
+    commandLine("bash", verifyJniContractScript.absolutePath)
+    inputs.file(verifyJniContractScript)
+    inputs.file(rootProject.file("native/quinn-jni/jni-contract.txt"))
+    inputs.file(rootProject.file("native/quinn-jni/src/lib.rs"))
+    inputs.file(rootProject.file("app/src/main/java/io/ethan/pushgo/notifications/WarpLinkNativeBridge.kt"))
+}
+
 android {
     namespace = "io.ethan.pushgo"
     compileSdk = 37
+    ndkVersion = androidNdkVersion
 
     val releaseSigningConfig = if (
         !releaseStoreFile.isNullOrBlank()
@@ -126,7 +145,7 @@ android {
 
     defaultConfig {
         applicationId = "io.ethan.pushgo"
-        minSdk = 28
+        minSdk = androidMinSdk
         versionCode = appVersionCode
         versionName = appVersionName
         testInstrumentationRunner = "io.ethan.pushgo.test.PushGoAndroidJUnitRunner"
@@ -194,6 +213,10 @@ kotlin {
 
 tasks.named("preBuild").configure {
     dependsOn(buildRustJniLibs)
+}
+
+tasks.named("check").configure {
+    dependsOn(verifyRustJniContract)
 }
 
 tasks.register("printReleaseVersionInfo") {
@@ -273,13 +296,13 @@ dependencies {
     implementation("io.noties.markwon:html:4.6.2")
     implementation("io.noties.markwon:linkify:4.6.2")
     implementation("io.noties.markwon:image:4.6.2")
-    implementation(platform("com.google.firebase:firebase-bom:34.15.0"))
+    implementation(platform("com.google.firebase:firebase-bom:34.17.0"))
     implementation("com.google.firebase:firebase-messaging")
     implementation("com.google.android.gms:play-services-base:18.10.0")
 
     debugImplementation("androidx.compose.ui:ui-tooling")
     testImplementation("junit:junit:4.13.2")
-    testImplementation("org.json:json:20260522")
+    testImplementation("org.json:json:20260719")
     androidTestImplementation(platform("androidx.compose:compose-bom:2026.06.01"))
     androidTestImplementation("androidx.test.ext:junit:1.3.0")
     androidTestImplementation("androidx.test:runner:1.7.0")

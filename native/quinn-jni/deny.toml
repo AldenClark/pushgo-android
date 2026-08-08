@@ -1,0 +1,48 @@
+[graph]
+all-features = true
+targets = [
+    "aarch64-linux-android",
+    "armv7-linux-androideabi",
+    "x86_64-linux-android",
+]
+
+[advisories]
+yanked = "deny"
+
+[licenses]
+confidence-threshold = 0.8
+allow = [
+    "Apache-2.0",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "CC0-1.0",
+    "CDLA-Permissive-2.0",
+    "ISC",
+    "MIT",
+    "Unicode-3.0",
+    "Zlib",
+]
+
+[bans]
+multiple-versions = "deny"
+wildcards = "deny"
+highlight = "all"
+skip = [
+    # These older major lines are introduced only by the pinned warp-link graph.
+    # Keep each exception explicit so a new duplicate fails the release gate.
+    { name = "block-buffer", version = "=0.10.4", reason = "tungstenite sha1 remains on digest 0.10 while warp transport uses sha2/digest 0.11" },
+    { name = "cpufeatures", version = "=0.2.17", reason = "sha1/sha2 have not migrated to cpufeatures 0.3" },
+    { name = "crypto-common", version = "=0.1.7", reason = "tungstenite sha1 remains on digest 0.10 while warp transport uses sha2/digest 0.11" },
+    { name = "digest", version = "=0.10.7", reason = "tungstenite sha1 remains on digest 0.10 while warp transport uses sha2/digest 0.11" },
+    { name = "getrandom", version = "=0.3.4", reason = "rand 0.9 and rand 0.10 use incompatible getrandom generations" },
+    { name = "rand", version = "=0.9.5", reason = "tokio-tungstenite still uses rand 0.9 while quinn uses rand 0.10" },
+    { name = "rand_core", version = "=0.9.5", reason = "required transitively by the allowed rand 0.9 generation" },
+    { name = "syn", version = "=2.0.119", reason = "jni and futures macros still use syn 2 while warp-link macros use syn 3" },
+    { name = "webpki-roots", version = "=0.26.11", reason = "tokio-tungstenite still exposes the compatibility webpki-roots line" },
+]
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+allow-git = ["https://github.com/AldenClark/warp-link"]

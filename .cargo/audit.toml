@@ -1,0 +1,5 @@
+[advisories]
+# atomic-polyfill is retained only in Cargo.lock through postcard's optional
+# heapless support. It is absent from every shipped Android target graph
+# (aarch64, armv7, and x86_64); all other advisories remain release-blocking.
+ignore = ["RUSTSEC-2023-0089"]
