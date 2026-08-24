@@ -2,41 +2,6 @@
   "payload": {
     "entries": [
       {
-        "apkSha256": "ae424a70c19d73521a8ab06b7c0a3042d7087a44adba96292b8d92e170f56922",
-        "apkUrl": "https://update.pushgo.cn/android/stable/v1.2.6/pushgo-android-v1.2.6-universal-release.apk",
-        "channel": "stable",
-        "critical": false,
-        "minSdk": 28,
-        "notes": "PushGo 1.2.6 improves Android compatibility and keeps message and entity views more consistent.\\n- Android support now starts at Android 9, with multiple API 28 compatibility fixes\\n- Event and object detail views now stay in sync more reliably after entity patch and notification-driven updates\\n- Mark all read now applies only to the messages currently visible in your active list or filter\\n- Message lists refresh more reliably while local delete and recovery actions are pending",
-        "notesI18n": {
-          "en": "PushGo 1.2.6 improves Android compatibility and keeps message and entity views more consistent.\\n- Android support now starts at Android 9, with multiple API 28 compatibility fixes\\n- Event and object detail views now stay in sync more reliably after entity patch and notification-driven updates\\n- Mark all read now applies only to the messages currently visible in your active list or filter\\n- Message lists refresh more reliably while local delete and recovery actions are pending",
-          "zh-CN": "PushGo 1.2.6 提升了 Android 兼容性，并让消息与实体视图保持更一致。\\n- Android 支持范围现已下探到 Android 9，并修复了多处 API 28 兼容性问题\\n- 事件与对象详情页在实体 patch 更新和通知驱动刷新后，状态同步更加可靠\\n- 全部标记已读现在只会作用于当前列表或筛选条件下可见的消息\\n- 本地删除与恢复处于待处理状态时，消息列表刷新更加及时可靠",
-          "zh-TW": "PushGo 1.2.6 提升了 Android 相容性，並讓訊息與實體視圖保持更一致。\\n- Android 支援範圍現已下探到 Android 9，並修復多處 API 28 相容性問題\\n- 事件與物件詳情頁在實體 patch 更新與通知驅動刷新後，狀態同步更加可靠\\n- 全部標示已讀現在只會作用於目前列表或篩選條件下可見的訊息\\n- 本地刪除與復原處於待處理狀態時，訊息列表刷新更加即時可靠"
-        },
-        "packages": {
-          "arm64-v8a": {
-            "apkSha256": "0da2916f7b63839475acf43ba0dfeb5a2b5bb72a996f6000bd52e1750979e692",
-            "apkUrl": "https://update.pushgo.cn/android/stable/v1.2.6/pushgo-android-v1.2.6-arm64-v8a-release.apk"
-          },
-          "armeabi-v7a": {
-            "apkSha256": "786f1072ac7412da6491bd7555da911c4d38ec26c3704ba6645c12bb639dae91",
-            "apkUrl": "https://update.pushgo.cn/android/stable/v1.2.6/pushgo-android-v1.2.6-armeabi-v7a-release.apk"
-          },
-          "universal": {
-            "apkSha256": "ae424a70c19d73521a8ab06b7c0a3042d7087a44adba96292b8d92e170f56922",
-            "apkUrl": "https://update.pushgo.cn/android/stable/v1.2.6/pushgo-android-v1.2.6-universal-release.apk"
-          },
-          "x86_64": {
-            "apkSha256": "012a53792cfebd366beb7819e60e0d9786a6c32199474ef97876b87469336196",
-            "apkUrl": "https://update.pushgo.cn/android/stable/v1.2.6/pushgo-android-v1.2.6-x86_64-release.apk"
-          }
-        },
-        "publishedAtEpochMs": 1781010388000,
-        "releaseNotesUrl": "https://github.com/AldenClark/pushgo-android/releases/tag/v1.2.6",
-        "versionCode": 1020699,
-        "versionName": "v1.2.6"
-      },
-      {
         "apkSha256": "71511ba54703a157ee194eabc9586f162ac7ae750d01123756f9dd24735a3dc8",
         "apkUrl": "https://update.pushgo.cn/android/beta/v1.3.0-beta.1/pushgo-android-v1.3.0-beta.1-universal-release.apk",
         "channel": "beta",
@@ -70,9 +35,44 @@
         "releaseNotesUrl": "https://github.com/AldenClark/pushgo-android/releases/tag/v1.3.0-beta.1",
         "versionCode": 1030001,
         "versionName": "v1.3.0-beta.1"
+      },
+      {
+        "apkSha256": "6687599419cd88efac84d4e03efa5a77708807e23ad5ba4079b67bb8a35e485c",
+        "apkUrl": "https://update.pushgo.cn/android/stable/v1.3.0/pushgo-android-v1.3.0-universal-release.apk",
+        "channel": "stable",
+        "critical": false,
+        "minSdk": 28,
+        "notes": "PushGo 1.3.0 improves notification reliability, recovery, and large-history search performance.\n- Keeps notifications recoverable through durable acknowledgement on the current protocol and immediate local staging on the legacy path\n- Adds safe batch acknowledgement, duplicate replay, deletion recovery, and faster search\n- Improves Android system integration, accessibility, and rendering\n- Supports both legacy and current Gateway Pull contracts; Gateway 1.3.0 or newer is recommended for the strongest recovery guarantees",
+        "notesI18n": {
+          "en": "PushGo 1.3.0 improves notification reliability, recovery, and large-history search performance.\n- Keeps notifications recoverable through durable acknowledgement on the current protocol and immediate local staging on the legacy path\n- Adds safe batch acknowledgement, duplicate replay, deletion recovery, and faster search\n- Improves Android system integration, accessibility, and rendering\n- Supports both legacy and current Gateway Pull contracts; Gateway 1.3.0 or newer is recommended for the strongest recovery guarantees",
+          "zh-CN": "PushGo 1.3.0 提升了通知可靠性、异常恢复能力与大量历史消息的搜索性能。\n- 新协议通过持久化确认保障通知可恢复，旧协议返回后立即在本地暂存\n- 新增安全的批量确认、重复投递修复、删除恢复与更快的搜索\n- 改进 Android 系统集成、无障碍与渲染体验\n- 同时兼容新旧 Gateway 拉取协议；建议使用 Gateway 1.3.0 或更高版本以获得更强的异常恢复保障",
+          "zh-TW": "PushGo 1.3.0 提升了通知可靠性、異常復原能力與大量歷史訊息的搜尋效能。\n- 新協定透過持久化確認保障通知可復原，舊協定回傳後立即在本機暫存\n- 新增安全的批次確認、重複投遞修復、刪除復原與更快的搜尋\n- 改進 Android 系統整合、輔助使用與顯示體驗\n- 同時相容新舊 Gateway 拉取協定；建議使用 Gateway 1.3.0 或更新版本以取得更強的異常復原保障"
+        },
+        "packages": {
+          "arm64-v8a": {
+            "apkSha256": "8ec8fd0892deae2dc63045810acb2adcf0ea4ee10ce00d01455fa9dba97540c9",
+            "apkUrl": "https://update.pushgo.cn/android/stable/v1.3.0/pushgo-android-v1.3.0-arm64-v8a-release.apk"
+          },
+          "armeabi-v7a": {
+            "apkSha256": "ff67623c418e7ff49f228292261d4dfc28e451c3d159e29851b88cdc13c09950",
+            "apkUrl": "https://update.pushgo.cn/android/stable/v1.3.0/pushgo-android-v1.3.0-armeabi-v7a-release.apk"
+          },
+          "universal": {
+            "apkSha256": "6687599419cd88efac84d4e03efa5a77708807e23ad5ba4079b67bb8a35e485c",
+            "apkUrl": "https://update.pushgo.cn/android/stable/v1.3.0/pushgo-android-v1.3.0-universal-release.apk"
+          },
+          "x86_64": {
+            "apkSha256": "81aa19572ef4ec378a26c4b8834afb367fda608b9150a6d1cb1d8b3ee8ea9384",
+            "apkUrl": "https://update.pushgo.cn/android/stable/v1.3.0/pushgo-android-v1.3.0-x86_64-release.apk"
+          }
+        },
+        "publishedAtEpochMs": 1787571680000,
+        "releaseNotesUrl": "https://github.com/AldenClark/pushgo-android/releases/tag/v1.3.0",
+        "versionCode": 1030099,
+        "versionName": "v1.3.0"
       }
     ],
-    "generatedAtEpochMs": 1783431913000,
+    "generatedAtEpochMs": 1787571680000,
     "policy": {
       "impatientReminderIntervalSeconds": 604800,
       "scheduledCheckIntervalSeconds": 21600
@@ -80,6 +80,6 @@
     "schemaVersion": 1
   },
   "signatures": {
-    "ecdsa-p256-sha256": "MEYCIQD75DE+v4dGIF+xMN/SWu3m33tiC0o93dsHefeqBf/UmwIhAPL+6GKt4z1YChUo5C3eNI5iWqk23m65PaUlUezABZU6"
+    "ecdsa-p256-sha256": "MEUCIHi8GgFqHumEd03ph5bvVifQnFkFTB9t5h71u2em5EyKAiEA60Tp388T50cwnfMKPTwGMiYuKsU13wBEkm0VTDyXdYE="
   }
 }
