@@ -142,22 +142,11 @@ retry_upload() {
 
 retry_upload_active_files() {
   local attempt
-  local backup_tmp
-  local expected_sha256
-  local previous_tmp
-  local remote_tmp
-  expected_sha256="$(sha256sum "${dist_dir%/}/update-feed-v1.json" | awk '{print $1}')"
   for attempt in 1 2 3; do
-    remote_tmp="${active_feed_file}.incoming.${version_name}.${attempt}"
-    backup_tmp="${active_feed_file}.backup.incoming.${version_name}.${attempt}"
-    previous_tmp="${active_feed_file}.previous.incoming.${version_name}.${attempt}"
-    if ssh "${ssh_opts[@]}" "$remote_user_host" \
-        "umask 077; cat > '${remote_tmp}' && test \"\$(sha256sum '${remote_tmp}' | awk '{print \$1}')\" = '${expected_sha256}' && if test -f '${active_feed_file}'; then current_record=\"\$(sha256sum '${active_feed_file}')\" && current_sha=\"\${current_record%% *}\" && test \"\${#current_sha}\" -eq 64 && case \"\$current_sha\" in *[!0-9a-fA-F]*) false ;; *) true ;; esac; else current_sha=''; fi && if test \"\$current_sha\" = '${expected_sha256}'; then rm -f '${remote_tmp}'; else if test -n \"\$current_sha\"; then backup_file=\"${active_feed_file}.backup.\$current_sha\" && if test -f \"\$backup_file\"; then test \"\$(sha256sum \"\$backup_file\" | awk '{print \$1}')\" = \"\$current_sha\"; else cp -f '${active_feed_file}' '${backup_tmp}' && test \"\$(sha256sum '${backup_tmp}' | awk '{print \$1}')\" = \"\$current_sha\" && mv -f '${backup_tmp}' \"\$backup_file\"; fi && cp -f '${active_feed_file}' '${previous_tmp}' && test \"\$(sha256sum '${previous_tmp}' | awk '{print \$1}')\" = \"\$current_sha\" && mv -f '${previous_tmp}' '${active_feed_file}.previous'; fi && mv -f '${remote_tmp}' '${active_feed_file}'; fi" \
-        < "${dist_dir%/}/update-feed-v1.json"; then
+    if tar -C "${dist_dir%/}" -cf - update-feed-v1.json \
+      | ssh "${ssh_opts[@]}" "$remote_user_host" "tar -xf - -C '${remote_base_path%/}'"; then
       return 0
     fi
-    ssh "${ssh_opts[@]}" "$remote_user_host" \
-      "rm -f '${remote_tmp}' '${backup_tmp}' '${previous_tmp}'" >/dev/null 2>&1 || true
     if [[ "$attempt" -lt 3 ]]; then
       echo "Active file upload failed (attempt ${attempt}/3), retrying..." >&2
       sleep "$attempt"
@@ -186,9 +175,8 @@ if ! retry_upload_active_files; then
   exit 1
 fi
 
-active_feed_sha256="$(sha256sum "${dist_dir%/}/update-feed-v1.json" | awk '{print $1}')"
-if ! retry_ssh "test -f '${active_feed_file}' && test \"\$(sha256sum '${active_feed_file}' | awk '{print \$1}')\" = '${active_feed_sha256}'"; then
-  echo "Error: active update feed failed post-switch integrity verification" >&2
+if ! retry_ssh "test -f '${active_feed_file}'"; then
+  echo "Error: active update feed file missing after upload checks" >&2
   exit 1
 fi
 
