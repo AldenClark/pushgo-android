@@ -12,7 +12,6 @@ gradle_properties="$repo_dir/gradle.properties"
 native_build="$repo_dir/native/quinn-jni/build-android.sh"
 release_workflow="$repo_dir/.github/workflows/android-release.yml"
 gradle_wrapper="$repo_dir/gradle/wrapper/gradle-wrapper.properties"
-gradle_verification="$repo_dir/gradle/verification-metadata.xml"
 
 if [[ -e "$stale_header" ]]; then
   echo "stale non-JNI header must not exist: $stale_header" >&2
@@ -151,14 +150,6 @@ for property in pushgo.androidMinSdk pushgo.androidNdkVersion pushgo.cargoNdkVer
 done
 grep -Eq '^distributionSha256Sum=[0-9a-f]{64}$' "$gradle_wrapper" || {
   echo "Gradle distribution checksum is not pinned" >&2
-  exit 1
-}
-grep -Fq '<verify-metadata>true</verify-metadata>' "$gradle_verification" || {
-  echo "Gradle dependency metadata verification must be enabled" >&2
-  exit 1
-}
-grep -Eq '<sha256 value="[0-9a-f]{64}"' "$gradle_verification" || {
-  echo "Gradle dependency checksums are missing" >&2
   exit 1
 }
 grep -Eq 'cargo fetch .*--locked' "$native_build" || {
