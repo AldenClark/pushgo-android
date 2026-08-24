@@ -37,7 +37,7 @@
         "versionName": "v1.3.0-beta.1"
       },
       {
-        "apkSha256": "6687599419cd88efac84d4e03efa5a77708807e23ad5ba4079b67bb8a35e485c",
+        "apkSha256": "6e36560b394013fb736834d5820967713a9e840665950b54ea8fb9bbee7e32d1",
         "apkUrl": "https://update.pushgo.cn/android/stable/v1.3.0/pushgo-android-v1.3.0-universal-release.apk",
         "channel": "stable",
         "critical": false,
@@ -50,29 +50,29 @@
         },
         "packages": {
           "arm64-v8a": {
-            "apkSha256": "8ec8fd0892deae2dc63045810acb2adcf0ea4ee10ce00d01455fa9dba97540c9",
+            "apkSha256": "b2de520b1f0a4580b1989632f6c32cafb984bd5e1dafb606bad7a2d3e991a7db",
             "apkUrl": "https://update.pushgo.cn/android/stable/v1.3.0/pushgo-android-v1.3.0-arm64-v8a-release.apk"
           },
           "armeabi-v7a": {
-            "apkSha256": "ff67623c418e7ff49f228292261d4dfc28e451c3d159e29851b88cdc13c09950",
+            "apkSha256": "c83ff095a2448e2b46af2135fd008b43bc1688d0da0e1eccaa2dc190d5746e8a",
             "apkUrl": "https://update.pushgo.cn/android/stable/v1.3.0/pushgo-android-v1.3.0-armeabi-v7a-release.apk"
           },
           "universal": {
-            "apkSha256": "6687599419cd88efac84d4e03efa5a77708807e23ad5ba4079b67bb8a35e485c",
+            "apkSha256": "6e36560b394013fb736834d5820967713a9e840665950b54ea8fb9bbee7e32d1",
             "apkUrl": "https://update.pushgo.cn/android/stable/v1.3.0/pushgo-android-v1.3.0-universal-release.apk"
           },
           "x86_64": {
-            "apkSha256": "81aa19572ef4ec378a26c4b8834afb367fda608b9150a6d1cb1d8b3ee8ea9384",
+            "apkSha256": "6ee2075829a2b0dfed7e62ea199d052a6769537795d1e9d1e9d98cde62f9bbb9",
             "apkUrl": "https://update.pushgo.cn/android/stable/v1.3.0/pushgo-android-v1.3.0-x86_64-release.apk"
           }
         },
-        "publishedAtEpochMs": 1787571680000,
+        "publishedAtEpochMs": 1787572558000,
         "releaseNotesUrl": "https://github.com/AldenClark/pushgo-android/releases/tag/v1.3.0",
         "versionCode": 1030099,
         "versionName": "v1.3.0"
       }
     ],
-    "generatedAtEpochMs": 1787571680000,
+    "generatedAtEpochMs": 1787572558000,
     "policy": {
       "impatientReminderIntervalSeconds": 604800,
       "scheduledCheckIntervalSeconds": 21600
@@ -80,6 +80,6 @@
     "schemaVersion": 1
   },
   "signatures": {
-    "ecdsa-p256-sha256": "MEUCIHi8GgFqHumEd03ph5bvVifQnFkFTB9t5h71u2em5EyKAiEA60Tp388T50cwnfMKPTwGMiYuKsU13wBEkm0VTDyXdYE="
+    "ecdsa-p256-sha256": "MEUCIH4YCHGLP/dC3lxo/9wKRc1tRKsNAPbAFq2gl1frtJxHAiEA4Xto9cL9UhPjMqj2nvM9meigTkKKTHG1NuswStuitQI="
   }
 }
