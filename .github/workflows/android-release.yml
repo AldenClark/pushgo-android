@@ -217,6 +217,9 @@ jobs:
           cargo fmt --manifest-path native/quinn-jni/Cargo.toml -- --check
           cargo clippy --manifest-path native/quinn-jni/Cargo.toml --all-targets --locked -- -D warnings
           cargo test --manifest-path native/quinn-jni/Cargo.toml --locked
+          cargo fetch --manifest-path native/quinn-jni/Cargo.toml --locked
+          cargo deny --manifest-path native/quinn-jni/Cargo.toml \
+            --config native/quinn-jni/deny.toml fetch
           cargo deny --manifest-path native/quinn-jni/Cargo.toml \
             --config native/quinn-jni/deny.toml --frozen check -D warnings
           ./gradlew --no-daemon :app:testDebugUnitTest :app:lintDebug -Ppushgo.versionName=${GITHUB_REF_NAME}

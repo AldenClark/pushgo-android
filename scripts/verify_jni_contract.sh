@@ -165,6 +165,14 @@ grep -Fq 'cargo deny --manifest-path native/quinn-jni/Cargo.toml' "$release_work
   echo "Android release workflow must enforce cargo-deny advisories, licenses, sources, and duplicate policy" >&2
   exit 1
 }
+grep -Fq 'cargo fetch --manifest-path native/quinn-jni/Cargo.toml --locked' "$release_workflow" || {
+  echo "Android release workflow must prefetch the locked all-target crate graph before frozen cargo-deny" >&2
+  exit 1
+}
+grep -Fq -- '--config native/quinn-jni/deny.toml fetch' "$release_workflow" || {
+  echo "Android release workflow must fetch the advisory database before frozen cargo-deny" >&2
+  exit 1
+}
 
 grep -Eq 'cargo fetch .*--locked' "$native_build" || {
   echo "native build must prefetch with --locked" >&2
