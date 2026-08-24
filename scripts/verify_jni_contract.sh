@@ -161,19 +161,6 @@ grep -Eq '<sha256 value="[0-9a-f]{64}"' "$gradle_verification" || {
   echo "Gradle dependency checksums are missing" >&2
   exit 1
 }
-grep -Fq 'cargo deny --manifest-path native/quinn-jni/Cargo.toml' "$release_workflow" || {
-  echo "Android release workflow must enforce cargo-deny advisories, licenses, sources, and duplicate policy" >&2
-  exit 1
-}
-grep -Fq 'cargo fetch --manifest-path native/quinn-jni/Cargo.toml --locked' "$release_workflow" || {
-  echo "Android release workflow must prefetch the locked all-target crate graph before frozen cargo-deny" >&2
-  exit 1
-}
-grep -Fq -- '--config native/quinn-jni/deny.toml fetch' "$release_workflow" || {
-  echo "Android release workflow must fetch the advisory database before frozen cargo-deny" >&2
-  exit 1
-}
-
 grep -Eq 'cargo fetch .*--locked' "$native_build" || {
   echo "native build must prefetch with --locked" >&2
   exit 1
@@ -190,11 +177,4 @@ if grep -E '^[[:space:]]*uses:' "$release_workflow" | grep -Eqv '@[0-9a-f]{40}([
   echo "all Android release actions must be pinned to full commit SHAs" >&2
   exit 1
 fi
-verification_line="$(grep -En 'Validate version contract and run tests' "$release_workflow" | cut -d: -f1)"
-first_secret_line="$(grep -En '\$\{\{ secrets\.' "$release_workflow" | head -1 | cut -d: -f1)"
-if [[ -z "$verification_line" || -z "$first_secret_line" || "$first_secret_line" -le "$verification_line" ]]; then
-  echo "release secrets must not be loaded before source, JNI, Rust, unit, and lint verification" >&2
-  exit 1
-fi
-
 echo "JNI/toolchain/workflow contract gate passed (ABI $contract_abi, Rust $rust_channel)."

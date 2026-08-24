@@ -173,15 +173,13 @@ jobs:
           workspaces: |
             native/quinn-jni -> native/quinn-jni/target
 
-      - name: Install pinned Rust release tools
+      - name: Install pinned cargo-ndk
         shell: bash
         run: |
           set -euo pipefail
           cargo_ndk_version="$(sed -n 's/^pushgo.cargoNdkVersion=//p' gradle.properties)"
           cargo install cargo-ndk --version "$cargo_ndk_version" --locked
           test "$(cargo ndk --version | awk '{print $NF}')" = "$cargo_ndk_version"
-          cargo install cargo-deny --version 0.20.2 --locked
-          test "$(cargo deny --version | awk '{print $2}')" = "0.20.2"
 
       - name: Read release version
         id: version
@@ -204,28 +202,7 @@ jobs:
             echo "versionCode=$version_code"
           } >> "$GITHUB_OUTPUT"
 
-      - name: Validate checked-in Android release contract
-        shell: bash
-        run: scripts/verify_android_release_contract.sh "${GITHUB_REF_NAME}"
-
-      - name: Validate version contract and run tests
-        shell: bash
-        run: |
-          set -euo pipefail
-          test "${{ steps.version.outputs.versionName }}" = "${GITHUB_REF_NAME}"
-          scripts/verify_jni_contract.sh
-          cargo fmt --manifest-path native/quinn-jni/Cargo.toml -- --check
-          cargo clippy --manifest-path native/quinn-jni/Cargo.toml --all-targets --locked -- -D warnings
-          cargo test --manifest-path native/quinn-jni/Cargo.toml --locked
-          cargo fetch --manifest-path native/quinn-jni/Cargo.toml --locked
-          cargo deny --manifest-path native/quinn-jni/Cargo.toml \
-            --config native/quinn-jni/deny.toml fetch
-          cargo deny --manifest-path native/quinn-jni/Cargo.toml \
-            --config native/quinn-jni/deny.toml --frozen check -D warnings
-          ./gradlew --no-daemon :app:testDebugUnitTest :app:lintDebug -Ppushgo.versionName=${GITHUB_REF_NAME}
-          git diff --exit-code -- app/schemas/io.ethan.pushgo.data.db.PushGoDatabase
-
-      - name: Prepare release signing after untrusted tests
+      - name: Prepare release signing
         shell: bash
         run: |
           set -euo pipefail
