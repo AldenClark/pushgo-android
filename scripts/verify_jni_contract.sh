@@ -30,11 +30,11 @@ fi
 while read -r method descriptor; do
   [[ "$method" == native* ]] || continue
   symbol="Java_io_ethan_pushgo_notifications_WarpLinkNativeBridge_${method}"
-  if ! rg -q "fn ${symbol}\\(" "$rust_source"; then
+  if ! grep -Eq "fn ${symbol}\\(" "$rust_source"; then
     echo "missing Rust JNI export for $method $descriptor" >&2
     exit 1
   fi
-  if ! rg -q "external fun ${method}\\(" "$kotlin_source"; then
+  if ! grep -Eq "external fun ${method}\\(" "$kotlin_source"; then
     echo "missing Kotlin JNI declaration for $method $descriptor" >&2
     exit 1
   fi
@@ -61,7 +61,7 @@ java_types = {
     "Unit": "V",
 }
 
-def kotlin_descriptor(parameters: str, return_type: str | None) -> str:
+def kotlin_descriptor(parameters, return_type):
     encoded = []
     if parameters.strip():
         for parameter in parameters.split(","):
@@ -143,47 +143,47 @@ for property in pushgo.androidMinSdk pushgo.androidNdkVersion pushgo.cargoNdkVer
     exit 1
   fi
   for consumer in "$repo_dir/app/build.gradle.kts" "$native_build"; do
-    rg -q "$property" "$consumer" || {
+    grep -Fq "$property" "$consumer" || {
       echo "native build property is not consumed by $consumer: $property" >&2
       exit 1
     }
   done
 done
-rg -q '^distributionSha256Sum=[0-9a-f]{64}$' "$gradle_wrapper" || {
+grep -Eq '^distributionSha256Sum=[0-9a-f]{64}$' "$gradle_wrapper" || {
   echo "Gradle distribution checksum is not pinned" >&2
   exit 1
 }
-rg -q '<verify-metadata>true</verify-metadata>' "$gradle_verification" || {
+grep -Fq '<verify-metadata>true</verify-metadata>' "$gradle_verification" || {
   echo "Gradle dependency metadata verification must be enabled" >&2
   exit 1
 }
-rg -q '<sha256 value="[0-9a-f]{64}"' "$gradle_verification" || {
+grep -Eq '<sha256 value="[0-9a-f]{64}"' "$gradle_verification" || {
   echo "Gradle dependency checksums are missing" >&2
   exit 1
 }
-rg -q 'cargo deny --manifest-path native/quinn-jni/Cargo.toml' "$release_workflow" || {
+grep -Fq 'cargo deny --manifest-path native/quinn-jni/Cargo.toml' "$release_workflow" || {
   echo "Android release workflow must enforce cargo-deny advisories, licenses, sources, and duplicate policy" >&2
   exit 1
 }
 
-rg -q 'cargo fetch .*--locked' "$native_build" || {
+grep -Eq 'cargo fetch .*--locked' "$native_build" || {
   echo "native build must prefetch with --locked" >&2
   exit 1
 }
-rg -q 'cargo ndk .*build --release --frozen' "$native_build" || {
+grep -Eq 'cargo ndk .*build --release --frozen' "$native_build" || {
   echo "native release build must run --frozen" >&2
   exit 1
 }
-if rg -q 'ANDROID_API_LEVEL' "$release_workflow"; then
+if grep -Fq 'ANDROID_API_LEVEL' "$release_workflow"; then
   echo "release workflow must consume the Gradle minSdk authority, not ANDROID_API_LEVEL" >&2
   exit 1
 fi
-if rg '^\s*uses:' "$release_workflow" | rg -qv '@[0-9a-f]{40}([[:space:]]|$)'; then
+if grep -E '^[[:space:]]*uses:' "$release_workflow" | grep -Eqv '@[0-9a-f]{40}([[:space:]]|$)'; then
   echo "all Android release actions must be pinned to full commit SHAs" >&2
   exit 1
 fi
-verification_line="$(rg -n 'Validate version contract and run tests' "$release_workflow" | cut -d: -f1)"
-first_secret_line="$(rg -n '\$\{\{ secrets\.' "$release_workflow" | head -1 | cut -d: -f1)"
+verification_line="$(grep -En 'Validate version contract and run tests' "$release_workflow" | cut -d: -f1)"
+first_secret_line="$(grep -En '\$\{\{ secrets\.' "$release_workflow" | head -1 | cut -d: -f1)"
 if [[ -z "$verification_line" || -z "$first_secret_line" || "$first_secret_line" -le "$verification_line" ]]; then
   echo "release secrets must not be loaded before source, JNI, Rust, unit, and lint verification" >&2
   exit 1
