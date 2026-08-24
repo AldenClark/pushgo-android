@@ -188,9 +188,21 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          version_info="$(./gradlew -q :app:printReleaseVersionInfo -Ppushgo.versionName=${{ steps.tag.outputs.tag_name }})"
+          version_name=''
+          version_code=''
           while IFS='=' read -r key value; do
-            echo "$key=$value" >> "$GITHUB_OUTPUT"
-          done < <(./gradlew -q :app:printReleaseVersionInfo -Ppushgo.versionName=${{ steps.tag.outputs.tag_name }})
+            case "$key" in
+              versionName) version_name="$value" ;;
+              versionCode) version_code="$value" ;;
+            esac
+          done <<< "$version_info"
+          test -n "$version_name"
+          test -n "$version_code"
+          {
+            echo "versionName=$version_name"
+            echo "versionCode=$version_code"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Validate checked-in Android release contract
         shell: bash
