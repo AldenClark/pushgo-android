@@ -4,13 +4,23 @@ import android.content.Context
 import io.ethan.pushgo.data.db.PushGoDatabase
 import io.ethan.pushgo.notifications.MessageStateCoordinator
 import io.ethan.pushgo.notifications.PrivateChannelClient
+import io.ethan.pushgo.testing.InstrumentationRuntime
+import io.ethan.pushgo.ui.PendingLocalDeletionDrainScheduler
 import io.ethan.pushgo.ui.PendingLocalDeletionCoordinator
+import io.ethan.pushgo.ui.WorkManagerPendingLocalDeletionDrainScheduler
 import io.ethan.pushgo.update.UpdateManager
 import kotlinx.coroutines.CoroutineScope
 
 class AppContainer(
     context: Context,
     appScope: CoroutineScope,
+    pendingLocalDeletionDrainScheduler: PendingLocalDeletionDrainScheduler = if (
+        InstrumentationRuntime.isUnderInstrumentationTest()
+    ) {
+        PendingLocalDeletionDrainScheduler.None
+    } else {
+        WorkManagerPendingLocalDeletionDrainScheduler(context.applicationContext)
+    },
 ) {
     val appContext = context.applicationContext
     val coroutineDispatchers = AppCoroutineDispatchers()
@@ -28,6 +38,7 @@ class AppContainer(
         database = database,
         inboundDeliveryLedgerDao = database.inboundDeliveryLedgerDao(),
         inboundDeliveryAckOutboxDao = database.inboundDeliveryAckOutboxDao(),
+        legacyProviderIngressDao = database.legacyProviderIngressDao(),
     )
     internal val channelStore = ChannelSubscriptionStore(
         dao = database.channelSubscriptionDao(),
@@ -60,7 +71,6 @@ class AppContainer(
         context = appContext,
         repository = messageRepository,
     )
-    val pendingLocalDeletionCoordinator = PendingLocalDeletionCoordinator(appScope = appScope)
     val channelRepository = ChannelSubscriptionRepository(
         store = channelStore,
         settingsRepository = settingsRepository,
@@ -78,6 +88,30 @@ class AppContainer(
         messageRepository = messageRepository,
         entityRepository = entityRepository,
         settingsRepository = settingsRepository,
+    )
+    private val pendingLocalDeletionRepository = RoomPendingLocalDeletionRepository(
+        database = database,
+        dao = database.pendingLocalDeletionDao(),
+    )
+    private val pendingChannelDeletionExecutor = DurablePendingChannelDeletionExecutor(
+        backend = RepositoryPendingChannelDeletionBackend(
+            context = appContext,
+            store = channelStore,
+            settingsRepository = settingsRepository,
+            channelRepository = channelRepository,
+            privateChannelClient = privateChannelClient,
+        ),
+    )
+    val pendingLocalDeletionCoordinator = PendingLocalDeletionCoordinator(
+        appScope = appScope,
+        repository = pendingLocalDeletionRepository,
+        operationExecutor = RepositoryPendingLocalDeletionExecutor(
+            context = appContext,
+            messageStateCoordinator = messageStateCoordinator,
+            entityRepository = entityRepository,
+            channelExecutor = pendingChannelDeletionExecutor,
+        ),
+        drainScheduler = pendingLocalDeletionDrainScheduler,
     )
     val updateManager = UpdateManager(
         context = appContext,

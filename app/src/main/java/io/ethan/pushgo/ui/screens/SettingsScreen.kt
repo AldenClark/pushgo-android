@@ -70,6 +70,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -424,6 +425,21 @@ fun SettingsScreen(
                 SettingsSectionHeader(text = stringResource(R.string.section_about))
             }
             item {
+                DocumentationSettingsRow(PushGoDocumentationPage.GETTING_STARTED) { page ->
+                    openDocumentationFromSettings(context, page)
+                }
+            }
+            item {
+                DocumentationSettingsRow(PushGoDocumentationPage.MESSAGE_API) { page ->
+                    openDocumentationFromSettings(context, page)
+                }
+            }
+            item {
+                DocumentationSettingsRow(PushGoDocumentationPage.E2EE) { page ->
+                    openDocumentationFromSettings(context, page)
+                }
+            }
+            item {
                 SettingsRow(
                     testTag = "row.settings.app_version",
                     icon = Icons.Outlined.Info,
@@ -638,11 +654,12 @@ private fun SettingsItemContainer(content: @Composable () -> Unit) {
 }
 
 @Composable
-private fun SettingsRow(
+internal fun SettingsRow(
     testTag: String? = null,
     icon: androidx.compose.ui.graphics.vector.ImageVector,
     title: String,
     subtitle: String?,
+    accessibilityLabel: String? = null,
     onClick: (() -> Unit)?,
 ) {
     val uiColors = PushGoThemeExtras.colors
@@ -650,6 +667,15 @@ private fun SettingsRow(
         Modifier
             .fillMaxWidth()
             .then(if (testTag != null) Modifier.testTag(testTag) else Modifier)
+            .then(
+                if (accessibilityLabel != null) {
+                    Modifier.semantics(mergeDescendants = true) {
+                        contentDescription = accessibilityLabel
+                    }
+                } else {
+                    Modifier
+                },
+            )
             .clickable { onClick() }
     } else {
         Modifier
@@ -679,6 +705,60 @@ private fun SettingsRow(
             },
         )
     }
+}
+
+@Composable
+internal fun DocumentationSettingsRow(
+    page: PushGoDocumentationPage,
+    onOpen: (PushGoDocumentationPage) -> Unit,
+) {
+    val (tag, icon, titleRes, subtitleRes) = when (page) {
+        PushGoDocumentationPage.GETTING_STARTED -> DocumentationRowSpec(
+            "row.settings.docs.getting_started",
+            Icons.Outlined.Info,
+            R.string.label_docs_getting_started,
+            R.string.label_docs_getting_started_hint,
+        )
+        PushGoDocumentationPage.MESSAGE_API -> DocumentationRowSpec(
+            "row.settings.docs.message_api",
+            Icons.AutoMirrored.Filled.Chat,
+            R.string.label_docs_message_api,
+            R.string.label_docs_message_api_hint,
+        )
+        PushGoDocumentationPage.E2EE -> DocumentationRowSpec(
+            "row.settings.docs.e2ee",
+            Icons.Outlined.Lock,
+            R.string.label_docs_e2ee,
+            R.string.label_docs_e2ee_hint,
+        )
+    }
+    val title = stringResource(titleRes)
+    val subtitle = stringResource(subtitleRes)
+    SettingsRow(
+        testTag = tag,
+        icon = icon,
+        title = title,
+        subtitle = subtitle,
+        accessibilityLabel = stringResource(R.string.a11y_open_documentation, title, subtitle),
+        onClick = { onOpen(page) },
+    )
+}
+
+private data class DocumentationRowSpec(
+    val tag: String,
+    val icon: ImageVector,
+    val titleRes: Int,
+    val subtitleRes: Int,
+)
+
+private fun openDocumentationFromSettings(
+    context: Context,
+    page: PushGoDocumentationPage,
+) {
+    if (PushGoDocumentation.open(context, page)) return
+    val message = context.getString(R.string.error_open_documentation)
+    Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
+    announceForAccessibility(context, message)
 }
 
 @Composable

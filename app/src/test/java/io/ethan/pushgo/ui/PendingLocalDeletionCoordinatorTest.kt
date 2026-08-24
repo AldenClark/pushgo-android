@@ -277,7 +277,7 @@ class PendingLocalDeletionCoordinatorTest {
     }
 
     @Test
-    fun finishingOlderCommitDoesNotClearNewerPendingScope() = runBlocking {
+    fun explicitDrainCommitsNewlyQueuedWorkAfterOlderCommitFinishes() = runBlocking {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         val firstCommitStarted = CountDownLatch(1)
         val releaseFirstCommit = CountDownLatch(1)
@@ -314,8 +314,8 @@ class PendingLocalDeletionCoordinatorTest {
             firstCommit.join()
 
             assertFalse(coordinator.effectiveScope.value.suppressesEvent("event-1", null))
-            assertTrue(coordinator.effectiveScope.value.suppressesThing("thing-2", null))
-            assertEquals("second thing", coordinator.pendingDeletion.value?.summary)
+            assertFalse(coordinator.effectiveScope.value.suppressesThing("thing-2", null))
+            assertNull(coordinator.pendingDeletion.value)
         } finally {
             releaseFirstCommit.countDown()
             scope.cancel()
@@ -323,7 +323,7 @@ class PendingLocalDeletionCoordinatorTest {
     }
 
     @Test
-    fun inactiveInteractionPausesCountdownUntilReactivated() = runBlocking {
+    fun inactiveInteractionCommitsImmediatelyInsteadOfFreezingCountdown() = runBlocking {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         val commitLatch = CountDownLatch(1)
         try {
@@ -339,24 +339,18 @@ class PendingLocalDeletionCoordinatorTest {
                 scope = PendingLocalDeletionCoordinator.Scope(),
                 onCommit = { commitLatch.countDown() },
             )
-            Thread.sleep(25)
             coordinator.setInteractionActive(false)
-            val frozenRemaining = coordinator.pendingDeletion.value?.frozenRemainingMillis ?: 0L
-
-            assertFalse(commitLatch.await(120, TimeUnit.MILLISECONDS))
-            assertTrue(frozenRemaining > 0L)
-            assertFalse(coordinator.pendingDeletion.value?.isCountdownActive ?: true)
-
-            coordinator.setInteractionActive(true)
             assertTrue(commitLatch.await(1, TimeUnit.SECONDS))
+            assertNull(coordinator.pendingDeletion.value)
         } finally {
             scope.cancel()
         }
     }
 
     @Test
-    fun staleLifecycleUpdateCannotOverrideNewerBackgroundState() = runBlocking {
+    fun staleLifecycleUpdateCannotResurrectDeletionCommittedInBackground() = runBlocking {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val commitCount = AtomicInteger(0)
         try {
             val coordinator = PendingLocalDeletionCoordinator(
                 appScope = scope,
@@ -367,16 +361,14 @@ class PendingLocalDeletionCoordinatorTest {
             coordinator.schedule(
                 summary = "message",
                 scope = PendingLocalDeletionCoordinator.Scope(),
-                onCommit = {},
+                onCommit = { commitCount.incrementAndGet() },
             )
 
             coordinator.setInteractionActive(false, generation = 2L)
             coordinator.setInteractionActive(true, generation = 1L)
 
-            assertFalse(coordinator.pendingDeletion.value?.isCountdownActive ?: true)
-
-            coordinator.setInteractionActive(true, generation = 3L)
-            assertTrue(coordinator.pendingDeletion.value?.isCountdownActive == true)
+            assertEquals(1, commitCount.get())
+            assertNull(coordinator.pendingDeletion.value)
         } finally {
             scope.cancel()
         }

@@ -9,6 +9,7 @@ import io.ethan.pushgo.data.model.MessageStatus
 import io.ethan.pushgo.data.model.PushMessage
 import io.ethan.pushgo.markdown.MessagePreviewExtractor
 import io.ethan.pushgo.util.PayloadTimeNormalizer
+import org.json.JSONArray
 import org.json.JSONObject
 import java.time.Instant
 
@@ -145,23 +146,78 @@ data class MessageEntity(
         fun buildListPayloadJson(rawPayloadJson: String): String {
             val source = runCatching { JSONObject(rawPayloadJson) }.getOrNull() ?: return "{}"
             val result = JSONObject()
-            val keys = listOf(
-                "severity", "tags", "images", "metadata", "entity_type", "entity_id",
-                "event_id", "thing_id", "event_state", "encrypted", "is_encrypted",
-                "isEncrypted", "encryption_state", "encryptionState", "ciphertext",
+
+            source.optString("severity", "")
+                .trim()
+                .take(MAX_LIST_SEVERITY_CHARS)
+                .takeIf(String::isNotEmpty)
+                ?.let { putIfWithinListBudget(result, "severity", it) }
+
+            putBoundedStringArray(
+                target = result,
+                key = "tags",
+                values = boundedStringValues(source.opt("tags"), MAX_LIST_TAGS, MAX_LIST_TAG_CHARS),
             )
-            keys.forEach { key ->
-                if (source.has(key) && !source.isNull(key)) {
-                    result.put(key, source.opt(key))
-                }
+
+            listOf(IMAGE_LOCAL_PATH_KEY, IMAGE_THUMBNAIL_LOCAL_PATH_KEY).forEach { key ->
+                source.optString(key, "")
+                    .trim()
+                    .take(MAX_LIST_LOCAL_PATH_CHARS)
+                    .takeIf(String::isNotEmpty)
+                    ?.let { putIfWithinListBudget(result, key, it) }
             }
-            source.optJSONObject("aps")?.let { aps ->
-                if (aps.has("thread-id")) {
-                    result.put("aps", JSONObject().put("thread-id", aps.opt("thread-id")))
-                }
-            }
+
+            putBoundedStringArray(
+                target = result,
+                key = "images",
+                values = boundedStringValues(source.opt("images"), MAX_LIST_IMAGES, MAX_LIST_IMAGE_URL_CHARS),
+            )
             return result.toString()
         }
+
+        private fun boundedStringValues(raw: Any?, maxItems: Int, maxChars: Int): List<String> {
+            val values = when (raw) {
+                is JSONArray -> (0 until raw.length()).map { raw.opt(it) }
+                is String -> runCatching { JSONArray(raw) }
+                    .getOrNull()
+                    ?.let { array -> (0 until array.length()).map { array.opt(it) } }
+                    ?: listOf(raw)
+                else -> emptyList()
+            }
+            return values.asSequence()
+                .mapNotNull { value -> (value as? String)?.trim()?.take(maxChars)?.takeIf(String::isNotEmpty) }
+                .distinct()
+                .take(maxItems)
+                .toList()
+        }
+
+        private fun putBoundedStringArray(target: JSONObject, key: String, values: List<String>) {
+            if (values.isEmpty()) return
+            val accepted = JSONArray()
+            values.forEach { value ->
+                val candidate = JSONArray(accepted.toString()).put(value).toString()
+                if (putIfWithinListBudget(target, key, candidate)) {
+                    accepted.put(value)
+                }
+            }
+        }
+
+        private fun putIfWithinListBudget(target: JSONObject, key: String, value: String): Boolean {
+            val candidate = JSONObject(target.toString()).put(key, value).toString()
+            if (candidate.toByteArray(Charsets.UTF_8).size > MAX_LIST_PAYLOAD_BYTES) return false
+            target.put(key, value)
+            return true
+        }
+
+        internal const val MAX_LIST_PAYLOAD_BYTES = 16 * 1024
+        private const val MAX_LIST_SEVERITY_CHARS = 32
+        private const val MAX_LIST_TAGS = 16
+        private const val MAX_LIST_TAG_CHARS = 64
+        private const val MAX_LIST_IMAGES = 4
+        private const val MAX_LIST_IMAGE_URL_CHARS = 2_048
+        private const val MAX_LIST_LOCAL_PATH_CHARS = 1_024
+        private const val IMAGE_LOCAL_PATH_KEY = "image_local_path"
+        private const val IMAGE_THUMBNAIL_LOCAL_PATH_KEY = "image_thumbnail_local_path"
 
         private fun deriveEntityProjection(
             rawPayloadJson: String,

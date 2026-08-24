@@ -27,7 +27,7 @@ class MessagePostProcessWorker(
         val container = (applicationContext as PushGoApp).containerOrNull()
             ?: run {
                 io.ethan.pushgo.util.SilentSink.e(TAG, "post process skipped: local storage unavailable")
-                return@withContext Result.failure()
+                return@withContext Result.retry()
             }
         val repository = container.messageRepository
         val imageStore = container.messageImageStore
@@ -38,7 +38,11 @@ class MessagePostProcessWorker(
 
         val resolvedImageUrl = imageStore.resolveRemoteImageUrl(message.rawPayloadJson, imageUrlHint)
             ?: return@withContext Result.success()
-        val cached = imageStore.ensureCached(resolvedImageUrl) ?: return@withContext Result.success()
+        val cached = imageStore.ensureCached(resolvedImageUrl) ?: return@withContext if (runAttemptCount < 8) {
+            Result.retry()
+        } else {
+            Result.success()
+        }
 
         rawPayload.put(MessageImageStore.KEY_IMAGE_LOCAL_PATH, cached.originalPath)
         rawPayload.put(MessageImageStore.KEY_IMAGE_THUMBNAIL_LOCAL_PATH, cached.thumbnailPath)

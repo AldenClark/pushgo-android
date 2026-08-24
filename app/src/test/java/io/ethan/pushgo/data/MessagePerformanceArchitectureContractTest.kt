@@ -42,6 +42,20 @@ class MessagePerformanceArchitectureContractTest {
         assertFalse(listViewModel.contains("loadAllForExport"))
     }
 
+    @Test
+    fun firstListPageNeverWaitsForFullHistorySummaryBackfillOrFallsBackToRawPayload() {
+        val repository = readSource("data/MessageRepository.kt")
+        val observeBlock = repository
+            .substringAfter("fun observeMessages(")
+            .substringBefore("fun searchMessages(")
+        val dao = readSource("data/db/MessageDao.kt")
+
+        assertFalse(observeBlock.contains("ensureSummaryProjectionReady"))
+        assertFalse(dao.contains("THEN list_payload_json ELSE raw_payload_json"))
+        assertFalse(dao.contains("THEN m.list_payload_json ELSE m.raw_payload_json"))
+        assertTrue(repository.contains("ensureSummaryProjectionReady()"))
+    }
+
     private fun readSource(relativePath: String): String {
         val file = File("src/main/java/io/ethan/pushgo/$relativePath")
         require(file.exists()) { "Missing expected source file: $relativePath" }

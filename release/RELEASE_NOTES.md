@@ -1,6 +1,6 @@
 # Release Notes
 
-This file contains end-user-facing release notes for Google Play and GitHub Releases.
+This file contains end-user-facing release notes for GitHub Releases and the in-app updater.
 
 Policy:
 - Beta tags use `vX.Y.Z-beta.N`, and read from `[Unreleased]`.
@@ -10,25 +10,24 @@ Policy:
 
 ## [Unreleased]
 
-### Improved
-- Improved Android build and runtime compatibility by moving the app onto the AGP 9.2.1 toolchain baseline with refreshed core dependencies.
-- Improved update install and system-settings handoff behavior so package install permission, battery settings, and related flows behave more consistently on modern Android builds.
-- Improved message and detail rendering stability with cleanup across image decoding, Compose resource access, and platform compatibility paths.
-
-### Fixed
-- Fixed warning-heavy Android build and lint issues exposed by the latest toolchain refresh.
-- Fixed stale resource and launcher asset issues that could interfere with release readiness checks.
+### Changed
+- Placeholder for next development cycle.
 
 ## [v1.3.0]
 
 ### Improved
-- Improved notification recovery so gateway-pulled messages remain available until Android has durably handled them and acknowledged the correct gateway.
-- Improved high-volume recovery with paged Pull and batch acknowledgement, including safe retry after app or network interruption.
-- Preserved compatibility with beta gateways while keeping legacy destructive Pull and single-message acknowledgement behavior separate from the formal v2 protocol.
+- Greatly improved provider and private notification reliability: the current Gateway protocol keeps messages recoverable until Android has durably stored them and acknowledged the correct Gateway, while older Gateways use a staged compatibility path.
+- Improved high-volume and long-offline recovery with paged Pull, batch acknowledgement, bounded duplicate protection, and safe retry after app or network interruption; older Gateways remain supported through the legacy Pull contract.
+- Greatly reduced the first search delay on large message histories and expanded Event/Thing search with bounded continuation for older results.
+- Made message, Event, Thing, and channel deletion recover safely after app interruption while keeping notifications and newer channel subscriptions consistent.
+- Improved Android system integration, accessibility, settings navigation, image rendering/cache behavior, and compatibility across Android 9 and current releases.
+- Retained the v1.2.6 download matrix for arm64, 32-bit ARM, x86_64, and universal APK installs.
 
 ### Fixed
 - Fixed a gateway-switch edge case that could send an older pending acknowledgement to the newly selected gateway.
-- Fixed delivery identity handling so the gateway queue item ID remains authoritative when payload fields are missing or inconsistent.
+- Fixed delivery identity, partial/zero acknowledgement, duplicate replay, cancellation, and process-restart edge cases that could delay recovery or leave work pending.
+- Fixed late out-of-order Event/Object updates replacing newer state, and fixed notification-open handling for messages attached to an Object.
+- Fixed stale search indexes, interrupted deletion recovery, notification cleanup, and several Android build/runtime compatibility regressions.
 
 ## [v1.2.6]
 

@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import androidx.paging.PagingData
 import androidx.paging.cachedIn
 import io.ethan.pushgo.data.MessageRepository
+import io.ethan.pushgo.data.model.MessageFilter
 import io.ethan.pushgo.data.model.MessageListItem
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.FlowPreview
@@ -20,20 +21,26 @@ class MessageSearchViewModel(
     private val repository: MessageRepository,
 ) : ViewModel() {
     private val query = MutableStateFlow("")
-    private val unreadOnly = MutableStateFlow(false)
+    private val filter = MutableStateFlow(MessageFilter())
     private val locallySuppressedMessageIds = MutableStateFlow<Set<String>>(emptySet())
 
     val queryState: StateFlow<String> = query
 
     val results: Flow<PagingData<MessageListItem>> = combine(
         query.debounce(200),
-        unreadOnly,
+        filter,
         locallySuppressedMessageIds,
-    ) { rawQuery, currentUnreadOnly, suppressedIds ->
-        Triple(rawQuery, currentUnreadOnly, suppressedIds)
+    ) { rawQuery, currentFilter, suppressedIds ->
+        Triple(rawQuery, currentFilter, suppressedIds)
     }
-        .flatMapLatest { (rawQuery, currentUnreadOnly, suppressedIds) ->
-            repository.searchMessages(rawQuery, currentUnreadOnly, excludedIds = suppressedIds)
+        .flatMapLatest { (rawQuery, currentFilter, suppressedIds) ->
+            repository.searchMessages(
+                rawQuery = rawQuery,
+                unreadOnly = currentFilter.unreadOnly,
+                excludedIds = suppressedIds,
+                channels = currentFilter.channels,
+                facetTags = currentFilter.tags,
+            )
         }
         .cachedIn(viewModelScope)
 
@@ -41,9 +48,9 @@ class MessageSearchViewModel(
         query.value = value
     }
 
-    fun setUnreadOnlyFilter(enabled: Boolean) {
-        if (unreadOnly.value == enabled) return
-        unreadOnly.value = enabled
+    fun setFilter(value: MessageFilter) {
+        if (filter.value == value) return
+        filter.value = value
     }
 
     fun setLocallySuppressedMessageIds(messageIds: Set<String>) {

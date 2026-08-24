@@ -24,11 +24,13 @@ fun Context.isAppSubjectToBatteryOptimization(): Boolean {
 
 fun Context.openBatteryOptimizationSettings() {
     val packageUri = Uri.fromParts("package", packageName, null)
+    val requestIgnoreIntent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, packageUri)
     val optimizationListIntent = Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
     val appDetailsIntent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, packageUri)
     startActivityWithFallback(
-        primary = optimizationListIntent,
-        fallback = appDetailsIntent,
+        primary = requestIgnoreIntent,
+        fallback = optimizationListIntent,
+        fallback2 = appDetailsIntent,
     )
 }
 

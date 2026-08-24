@@ -34,12 +34,17 @@ class EntityBatchDeletePathContractTest {
     fun batchUiPathsUseSingleRepositoryBatchCallsInsteadOfPerItemLoops() {
         val eventScreen = readSource("src/main/java/io/ethan/pushgo/ui/screens/EventListScreen.kt")
         val thingScreen = readSource("src/main/java/io/ethan/pushgo/ui/screens/ThingListScreen.kt")
+        val durableExecutor = readSource(
+            "src/main/java/io/ethan/pushgo/data/RepositoryPendingLocalDeletionExecutor.kt"
+        )
 
-        assertTrue(eventScreen.contains("container.entityRepository.deleteEvents(uniqueEvents.map { it.eventId })"))
+        assertTrue(eventScreen.contains("PendingLocalDeletionOperation.events(eventIds)"))
         assertFalse(eventScreen.contains("uniqueEvents.forEach { event ->"))
 
-        assertTrue(thingScreen.contains("container.entityRepository.deleteThings(uniqueThings.map { it.thingId })"))
+        assertTrue(thingScreen.contains("PendingLocalDeletionOperation.things(thingIds)"))
         assertFalse(thingScreen.contains("uniqueThings.forEach { thing ->"))
+        assertTrue(durableExecutor.contains("entityRepository.deleteEvents(operation.targetIds)"))
+        assertTrue(durableExecutor.contains("entityRepository.deleteThings(operation.targetIds)"))
     }
 
     @Test
@@ -67,18 +72,22 @@ class EntityBatchDeletePathContractTest {
     @Test
     fun channelRemovalIntentBindsGatewayVersionAndDeliveryModeBeforeCommit() {
         val channelScreen = readSource("src/main/java/io/ethan/pushgo/ui/screens/ChannelListScreen.kt")
-        val settingsViewModel = readSource("src/main/java/io/ethan/pushgo/ui/viewmodel/SettingsViewModel.kt")
+        val durableExecutor = readSource(
+            "src/main/java/io/ethan/pushgo/data/DurablePendingChannelDeletionExecutor.kt"
+        )
 
         assertTrue(channelScreen.contains("expectedUseProvider = viewModel.channelRemovalUsesProvider(appContext)"))
         assertTrue(channelScreen.contains("expectedUpdatedAt = removalTarget.updatedAt"))
-        assertTrue(settingsViewModel.contains("if (useProvider != expectedUseProvider)"))
-        assertTrue(settingsViewModel.contains("channel_delivery_mode_changed_during_removal"))
+        assertTrue(durableExecutor.contains("backend.currentlyUsesProvider() != expectedProvider"))
+        assertTrue(durableExecutor.contains("Channel delivery mode changed while removal was pending"))
     }
 
     @Test
     fun channelRemovalDialogIsClaimedBeforeSnapshotReadsAndCompensationUsesOriginalGateway() {
         val channelScreen = readSource("src/main/java/io/ethan/pushgo/ui/screens/ChannelListScreen.kt")
-        val settingsViewModel = readSource("src/main/java/io/ethan/pushgo/ui/viewmodel/SettingsViewModel.kt")
+        val durableBackend = readSource(
+            "src/main/java/io/ethan/pushgo/data/RepositoryPendingChannelDeletionBackend.kt"
+        )
 
         val actionStart = channelScreen.indexOf("Claim this dialog action synchronously")
         val claim = channelScreen.indexOf(
@@ -93,7 +102,7 @@ class EntityBatchDeletePathContractTest {
         assertTrue(claim >= 0)
         assertTrue(snapshotRead > claim)
         assertTrue(channelScreen.contains("if (error is CancellationException) throw error"))
-        assertTrue(settingsViewModel.contains("expectedGatewayUrl = expectedGateway"))
+        assertTrue(durableBackend.contains("operation.expectedGatewayUrl"))
     }
 
     private fun readSource(relativePath: String): String {

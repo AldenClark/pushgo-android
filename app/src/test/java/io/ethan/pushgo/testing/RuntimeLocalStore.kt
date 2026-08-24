@@ -365,16 +365,6 @@ class RuntimeLocalStore private constructor(
         return runCatching { JSONObject(rawPayloadJson).optString(key, "") }.getOrDefault("").trim()
     }
 
-    private fun TopLevelEventHeadEntity.isNewerThan(current: TopLevelEventHeadEntity): Boolean {
-        if (receivedAt != current.receivedAt) return receivedAt > current.receivedAt
-        return sourceId > current.sourceId
-    }
-
-    private fun ThingHeadEntity.isNewerThan(current: ThingHeadEntity): Boolean {
-        if (receivedAt != current.receivedAt) return receivedAt > current.receivedAt
-        return sourceId > current.sourceId
-    }
-
     companion object {
         private val messageSortComparator = compareByDescending<PushMessage> { it.receivedAt.toEpochMilli() }
             .thenByDescending { it.messageId ?: it.id }

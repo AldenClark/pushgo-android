@@ -1,5 +1,5 @@
 {
-  "en": "PushGo 1.3.0 improves notification delivery reliability and Android platform compatibility.\n- Keeps pulled notifications recoverable until local persistence and gateway acknowledgement complete\n- Adds efficient batch acknowledgement with compatibility for beta gateways\n- Includes the latest Android system integration, accessibility, and rendering improvements",
-  "zh-CN": "PushGo 1.3.0 提升了通知投递可靠性与 Android 平台兼容性。\n- 拉取通知会保留到本地持久化与网关确认完成，降低异常中断时的数据丢失风险\n- 新增高效批量确认，并兼容 beta 网关\n- 包含最新的 Android 系统集成、无障碍与渲染改进",
-  "zh-TW": "PushGo 1.3.0 提升了通知投遞可靠性與 Android 平台相容性。\n- 拉取通知會保留至本機持久化與閘道確認完成，降低異常中斷時的資料遺失風險\n- 新增高效批次確認，並相容 beta 閘道\n- 包含最新的 Android 系統整合、輔助使用與顯示改進"
+  "en": "PushGo 1.3.0 improves notification reliability, recovery, and large-history search performance.\n- Keeps notifications recoverable through durable acknowledgement on the current protocol and immediate local staging on the legacy path\n- Adds safe batch acknowledgement, duplicate replay, deletion recovery, and faster search\n- Improves Android system integration, accessibility, and rendering\n- Supports both legacy and current Gateway Pull contracts; Gateway 1.3.0 or newer is recommended for the strongest recovery guarantees",
+  "zh-CN": "PushGo 1.3.0 提升了通知可靠性、异常恢复能力与大量历史消息的搜索性能。\n- 新协议通过持久化确认保障通知可恢复，旧协议返回后立即在本地暂存\n- 新增安全的批量确认、重复投递修复、删除恢复与更快的搜索\n- 改进 Android 系统集成、无障碍与渲染体验\n- 同时兼容新旧 Gateway 拉取协议；建议使用 Gateway 1.3.0 或更高版本以获得更强的异常恢复保障",
+  "zh-TW": "PushGo 1.3.0 提升了通知可靠性、異常復原能力與大量歷史訊息的搜尋效能。\n- 新協定透過持久化確認保障通知可復原，舊協定回傳後立即在本機暫存\n- 新增安全的批次確認、重複投遞修復、刪除復原與更快的搜尋\n- 改進 Android 系統整合、輔助使用與顯示體驗\n- 同時相容新舊 Gateway 拉取協定；建議使用 Gateway 1.3.0 或更新版本以取得更強的異常復原保障"
 }

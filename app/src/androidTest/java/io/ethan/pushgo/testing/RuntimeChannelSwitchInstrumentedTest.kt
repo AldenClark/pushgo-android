@@ -288,6 +288,7 @@ class RuntimeChannelSwitchInstrumentedTest {
             database = openedDb,
             inboundDeliveryLedgerDao = openedDb.inboundDeliveryLedgerDao(),
             inboundDeliveryAckOutboxDao = openedDb.inboundDeliveryAckOutboxDao(),
+            legacyProviderIngressDao = openedDb.legacyProviderIngressDao(),
         )
         messageRepository = MessageRepository(
             database = openedDb,

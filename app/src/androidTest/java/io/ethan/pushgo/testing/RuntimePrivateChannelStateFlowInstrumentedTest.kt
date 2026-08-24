@@ -11,6 +11,7 @@ import io.ethan.pushgo.data.ChannelSubscriptionService
 import io.ethan.pushgo.data.ChannelSubscriptionStore
 import io.ethan.pushgo.data.EntityRepository
 import io.ethan.pushgo.data.InboundDeliveryLedgerRepository
+import io.ethan.pushgo.data.InboundDeliveryScope
 import io.ethan.pushgo.data.MessageRepository
 import io.ethan.pushgo.data.PushTokenProvider
 import io.ethan.pushgo.data.SecureSecretStore
@@ -57,6 +58,7 @@ class RuntimePrivateChannelStateFlowInstrumentedTest {
 
     private lateinit var harness: RuntimeHarness
     private lateinit var fakeRuntime: FakeNativeRuntime
+    private val settingsViewModels = mutableListOf<SettingsViewModel>()
 
     @Before
     fun setUp() = runBlocking {
@@ -68,6 +70,10 @@ class RuntimePrivateChannelStateFlowInstrumentedTest {
 
     @After
     fun tearDown() {
+        runBlocking {
+            settingsViewModels.forEach { it.cancelScopeForTesting() }
+            settingsViewModels.clear()
+        }
         harness.close()
         WarpLinkNativeBridge.installTestRuntime(null)
         cleanupDatabaseFamily(DATABASE_NAME)
@@ -192,6 +198,42 @@ class RuntimePrivateChannelStateFlowInstrumentedTest {
     }
 
     @Test
+    fun privateDeliveryIdentity_isIsolatedByGatewayAndDeviceScope() = runBlocking {
+        val scopeA = checkNotNull(InboundDeliveryScope.create("https://gateway-a.example", "device-a"))
+        val scopeB = checkNotNull(InboundDeliveryScope.create("https://gateway-b.example", "device-b"))
+        val sharedDeliveryId = "shared-delivery-across-private-scopes"
+
+        fakeRuntime.enqueueResolveResult(false)
+        harness.privateChannelClient.injectSessionEventForTesting(
+            eventJson = messageEventJson(
+                deliveryId = sharedDeliveryId,
+                messageId = "scope-a-message",
+                ackId = 201L,
+                seq = 21L,
+                decodeOk = true,
+            ),
+            deliveryScope = scopeA,
+        )
+
+        fakeRuntime.enqueueResolveResult(true)
+        harness.privateChannelClient.injectSessionEventForTesting(
+            eventJson = messageEventJson(
+                deliveryId = sharedDeliveryId,
+                messageId = "scope-b-message",
+                ackId = 202L,
+                seq = 22L,
+                decodeOk = true,
+            ),
+            deliveryScope = scopeB,
+        )
+
+        assertTrue(harness.inboundDeliveryLedgerRepository.shouldAckDelivery(sharedDeliveryId, scopeA))
+        assertFalse(harness.inboundDeliveryLedgerRepository.shouldAckDelivery(sharedDeliveryId, scopeB))
+        assertNotNull(harness.messageRepository.getByMessageId("scope-a-message"))
+        assertNotNull(harness.messageRepository.getByMessageId("scope-b-message"))
+    }
+
+    @Test
     fun settingsViewModel_uiState_stays_consistent_with_repository_and_transport() = runBlocking {
         harness.settingsRepository.setServerAddress("http://127.0.0.1:9")
         harness.settingsRepository.setUseFcmChannel(true)
@@ -266,6 +308,7 @@ class RuntimePrivateChannelStateFlowInstrumentedTest {
 
         val switchBackToFcmUiMs = elapsedMs { withContext(Dispatchers.Main) { vm.refreshChannelUiStateForTesting() } }
 
+        vm.cancelScopeForTesting()
         harness.close()
         harness = openHarness()
         val vmReopened = buildSettingsViewModelOnMain()
@@ -315,7 +358,7 @@ class RuntimePrivateChannelStateFlowInstrumentedTest {
     @Test
     fun channelRemovalTransactionRollsBackHistoryWhenSubscriptionUpdateFails() = runBlocking {
         val gateway = harness.channelRepository.loadGatewayConfig().first
-        val channelId = "rollback-channel"
+        val channelId = "01ARZ3NDEKTSV4RRFFQ69G5FAW"
         val message = testMessage(id = "rollback-message", channelId = channelId)
         harness.messageRepository.insert(message)
 
@@ -334,7 +377,7 @@ class RuntimePrivateChannelStateFlowInstrumentedTest {
     @Test
     fun channelRemovalTransactionCommitsSubscriptionAndHistoryTogether() = runBlocking {
         val gateway = harness.channelRepository.loadGatewayConfig().first
-        val channelId = "atomic-channel"
+        val channelId = "01ARZ3NDEKTSV4RRFFQ69G5FAV"
         val now = System.currentTimeMillis()
         harness.database.channelSubscriptionDao().insert(
             ChannelSubscriptionEntity(
@@ -389,7 +432,7 @@ class RuntimePrivateChannelStateFlowInstrumentedTest {
     @Test
     fun channelRemovalTransactionRejectsStaleSubscriptionVersion() = runBlocking {
         val gateway = harness.channelRepository.loadGatewayConfig().first
-        val channelId = "stale-version-channel"
+        val channelId = "01ARZ3NDEKTSV4RRFFQ69G5FAX"
         val now = System.currentTimeMillis()
         harness.database.channelSubscriptionDao().insert(
             ChannelSubscriptionEntity(
@@ -460,6 +503,7 @@ class RuntimePrivateChannelStateFlowInstrumentedTest {
         InstrumentationRegistry.getInstrumentation().runOnMainSync {
             vm = buildSettingsViewModel()
         }
+        settingsViewModels += vm
         return vm
     }
 
@@ -576,7 +620,7 @@ class RuntimePrivateChannelStateFlowInstrumentedTest {
     }
 
     private fun openHarness(): RuntimeHarness {
-        val database = PushGoDatabase.build(context)
+        val database = PushGoDatabase.buildForTest(context, DATABASE_NAME)
         database.openHelper.writableDatabase.query("PRAGMA journal_mode=WAL").close()
         database.openHelper.writableDatabase.query("PRAGMA synchronous=NORMAL").close()
         val secretStore = StateflowSecretStore(context)
@@ -589,6 +633,7 @@ class RuntimePrivateChannelStateFlowInstrumentedTest {
             database = database,
             inboundDeliveryLedgerDao = database.inboundDeliveryLedgerDao(),
             inboundDeliveryAckOutboxDao = database.inboundDeliveryAckOutboxDao(),
+            legacyProviderIngressDao = database.legacyProviderIngressDao(),
         )
         val messageRepository = MessageRepository(
             database = database,

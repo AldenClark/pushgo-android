@@ -1,7 +1,7 @@
 <resources>
     <string name="app_name">PushGo</string>
     <string name="tab_messages">消息</string>
-    <string name="tab_settings">设置</string><string name="action_mark_read">标记为已读</string>
+    <string name="tab_settings">设置</string>
     <string name="action_mark_all_read">全部标记为已读</string>
     <string name="action_delete">删除</string>
     <string name="history_cleanup_chip">清理历史消息</string>
@@ -16,14 +16,15 @@
     <string name="history_cleanup_6_months">清理6个月前</string>
     <string name="history_cleanup_1_year">清理1年前</string>
     <string name="history_cleanup_confirm_title">确认清理</string>
-    <string name="history_cleanup_confirm_message">%1$s将永久删除符合条件的本地消息，此操作无法撤销。</string>
     <string name="history_cleanup_confirm_action">确认清理</string>
     <string name="history_cleanup_confirm_detail">请确认以下清理范围。此操作无法撤销。</string>
     <string name="history_cleanup_selected_range">清理范围</string>
     <string name="history_cleanup_cleaning">清理中…</string>
     <string name="history_cleanup_cleaning_detail">正在删除符合条件的本地消息，请保持应用运行。</string>
     <string name="history_cleanup_complete">清理完成</string>
-    <string name="history_cleanup_success">已清理 %1$d 条消息。</string>
+    <plurals name="history_cleanup_success">
+        <item quantity="other">已清理 %1$d 条消息。</item>
+    </plurals>
     <string name="history_cleanup_failed">清理失败</string>
     <string name="history_cleanup_done">完成</string>
     <string name="action_copy">复制</string>
@@ -86,6 +87,7 @@
     <string name="message_severity_critical_compact">紧急</string>
     <string name="message_severity_critical_hint">这是紧急消息，请尽快处理。</string>
     <string name="label_no_search_results">无搜索结果</string>
+    <string name="action_continue_search">继续搜索</string>
     <string name="label_no_events_title">暂无事件</string>
     <string name="label_no_events_hint">收到事件数据后会在这里显示。</string>
     <string name="label_no_things_title">暂无对象</string>
@@ -326,4 +328,12 @@
     <string name="a11y_pane_channel_management">管理频道</string>
     <string name="a11y_pane_gateway_settings">网关设置</string>
     <string name="label_unknown_error">未知错误</string>
+    <string name="label_docs_getting_started">快速开始</string>
+    <string name="label_docs_getting_started_hint">创建频道并发送第一条测试推送。</string>
+    <string name="label_docs_message_api">消息 API</string>
+    <string name="label_docs_message_api_hint">查看消息数据格式和请求示例。</string>
+    <string name="label_docs_e2ee">端到端加密</string>
+    <string name="label_docs_e2ee_hint">了解数据加密和客户端解密密钥配置。</string>
+    <string name="a11y_open_documentation">%1$s。%2$s 将在浏览器中打开。</string>
+    <string name="error_open_documentation">无法打开文档。</string>
 </resources>

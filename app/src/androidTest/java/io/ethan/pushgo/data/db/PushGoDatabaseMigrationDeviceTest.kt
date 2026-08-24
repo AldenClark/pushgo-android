@@ -12,6 +12,7 @@ import androidx.room.Room
 import androidx.room.RoomDatabase
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import io.ethan.pushgo.PushGoApp
 import io.ethan.pushgo.data.AppContainer
 import io.ethan.pushgo.data.model.KeyEncoding
 import kotlinx.coroutines.CoroutineScope
@@ -34,6 +35,7 @@ class PushGoDatabaseMigrationDeviceTest {
 
     @Before
     fun setUp() {
+        (context.applicationContext as PushGoApp).releaseStorageForInstrumentationTest()
         cleanupDatabaseFamily("pushgo.db")
         cleanupDatabaseFamily("pushgo-v21.db")
         cleanupDatabaseFamily("pushgo-v22.db")
@@ -61,7 +63,7 @@ class PushGoDatabaseMigrationDeviceTest {
         assertEquals(CHANNEL_ID, subscriptions.single().channelId)
         assertEquals(1, messages.size)
         assertEquals(MESSAGE_ID, messages.single().messageId)
-        assertEquals(26, readUserVersion(context.getDatabasePath("pushgo.db")))
+        assertEquals(30, readUserVersion(context.getDatabasePath("pushgo.db")))
         assertEquals(1, container.messageRepository.totalCount())
         assertEquals(1, container.messageRepository.unreadCount())
         assertTrue(context.getDatabasePath("pushgo.db").exists())
@@ -96,7 +98,7 @@ class PushGoDatabaseMigrationDeviceTest {
         assertEquals(MESSAGE_ID, messages.single().messageId)
         assertEquals(1, container.messageRepository.totalCount())
         assertEquals(1, container.messageRepository.unreadCount())
-        assertEquals(26, readUserVersion(context.getDatabasePath("pushgo.db")))
+        assertEquals(30, readUserVersion(context.getDatabasePath("pushgo.db")))
         val sqlite = container.database.openHelper.writableDatabase
         val revision = sqlite.query(
             "SELECT revision FROM message_store_revision WHERE id = 1"
@@ -191,13 +193,19 @@ class PushGoDatabaseMigrationDeviceTest {
             cursor.getString(0) to cursor.getString(1)
         }
 
-        assertEquals(26, readUserVersion(context.getDatabasePath("pushgo.db")))
+        assertEquals(30, readUserVersion(context.getDatabasePath("pushgo.db")))
         assertEquals(0, pendingOutbox)
         assertEquals(1, retainedLedger)
         assertEquals("" to "", retainedLedgerScope)
         assertTrue(
             columns.containsAll(
-                setOf("gateway_url", "device_key", "ack_contract", "attempt_count")
+                setOf(
+                    "gateway_url",
+                    "device_key",
+                    "ack_contract",
+                    "attempt_count",
+                    "last_attempt_uncertain",
+                )
             )
         )
         database.close()
@@ -266,14 +274,28 @@ class PushGoDatabaseMigrationDeviceTest {
             }
             unique
         }
+        val ackTombstoneIndexExists = migrated.query(
+            "PRAGMA index_list(inbound_delivery_ledger)"
+        ).use { cursor ->
+            var found = false
+            while (cursor.moveToNext()) {
+                if (cursor.getString(cursor.getColumnIndexOrThrow("name")) ==
+                    "index_inbound_delivery_ledger_ack_state_acked_at"
+                ) {
+                    found = true
+                }
+            }
+            found
+        }
 
-        assertEquals(26, readUserVersion(context.getDatabasePath("pushgo.db")))
+        assertEquals(30, readUserVersion(context.getDatabasePath("pushgo.db")))
         assertEquals(Triple("", "", "pending"), legacyLedger)
         assertEquals(
             listOf("https://gateway-a.example", "device-a", "legacy_single", 0),
             scopedOutbox,
         )
         assertEquals(0, pendingDeliveryIndexUnique)
+        assertTrue(ackTombstoneIndexExists)
         database.close()
     }
 

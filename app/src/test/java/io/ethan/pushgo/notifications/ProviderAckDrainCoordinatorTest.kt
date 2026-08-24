@@ -29,7 +29,7 @@ class ProviderAckDrainCoordinatorTest {
 
         assertEquals(listOf("delivery-1", "delivery-2"), result.attemptedIds)
         assertEquals(listOf("delivery-1", "delivery-2"), submitted)
-        assertEquals(records, markedAcked)
+        assertEquals(claimed(records), markedAcked)
         assertTrue(result.failedIds.isEmpty())
     }
 
@@ -46,11 +46,13 @@ class ProviderAckDrainCoordinatorTest {
 
         assertEquals(emptyList<String>(), result.ackedIds)
         assertEquals(listOf("delivery-ok", "delivery-fail"), result.failedIds)
+        assertEquals(claimed(records), result.uncertainFailures)
+        assertTrue(result.definitiveFailures.isEmpty())
         assertTrue(markedAcked.isEmpty())
     }
 
     @Test
-    fun drainPendingAcks_v2AllowsGatewayValidatedZeroRemovedRetry() = runBlocking {
+    fun drainPendingAcks_v2FreshZeroRemovedIsAnIdempotentTerminalResponse() = runBlocking {
         val records = listOf(record("already-removed"))
         val markedAcked = mutableListOf<InboundDeliveryAckOutboxEntity>()
 
@@ -61,7 +63,52 @@ class ProviderAckDrainCoordinatorTest {
         )
 
         assertEquals(listOf("already-removed"), result.ackedIds)
-        assertEquals(records, markedAcked)
+        assertEquals(claimed(records), markedAcked)
+    }
+
+    @Test
+    fun drainPendingAcks_v2AmbiguousRetryAllowsValidatedZeroRemoved() = runBlocking {
+        val records = listOf(
+            record("already-removed", attemptCount = 1, lastAttemptUncertain = true)
+        )
+        val markedAcked = mutableListOf<InboundDeliveryAckOutboxEntity>()
+
+        val result = ProviderAckDrainCoordinator.drainPendingAcks(
+            loadPendingAcks = { records },
+            ackMessages = { _, _, deliveryIds -> ackResult(deliveryIds.size, 0) },
+            markAcked = { markedAcked += it },
+        )
+
+        assertEquals(listOf("already-removed"), result.ackedIds)
+        assertEquals(claimed(records), markedAcked)
+    }
+
+    @Test
+    fun drainPendingAcks_v2RepeatedDefinitiveZeroIsStillAnIdempotentTerminalResponse() = runBlocking {
+        val records = listOf(record("definitive-zero", attemptCount = 7, lastAttemptUncertain = false))
+
+        val result = ProviderAckDrainCoordinator.drainPendingAcks(
+            loadPendingAcks = { records },
+            ackMessages = { _, _, deliveryIds -> ackResult(deliveryIds.size, 0) },
+            markAcked = { marked -> assertEquals(claimed(records), marked.toList()) },
+        )
+
+        assertEquals(claimed(records), result.acked)
+        assertTrue(result.failed.isEmpty())
+    }
+
+    @Test
+    fun drainPendingAcks_v2PartialRemovalIsTerminalBecauseDeleteAllLeavesEveryIdAbsent() = runBlocking {
+        val records = listOf(record("delivery-1"), record("delivery-2"))
+
+        val result = ProviderAckDrainCoordinator.drainPendingAcks(
+            loadPendingAcks = { records },
+            ackMessages = { _, _, deliveryIds -> ackResult(deliveryIds.size, 1) },
+            markAcked = {},
+        )
+
+        assertEquals(listOf("delivery-1", "delivery-2"), result.ackedIds)
+        assertTrue(result.failedIds.isEmpty())
     }
 
     @Test
@@ -110,9 +157,9 @@ class ProviderAckDrainCoordinatorTest {
             ),
             calls,
         )
-        assertEquals(listOf(oldRecord), result.failed)
-        assertEquals(listOf(newRecord), result.acked)
-        assertEquals(listOf(newRecord), marked)
+        assertEquals(claimed(listOf(oldRecord)), result.failed)
+        assertEquals(claimed(listOf(newRecord)), result.acked)
+        assertEquals(claimed(listOf(newRecord)), marked)
     }
 
     @Test
@@ -147,16 +194,17 @@ class ProviderAckDrainCoordinatorTest {
             markAcked = { marked += it },
         )
 
-        assertEquals(listOf(fresh), result.failed)
+        assertEquals(claimed(listOf(fresh)), result.failed)
         assertTrue(marked.isEmpty())
     }
 
     @Test
-    fun drainPendingAcks_legacyExactRetryMayAcceptAlreadyRemoved() = runBlocking {
+    fun drainPendingAcks_legacyExactRetryMayAcceptAlreadyRemovedAfterUncertainAttempt() = runBlocking {
         val retry = record(
             deliveryId = "legacy-retry",
             contract = ProviderAckContract.LEGACY_SINGLE,
             attemptCount = 1,
+            lastAttemptUncertain = true,
         )
         val marked = mutableListOf<InboundDeliveryAckOutboxEntity>()
 
@@ -166,8 +214,8 @@ class ProviderAckDrainCoordinatorTest {
             markAcked = { marked += it },
         )
 
-        assertEquals(listOf(retry), result.acked)
-        assertEquals(listOf(retry), marked)
+        assertEquals(claimed(listOf(retry)), result.acked)
+        assertEquals(claimed(listOf(retry)), marked)
     }
 
     private fun record(
@@ -176,6 +224,7 @@ class ProviderAckDrainCoordinatorTest {
         deviceKey: String = DEVICE_A,
         contract: ProviderAckContract = ProviderAckContract.V2_BATCH,
         attemptCount: Int = 0,
+        lastAttemptUncertain: Boolean = false,
     ) = InboundDeliveryAckOutboxEntity(
         deliveryId = deliveryId,
         gatewayUrl = gateway,
@@ -185,12 +234,16 @@ class ProviderAckDrainCoordinatorTest {
         enqueuedAt = 1,
         updatedAt = 1,
         attemptCount = attemptCount,
+        lastAttemptUncertain = lastAttemptUncertain,
     )
 
     private fun ackResult(requestedCount: Int, removedCount: Int) = ProviderAckAttemptResult(
         requestedCount = requestedCount,
         removedCount = removedCount,
     )
+
+    private fun claimed(records: Collection<InboundDeliveryAckOutboxEntity>) =
+        records.map { it.copy(attemptCount = it.attemptCount + 1) }
 
     private companion object {
         const val GATEWAY_A = "https://gateway-a.example"

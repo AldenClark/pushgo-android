@@ -6,6 +6,7 @@ import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
+import org.junit.Assert.assertSame
 import org.junit.Test
 import java.time.Instant
 import java.util.UUID
@@ -101,6 +102,48 @@ class InboundMessageProcessorTest {
         assertEquals(request, hooks.persistInput)
         assertEquals(request, hooks.ackInput)
         assertEquals(outcome, hooks.ackOutcome)
+    }
+
+    @Test
+    fun processWithRuntime_failedPersistenceThrowsAndNeverAcks() = runBlocking {
+        val hooks = RecordingHooks(
+            route = InboundIngressRoute.Direct,
+            parsedRequest = sampleMessageRequest(),
+            persistOutcome = InboundPersistenceOutcome(
+                status = InboundPersistenceStatus.FAILED,
+                notified = false,
+                shouldAck = false,
+            ),
+        )
+
+        val failure = runCatching {
+            InboundMessageProcessor().processWithRuntime(
+                runtime = FakeRuntime,
+                hooks = hooks,
+                messageData = mapOf("entity_type" to "message"),
+                transportMessageId = "transport-failed",
+            )
+        }.exceptionOrNull()
+
+        assertTrue(failure is InboundMessageProcessor.InboundRetryableException)
+        assertTrue(hooks.persistCalled)
+        assertFalse(hooks.ackCalled)
+    }
+
+    @Test
+    fun duplicateReplay_resolvesCanonicalLocalRecordByStableMessageId() = runBlocking {
+        val replay = sampleMessageRequest().message.copy(id = "transient-random-id")
+        val canonical = replay.copy(id = "canonical-local-id", title = "stored title")
+        var loadedStableId: String? = null
+
+        val resolved = resolveCanonicalMessageForReplay(replay) { stableId ->
+            loadedStableId = stableId
+            canonical
+        }
+
+        assertEquals("message-1", loadedStableId)
+        assertSame(canonical, resolved)
+        assertEquals("canonical-local-id", resolved?.id)
     }
 
     private fun sampleMessageRequest(): InboundPersistenceRequest.Message {

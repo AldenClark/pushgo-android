@@ -22,8 +22,7 @@ interface MessageDao {
     @Query(
         """
         SELECT id, message_id, title, channel, url, is_read, received_at,
-               CASE WHEN list_payload_json = '{}' THEN raw_payload_json ELSE list_payload_json END
-                   AS list_payload_json,
+               list_payload_json,
                status, decryption_state, notification_id, server_id, body_preview
         FROM messages
         WHERE (:readState IS NULL OR is_read = :readState)
@@ -110,23 +109,54 @@ interface MessageDao {
 
     @Query(
         """
+        WITH RECURSIVE search_tokens(token, remainder) AS (
+          SELECT '', :normalizedTokens || char(31)
+          UNION ALL
+          SELECT substr(remainder, 1, instr(remainder, char(31)) - 1),
+                 substr(remainder, instr(remainder, char(31)) + 1)
+          FROM search_tokens
+          WHERE remainder != ''
+        )
         SELECT m.id, m.message_id, m.title, m.channel, m.url, m.is_read, m.received_at,
-               CASE WHEN m.list_payload_json = '{}' THEN m.raw_payload_json ELSE m.list_payload_json END
-                   AS list_payload_json,
+               m.list_payload_json,
                m.status, m.decryption_state, m.notification_id, m.server_id, m.body_preview
         FROM messages m
-        JOIN message_fts f ON m.rowid = f.rowid
-        WHERE message_fts MATCH :query
+        JOIN message_metadata_index search_index
+          ON search_index.message_id = m.id
+         AND search_index.key_name = 'search_text'
+         AND search_index.value_norm = :searchTextVersion
+         AND search_index.label IS NOT NULL
+        WHERE NOT EXISTS (
+            SELECT 1
+            FROM search_tokens
+            WHERE token != ''
+              AND instr(search_index.label, token) = 0
+        )
           AND (:readState IS NULL OR m.is_read = :readState)
           AND (:excludedCount = 0 OR m.id NOT IN (:excludedIds))
+          AND (:channelCount = 0 OR COALESCE(NULLIF(TRIM(m.channel), ''), '') IN (:channels))
+          AND (
+            :facetTagCount = 0
+            OR EXISTS (
+              SELECT 1 FROM message_metadata_index facet
+              WHERE facet.message_id = m.id
+                AND facet.key_name = 'tag'
+                AND facet.value_norm IN (:facetTags)
+            )
+          )
         ORDER BY
           m.received_at DESC,
           m.id DESC
         """
     )
     fun searchMessages(
-        query: String,
+        normalizedTokens: String,
+        searchTextVersion: String,
         readState: Boolean?,
+        channels: List<String>,
+        channelCount: Int,
+        facetTags: List<String>,
+        facetTagCount: Int,
         excludedIds: List<String>,
         excludedCount: Int,
     ): PagingSource<Int, MessageListRow>
@@ -134,8 +164,7 @@ interface MessageDao {
     @Query(
         """
         SELECT m.id, m.message_id, m.title, m.channel, m.url, m.is_read, m.received_at,
-               CASE WHEN m.list_payload_json = '{}' THEN m.raw_payload_json ELSE m.list_payload_json END
-                   AS list_payload_json,
+               m.list_payload_json,
                m.status, m.decryption_state, m.notification_id, m.server_id, m.body_preview
         FROM messages m
         WHERE m.id IN (
@@ -148,6 +177,16 @@ interface MessageDao {
         )
           AND (:readState IS NULL OR m.is_read = :readState)
           AND (:excludedCount = 0 OR m.id NOT IN (:excludedIds))
+          AND (:channelCount = 0 OR COALESCE(NULLIF(TRIM(m.channel), ''), '') IN (:channels))
+          AND (
+            :facetTagCount = 0
+            OR EXISTS (
+              SELECT 1 FROM message_metadata_index facet
+              WHERE facet.message_id = m.id
+                AND facet.key_name = 'tag'
+                AND facet.value_norm IN (:facetTags)
+            )
+          )
         ORDER BY
           m.received_at DESC,
           m.id DESC
@@ -157,21 +196,51 @@ interface MessageDao {
         tags: List<String>,
         tagCount: Int,
         readState: Boolean?,
+        channels: List<String>,
+        channelCount: Int,
+        facetTags: List<String>,
+        facetTagCount: Int,
         excludedIds: List<String>,
         excludedCount: Int,
     ): PagingSource<Int, MessageListRow>
 
     @Query(
         """
+        WITH RECURSIVE search_tokens(token, remainder) AS (
+          SELECT '', :normalizedTokens || char(31)
+          UNION ALL
+          SELECT substr(remainder, 1, instr(remainder, char(31)) - 1),
+                 substr(remainder, instr(remainder, char(31)) + 1)
+          FROM search_tokens
+          WHERE remainder != ''
+        )
         SELECT m.id, m.message_id, m.title, m.channel, m.url, m.is_read, m.received_at,
-               CASE WHEN m.list_payload_json = '{}' THEN m.raw_payload_json ELSE m.list_payload_json END
-                   AS list_payload_json,
+               m.list_payload_json,
                m.status, m.decryption_state, m.notification_id, m.server_id, m.body_preview
         FROM messages m
-        JOIN message_fts f ON m.rowid = f.rowid
-        WHERE message_fts MATCH :query
+        JOIN message_metadata_index search_index
+          ON search_index.message_id = m.id
+         AND search_index.key_name = 'search_text'
+         AND search_index.value_norm = :searchTextVersion
+         AND search_index.label IS NOT NULL
+        WHERE NOT EXISTS (
+            SELECT 1
+            FROM search_tokens
+            WHERE token != ''
+              AND instr(search_index.label, token) = 0
+        )
           AND (:readState IS NULL OR m.is_read = :readState)
           AND (:excludedCount = 0 OR m.id NOT IN (:excludedIds))
+          AND (:channelCount = 0 OR COALESCE(NULLIF(TRIM(m.channel), ''), '') IN (:channels))
+          AND (
+            :facetTagCount = 0
+            OR EXISTS (
+              SELECT 1 FROM message_metadata_index facet
+              WHERE facet.message_id = m.id
+                AND facet.key_name = 'tag'
+                AND facet.value_norm IN (:facetTags)
+            )
+          )
           AND m.id IN (
             SELECT mi.message_id
             FROM message_metadata_index mi
@@ -186,10 +255,15 @@ interface MessageDao {
         """
     )
     fun searchMessagesByTextAndTags(
-        query: String,
+        normalizedTokens: String,
+        searchTextVersion: String,
         tags: List<String>,
         tagCount: Int,
         readState: Boolean?,
+        channels: List<String>,
+        channelCount: Int,
+        facetTags: List<String>,
+        facetTagCount: Int,
         excludedIds: List<String>,
         excludedCount: Int,
     ): PagingSource<Int, MessageListRow>
@@ -214,14 +288,62 @@ interface MessageDao {
 
     @Query(
         """
-        SELECT * FROM messages
-        WHERE received_at < :beforeReceivedAt
-           OR (received_at = :beforeReceivedAt AND id < :beforeId)
+        SELECT * FROM messages m
+        WHERE (
+            m.received_at < :beforeReceivedAt
+            OR (m.received_at = :beforeReceivedAt AND m.id < :beforeId)
+        )
+          AND NOT EXISTS (
+            SELECT 1
+            FROM message_metadata_index mi
+            WHERE mi.message_id = m.id
+              AND mi.key_name = 'search_text'
+              AND mi.value_norm = :searchTextVersion
+              AND mi.label IS NOT NULL
+          )
         ORDER BY received_at DESC, id DESC
         LIMIT :limit
         """
     )
-    suspend fun getMetadataBackfillPage(
+    suspend fun getMissingSearchMetadataPage(
+        searchTextVersion: String,
+        beforeReceivedAt: Long,
+        beforeId: String,
+        limit: Int,
+    ): List<MessageEntity>
+
+    @Query(
+        """
+        SELECT COUNT(*) FROM messages m
+        WHERE NOT EXISTS (
+            SELECT 1 FROM message_metadata_index mi
+            WHERE mi.message_id = m.id
+              AND mi.key_name = 'summary_projection'
+              AND mi.value_norm = :summaryProjectionVersion
+        )
+        """
+    )
+    suspend fun countMessagesMissingSummaryProjection(summaryProjectionVersion: String): Int
+
+    @Query(
+        """
+        SELECT * FROM messages m
+        WHERE (
+            m.received_at < :beforeReceivedAt
+            OR (m.received_at = :beforeReceivedAt AND m.id < :beforeId)
+        )
+          AND NOT EXISTS (
+            SELECT 1 FROM message_metadata_index mi
+            WHERE mi.message_id = m.id
+              AND mi.key_name = 'summary_projection'
+              AND mi.value_norm = :summaryProjectionVersion
+          )
+        ORDER BY m.received_at DESC, m.id DESC
+        LIMIT :limit
+        """
+    )
+    suspend fun getMissingSummaryProjectionPage(
+        summaryProjectionVersion: String,
         beforeReceivedAt: Long,
         beforeId: String,
         limit: Int,

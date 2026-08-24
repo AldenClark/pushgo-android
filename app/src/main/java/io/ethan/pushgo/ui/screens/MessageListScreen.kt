@@ -73,6 +73,7 @@ import androidx.paging.compose.itemContentType
 import io.ethan.pushgo.R
 import io.ethan.pushgo.automation.PushGoAutomation
 import io.ethan.pushgo.data.AppContainer
+import io.ethan.pushgo.data.PendingLocalDeletionOperation
 import io.ethan.pushgo.data.model.MessageListItem
 import io.ethan.pushgo.data.model.MessageSeverity
 import io.ethan.pushgo.notifications.ForegroundNotificationPresentationState
@@ -146,33 +147,6 @@ fun MessageListScreen(
         )
     }
 
-    fun normalizedChannel(channel: String?): String {
-        return channel?.trim().orEmpty()
-    }
-
-    fun normalizedTags(message: MessageListItem): Set<String> {
-        return message.tags
-            .asSequence()
-            .map { it.trim().lowercase() }
-            .filter { it.isNotEmpty() }
-            .toSet()
-    }
-
-    fun matchesChannelSelection(message: MessageListItem, selectedChannels: Set<String>): Boolean {
-        if (selectedChannels.isEmpty()) return true
-        return selectedChannels.contains(normalizedChannel(message.channel))
-    }
-
-    fun matchesTagSelection(message: MessageListItem, selectedTags: Set<String>): Boolean {
-        if (selectedTags.isEmpty()) return true
-        val tags = normalizedTags(message)
-        return selectedTags.any(tags::contains)
-    }
-
-    fun matchesFacetFilter(message: MessageListItem, selectedChannels: Set<String>, selectedTags: Set<String>): Boolean {
-        return matchesChannelSelection(message, selectedChannels) && matchesTagSelection(message, selectedTags)
-    }
-
     val visibleSearchResults = remember(searchResults.itemSnapshotList.items, effectivePendingScope) {
         searchResults.itemSnapshotList.items.filterNot(::isPendingLocalDeletion)
     }
@@ -193,10 +167,7 @@ fun MessageListScreen(
 
         container.pendingLocalDeletionCoordinator.schedule(
             summary = summary,
-            scope = PendingLocalDeletionCoordinator.Scope(messageIds = messageIds),
-            onCommit = {
-                container.messageStateCoordinator.deleteMessages(uniqueMessages.map { it.id })
-            },
+            operation = PendingLocalDeletionOperation.messages(messageIds),
             onCompletion = { result ->
                 val error = result.exceptionOrNull()
                 if (error != null) {
@@ -308,8 +279,8 @@ fun MessageListScreen(
         if (suppressedIds.isEmpty()) return@LaunchedEffect
     }
 
-    LaunchedEffect(filterState.unreadOnly) {
-        searchViewModel.setUnreadOnlyFilter(filterState.unreadOnly)
+    LaunchedEffect(filterState) {
+        searchViewModel.setFilter(filterState)
     }
 
     val selectedChannels = filterState.channels
@@ -317,24 +288,8 @@ fun MessageListScreen(
     val visiblePagedItems = remember(messages.itemSnapshotList.items, effectivePendingScope) {
         messages.itemSnapshotList.items.filterNot(::isPendingLocalDeletion)
     }
-    val filteredPagedItems = remember(visiblePagedItems, selectedChannels, selectedTags) {
-        visiblePagedItems.filter { message ->
-            matchesFacetFilter(
-                message = message,
-                selectedChannels = selectedChannels,
-                selectedTags = selectedTags,
-            )
-        }
-    }
-    val filteredSearchResults = remember(visibleSearchResults, selectedChannels, selectedTags) {
-        visibleSearchResults.filter { message ->
-            matchesFacetFilter(
-                message = message,
-                selectedChannels = selectedChannels,
-                selectedTags = selectedTags,
-            )
-        }
-    }
+    val filteredPagedItems = visiblePagedItems
+    val filteredSearchResults = visibleSearchResults
 
     val channelOptions = remember(
         facetChannelCounts,
@@ -553,12 +508,7 @@ fun MessageListScreen(
                             val message = messages[index]
                             if (
                                 message != null &&
-                                !isPendingLocalDeletion(message) &&
-                                matchesFacetFilter(
-                                    message = message,
-                                    selectedChannels = selectedChannels,
-                                    selectedTags = selectedTags,
-                                )
+                                !isPendingLocalDeletion(message)
                             ) {
                                 val listImageModels = remember(message.listPayloadJson) {
                                     container.messageImageStore.resolveListImageModels(message.listPayloadJson, MessageListImagePreviewMaxItems)
@@ -584,7 +534,7 @@ fun MessageListScreen(
                     } else {
                         items(count = searchResults.itemCount, key = searchResults.itemKey { it.id }) { index ->
                             val message = searchResults[index]
-                            if (message != null && !isPendingLocalDeletion(message) && matchesFacetFilter(message, selectedChannels, selectedTags)) {
+                            if (message != null && !isPendingLocalDeletion(message)) {
                                 val listImageModels = remember(message.listPayloadJson) {
                                     container.messageImageStore.resolveListImageModels(message.listPayloadJson, MessageListImagePreviewMaxItems)
                                 }

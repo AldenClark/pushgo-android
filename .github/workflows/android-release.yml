@@ -9,7 +9,9 @@ permissions:
   contents: write
 
 concurrency:
-  group: android-release-${{ github.ref }}
+  # Every track publishes a shared active feed on the same host. Serialize all
+  # Android tags so stable and beta releases cannot race that atomic switch.
+  group: android-release
   cancel-in-progress: false
 
 jobs:
@@ -138,15 +140,12 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          min_sdk="$(sed -n 's/^pushgo.androidMinSdk=//p' gradle.properties)"
           ndk_version="$(sed -n 's/^pushgo.androidNdkVersion=//p' gradle.properties)"
           sdkmanager --install \
             "platform-tools" \
             "build-tools;36.0.0" \
             "platforms;android-37" \
-            "ndk;${ndk_version}" \
-            "emulator" \
-            "system-images;android-${min_sdk};google_apis;x86_64"
+            "ndk;${ndk_version}"
           echo "ANDROID_NDK_HOME=${ANDROID_SDK_ROOT}/ndk/${ndk_version}" >> "$GITHUB_ENV"
 
       - name: Export Android build tools
@@ -183,8 +182,6 @@ jobs:
           test "$(cargo ndk --version | awk '{print $NF}')" = "$cargo_ndk_version"
           cargo install cargo-deny --version 0.20.2 --locked
           test "$(cargo deny --version | awk '{print $2}')" = "0.20.2"
-          cargo install cargo-audit --version 0.22.2 --locked
-          test "$(cargo audit --version | awk '{print $2}')" = "0.22.2"
 
       - name: Read release version
         id: version
@@ -208,69 +205,10 @@ jobs:
           cargo fmt --manifest-path native/quinn-jni/Cargo.toml -- --check
           cargo clippy --manifest-path native/quinn-jni/Cargo.toml --all-targets --locked -- -D warnings
           cargo test --manifest-path native/quinn-jni/Cargo.toml --locked
-          cargo audit --file native/quinn-jni/Cargo.lock --deny warnings
           cargo deny --manifest-path native/quinn-jni/Cargo.toml \
             --config native/quinn-jni/deny.toml --frozen check -D warnings
           ./gradlew --no-daemon :app:testDebugUnitTest :app:lintDebug -Ppushgo.versionName=${GITHUB_REF_NAME}
-
-      - name: Run real JNI instrumentation with CheckJNI at minSdk
-        shell: bash
-        run: |
-          set -euo pipefail
-          min_sdk="$(sed -n 's/^pushgo.androidMinSdk=//p' gradle.properties)"
-          avd_name="pushgo-api${min_sdk}-jni"
-          sdk_root="${ANDROID_SDK_ROOT}"
-          echo "no" | avdmanager create avd --force \
-            --name "$avd_name" \
-            --package "system-images;android-${min_sdk};google_apis;x86_64" \
-            --device "pixel_2"
-          if [[ -e /dev/kvm ]]; then
-            sudo chmod 666 /dev/kvm
-          fi
-          "${sdk_root}/emulator/emulator" \
-            -avd "$avd_name" \
-            -no-window \
-            -noaudio \
-            -no-boot-anim \
-            -no-snapshot \
-            -gpu swiftshader_indirect \
-            > "$RUNNER_TEMP/pushgo-api${min_sdk}-emulator.log" 2>&1 &
-          emulator_pid=$!
-          cleanup() {
-            adb emu kill >/dev/null 2>&1 || true
-            kill "$emulator_pid" >/dev/null 2>&1 || true
-          }
-          trap cleanup EXIT
-          adb wait-for-device
-          for _ in $(seq 1 180); do
-            if [[ "$(adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" == "1" ]]; then
-              break
-            fi
-            sleep 2
-          done
-          test "$(adb shell getprop sys.boot_completed | tr -d '\r')" = "1"
-          adb root
-          adb wait-for-device
-          adb shell setprop debug.checkjni 1
-          adb shell stop
-          adb shell start
-          adb wait-for-device
-          for _ in $(seq 1 90); do
-            if [[ "$(adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" == "1" ]]; then
-              break
-            fi
-            sleep 2
-          done
-          test "$(adb shell getprop sys.boot_completed | tr -d '\r')" = "1"
-          test "$(adb shell getprop debug.checkjni | tr -d '\r')" = "1"
-          adb logcat -c
-          ./gradlew --no-daemon :app:connectedDebugAndroidTest \
-            -Pandroid.testInstrumentationRunnerArguments.class=io.ethan.pushgo.notifications.WarpLinkNativeBridgeInstrumentedTest
-          adb logcat -d > "$RUNNER_TEMP/pushgo-api${min_sdk}-checkjni.log"
-          if rg -n "JNI DETECTED ERROR IN APPLICATION|CheckJNI.*(error|fatal)" "$RUNNER_TEMP/pushgo-api${min_sdk}-checkjni.log"; then
-            echo "CheckJNI reported a JNI contract violation" >&2
-            exit 1
-          fi
+          git diff --exit-code -- app/schemas/io.ethan.pushgo.data.db.PushGoDatabase
 
       - name: Prepare release signing after untrusted tests
         shell: bash
@@ -317,6 +255,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          expected_signer_sha256="c73b2d4609f1a5265ea389de76c5ff78b0baf7785380f103d02b94caa3df92e4"
           shopt -s nullglob
           apk_files=(app/build/outputs/apk/release/*.apk)
           if [ ${#apk_files[@]} -eq 0 ]; then
@@ -325,6 +264,18 @@ jobs:
           fi
           for file in "${apk_files[@]}"; do
             apksigner verify --verbose --print-certs "$file"
+            zipalign -c -P 16 4 "$file"
+            signer_sha256="$(
+              apksigner verify --print-certs "$file" \
+                | sed -n 's/^Signer #1 certificate SHA-256 digest: //p' \
+                | head -n 1 \
+                | tr '[:upper:]' '[:lower:]'
+            )"
+            if [[ "$signer_sha256" != "$expected_signer_sha256" ]]; then
+              echo "Unexpected Android release signer for $file" >&2
+              echo "expected=$expected_signer_sha256 actual=${signer_sha256:-<missing>}" >&2
+              exit 1
+            fi
           done
 
       - name: Package release artifacts
@@ -372,6 +323,10 @@ jobs:
         env:
           PUSHGO_UPDATE_FEED_ECDSA_SIGNING_KEY_B64: ${{ secrets.PUSHGO_UPDATE_FEED_ECDSA_SIGNING_KEY_B64 }}
 
+      - name: Freeze tag-owned update feed generator
+        shell: bash
+        run: install -m 0500 scripts/generate_update_feed.sh "$RUNNER_TEMP/pushgo-generate-update-feed.sh"
+
       - name: Validate update feed ECDSA key pair
         shell: bash
         run: |
@@ -397,6 +352,34 @@ jobs:
         env:
           PUSHGO_UPDATE_FEED_ECDSA_P256_PUBLIC_KEY_B64: ${{ secrets.PUSHGO_UPDATE_FEED_ECDSA_P256_PUBLIC_KEY_B64 }}
 
+      - name: Load latest trusted update feed state
+        shell: bash
+        run: |
+          set -euo pipefail
+          default_branch="${{ github.event.repository.default_branch }}"
+          latest_feed="$RUNNER_TEMP/pushgo-existing-update-feed.json"
+          canonical_payload="$RUNNER_TEMP/pushgo-existing-update-feed-payload.json"
+          signature_file="$RUNNER_TEMP/pushgo-existing-update-feed-signature.der"
+
+          # Jobs are globally serialized. The default branch is data-only here:
+          # all executable release tooling remains frozen from the signed tag.
+          git fetch --no-tags origin "${default_branch}"
+          git show "origin/${default_branch}:release/update-feed-v1.json" > "$latest_feed"
+
+          scripts/verify_update_feed.sh "$latest_feed"
+          jq -cS '.payload' "$latest_feed" > "$canonical_payload"
+          jq -er '.signatures["ecdsa-p256-sha256"]' "$latest_feed" \
+            | base64 --decode > "$signature_file"
+          public_key_files=("$GITHUB_WORKSPACE"/.ci/*public-key.pem)
+          [[ ${#public_key_files[@]} -eq 1 && -f "${public_key_files[0]}" ]]
+          openssl dgst -sha256 \
+            -verify "${public_key_files[0]}" \
+            -signature "$signature_file" \
+            "$canonical_payload" >/dev/null
+
+          echo "PUSHGO_EXISTING_UPDATE_FEED=$latest_feed" >> "$GITHUB_ENV"
+          echo "Latest default-branch feed passed schema and signature gates."
+
       - name: Generate update feed artifacts
         shell: bash
         run: |
@@ -411,13 +394,13 @@ jobs:
             exit 1
           fi
           cmd=(
-            scripts/generate_update_feed.sh
+            "$RUNNER_TEMP/pushgo-generate-update-feed.sh"
             "$track"
             dist
             --tag "${GITHUB_REF_NAME}"
             --repo "${GITHUB_REPOSITORY}"
             --base-url "$base_url"
-            --existing-feed "release/update-feed-v1.json"
+            --existing-feed "${PUSHGO_EXISTING_UPDATE_FEED}"
             --repo-feed-path ""
             --update-notes-file "${PUSHGO_UPDATE_NOTES_FILE}"
             --ecdsa-private-key-file "${PUSHGO_UPDATE_FEED_ECDSA_SIGNING_KEY_FILE}"
@@ -735,17 +718,15 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if [[ -z "${PUSHGO_UPDATE_BASE_URL:-}" ]]; then
-            echo "Missing required PUSHGO_UPDATE_BASE_URL while persisting repository feed." >&2
-            exit 1
-          fi
-
           default_branch="${{ github.event.repository.default_branch }}"
-          track="stable"
-          if [[ "${{ steps.tag.outputs.kind }}" == "beta" ]]; then
-            track="beta"
-          fi
-
+          frozen_feed="$RUNNER_TEMP/pushgo-persist-update-feed.json"
+          install -m 0400 dist/update-feed-v1.json "$frozen_feed"
+          base_record="$(sha256sum "$PUSHGO_EXISTING_UPDATE_FEED")"
+          base_sha="${base_record%% *}"
+          frozen_record="$(sha256sum "$frozen_feed")"
+          frozen_sha="${frozen_record%% *}"
+          [[ "$base_sha" =~ ^[0-9a-fA-F]{64}$ ]]
+          [[ "$frozen_sha" =~ ^[0-9a-fA-F]{64}$ ]]
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
@@ -778,18 +759,18 @@ jobs:
             git fetch origin "${default_branch}"
             git switch --force-create "${branch_name}" "origin/${default_branch}"
 
-            cmd=(
-              scripts/generate_update_feed.sh
-              "${track}"
-              dist
-              --tag "${GITHUB_REF_NAME}"
-              --repo "${GITHUB_REPOSITORY}"
-              --base-url "${PUSHGO_UPDATE_BASE_URL}"
-              --repo-feed-path "release/update-feed-v1.json"
-              --update-notes-file "${update_notes_tmp}"
-              --ecdsa-private-key-file "${PUSHGO_UPDATE_FEED_ECDSA_SIGNING_KEY_FILE}"
-            )
-            "${cmd[@]}"
+            current_record="$(sha256sum release/update-feed-v1.json)"
+            current_sha="${current_record%% *}"
+            [[ "$current_sha" =~ ^[0-9a-fA-F]{64}$ ]]
+            if [[ "$current_sha" == "$frozen_sha" ]]; then
+              echo "Repository update feed is already current."
+              exit 0
+            fi
+            if [[ "$current_sha" != "$base_sha" ]]; then
+              echo "Repository feed changed after trusted input loading; refusing to overwrite it." >&2
+              exit 1
+            fi
+            install -m 0644 "$frozen_feed" release/update-feed-v1.json
 
             if git diff --quiet -- release/update-feed-v1.json; then
               echo "Repository update feed is already current."

@@ -5,7 +5,6 @@ import io.ethan.pushgo.data.db.PushGoDatabase
 import io.ethan.pushgo.data.model.ChannelSubscription
 import io.ethan.pushgo.notifications.MessageStateCoordinator
 import io.ethan.pushgo.util.UrlValidators
-import io.ethan.pushgo.util.SilentSink
 import kotlinx.coroutines.withTimeout
 import org.json.JSONObject
 import java.net.URLEncoder
@@ -21,7 +20,6 @@ class ChannelSubscriptionRepository(
     service: ChannelSubscriptionService? = null,
 ) {
     companion object {
-        private const val TAG = "ChannelSubscriptionRepo"
         private const val FCM_CHANNEL_TYPE = "fcm"
         private const val FCM_TOKEN_BOOTSTRAP_TIMEOUT_MS = 10_000L
     }
@@ -213,12 +211,15 @@ class ChannelSubscriptionRepository(
     ): ChannelSubscribeResult {
         val channelId = ChannelIdValidator.normalize(rawChannelId)
         val normalizedPassword = ChannelPasswordValidator.normalize(password)
-        return subscribeInternal(
-            channelId = channelId,
-            channelName = null,
-            password = normalizedPassword,
-            deviceToken = deviceToken,
-        )
+        val gatewayUrl = resolveServerConfig().address
+        return store.withChannelMutation(gatewayUrl, channelId) {
+            subscribeInternal(
+                channelId = channelId,
+                channelName = null,
+                password = normalizedPassword,
+                deviceToken = deviceToken,
+            )
+        }
     }
 
     suspend fun renameChannel(
@@ -228,22 +229,24 @@ class ChannelSubscriptionRepository(
         val channelId = ChannelIdValidator.normalize(rawChannelId)
         val alias = ChannelNameValidator.normalize(rawAlias)
         val config = resolveServerConfig()
-        val password = store.passwordFor(config.address, channelId)
-            ?: throw ChannelSubscriptionException.local(
-                message = "Channel password missing",
-                code = "channel_password_missing",
-                category = GatewayErrorCategory.VALIDATION,
+        return store.withChannelMutation(config.address, channelId) {
+            val password = store.passwordFor(config.address, channelId)
+                ?: throw ChannelSubscriptionException.local(
+                    message = "Channel password missing",
+                    code = "channel_password_missing",
+                    category = GatewayErrorCategory.VALIDATION,
+                )
+
+            val result = service.renameChannel(
+                baseUrl = config.address,
+                token = config.token,
+                channelId = channelId,
+                channelName = alias,
+                password = password,
             )
-        
-        val result = service.renameChannel(
-            baseUrl = config.address,
-            token = config.token,
-            channelId = channelId,
-            channelName = alias,
-            password = password,
-        )
-        store.updateDisplayName(config.address, result.channelId, result.channelName)
-        return result
+            store.updateDisplayName(config.address, result.channelId, result.channelName)
+            result
+        }
     }
 
     suspend fun unsubscribeChannel(
@@ -252,8 +255,10 @@ class ChannelSubscriptionRepository(
     ) {
         val channelId = ChannelIdValidator.normalize(rawChannelId)
         val config = resolveServerConfig()
-        unsubscribeProviderRemote(channelId, deviceToken, config)
-        store.softDeleteSubscription(config.address, channelId)
+        store.withChannelMutation(config.address, channelId) {
+            unsubscribeProviderRemote(channelId, deviceToken, config)
+            store.softDeleteSubscription(config.address, channelId)
+        }
     }
 
     suspend fun unsubscribeProviderRemote(
@@ -435,7 +440,9 @@ class ChannelSubscriptionRepository(
         }
         val invalidChannels = (staleChannels + passwordMismatchChannels).distinct()
         invalidChannels.forEach { channelId ->
-            store.softDeleteSubscription(config.address, channelId)
+            store.withChannelMutation(config.address, channelId) {
+                store.softDeleteSubscription(config.address, channelId)
+            }
         }
         return SyncOutcome(
             staleChannels = staleChannels,
@@ -467,6 +474,7 @@ class ChannelSubscriptionRepository(
         )
         val resolvedDeviceKey = upserted.deviceKey.trim()
         settingsRepository.setDeviceKey(resolvedDeviceKey)
+        rememberAckCredential(config)
         if (previousToken != null && previousToken != normalizedToken) {
             runCatching {
                 service.retireProviderToken(
@@ -606,19 +614,23 @@ class ChannelSubscriptionRepository(
         val normalizedPassword = ChannelPasswordValidator.normalize(password)
         val config = resolveServerConfig()
         val name = displayName?.trim()?.ifEmpty { null } ?: channelId
-        return store.upsertSubscription(
-            gatewayUrl = config.address,
-            channelId = channelId,
-            displayName = name,
-            password = normalizedPassword,
-            lastSyncedAt = System.currentTimeMillis(),
-        )
+        return store.withChannelMutation(config.address, channelId) {
+            store.upsertSubscription(
+                gatewayUrl = config.address,
+                channelId = channelId,
+                displayName = name,
+                password = normalizedPassword,
+                lastSyncedAt = System.currentTimeMillis(),
+            )
+        }
     }
 
     suspend fun softDeleteLocalSubscription(rawChannelId: String) {
         val channelId = ChannelIdValidator.normalize(rawChannelId)
         val config = resolveServerConfig()
-        store.softDeleteSubscription(config.address, channelId)
+        store.withChannelMutation(config.address, channelId) {
+            store.softDeleteSubscription(config.address, channelId)
+        }
     }
 
     suspend fun deleteLocalHistoryAndSubscription(
@@ -652,18 +664,28 @@ class ChannelSubscriptionRepository(
             }
             count to (messageIds to entityKeys)
         }
-        runCatching {
-            store.removePassword(config.address, channelId)
-        }.onFailure { error ->
-            SilentSink.w(TAG, "post-commit channel password cleanup failed", error)
-        }
-        runCatching {
+        try {
             messageStateCoordinator.reconcileExternallyDeletedMessages(
                 messageIds = notificationKeys.first,
                 entityKeys = notificationKeys.second,
             )
-        }.onFailure { error ->
-            SilentSink.w(TAG, "post-commit channel notification reconciliation failed", error)
+        } catch (error: Throwable) {
+            throw PendingLocalDeletionNotificationReconciliationException(
+                message = "Post-commit channel notification reconciliation failed",
+                cause = error,
+            )
+        }
+        try {
+            store.removePasswordIfDeletedVersionMatches(
+                gatewayUrl = config.address,
+                channelId = channelId,
+                expectedUpdatedAt = expectedUpdatedAt,
+            )
+        } catch (error: Throwable) {
+            throw PendingLocalDeletionCredentialCleanupException(
+                message = "Post-commit channel credential cleanup failed",
+                cause = error,
+            )
         }
         return deleted
     }

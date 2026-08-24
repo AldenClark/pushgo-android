@@ -211,6 +211,13 @@ kotlin {
     }
 }
 
+configurations.configureEach {
+    if (name == "kotlinAbiValidationCompatClasspath") {
+        // Keep KGP's open compatibility range on the declared Kotlin toolchain instead of a newer prerelease.
+        resolutionStrategy.force("org.jetbrains.kotlin:kotlin-build-tools-impl:2.4.0")
+    }
+}
+
 tasks.named("preBuild").configure {
     dependsOn(buildRustJniLibs)
 }
@@ -227,6 +234,7 @@ tasks.register("printReleaseVersionInfo") {
         println("versionCode=$appVersionCode")
         println("applicationId=io.ethan.pushgo")
         println("abiSplitsEnabled=$enableAbiSplits")
+        println("releaseAbis=armeabi-v7a,arm64-v8a,x86_64,universal")
     }
 }
 

@@ -885,10 +885,10 @@ class RuntimeSandboxGatewayInstrumentedTest {
         val pullAckRoutesPresent = isRoutePresentCode(pullProbeCode) || isRoutePresentCode(ackProbeCode)
         val pullAckContractAvailable = (pullWithDeviceKeyCode in 200..299) || (ackWithDeviceKeyCode in 200..299)
         if (!pullAckRoutesPresent) {
-            return "POST_/v2/messages/pull_and_/v2/messages/ack_routes_required"
+            return "POST_/v2/messages/pull_and_/v2/messages/ack_routes_required_for_v2_reliability_probe"
         }
         if (!pullAckContractAvailable) {
-            return "server_observability_contract_for_/v2/messages/pull_or_/v2/messages/ack_(device_key,delivery_ids)"
+            return "server_observability_contract_for_v2_reliability_probe_(device_key,delivery_ids)"
         }
         if (privateDispatchAttemptCode == 404 || privateDispatchAttemptCode == 405) {
             return "POST_/message_(channel_id,password,op_id,title,body)_for_private_ack_probe"

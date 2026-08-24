@@ -1,7 +1,7 @@
 <resources>
     <string name="app_name">PushGo</string>
     <string name="tab_messages">訊息</string>
-    <string name="tab_settings">設定</string><string name="action_mark_read">標示為已讀</string>
+    <string name="tab_settings">設定</string>
     <string name="action_mark_all_read">全部標示為已讀</string>
     <string name="action_delete">刪除</string>
     <string name="history_cleanup_chip">清理歷史訊息</string>
@@ -16,14 +16,15 @@
     <string name="history_cleanup_6_months">清理6個月前</string>
     <string name="history_cleanup_1_year">清理1年前</string>
     <string name="history_cleanup_confirm_title">確認清理</string>
-    <string name="history_cleanup_confirm_message">%1$s將永久刪除符合條件的本機訊息，此操作無法復原。</string>
     <string name="history_cleanup_confirm_action">確認清理</string>
     <string name="history_cleanup_confirm_detail">請確認以下清理範圍。此操作無法復原。</string>
     <string name="history_cleanup_selected_range">清理範圍</string>
     <string name="history_cleanup_cleaning">清理中…</string>
     <string name="history_cleanup_cleaning_detail">正在刪除符合條件的本機訊息，請保持 App 運行。</string>
     <string name="history_cleanup_complete">清理完成</string>
-    <string name="history_cleanup_success">已清理 %1$d 則訊息。</string>
+    <plurals name="history_cleanup_success">
+        <item quantity="other">已清理 %1$d 則訊息。</item>
+    </plurals>
     <string name="history_cleanup_failed">清理失敗</string>
     <string name="history_cleanup_done">完成</string>
     <string name="action_copy">複製</string>
@@ -75,6 +76,7 @@
     <string name="label_search_things">搜尋物件</string>
     <string name="label_no_messages">暫無訊息</string>
     <string name="label_no_search_results">無搜尋結果</string>
+    <string name="action_continue_search">繼續搜尋</string>
     <string name="label_no_title">(無標題)</string>
     <string name="label_group_ungrouped">未分組</string>
     <string name="label_loading">載入中…</string>
@@ -324,4 +326,12 @@
     <string name="a11y_pane_gateway_settings">網關設定</string>
     <string name="private_transport_status_gateway_disabled">網關私有通道已關閉</string>
     <string name="section_notification_settings">通知設定</string>
+    <string name="label_docs_getting_started">快速開始</string>
+    <string name="label_docs_getting_started_hint">建立頻道並傳送第一條測試推送。</string>
+    <string name="label_docs_message_api">訊息 API</string>
+    <string name="label_docs_message_api_hint">查看訊息資料格式和請求範例。</string>
+    <string name="label_docs_e2ee">端對端加密</string>
+    <string name="label_docs_e2ee_hint">了解資料加密和客戶端解密金鑰設定。</string>
+    <string name="a11y_open_documentation">%1$s。%2$s 將在瀏覽器中開啟。</string>
+    <string name="error_open_documentation">無法開啟文件。</string>
 </resources>

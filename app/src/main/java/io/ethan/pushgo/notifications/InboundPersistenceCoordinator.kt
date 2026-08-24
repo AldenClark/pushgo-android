@@ -2,14 +2,66 @@ package io.ethan.pushgo.notifications
 
 import android.content.Context
 import android.util.Log
+import androidx.work.BackoffPolicy
+import androidx.work.Constraints
+import androidx.work.ExistingWorkPolicy
+import androidx.work.NetworkType
+import androidx.work.OneTimeWorkRequestBuilder
+import androidx.work.WorkManager
+import androidx.work.workDataOf
 import io.ethan.pushgo.automation.PushGoAutomation
 import io.ethan.pushgo.data.EntityRepository
+import io.ethan.pushgo.data.InboundDeliveryScope
 import io.ethan.pushgo.data.InboundDeliveryLedgerRepository
 import io.ethan.pushgo.data.IncomingEntityRecord
 import io.ethan.pushgo.data.MessageRepository
 import io.ethan.pushgo.data.ProviderAckIdentity
 import io.ethan.pushgo.data.SettingsRepository
+import io.ethan.pushgo.data.inboundDeliveryScope
+import io.ethan.pushgo.data.model.MessageSeverity
 import io.ethan.pushgo.data.model.PushMessage
+import java.util.concurrent.TimeUnit
+
+internal data class MessagePostProcessHandoff(
+    val uniqueWorkName: String,
+    val messageId: String,
+    val imageUrl: String?,
+)
+
+internal fun messagePostProcessHandoff(
+    messageId: String,
+    imageUrl: String?,
+): MessagePostProcessHandoff = MessagePostProcessHandoff(
+    uniqueWorkName = "message-post-process:$messageId",
+    messageId = messageId,
+    imageUrl = imageUrl,
+)
+
+internal fun enqueueMessagePostProcess(
+    context: Context,
+    messageId: String,
+    imageUrl: String?,
+) {
+    val handoff = messagePostProcessHandoff(messageId, imageUrl)
+    val input = workDataOf(
+        MessagePostProcessWorker.KEY_MESSAGE_ID to handoff.messageId,
+        MessagePostProcessWorker.KEY_IMAGE_URL to handoff.imageUrl,
+    )
+    val request = OneTimeWorkRequestBuilder<MessagePostProcessWorker>()
+        .setInputData(input)
+        .setConstraints(
+            Constraints.Builder()
+                .setRequiredNetworkType(NetworkType.CONNECTED)
+                .build()
+        )
+        .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 10, TimeUnit.SECONDS)
+        .build()
+    WorkManager.getInstance(context.applicationContext).enqueueUniqueWork(
+        handoff.uniqueWorkName,
+        ExistingWorkPolicy.KEEP,
+        request,
+    )
+}
 
 sealed interface InboundPersistenceRequest {
     data class Message(
@@ -55,6 +107,7 @@ object InboundPersistenceCoordinator {
         inboundDeliveryLedgerRepository: InboundDeliveryLedgerRepository,
         settingsRepository: SettingsRepository,
         inbound: InboundPersistenceRequest,
+        deliveryScope: InboundDeliveryScope? = null,
         beforeMessageNotify: suspend (PushMessage, String?) -> Unit = { _, _ -> },
     ): InboundPersistenceOutcome {
         return when (inbound) {
@@ -64,6 +117,7 @@ object InboundPersistenceCoordinator {
                 inboundDeliveryLedgerRepository = inboundDeliveryLedgerRepository,
                 settingsRepository = settingsRepository,
                 inbound = inbound,
+                deliveryScope = deliveryScope ?: inbound.providerAckIdentity.inboundDeliveryScope(),
                 beforeMessageNotify = beforeMessageNotify,
             )
 
@@ -74,6 +128,7 @@ object InboundPersistenceCoordinator {
                 inboundDeliveryLedgerRepository = inboundDeliveryLedgerRepository,
                 settingsRepository = settingsRepository,
                 inbound = inbound,
+                deliveryScope = deliveryScope ?: inbound.providerAckIdentity.inboundDeliveryScope(),
             )
         }
     }
@@ -84,10 +139,15 @@ object InboundPersistenceCoordinator {
         inboundDeliveryLedgerRepository: InboundDeliveryLedgerRepository,
         settingsRepository: SettingsRepository,
         inbound: InboundPersistenceRequest.Message,
+        deliveryScope: InboundDeliveryScope?,
         beforeMessageNotify: suspend (PushMessage, String?) -> Unit,
     ): InboundPersistenceOutcome {
         val inserted = runCatching {
-            messageRepository.insertIncoming(inbound.message, inbound.providerAckIdentity)
+            messageRepository.insertIncoming(
+                message = inbound.message,
+                providerAckIdentity = inbound.providerAckIdentity,
+                deliveryScope = deliveryScope,
+            )
         }
             .onFailure { error ->
                 io.ethan.pushgo.util.SilentSink.e(TAG, "message persist failed", error)
@@ -105,8 +165,46 @@ object InboundPersistenceCoordinator {
                 shouldAck = false,
             )
         }
+        settingsRepository.reenablePageForEntity("message")
         if (!inserted) {
             val pending = messageRepository.wouldPersistAsPending(inbound.message)
+            val shouldAck = inboundDeliveryLedgerRepository.shouldAckDelivery(
+                deliveryId = inbound.message.deliveryId,
+                scope = deliveryScope,
+            )
+            if (shouldAck && !pending) {
+                val stableMessageId = inbound.message.messageId?.trim()?.takeIf { it.isNotEmpty() }
+                val canonicalMessage = resolveCanonicalMessageForReplay(inbound.message) { messageId ->
+                    messageRepository.getByMessageId(messageId)
+                }
+                if (canonicalMessage == null) {
+                    io.ethan.pushgo.util.SilentSink.w(
+                        TAG,
+                        "duplicate message replay skipped: canonical row missing messageId=$stableMessageId",
+                    )
+                    return InboundPersistenceOutcome(
+                        status = InboundPersistenceStatus.DUPLICATE,
+                        notified = false,
+                        shouldAck = shouldAck,
+                    )
+                }
+                // Resolve media from the canonical payload too; a replay payload may differ.
+                beforeMessageNotify(canonicalMessage, null)
+                if (
+                    inbound.shouldNotify &&
+                    !NotificationHelper.showMessageReplayNotificationSilently(
+                        context = context,
+                        message = canonicalMessage,
+                        level = canonicalNotificationLevel(canonicalMessage, inbound.level),
+                    )
+                ) {
+                    return InboundPersistenceOutcome(
+                        status = InboundPersistenceStatus.FAILED,
+                        notified = false,
+                        shouldAck = false,
+                    )
+                }
+            }
             return InboundPersistenceOutcome(
                 status = if (pending) {
                     InboundPersistenceStatus.PERSISTED_PENDING
@@ -114,37 +212,40 @@ object InboundPersistenceCoordinator {
                     InboundPersistenceStatus.DUPLICATE
                 },
                 notified = false,
-                shouldAck = inboundDeliveryLedgerRepository.shouldAck(
-                    inbound.message.deliveryId,
-                    inbound.providerAckIdentity,
-                ),
-            )
-        }
-
-        settingsRepository.reenablePageForEntity("message")
-        if (!inbound.shouldNotify) {
-            return InboundPersistenceOutcome(
-                status = InboundPersistenceStatus.PERSISTED_MAIN,
-                notified = false,
-                shouldAck = inboundDeliveryLedgerRepository.shouldAck(
-                    inbound.message.deliveryId,
-                    inbound.providerAckIdentity,
-                ),
+                shouldAck = shouldAck,
             )
         }
 
         beforeMessageNotify(inbound.message, inbound.imageUrl)
-        NotificationHelper.showMessageNotification(
-            context = context,
-            message = inbound.message,
-            level = inbound.level,
-        )
+        if (!inbound.shouldNotify) {
+            return InboundPersistenceOutcome(
+                status = InboundPersistenceStatus.PERSISTED_MAIN,
+                notified = false,
+                shouldAck = inboundDeliveryLedgerRepository.shouldAckDelivery(
+                    deliveryId = inbound.message.deliveryId,
+                    scope = deliveryScope,
+                ),
+            )
+        }
+
+        if (!NotificationHelper.showMessageNotification(
+                context = context,
+                message = inbound.message,
+                level = inbound.level,
+            )
+        ) {
+            return InboundPersistenceOutcome(
+                status = InboundPersistenceStatus.FAILED,
+                notified = false,
+                shouldAck = false,
+            )
+        }
         return InboundPersistenceOutcome(
             status = InboundPersistenceStatus.PERSISTED_MAIN,
             notified = true,
-            shouldAck = inboundDeliveryLedgerRepository.shouldAck(
-                inbound.message.deliveryId,
-                inbound.providerAckIdentity,
+            shouldAck = inboundDeliveryLedgerRepository.shouldAckDelivery(
+                deliveryId = inbound.message.deliveryId,
+                scope = deliveryScope,
             ),
         )
     }
@@ -156,6 +257,7 @@ object InboundPersistenceCoordinator {
         inboundDeliveryLedgerRepository: InboundDeliveryLedgerRepository,
         settingsRepository: SettingsRepository,
         inbound: InboundPersistenceRequest.Entity,
+        deliveryScope: InboundDeliveryScope?,
     ): InboundPersistenceOutcome {
         val eventFallbackTitle = if (
             inbound.record.entityType == "event" &&
@@ -190,6 +292,7 @@ object InboundPersistenceCoordinator {
             entityRepository.insertIncoming(
                 resolvedInbound.record,
                 resolvedInbound.providerAckIdentity,
+                deliveryScope,
             )
         }
             .onFailure { error ->
@@ -219,6 +322,26 @@ object InboundPersistenceCoordinator {
         settingsRepository.reenablePageForEntity(displayInbound.record.entityType)
         if (!inserted) {
             val pending = entityRepository.wouldPersistAsPending(displayInbound.record)
+            val shouldAck = inboundDeliveryLedgerRepository.shouldAckDelivery(
+                deliveryId = displayInbound.record.deliveryId,
+                scope = deliveryScope,
+            )
+            if (shouldAck && !pending && displayInbound.shouldNotify) {
+                if (!showEntityReplayNotificationSilently(context, displayInbound)) {
+                    return InboundPersistenceOutcome(
+                        status = InboundPersistenceStatus.FAILED,
+                        notified = false,
+                        shouldAck = false,
+                    )
+                }
+            }
+            if (shouldAck && !pending && displayInbound.record.entityType == "thing") {
+                replayPendingThingChildren(
+                    messageRepository = messageRepository,
+                    entityRepository = entityRepository,
+                    inbound = displayInbound,
+                )
+            }
             return InboundPersistenceOutcome(
                 status = if (pending) {
                     InboundPersistenceStatus.PERSISTED_PENDING
@@ -226,54 +349,82 @@ object InboundPersistenceCoordinator {
                     InboundPersistenceStatus.DUPLICATE
                 },
                 notified = false,
-                shouldAck = inboundDeliveryLedgerRepository.shouldAck(
-                    displayInbound.record.deliveryId,
-                    displayInbound.providerAckIdentity,
-                ),
+                shouldAck = shouldAck,
             )
         }
         if (!displayInbound.shouldNotify) {
             if (displayInbound.record.entityType == "thing") {
-                val thingId = displayInbound.record.thingId?.trim()?.takeIf { it.isNotEmpty() }
-                    ?: displayInbound.record.entityId
-                messageRepository.replayPendingForThing(thingId)
-                entityRepository.replayPendingForThing(thingId)
+                replayPendingThingChildren(messageRepository, entityRepository, displayInbound)
             }
             return InboundPersistenceOutcome(
                 status = InboundPersistenceStatus.PERSISTED_MAIN,
                 notified = false,
-                shouldAck = inboundDeliveryLedgerRepository.shouldAck(
-                    displayInbound.record.deliveryId,
-                    displayInbound.providerAckIdentity,
+                shouldAck = inboundDeliveryLedgerRepository.shouldAckDelivery(
+                    deliveryId = displayInbound.record.deliveryId,
+                    scope = deliveryScope,
                 ),
             )
         }
 
-        NotificationHelper.showEntityNotification(
-            context = context,
-            entityType = displayInbound.record.entityType,
-            entityId = displayInbound.record.entityId,
-            groupChannel = displayInbound.record.channel,
-            eventId = displayInbound.record.eventId,
-            thingId = displayInbound.record.thingId,
-            title = displayInbound.notificationTitle,
-            body = displayInbound.notificationBody,
-            level = displayInbound.level,
-        )
+        if (!showEntityNotification(context, displayInbound)) {
+            return InboundPersistenceOutcome(
+                status = InboundPersistenceStatus.FAILED,
+                notified = false,
+                shouldAck = false,
+            )
+        }
         if (displayInbound.record.entityType == "thing") {
-            val thingId = displayInbound.record.thingId?.trim()?.takeIf { it.isNotEmpty() }
-                ?: displayInbound.record.entityId
-            messageRepository.replayPendingForThing(thingId)
-            entityRepository.replayPendingForThing(thingId)
+            replayPendingThingChildren(messageRepository, entityRepository, displayInbound)
         }
         return InboundPersistenceOutcome(
             status = InboundPersistenceStatus.PERSISTED_MAIN,
             notified = true,
-            shouldAck = inboundDeliveryLedgerRepository.shouldAck(
-                displayInbound.record.deliveryId,
-                displayInbound.providerAckIdentity,
+            shouldAck = inboundDeliveryLedgerRepository.shouldAckDelivery(
+                deliveryId = displayInbound.record.deliveryId,
+                scope = deliveryScope,
             ),
         )
+    }
+
+    private fun showEntityNotification(
+        context: Context,
+        inbound: InboundPersistenceRequest.Entity,
+    ): Boolean = NotificationHelper.showEntityNotification(
+        context = context,
+        entityType = inbound.record.entityType,
+        entityId = inbound.record.entityId,
+        groupChannel = inbound.record.channel,
+        eventId = inbound.record.eventId,
+        thingId = inbound.record.thingId,
+        title = inbound.notificationTitle,
+        body = inbound.notificationBody,
+        level = inbound.level,
+    )
+
+    private fun showEntityReplayNotificationSilently(
+        context: Context,
+        inbound: InboundPersistenceRequest.Entity,
+    ): Boolean = NotificationHelper.showEntityReplayNotificationSilently(
+        context = context,
+        entityType = inbound.record.entityType,
+        entityId = inbound.record.entityId,
+        groupChannel = inbound.record.channel,
+        eventId = inbound.record.eventId,
+        thingId = inbound.record.thingId,
+        title = inbound.notificationTitle,
+        body = inbound.notificationBody,
+        level = inbound.level,
+    )
+
+    private suspend fun replayPendingThingChildren(
+        messageRepository: MessageRepository,
+        entityRepository: EntityRepository,
+        inbound: InboundPersistenceRequest.Entity,
+    ) {
+        val thingId = inbound.record.thingId?.trim()?.takeIf { it.isNotEmpty() }
+            ?: inbound.record.entityId
+        messageRepository.replayPendingForThing(thingId)
+        entityRepository.replayPendingForThing(thingId)
     }
 
     private suspend fun resolveEntityNotificationDisplayAfterPersist(
@@ -305,4 +456,22 @@ object InboundPersistenceCoordinator {
             notificationTitle = storedTitle,
         )
     }
+}
+
+private fun canonicalNotificationLevel(message: PushMessage, fallback: String?): String? {
+    return when (message.severity) {
+        MessageSeverity.LOW -> "low"
+        MessageSeverity.MEDIUM -> "normal"
+        MessageSeverity.HIGH -> "high"
+        MessageSeverity.CRITICAL -> "critical"
+        null -> fallback
+    }
+}
+
+internal suspend fun resolveCanonicalMessageForReplay(
+    replay: PushMessage,
+    loadByMessageId: suspend (String) -> PushMessage?,
+): PushMessage? {
+    val stableMessageId = replay.messageId?.trim()?.takeIf { it.isNotEmpty() } ?: return null
+    return loadByMessageId(stableMessageId)
 }

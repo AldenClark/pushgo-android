@@ -2,10 +2,17 @@ package io.ethan.pushgo.data.db
 
 import androidx.room.ColumnInfo
 import androidx.room.Entity
+import androidx.room.Index
 
 @Entity(
     tableName = "inbound_delivery_ledger",
     primaryKeys = ["gateway_url", "device_key", "delivery_id"],
+    indices = [
+        Index(
+            value = ["ack_state", "acked_at"],
+            name = "index_inbound_delivery_ledger_ack_state_acked_at",
+        ),
+    ],
 )
 data class InboundDeliveryLedgerEntity(
     @ColumnInfo(name = "gateway_url")

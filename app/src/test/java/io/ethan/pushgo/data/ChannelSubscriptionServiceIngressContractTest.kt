@@ -224,12 +224,12 @@ class ChannelSubscriptionServiceIngressContractTest {
     }
 
     @Test
-    fun pullMessages_fallsBackOnlyForStructuredV2RouteNotFound() = runBlocking {
+    fun pullMessages_fallsBackToLegacyOnlyWhenV2RouteIsUnavailable() = runBlocking {
         CapturingGatewayServer(
             responseBody = """{"success":false,"error_code":"route_not_found","problem":{"code":"route_not_found","category":"not_found","status":404,"retryable":false}}""",
             responseCode = 404,
             subsequentResponses = listOf(
-                200 to """{"success":true,"data":{"items":[]}}""",
+                200 to """{"success":true,"data":{"has_more":true,"items":[{"delivery_id":"legacy-001","payload":{"title":"legacy"}}]}}""",
             ),
         ).use { server ->
             val page = ChannelSubscriptionService().pullMessages(
@@ -237,13 +237,54 @@ class ChannelSubscriptionServiceIngressContractTest {
                 token = null,
                 deviceKey = "device-001",
             )
-            assertTrue(page.items.isEmpty())
+
             assertEquals(ProviderPullContract.LEGACY, page.contract)
             assertFalse(page.hasMore)
+            assertEquals(listOf("legacy-001"), page.items.map { it.deliveryId })
             assertEquals(
                 listOf("/v2/messages/pull", "/messages/pull"),
                 server.allRequests().map { it.path },
             )
+        }
+    }
+
+    @Test
+    fun pullMessages_canDisableLegacyFallbackAndPreservesV2RouteError() = runBlocking {
+        CapturingGatewayServer(
+            responseBody = """{"success":false,"error_code":"route_not_found","problem":{"code":"route_not_found","category":"not_found","status":404,"retryable":false}}""",
+            responseCode = 404,
+        ).use { server ->
+            val failure = runCatching {
+                ChannelSubscriptionService().pullMessages(
+                    baseUrl = server.baseUrl,
+                    token = null,
+                    deviceKey = "device-001",
+                    allowLegacyFallback = false,
+                )
+            }.exceptionOrNull() as ChannelSubscriptionException
+
+            assertEquals("route_not_found", failure.code)
+            assertEquals(GatewayErrorCategory.NOT_FOUND, failure.category)
+            assertEquals(listOf("/v2/messages/pull"), server.allRequests().map { it.path })
+        }
+    }
+
+    @Test
+    fun pullMessages_doesNotFallBackForNonRouteNotFoundFailure() = runBlocking {
+        CapturingGatewayServer(
+            responseBody = """{"success":false,"error_code":"device_not_found","problem":{"code":"device_not_found","category":"not_found","status":404,"retryable":false}}""",
+            responseCode = 404,
+        ).use { server ->
+            val failure = runCatching {
+                ChannelSubscriptionService().pullMessages(
+                    baseUrl = server.baseUrl,
+                    token = null,
+                    deviceKey = "device-001",
+                )
+            }.exceptionOrNull() as ChannelSubscriptionException
+
+            assertEquals("device_not_found", failure.code)
+            assertEquals(listOf("/v2/messages/pull"), server.allRequests().map { it.path })
         }
     }
 

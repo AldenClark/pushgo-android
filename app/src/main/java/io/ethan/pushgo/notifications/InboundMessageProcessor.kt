@@ -2,6 +2,9 @@ package io.ethan.pushgo.notifications
 
 import android.content.Context
 import androidx.work.OneTimeWorkRequestBuilder
+import androidx.work.BackoffPolicy
+import androidx.work.Constraints
+import androidx.work.NetworkType
 import androidx.work.WorkManager
 import androidx.work.workDataOf
 import io.ethan.pushgo.PushGoApp
@@ -9,6 +12,7 @@ import io.ethan.pushgo.data.ChannelSubscriptionRepository
 import io.ethan.pushgo.data.EntityRepository
 import io.ethan.pushgo.data.MessageRepository
 import io.ethan.pushgo.data.SettingsRepository
+import java.util.concurrent.TimeUnit
 
 internal object DefaultInboundMessageProcessor {
     private val delegate = InboundMessageProcessor()
@@ -77,6 +81,11 @@ internal class InboundMessageProcessor(
         message: String,
     ) : IllegalStateException(message)
 
+    internal class InboundRetryableException(
+        message: String,
+        cause: Throwable? = null,
+    ) : IllegalStateException(message, cause)
+
     suspend fun process(
         context: Context,
         messageData: Map<String, String>,
@@ -125,6 +134,9 @@ internal class InboundMessageProcessor(
             runtime = runtime,
             parsed = parsed,
         )
+        if (outcome.status == InboundPersistenceStatus.FAILED) {
+            throw InboundRetryableException("inbound canonical persistence incomplete")
+        }
         hooks.ackDirect(
             runtime = runtime,
             parsed = parsed,
@@ -165,27 +177,19 @@ private class DefaultInboundProcessorHooks(
         deliveryId: String,
     ) {
         val defaultRuntime = runtime.asDefaultRuntime()
-        runCatching {
-            ProviderIngressCoordinator.pullPersistAndDrainAcks(
+        ProviderIngressCoordinator.pullPersistAndDrainAcks(
+            context = context,
+            channelRepository = defaultRuntime.channelRepository,
+            messageRepository = defaultRuntime.messageRepository,
+            entityRepository = defaultRuntime.entityRepository,
+            inboundDeliveryLedgerRepository = defaultRuntime.inboundDeliveryLedgerRepository,
+            settingsRepository = defaultRuntime.settingsRepository,
+            deliveryId = deliveryId,
+        ) { message, imageUrl ->
+            enqueuePostProcess(
                 context = context,
-                channelRepository = defaultRuntime.channelRepository,
-                messageRepository = defaultRuntime.messageRepository,
-                entityRepository = defaultRuntime.entityRepository,
-                inboundDeliveryLedgerRepository = defaultRuntime.inboundDeliveryLedgerRepository,
-                settingsRepository = defaultRuntime.settingsRepository,
-                deliveryId = deliveryId,
-            ) { message, imageUrl ->
-                enqueuePostProcess(
-                    context = context,
-                    messageId = message.id,
-                    imageUrl = imageUrl,
-                )
-            }
-        }.onFailure { error ->
-            io.ethan.pushgo.util.SilentSink.w(
-                "InboundMessageProcessor",
-                "provider wakeup pull failed deliveryId=$deliveryId",
-                error,
+                messageId = message.id,
+                imageUrl = imageUrl,
             )
         }
     }
@@ -253,8 +257,18 @@ private class DefaultInboundProcessorHooks(
         )
         val request = OneTimeWorkRequestBuilder<MessagePostProcessWorker>()
             .setInputData(input)
+            .setConstraints(
+                Constraints.Builder()
+                    .setRequiredNetworkType(NetworkType.CONNECTED)
+                    .build()
+            )
+            .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 10, TimeUnit.SECONDS)
             .build()
-        WorkManager.getInstance(context.applicationContext).enqueue(request)
+        WorkManager.getInstance(context.applicationContext).enqueueUniqueWork(
+            "message-post-process:$messageId",
+            androidx.work.ExistingWorkPolicy.KEEP,
+            request,
+        )
     }
 }
 

@@ -11,7 +11,6 @@ import java.io.InputStreamReader
 import java.net.HttpURLConnection
 import java.net.URL
 import java.net.URLEncoder
-import java.security.MessageDigest
 import java.util.Locale
 
 data class ChannelSubscribeResult(
@@ -132,17 +131,7 @@ data class ProviderAckIdentity private constructor(
 }
 
 internal fun ProviderAckIdentity?.scopedDeliveryStorageKey(deliveryId: String): String {
-    val normalizedDeliveryId = deliveryId.trim()
-    val identity = this ?: return normalizedDeliveryId
-    val scope = "${identity.gatewayUrl}\u0000${identity.deviceKey}\u0000$normalizedDeliveryId"
-    val digest = MessageDigest.getInstance("SHA-256").digest(scope.toByteArray(Charsets.UTF_8))
-    return buildString(17 + digest.size * 2) {
-        append("provider-scoped:")
-        digest.forEach { byte ->
-            append(((byte.toInt() ushr 4) and 0x0f).toString(16))
-            append((byte.toInt() and 0x0f).toString(16))
-        }
-    }
+    return inboundDeliveryScope().scopedDeliveryStorageKey(deliveryId)
 }
 
 data class ProviderAckAttemptResult(
@@ -409,6 +398,7 @@ class ChannelSubscriptionService(
         token: String?,
         deviceKey: String,
         deliveryId: String? = null,
+        allowLegacyFallback: Boolean = true,
     ): ProviderPullPage = withContext(ioDispatcher) {
         val normalizedDeviceKey = deviceKey.trim()
         if (normalizedDeviceKey.isEmpty()) {
@@ -430,6 +420,12 @@ class ChannelSubscriptionService(
                 ProviderPullContract.V2
         } catch (error: ChannelSubscriptionException) {
             if (error.httpStatus == 404 && error.matchesCode("route_not_found")) {
+                if (!allowLegacyFallback) throw error
+                // Keep Android aligned with Apple: only an exact missing-v2-route response may
+                // fall back to the destructive legacy Pull contract. The ingress coordinator
+                // stages every returned legacy item in one Room transaction before parsing or
+                // canonical persistence. A v1 Gateway still has an unavoidable response-to-
+                // local-stage process-death window, so v2 remains the preferred contract.
                 execute(buildUrl(baseUrl, PULL_MESSAGE_ENDPOINT), token, "POST", payload) to
                     ProviderPullContract.LEGACY
             } else {

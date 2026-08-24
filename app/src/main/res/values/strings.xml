@@ -1,7 +1,7 @@
 <resources xmlns:tools="http://schemas.android.com/tools">
     <string name="app_name">PushGo</string>
     <string name="tab_messages">Messages</string>
-    <string name="tab_settings">Settings</string><string name="action_mark_read">Mark read</string>
+    <string name="tab_settings">Settings</string>
     <string name="action_mark_all_read">Mark all as read</string>
     <string name="action_delete">Delete</string>
     <string name="action_close_event">Close event</string>
@@ -19,14 +19,16 @@
     <string name="history_cleanup_6_months">Older than 6 months</string>
     <string name="history_cleanup_1_year">Older than 1 year</string>
     <string name="history_cleanup_confirm_title">Confirm cleanup</string>
-    <string name="history_cleanup_confirm_message">%1$s will permanently remove matching local messages. This cannot be undone.</string>
     <string name="history_cleanup_confirm_action">Confirm cleanup</string>
     <string name="history_cleanup_confirm_detail">Review the cleanup range below. This action cannot be undone.</string>
     <string name="history_cleanup_selected_range">Cleanup range</string>
     <string name="history_cleanup_cleaning">Cleaning…</string>
     <string name="history_cleanup_cleaning_detail">Removing matching local messages. Keep the app open.</string>
     <string name="history_cleanup_complete">Cleanup complete</string>
-    <string name="history_cleanup_success">Removed %1$d messages.</string>
+    <plurals name="history_cleanup_success">
+        <item quantity="one">Removed %1$d message.</item>
+        <item quantity="other">Removed %1$d messages.</item>
+    </plurals>
     <string name="history_cleanup_failed">Cleanup failed</string>
     <string name="history_cleanup_done">Done</string>
     <string name="label_server_address">Server address</string>
@@ -92,6 +94,7 @@
     <string name="message_severity_critical_compact">CRITICAL</string>
     <string name="message_severity_critical_hint">Critical message, please handle it as soon as possible.</string>
     <string name="label_no_search_results">No results</string>
+    <string name="action_continue_search">Continue search</string>
     <string name="label_no_events_title">No events yet</string>
     <string name="label_no_events_hint">Event entries will appear after event payloads are received.</string>
     <string name="label_no_things_title">No objects yet</string>
@@ -331,4 +334,12 @@
     <string name="a11y_pane_channel_management">Manage channels</string>
     <string name="a11y_pane_gateway_settings">Gateway settings</string>
     <string name="label_unknown_error">Unknown error</string>
+    <string name="label_docs_getting_started">Getting Started</string>
+    <string name="label_docs_getting_started_hint">Create a channel and send your first test push.</string>
+    <string name="label_docs_message_api">Message API</string>
+    <string name="label_docs_message_api_hint">Review the message payload format and request examples.</string>
+    <string name="label_docs_e2ee">End-to-end encryption</string>
+    <string name="label_docs_e2ee_hint">Configure payload encryption and client decryption keys.</string>
+    <string name="a11y_open_documentation">%1$s. %2$s Opens in browser.</string>
+    <string name="error_open_documentation">Unable to open documentation.</string>
 </resources>

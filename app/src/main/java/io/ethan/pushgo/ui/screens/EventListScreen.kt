@@ -51,6 +51,7 @@ import io.ethan.pushgo.R
 import io.ethan.pushgo.data.AppContainer
 import io.ethan.pushgo.data.EntityProjectionCursor
 import io.ethan.pushgo.data.EntityProjectionDetail
+import io.ethan.pushgo.data.PendingLocalDeletionOperation
 import io.ethan.pushgo.data.model.DecryptionState
 import io.ethan.pushgo.data.model.PushMessage
 import io.ethan.pushgo.notifications.ForegroundNotificationPresentationState
@@ -170,6 +171,7 @@ private val EventTimeFormatter: DateTimeFormatter = DateTimeFormatter
     .withZone(ZoneId.systemDefault())
 private val ScreenHorizontalPadding = 12.dp
 private const val EventProjectionPageSize = 240
+private const val EVENT_SEARCH_MAX_SCAN_PAGES = 8
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class, ExperimentalLayoutApi::class)
 @Composable
@@ -188,6 +190,7 @@ fun EventListScreen(
     var hasLoadedOnce by remember { mutableStateOf(false) }
     var eventCursor by remember { mutableStateOf<EntityProjectionCursor?>(null) }
     var hasMoreEvents by remember { mutableStateOf(true) }
+    var loadedEventPages by remember { mutableIntStateOf(0) }
     var isLoadingMoreEvents by remember { mutableStateOf(false) }
     var selectedEvent by remember { mutableStateOf<EventCardModel?>(null) }
     var isPullRefreshing by remember { mutableStateOf(false) }
@@ -229,6 +232,7 @@ fun EventListScreen(
         try {
             eventCursor = null
             hasMoreEvents = true
+            loadedEventPages = 0
             val firstPage = container.entityRepository.getEventProjectionMessagesPage(
                 before = null,
                 limit = EventProjectionPageSize,
@@ -237,6 +241,7 @@ fun EventListScreen(
             val last = firstPage.lastOrNull()
             eventCursor = last?.let { EntityProjectionCursor(receivedAt = it.receivedAt.toEpochMilli(), id = it.id) }
             hasMoreEvents = firstPage.size >= EventProjectionPageSize
+            loadedEventPages = if (firstPage.isEmpty()) 0 else 1
             hasLoadedOnce = true
         } finally { isLoadingMoreEvents = false }
     }
@@ -311,10 +316,7 @@ fun EventListScreen(
 
         container.pendingLocalDeletionCoordinator.schedule(
             summary = summary,
-            scope = PendingLocalDeletionCoordinator.Scope(eventIds = eventIds),
-            onCommit = {
-                container.entityRepository.deleteEvents(uniqueEvents.map { it.eventId })
-            },
+            operation = PendingLocalDeletionOperation.events(eventIds),
             onCompletion = { result ->
                 val error = result.exceptionOrNull()
                 if (error != null) {
@@ -354,8 +356,21 @@ fun EventListScreen(
         }
     }
 
-    suspend fun loadMoreEventsInternal() {
-        if (isLoadingMoreEvents || !hasMoreEvents) return
+    fun hasActiveEventSearchNow(): Boolean = searchQuery.isNotBlank() ||
+        selectedChannelFilters.isNotEmpty() ||
+        selectedTagFilters.isNotEmpty() ||
+        showOnlyOpen
+
+    suspend fun loadMoreEventsInternal(automaticSearchLoad: Boolean = false) {
+        if (!shouldLoadMoreEntityPage(
+                hasMore = hasMoreEvents,
+                isLoading = isLoadingMoreEvents,
+                hasActiveSearch = hasActiveEventSearchNow(),
+                automaticSearchLoad = automaticSearchLoad,
+                scannedPages = loadedEventPages,
+                maxScanPages = EVENT_SEARCH_MAX_SCAN_PAGES,
+            )
+        ) return
         isLoadingMoreEvents = true
         try {
             val page = container.entityRepository.getEventProjectionMessagesPage(before = eventCursor, limit = EventProjectionPageSize)
@@ -364,6 +379,7 @@ fun EventListScreen(
                 allEvents = merged
                 val last = page.last()
                 eventCursor = EntityProjectionCursor(receivedAt = last.receivedAt.toEpochMilli(), id = last.id)
+                loadedEventPages += 1
             }
             hasMoreEvents = page.size >= EventProjectionPageSize
         } finally { isLoadingMoreEvents = false }
@@ -419,13 +435,36 @@ fun EventListScreen(
     }
 
     val filteredEvents = remember(allEvents, searchQuery, selectedChannelFilters, selectedTagFilters, showOnlyOpen, effectivePendingScope) {
-        val query = searchQuery.trim().lowercase()
         allEvents.filter { event ->
             (selectedChannelFilters.isEmpty() || selectedChannelFilters.contains(event.channelId.orEmpty().trim())) &&
             (selectedTagFilters.isEmpty() || event.tags.any { tag -> selectedTagFilters.contains(tag.trim().lowercase()) }) &&
             (!showOnlyOpen || event.state == EventLifecycleState.Ongoing) &&
-            (query.isEmpty() || event.title.lowercase().contains(query) || event.summary?.lowercase()?.contains(query) == true) &&
+            eventMatchesSearch(event, searchQuery) &&
             !isPendingLocalDeletion(event)
+        }
+    }
+    val hasActiveEventSearch = searchQuery.isNotBlank() ||
+        selectedChannelFilters.isNotEmpty() ||
+        selectedTagFilters.isNotEmpty() ||
+        showOnlyOpen
+    val canContinueEventSearch = hasActiveEventSearch &&
+        hasMoreEvents &&
+        loadedEventPages >= EVENT_SEARCH_MAX_SCAN_PAGES
+    LaunchedEffect(
+        hasActiveEventSearch,
+        filteredEvents.size,
+        allEvents.size,
+        hasMoreEvents,
+    ) {
+        if (shouldAutoloadEntitySearch(
+                hasActiveSearch = hasActiveEventSearch,
+                hasMore = hasMoreEvents,
+                isLoading = isLoadingMoreEvents,
+                scannedPages = loadedEventPages,
+                maxScanPages = EVENT_SEARCH_MAX_SCAN_PAGES,
+            )
+        ) {
+            loadMoreEventsInternal(automaticSearchLoad = true)
         }
     }
     LaunchedEffect(listState, filteredEvents.size, hasMoreEvents) {
@@ -658,6 +697,17 @@ fun EventListScreen(
                             onEventDetailOpened(event.eventId)
                         },
                     )
+                }
+            }
+            if (canContinueEventSearch) {
+                item {
+                    Button(
+                        onClick = { scope.launch { loadMoreEventsInternal(automaticSearchLoad = false) } },
+                        enabled = !isLoadingMoreEvents,
+                        modifier = Modifier.padding(horizontal = ScreenHorizontalPadding, vertical = 12.dp),
+                    ) {
+                        Text(stringResource(R.string.action_continue_search))
+                    }
                 }
             }
         }

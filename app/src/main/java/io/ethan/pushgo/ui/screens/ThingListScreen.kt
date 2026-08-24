@@ -52,6 +52,7 @@ import io.ethan.pushgo.R
 import io.ethan.pushgo.data.AppContainer
 import io.ethan.pushgo.data.EntityProjectionCursor
 import io.ethan.pushgo.data.EntityProjectionDetail
+import io.ethan.pushgo.data.PendingLocalDeletionOperation
 import io.ethan.pushgo.data.model.*
 import io.ethan.pushgo.data.parseThingProfileFromPayload
 import io.ethan.pushgo.data.parseEventProfileFromPayload
@@ -96,6 +97,7 @@ import kotlinx.serialization.encoding.Encoder
 import android.content.Context
 
 private const val THING_PAGE_SIZE = 40
+private const val THING_SEARCH_MAX_SCAN_PAGES = 8
 private val ScreenHorizontalPadding = 12.dp
 
 private object ThingInstantSerializer : KSerializer<Instant> {
@@ -124,6 +126,11 @@ data class ThingCardModel(
     val relatedEvents: List<EventCardModel>,
     val relatedMessages: List<ThingRelatedMessage>,
     val relatedUpdates: List<ThingRelatedUpdate>,
+    /** The list page hydrated only a bounded child-history prefix for this card. */
+    val hasMoreRelatedMessages: Boolean = false,
+    val locationType: String? = null,
+    val locationValue: String? = null,
+    val externalIds: Map<String, String> = emptyMap(),
 )
 
 @Serializable
@@ -186,6 +193,11 @@ fun ThingListScreen(
     var hasLoadedOnce by remember { mutableStateOf(false) }
     var thingCursor by remember { mutableStateOf<EntityProjectionCursor?>(null) }
     var hasMoreThings by remember { mutableStateOf(true) }
+    var loadedThingPages by remember { mutableIntStateOf(0) }
+    var relatedMessageSearchThingIds by remember { mutableStateOf<Set<String>>(emptySet()) }
+    var relatedMessageSearchCursor by remember { mutableStateOf<String?>(null) }
+    var relatedMessageSearchHasMore by remember { mutableStateOf(false) }
+    var isLoadingRelatedMessageSearch by remember { mutableStateOf(false) }
     var isLoadingMoreThings by remember { mutableStateOf(false) }
     var selectedThing by remember { mutableStateOf<ThingCardModel?>(null) }
     var selectedThingInitialTab by remember { mutableStateOf<ThingDetailTab?>(null) }
@@ -228,6 +240,32 @@ fun ThingListScreen(
         Toast.makeText(appContext, message, Toast.LENGTH_SHORT).show()
     }
 
+    fun hasActiveThingSearchNow(): Boolean = searchQuery.isNotBlank() ||
+        selectedChannelFilters.isNotEmpty() ||
+        selectedTagFilters.isNotEmpty() ||
+        showOnlyActive
+
+    suspend fun loadRelatedMessageSearchPage(reset: Boolean) {
+        if (isLoadingRelatedMessageSearch) return
+        if (!reset && !relatedMessageSearchHasMore) return
+        isLoadingRelatedMessageSearch = true
+        try {
+            val page = container.entityRepository.searchThingIdsByRelatedMessageText(
+                rawQuery = searchQuery,
+                afterId = if (reset) null else relatedMessageSearchCursor,
+            )
+            relatedMessageSearchThingIds = if (reset) {
+                page.thingIds.toSet()
+            } else {
+                relatedMessageSearchThingIds + page.thingIds
+            }
+            relatedMessageSearchCursor = page.nextCursor
+            relatedMessageSearchHasMore = page.hasMore && page.nextCursor != null
+        } finally {
+            isLoadingRelatedMessageSearch = false
+        }
+    }
+
     DisposableEffect(Unit) {
         onDispose {
             onBottomBarVisibilityChanged(true)
@@ -268,11 +306,17 @@ fun ThingListScreen(
         isLoadingMoreThings = true
         try {
             thingCursor = null
-            val firstPage = container.entityRepository.getThingProjectionMessagesPage(before = null, limit = THING_PAGE_SIZE)
-            allThings = withContext(Dispatchers.Default) { buildThingCardsInternal(firstPage) }
-            val last = firstPage.lastOrNull()
+            val firstPage = container.entityRepository.getThingProjectionPage(before = null, limit = THING_PAGE_SIZE)
+            allThings = withContext(Dispatchers.Default) {
+                buildThingCardsInternal(
+                    messages = firstPage.asMessages(),
+                    hasMoreRelatedMessages = firstPage.hasMoreRelatedMessages,
+                )
+            }
+            loadedThingPages = if (firstPage.headMessages.isEmpty()) 0 else 1
+            val last = firstPage.headMessages.lastOrNull()
             thingCursor = last?.let { EntityProjectionCursor(receivedAt = it.receivedAt.toEpochMilli(), id = it.id) }
-            hasMoreThings = firstPage.size >= THING_PAGE_SIZE
+            hasMoreThings = firstPage.headMessages.size >= THING_PAGE_SIZE
             hasLoadedOnce = true
         } finally { isLoadingMoreThings = false }
     }
@@ -332,18 +376,35 @@ fun ThingListScreen(
         }
     }
 
-    suspend fun loadMoreThingsInternal() {
-        if (isLoadingMoreThings || !hasMoreThings) return
+    suspend fun loadMoreThingsInternal(automaticSearchLoad: Boolean = false) {
+        if (!shouldLoadMoreEntityPage(
+                hasMore = hasMoreThings,
+                isLoading = isLoadingMoreThings,
+                hasActiveSearch = hasActiveThingSearchNow(),
+                automaticSearchLoad = automaticSearchLoad,
+                scannedPages = loadedThingPages,
+                maxScanPages = THING_SEARCH_MAX_SCAN_PAGES,
+            )
+        ) return
         isLoadingMoreThings = true
         try {
-            val page = container.entityRepository.getThingProjectionMessagesPage(before = thingCursor, limit = THING_PAGE_SIZE)
-            if (page.isNotEmpty()) {
-                val merged = withContext(Dispatchers.Default) { mergeThingCardsInternal(allThings, buildThingCardsInternal(page)) }
+            val page = container.entityRepository.getThingProjectionPage(before = thingCursor, limit = THING_PAGE_SIZE)
+            if (page.headMessages.isNotEmpty()) {
+                val merged = withContext(Dispatchers.Default) {
+                    mergeThingCardsInternal(
+                        allThings,
+                        buildThingCardsInternal(
+                            messages = page.asMessages(),
+                            hasMoreRelatedMessages = page.hasMoreRelatedMessages,
+                        ),
+                    )
+                }
                 allThings = merged
-                val last = page.last()
+                val last = page.headMessages.last()
                 thingCursor = EntityProjectionCursor(receivedAt = last.receivedAt.toEpochMilli(), id = last.id)
+                loadedThingPages += 1
             }
-            hasMoreThings = page.size >= THING_PAGE_SIZE
+            hasMoreThings = page.headMessages.size >= THING_PAGE_SIZE
         } finally { isLoadingMoreThings = false }
     }
 
@@ -372,10 +433,7 @@ fun ThingListScreen(
 
         container.pendingLocalDeletionCoordinator.schedule(
             summary = summary,
-            scope = PendingLocalDeletionCoordinator.Scope(thingIds = thingIds),
-            onCommit = {
-                container.entityRepository.deleteThings(uniqueThings.map { it.thingId })
-            },
+            operation = PendingLocalDeletionOperation.things(thingIds),
             onCompletion = { result ->
                 val error = result.exceptionOrNull()
                 if (error != null) {
@@ -393,10 +451,7 @@ fun ThingListScreen(
     suspend fun scheduleRelatedEventDeletion(event: EventCardModel) {
         container.pendingLocalDeletionCoordinator.schedule(
             summary = event.title.trim().ifEmpty { eventsLabel },
-            scope = PendingLocalDeletionCoordinator.Scope(eventIds = setOf(event.eventId)),
-            onCommit = {
-                container.entityRepository.deleteEvent(event.eventId)
-            },
+            operation = PendingLocalDeletionOperation.events(setOf(event.eventId)),
             onCompletion = { result ->
                 val error = result.exceptionOrNull()
                 if (error != null) {
@@ -414,14 +469,50 @@ fun ThingListScreen(
         listState.animateScrollToItem(0)
     }
 
-    val filteredThings = remember(allThings, searchQuery, selectedChannelFilters, selectedTagFilters, showOnlyActive, effectivePendingScope) {
-        val query = searchQuery.trim().lowercase()
+    val filteredThings = remember(allThings, searchQuery, relatedMessageSearchThingIds, selectedChannelFilters, selectedTagFilters, showOnlyActive, effectivePendingScope) {
         allThings.filter { thing ->
-            (searchQuery.isBlank() || thing.title.lowercase().contains(query)) &&
+            (thingMatchesSearch(thing, searchQuery) || relatedMessageSearchThingIds.contains(thing.thingId)) &&
             (selectedChannelFilters.isEmpty() || selectedChannelFilters.contains(thing.channelId.orEmpty().trim())) &&
             (selectedTagFilters.isEmpty() || thing.tags.any { tag -> selectedTagFilters.contains(tag.trim().lowercase()) }) &&
             (!showOnlyActive || (thing.state != "archived" && thing.state != "deleted")) &&
             !isPendingThingDeletion(thing)
+        }
+    }
+    val hasActiveThingSearch = searchQuery.isNotBlank() ||
+        selectedChannelFilters.isNotEmpty() ||
+        selectedTagFilters.isNotEmpty() ||
+        showOnlyActive
+    val canContinueThingSearch = hasActiveThingSearch && (
+        relatedMessageSearchHasMore ||
+            (hasMoreThings && loadedThingPages >= THING_SEARCH_MAX_SCAN_PAGES)
+        )
+    LaunchedEffect(
+        hasActiveThingSearch,
+        filteredThings.size,
+        allThings.size,
+        hasMoreThings,
+        loadedThingPages,
+        relatedMessageSearchThingIds,
+    ) {
+        if (
+            shouldAutoloadEntitySearch(
+                hasActiveSearch = hasActiveThingSearch,
+                hasMore = hasMoreThings,
+                isLoading = isLoadingMoreThings,
+                scannedPages = loadedThingPages,
+                maxScanPages = THING_SEARCH_MAX_SCAN_PAGES,
+            )
+        ) {
+            loadMoreThingsInternal(automaticSearchLoad = true)
+        }
+    }
+    LaunchedEffect(searchQuery) {
+        if (searchQuery.isBlank()) {
+            relatedMessageSearchThingIds = emptySet()
+            relatedMessageSearchCursor = null
+            relatedMessageSearchHasMore = false
+        } else {
+            loadRelatedMessageSearchPage(reset = true)
         }
     }
     val channelOptions = remember(allThings, effectivePendingScope) {
@@ -726,7 +817,23 @@ fun ThingListScreen(
                         icon = if (searchQuery.isNotEmpty() || selectedChannelFilters.isNotEmpty() || selectedTagFilters.isNotEmpty() || showOnlyActive) Icons.Default.Search else Icons.Outlined.Memory,
                         title = if (searchQuery.isNotEmpty() || selectedChannelFilters.isNotEmpty() || selectedTagFilters.isNotEmpty() || showOnlyActive) stringResource(R.string.label_no_search_results) else stringResource(R.string.label_no_things_title),
                         description = if (searchQuery.isNotEmpty() || selectedChannelFilters.isNotEmpty() || selectedTagFilters.isNotEmpty() || showOnlyActive) stringResource(R.string.message_list_empty_hint) else stringResource(R.string.label_no_things_hint),
+                        bottomPadding = if (canContinueThingSearch) 16.dp else 0.dp,
                     )
+                    if (canContinueThingSearch) {
+                        Button(
+                            onClick = {
+                                scope.launch {
+                                    if (relatedMessageSearchHasMore) loadRelatedMessageSearchPage(reset = false)
+                                    if (hasMoreThings && loadedThingPages >= THING_SEARCH_MAX_SCAN_PAGES) {
+                                        loadMoreThingsInternal()
+                                    }
+                                }
+                            },
+                            enabled = !isLoadingRelatedMessageSearch && !isLoadingMoreThings,
+                        ) {
+                            Text(stringResource(R.string.action_continue_search))
+                        }
+                    }
                 }
             } else {
                 itemsIndexed(filteredThings, key = { _, item -> item.thingId }) { _, thing ->
@@ -738,6 +845,24 @@ fun ThingListScreen(
                             onThingDetailOpened(thing.thingId)
                         },
                     )
+                }
+                if (canContinueThingSearch) {
+                    item {
+                        Button(
+                            onClick = {
+                                scope.launch {
+                                    if (relatedMessageSearchHasMore) loadRelatedMessageSearchPage(reset = false)
+                                    if (hasMoreThings && loadedThingPages >= THING_SEARCH_MAX_SCAN_PAGES) {
+                                        loadMoreThingsInternal(automaticSearchLoad = false)
+                                    }
+                                }
+                            },
+                            enabled = !isLoadingRelatedMessageSearch && !isLoadingMoreThings,
+                            modifier = Modifier.padding(horizontal = ScreenHorizontalPadding, vertical = 12.dp),
+                        ) {
+                            Text(stringResource(R.string.action_continue_search))
+                        }
+                    }
                 }
             }
             }
@@ -958,7 +1083,10 @@ private fun formatLocalRelativeTimeV2(context: Context, instant: Instant): Strin
     ).toString()
 }
 
-private fun buildThingCardsInternal(messages: List<PushMessage>): List<ThingCardModel> {
+internal fun buildThingCardsInternal(
+    messages: List<PushMessage>,
+    hasMoreRelatedMessages: Boolean = false,
+): List<ThingCardModel> {
     val grouped = messages
         .asSequence()
         .mapNotNull { message ->
@@ -974,7 +1102,9 @@ private fun buildThingCardsInternal(messages: List<PushMessage>): List<ThingCard
                 fallback = message.receivedAt,
             )
         }
-        val latestThingMessage = thingMessages.lastOrNull { it.entityType == "thing" } ?: thingMessages.last()
+        val thingStateMessages = thingMessages.filter { it.entityType == "thing" }
+        val latestThingMessage = thingStateMessages.lastOrNull() ?: thingMessages.last()
+        val thingPropertyMessages = thingStateMessages.ifEmpty { listOf(latestThingMessage) }
         val latestPayload = runCatching { JSONObject(latestThingMessage.rawPayloadJson) }.getOrNull()
         val profile = parseThingProfileFromPayload(latestPayload)
         val title = profile?.title ?: latestThingMessage.title.ifBlank { thingId }
@@ -997,42 +1127,43 @@ private fun buildThingCardsInternal(messages: List<PushMessage>): List<ThingCard
         val tags = if (profile?.tags?.isNotEmpty() == true) profile.tags else latestThingMessage.tags
 
         val attrs = linkedMapOf<String, Any?>()
-        thingMessages.forEach { message ->
+        thingPropertyMessages.forEach { message ->
             val payload = runCatching { JSONObject(message.rawPayloadJson) }.getOrNull() ?: return@forEach
-            payload.optString("attrs")
-                .trim()
-                .takeIf { it.isNotEmpty() }
-                ?.let { raw ->
-                    val parsed = parseJsonObjectOrNull(raw)
-                    if (parsed != null) {
-                        attrs.clear()
-                        parsed.forEach { (key, value) ->
-                            if (value != null) attrs[key] = value
-                        }
-                    }
-                }
+            applyObjectPatch(attrs, payload, "attrs")
         }
         val attrsJson = if (attrs.isEmpty()) null else JSONObject(attrs as Map<*, *>).toString(2)
 
         val metadata = linkedMapOf<String, String>()
-        thingMessages.forEach { message ->
-            message.metadata.forEach { (key, value) ->
-                val normalizedKey = key.trim()
-                val normalizedValue = value.trim()
-                if (normalizedKey.isNotEmpty() && normalizedValue.isNotEmpty()) {
-                    metadata[normalizedKey] = normalizedValue
-                }
-            }
+        thingPropertyMessages.forEach { message ->
+            val payload = runCatching { JSONObject(message.rawPayloadJson) }.getOrNull() ?: return@forEach
+            applyStringMapPatch(metadata, payload, "metadata")
         }
         val metadataJson = if (metadata.isEmpty()) null else JSONObject(metadata as Map<*, *>).toString(2)
 
         var channelId: String? = null
-        thingMessages.forEach { message ->
+        var locationType: String? = null
+        var locationValue: String? = null
+        val externalIds = linkedMapOf<String, String>()
+        thingPropertyMessages.forEach { message ->
             val value = message.channel?.trim()?.takeIf { it.isNotEmpty() }
             if (value != null) channelId = value
+            val payload = runCatching { JSONObject(message.rawPayloadJson) }.getOrNull() ?: return@forEach
+            if (payload.has("location")) {
+                val location = payloadObjectOrNull(payload.opt("location"))
+                locationType = location?.let { payloadSearchText(it.opt("type")) }
+                locationValue = location?.let { payloadSearchText(it.opt("value")) }
+            } else {
+                if (payload.has("location_type")) {
+                    locationType = payloadSearchText(payload.opt("location_type"))
+                }
+                if (payload.has("location_value")) {
+                    locationValue = payloadSearchText(payload.opt("location_value"))
+                }
+            }
+            applyStringMapPatch(externalIds, payload, "external_ids")
         }
-        val updatedAt = thingMessages.lastOrNull()?.receivedAt ?: Instant.EPOCH
-        val decryptionState = thingMessages.lastOrNull()?.decryptionState
+        val updatedAt = latestThingMessage.receivedAt
+        val decryptionState = latestThingMessage.decryptionState
 
         ThingCardModel(
             thingId = thingId,
@@ -1086,8 +1217,75 @@ private fun buildThingCardsInternal(messages: List<PushMessage>): List<ThingCard
                 .distinctBy { it.updateId }
                 .sortedByDescending { it.happenedAt }
                 .toList(),
+            hasMoreRelatedMessages = hasMoreRelatedMessages,
+            locationType = locationType,
+            locationValue = locationValue,
+            externalIds = externalIds,
         )
     }.sortedByDescending { it.updatedAt }
+}
+
+private fun payloadObjectOrNull(raw: Any?): JSONObject? {
+    return when (raw) {
+        is JSONObject -> raw
+        is String -> raw.trim().takeIf { it.isNotEmpty() }?.let { text ->
+            runCatching { JSONObject(text) }.getOrNull()
+        }
+        else -> null
+    }
+}
+
+private fun payloadSearchText(raw: Any?): String? {
+    if (raw == null || raw == JSONObject.NULL) return null
+    return raw.toString().trim().takeIf { it.isNotEmpty() }
+}
+
+private fun applyStringMapPatch(
+    target: MutableMap<String, String>,
+    payload: JSONObject,
+    key: String,
+) {
+    if (!payload.has(key)) return
+    val rawPatch = payload.opt(key)
+    if (rawPatch == null || rawPatch == JSONObject.NULL || (rawPatch is String && rawPatch.isBlank())) {
+        target.clear()
+        return
+    }
+    val patch = payloadObjectOrNull(rawPatch) ?: return
+    patch.keys().forEach patchEntry@ { rawKey ->
+        val normalizedKey = rawKey.trim()
+        if (normalizedKey.isEmpty()) return@patchEntry
+        val value = payloadSearchText(patch.opt(rawKey))
+        if (value == null) {
+            target.remove(normalizedKey)
+        } else {
+            target[normalizedKey] = value
+        }
+    }
+}
+
+private fun applyObjectPatch(
+    target: MutableMap<String, Any?>,
+    payload: JSONObject,
+    key: String,
+) {
+    if (!payload.has(key)) return
+    val rawPatch = payload.opt(key)
+    if (rawPatch == null || rawPatch == JSONObject.NULL || (rawPatch is String && rawPatch.isBlank())) {
+        target.clear()
+        return
+    }
+    val patch = payloadObjectOrNull(rawPatch) ?: return
+    patch.keys().forEach patchEntry@ { rawKey ->
+        val normalizedKey = rawKey.trim()
+        if (normalizedKey.isEmpty()) return@patchEntry
+        val value = patch.opt(rawKey)
+        if (value == null || value == JSONObject.NULL) {
+            target.remove(normalizedKey)
+        } else {
+            target[normalizedKey] = value
+        }
+    }
 }
 
 internal fun buildThingCardFromProjectionDetailInternal(
@@ -1101,9 +1299,15 @@ internal fun buildThingCardFromProjectionDetailInternal(
     if (full == null) return head
     return head.copy(
         updatedAt = maxOf(head.updatedAt, full.updatedAt),
+        attrsJson = head.attrsJson,
+        metadataJson = head.metadataJson,
         relatedEvents = full.relatedEvents,
         relatedMessages = full.relatedMessages,
         relatedUpdates = full.relatedUpdates,
+        hasMoreRelatedMessages = full.hasMoreRelatedMessages,
+        locationType = head.locationType,
+        locationValue = head.locationValue,
+        externalIds = head.externalIds,
     )
 }
 

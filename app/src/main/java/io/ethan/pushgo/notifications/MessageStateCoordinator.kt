@@ -54,7 +54,9 @@ class MessageStateCoordinator(
             .toList()
         if (normalizedIds.isEmpty()) return 0
         val deleted = repository.deleteByIds(normalizedIds)
-        if (deleted <= 0) return 0
+        // Notification reconciliation is deliberately independent of the delete count. A durable
+        // replay can observe zero rows after the process died between the Room commit and the OS
+        // notification cancellation; returning early here would leave those notifications forever.
         NotificationHelper.cancelMessageNotifications(appContext, normalizedIds)
         refreshUnreadCount()
         return deleted

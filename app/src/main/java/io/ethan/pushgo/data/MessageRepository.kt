@@ -27,13 +27,21 @@ import io.ethan.pushgo.data.model.MessageFacetOptionCount
 import io.ethan.pushgo.data.model.MessageFilter
 import io.ethan.pushgo.data.model.MessageListItem
 import io.ethan.pushgo.data.model.PushMessage
+import io.ethan.pushgo.util.SearchTextNormalizer
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.emitAll
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import org.json.JSONObject
+import java.util.Locale
+import java.util.concurrent.atomic.AtomicLong
 
 private const val SQLITE_BIND_PARAMETER_CHUNK_SIZE = 900
+private const val SQLITE_SEARCH_BIND_PARAMETER_BUDGET = SQLITE_BIND_PARAMETER_CHUNK_SIZE
 
 class MessageRepository(
     private val database: PushGoDatabase,
@@ -46,12 +54,26 @@ class MessageRepository(
     private val thingSubMessageDao: ThingSubMessageDao,
     private val pendingThingMessageDao: PendingThingMessageDao,
 ) {
+    private val searchIndexBackfillMutex = Mutex()
+    private val summaryProjectionBackfillMutex = Mutex()
+    private val derivedWriteFailureGeneration = AtomicLong(0)
+    @Volatile
+    private var searchIndexReady = false
+    @Volatile
+    private var summaryProjectionReady = false
+
     private companion object {
         private const val TAG_METADATA_BACKFILL_PREFS = "pushgo_message_search_maintenance"
-        private const val TAG_METADATA_BACKFILL_KEY = "tag_metadata_backfill_v2"
+        private const val TAG_METADATA_BACKFILL_KEY = "search_metadata_backfill_v3"
+        private const val SEARCH_TEXT_INDEX_VERSION = "normalization_v1"
+        private const val SUMMARY_PROJECTION_VERSION = "projection_v1"
         private const val METADATA_BACKFILL_BATCH_SIZE = 100
+        /** Search input is bounded before tokenization so a pasted query cannot grow SQL work unboundedly. */
+        const val MAX_QUERY_LENGTH = 512
         const val MAX_QUERY_TOKENS = 6
         const val MAX_TOKEN_LENGTH = 32
+        const val MAX_TAG_COUNT = 128
+        const val MAX_TAG_LENGTH = 32
     }
 
     suspend fun wouldPersistAsPending(message: PushMessage): Boolean {
@@ -70,19 +92,18 @@ class MessageRepository(
         val isEmpty: Boolean
             get() = !hasText && !hasTags
 
-        val ftsQuery: String
-            get() = textTokens.joinToString(" AND ") { "${it}*" }
+        val normalizedTextQuery: String
+            get() = textTokens.joinToString(SearchTextNormalizer.TOKEN_SEPARATOR.toString())
     }
 
     fun observeMessages(
         filter: MessageFilter,
         excludedIds: Set<String> = emptySet(),
     ): Flow<PagingData<MessageListItem>> {
-        val normalizedExcludedIds = excludedIds.asSequence()
-            .map(String::trim)
-            .filter(String::isNotEmpty)
-            .distinct()
-            .toList()
+        val normalizedExcludedIds = normalizeSearchExcludedIds(
+            excludedIds,
+            reservedCount = filter.tags.size + filter.channels.size,
+        )
         return Pager(
             config = PagingConfig(
                 pageSize = 50,
@@ -112,23 +133,32 @@ class MessageRepository(
         rawQuery: String,
         unreadOnly: Boolean,
         excludedIds: Set<String> = emptySet(),
+        channels: Set<String> = emptySet(),
+        facetTags: Set<String> = emptySet(),
     ): Flow<PagingData<MessageListItem>> {
         val plan = parseSearchQuery(rawQuery)
         if (plan.isEmpty) {
             return kotlinx.coroutines.flow.flowOf(PagingData.empty())
         }
-        val normalizedExcludedIds = excludedIds.asSequence()
-            .map(String::trim)
+        val normalizedChannels = channels.map(String::trim).filter(String::isNotEmpty).distinct()
+        val normalizedFacetTags = facetTags.map { it.trim().lowercase(Locale.ROOT) }
             .filter(String::isNotEmpty)
             .distinct()
-            .toList()
+        val normalizedExcludedIds = normalizeSearchExcludedIds(
+            excludedIds,
+            reservedCount = plan.tags.size + normalizedChannels.size + normalizedFacetTags.size,
+        )
         val readState = if (unreadOnly) false else null
-        return Pager(
+        val pagingFlow = Pager(
             config = PagingConfig(pageSize = 50, enablePlaceholders = false, initialLoadSize = 50),
             pagingSourceFactory = {
-                searchPagingSource(plan, readState, normalizedExcludedIds)
+                searchPagingSource(plan, readState, normalizedExcludedIds, normalizedChannels, normalizedFacetTags)
             },
         ).flow.map { pagingData -> pagingData.map(MessageListRow::asListItem) }
+        return flow {
+            ensureSearchIndexReady()
+            emitAll(pagingFlow)
+        }
     }
 
     /** Explicitly bounded snapshot for tests and automation; UI must use [searchMessages]. */
@@ -141,12 +171,15 @@ class MessageRepository(
         require(limit > 0)
         val plan = parseSearchQuery(rawQuery)
         if (plan.isEmpty) return emptyList()
-        val normalizedExcludedIds = excludedIds.asSequence()
-            .map(String::trim)
-            .filter(String::isNotEmpty)
-            .distinct()
-            .toList()
-        val source = searchPagingSource(plan, if (unreadOnly) false else null, normalizedExcludedIds)
+        ensureSearchIndexReady()
+        val normalizedExcludedIds = normalizeSearchExcludedIds(excludedIds, reservedCount = plan.tags.size)
+        val source = searchPagingSource(
+            plan,
+            if (unreadOnly) false else null,
+            normalizedExcludedIds,
+            emptyList(),
+            emptyList(),
+        )
         return when (val result = source.load(PagingSource.LoadParams.Refresh(null, limit, false))) {
             is PagingSource.LoadResult.Page -> result.data.map(MessageListRow::asListItem)
             is PagingSource.LoadResult.Error -> throw result.throwable
@@ -158,19 +191,31 @@ class MessageRepository(
         plan: SearchQueryPlan,
         readState: Boolean?,
         excludedIds: List<String>,
+        channels: List<String>,
+        facetTags: List<String>,
     ): PagingSource<Int, MessageListRow> = when {
         plan.hasText && plan.hasTags -> dao.searchMessagesByTextAndTags(
-            query = plan.ftsQuery,
+            normalizedTokens = plan.normalizedTextQuery,
+            searchTextVersion = SEARCH_TEXT_INDEX_VERSION,
             tags = plan.tags,
             tagCount = plan.tags.size,
             readState = readState,
+            channels = channels,
+            channelCount = channels.size,
+            facetTags = facetTags,
+            facetTagCount = facetTags.size,
             excludedIds = excludedIds,
             excludedCount = excludedIds.size,
         )
 
         plan.hasText -> dao.searchMessages(
-            query = plan.ftsQuery,
+            normalizedTokens = plan.normalizedTextQuery,
+            searchTextVersion = SEARCH_TEXT_INDEX_VERSION,
             readState = readState,
+            channels = channels,
+            channelCount = channels.size,
+            facetTags = facetTags,
+            facetTagCount = facetTags.size,
             excludedIds = excludedIds,
             excludedCount = excludedIds.size,
         )
@@ -179,9 +224,26 @@ class MessageRepository(
             tags = plan.tags,
             tagCount = plan.tags.size,
             readState = readState,
+            channels = channels,
+            channelCount = channels.size,
+            facetTags = facetTags,
+            facetTagCount = facetTags.size,
             excludedIds = excludedIds,
             excludedCount = excludedIds.size,
         )
+    }
+
+    private fun normalizeSearchExcludedIds(
+        excludedIds: Set<String>,
+        reservedCount: Int,
+    ): List<String> {
+        val available = (SQLITE_SEARCH_BIND_PARAMETER_BUDGET - reservedCount).coerceAtLeast(0)
+        return excludedIds.asSequence()
+            .map(String::trim)
+            .filter(String::isNotEmpty)
+            .distinct()
+            .take(available)
+            .toList()
     }
 
     fun observeChannelCounts(): Flow<List<MessageChannelCount>> = channelStatsDao.observeChannelCounts()
@@ -238,7 +300,10 @@ class MessageRepository(
         }
     }
 
-    suspend fun getById(id: String): PushMessage? = dao.getById(id)?.asModel()
+    suspend fun getById(id: String): PushMessage? {
+        return dao.getById(id)?.asModel()
+            ?: thingSubMessageDao.getById(id)?.asModel()
+    }
 
     suspend fun getByMessageId(messageId: String): PushMessage? {
         return dao.getByMessageId(messageId)?.asModel()
@@ -295,6 +360,7 @@ class MessageRepository(
     suspend fun insertIncoming(
         message: PushMessage,
         providerAckIdentity: ProviderAckIdentity? = null,
+        deliveryScope: InboundDeliveryScope? = providerAckIdentity.inboundDeliveryScope(),
     ): Boolean {
         if (!isMessageEntity(message)) {
             return false
@@ -310,6 +376,7 @@ class MessageRepository(
                 opId = canonicalMessage.opId,
                 appliedAt = canonicalMessage.receivedAt.toEpochMilli(),
                 providerAckIdentity = providerAckIdentity,
+                deliveryScope = deliveryScope,
             )
             if (!deliveryClaimed) {
                 return@withTransaction false
@@ -323,6 +390,7 @@ class MessageRepository(
                 deliveryId = canonicalMessage.deliveryId,
                 appliedAt = canonicalMessage.receivedAt.toEpochMilli(),
                 providerAckIdentity = providerAckIdentity,
+                deliveryScope = deliveryScope,
             )
             if (!claimed) {
                 return@withTransaction false
@@ -637,8 +705,11 @@ class MessageRepository(
 
     suspend fun deleteById(id: String) {
         database.withTransaction {
-            dao.getById(id) ?: return@withTransaction
-            dao.deleteById(id)
+            if (dao.getById(id) != null) {
+                dao.deleteById(id)
+            } else if (thingSubMessageDao.getById(id) != null) {
+                thingSubMessageDao.deleteByIds(listOf(id))
+            }
         }
     }
 
@@ -655,7 +726,9 @@ class MessageRepository(
         return database.withTransaction {
             normalizedIds
                 .chunked(SQLITE_BIND_PARAMETER_CHUNK_SIZE)
-                .sumOf { dao.deleteByIds(it) }
+                .sumOf { chunk ->
+                    dao.deleteByIds(chunk) + thingSubMessageDao.deleteByIds(chunk)
+                }
         }
     }
 
@@ -733,19 +806,23 @@ class MessageRepository(
     }
 
     private fun parseSearchQuery(raw: String): SearchQueryPlan {
-        val textTokens = mutableListOf<String>()
+        val textTokens = linkedSetOf<String>()
         val tags = linkedSetOf<String>()
-        raw.trim()
-            .split("\\s+".toRegex())
+        raw.take(MAX_QUERY_LENGTH)
+            .split("[\\p{Z}\\s]+".toRegex())
             .asSequence()
             .map { it.trim() }
             .filter { it.isNotEmpty() }
             .forEach { token ->
                 val tag = parseTagToken(token)
                 if (tag != null) {
-                    tags += tag
+                    if (tags.size < MAX_TAG_COUNT) {
+                        tags += tag.take(MAX_TAG_LENGTH)
+                    }
                 } else {
-                    val textToken = sanitizeToken(token)
+                    val textToken = SearchTextNormalizer
+                        .normalize(token.replace("\"", ""))
+                        .take(MAX_TOKEN_LENGTH)
                     if (textToken.isNotEmpty()) {
                         textTokens += textToken
                     }
@@ -753,13 +830,8 @@ class MessageRepository(
             }
         return SearchQueryPlan(
             textTokens = textTokens.take(MAX_QUERY_TOKENS),
-            tags = tags.toList().take(MAX_QUERY_TOKENS),
+            tags = tags.toList(),
         )
-    }
-
-    private fun sanitizeToken(raw: String): String {
-        val cleaned = raw.replace(Regex("[^\\p{L}\\p{Nd}_]"), "")
-        return if (cleaned.length > MAX_TOKEN_LENGTH) cleaned.substring(0, MAX_TOKEN_LENGTH) else cleaned
     }
 
     private fun parseTagToken(raw: String): String? {
@@ -770,7 +842,7 @@ class MessageRepository(
             trimmed.startsWith("tag:", ignoreCase = true) -> trimmed.drop(4)
             else -> return null
         }
-        val normalized = value.trim().lowercase()
+        val normalized = value.trim().lowercase(Locale.ROOT)
         return normalized.takeIf { it.isNotEmpty() }
     }
 
@@ -785,20 +857,28 @@ class MessageRepository(
     ) {
         try {
             if (updateListPayload) {
+                metadataIndexDao.deleteSummaryProjectionMarker(messageId)
                 dao.updateListPayload(messageId, MessageEntity.buildListPayloadJson(message.rawPayloadJson))
             }
             upsertMetadataIndex(messageId, message)
+            metadataIndexDao.insertAll(
+                listOf(summaryProjectionMarker(messageId, message.receivedAt.toEpochMilli()))
+            )
         } catch (error: CancellationException) {
             throw error
         } catch (error: Exception) {
+            derivedWriteFailureGeneration.incrementAndGet()
+            searchIndexReady = false
+            summaryProjectionReady = false
             val description = error.toString().take(1_000)
             database.openHelper.writableDatabase.execSQL(
                 """
                 UPDATE message_derived_state
-                SET status = 'stale', updated_at_epoch_ms = ?, last_error = ?
+                SET status = 'stale', cursor_local_message_id = ?,
+                    updated_at_epoch_ms = ?, last_error = ?
                 WHERE component IN ('message_metadata_index', 'message_summary_projection')
                 """.trimIndent(),
-                arrayOf<Any>(System.currentTimeMillis(), description),
+                arrayOf<Any>(messageId, System.currentTimeMillis(), description),
             )
         }
     }
@@ -809,8 +889,8 @@ class MessageRepository(
             .map { (key, value) ->
                 MessageMetadataIndexEntity(
                     messageId = messageId,
-                    keyName = "metadata_${key.trim().lowercase()}",
-                    valueNorm = value.trim().lowercase(),
+                    keyName = "metadata_${key.trim().lowercase(Locale.ROOT)}",
+                    valueNorm = value.trim().lowercase(Locale.ROOT),
                     label = null,
                     receivedAt = message.receivedAt.toEpochMilli(),
                 )
@@ -819,7 +899,7 @@ class MessageRepository(
             .toList()
         val tagRows = message.tags
             .asSequence()
-            .map { it.trim().lowercase() }
+            .map { it.trim().lowercase(Locale.ROOT) }
             .filter { it.isNotEmpty() }
             .map { tag ->
                 MessageMetadataIndexEntity(
@@ -831,7 +911,19 @@ class MessageRepository(
                 )
             }
             .toList()
-        val rows = (metadataRows + tagRows)
+        val searchText = SearchTextNormalizer.joinedCandidates(
+            listOf(message.title, message.body, message.channel),
+        )
+        val searchRows = listOf(
+            MessageMetadataIndexEntity(
+                messageId = messageId,
+                keyName = "search_text",
+                valueNorm = SEARCH_TEXT_INDEX_VERSION,
+                label = searchText,
+                receivedAt = message.receivedAt.toEpochMilli(),
+            )
+        )
+        val rows = (metadataRows + tagRows + searchRows)
             .distinctBy { "${it.keyName}\u001F${it.valueNorm}" }
 
         metadataIndexDao.deleteByMessageId(messageId)
@@ -841,61 +933,177 @@ class MessageRepository(
     }
 
     suspend fun backfillTagMetadataIndexIfNeeded(context: Context) {
+        ensureSearchIndexReady()
+        ensureSummaryProjectionReady()
         val prefs = context.getSharedPreferences(TAG_METADATA_BACKFILL_PREFS, Context.MODE_PRIVATE)
-        val databaseState = database.openHelper.writableDatabase.query(
-            "SELECT status FROM message_derived_state WHERE component = 'message_metadata_index'"
-        ).use { cursor -> if (cursor.moveToFirst()) cursor.getString(0) else null }
-        if (databaseState == "ready") {
-            return
+        prefs.edit {
+            putBoolean(TAG_METADATA_BACKFILL_KEY, true)
         }
+    }
+
+    private suspend fun ensureSearchIndexReady() {
+        if (searchIndexReady) return
+        searchIndexBackfillMutex.withLock {
+            while (!searchIndexReady) {
+                val failureGeneration = derivedWriteFailureGeneration.get()
+                val canReuseReadyState = repairSearchIndexIfNeeded(failureGeneration)
+                if (derivedWriteFailureGeneration.get() != failureGeneration) continue
+                if (!canReuseReadyState) {
+                    markDerivedComponentReady("message_metadata_index")
+                }
+                if (derivedWriteFailureGeneration.get() != failureGeneration) continue
+                searchIndexReady = true
+                if (derivedWriteFailureGeneration.get() != failureGeneration) {
+                    searchIndexReady = false
+                }
+            }
+        }
+    }
+
+    private suspend fun repairSearchIndexIfNeeded(failureGeneration: Long): Boolean {
+        val state = readDerivedState("message_metadata_index")
+        if (state.lastError != null) {
+            state.cursorMessageId
+                ?.let { dao.getById(it) }
+                ?.let { upsertMetadataIndex(it.id, it.asModel()) }
+        }
+        val missingBefore = metadataIndexDao.countMessagesMissingSearchText(SEARCH_TEXT_INDEX_VERSION)
         var beforeReceivedAt = Long.MAX_VALUE
         var beforeId = "\uFFFF"
-        while (true) {
-            val messages = dao.getMetadataBackfillPage(
+        while (metadataIndexDao.countMessagesMissingSearchText(SEARCH_TEXT_INDEX_VERSION) > 0) {
+            val messages = dao.getMissingSearchMetadataPage(
+                searchTextVersion = SEARCH_TEXT_INDEX_VERSION,
                 beforeReceivedAt = beforeReceivedAt,
                 beforeId = beforeId,
                 limit = METADATA_BACKFILL_BATCH_SIZE,
             )
-            if (messages.isEmpty()) {
-                val revision = database.openHelper.writableDatabase.query(
-                    "SELECT revision FROM message_store_revision WHERE id = 1"
-                ).use { cursor -> if (cursor.moveToFirst()) cursor.getLong(0) else 0L }
-                database.openHelper.writableDatabase.execSQL(
-                    """
-                    UPDATE message_derived_state
-                    SET status = 'ready', source_revision = ?, cursor_local_message_id = NULL,
-                        updated_at_epoch_ms = ?, last_error = NULL
-                    WHERE component IN ('message_metadata_index', 'message_summary_projection')
-                    """.trimIndent(),
-                    arrayOf(revision, System.currentTimeMillis()),
-                )
-                break
+            if (messages.isEmpty() && derivedWriteFailureGeneration.get() != failureGeneration) {
+                return false
             }
+            check(messages.isNotEmpty()) { "search metadata repair made no progress" }
             database.withTransaction {
                 for (entity in messages) {
                     upsertMetadataIndex(entity.id, entity.asModel())
-                    dao.updateListPayload(
-                        entity.id,
-                        MessageEntity.buildListPayloadJson(entity.rawPayloadJson),
-                    )
                 }
-                database.openHelper.writableDatabase.execSQL(
-                    """
-                    UPDATE message_derived_state
-                    SET status = 'building', cursor_local_message_id = ?,
-                        updated_at_epoch_ms = ?, last_error = NULL
-                    WHERE component IN ('message_metadata_index', 'message_summary_projection')
-                    """.trimIndent(),
-                    arrayOf<Any>(messages.last().id, System.currentTimeMillis()),
-                )
             }
             beforeReceivedAt = messages.last().receivedAt
             beforeId = messages.last().id
             kotlinx.coroutines.yield()
         }
-        prefs.edit {
-            putBoolean(TAG_METADATA_BACKFILL_KEY, true)
+        if (derivedWriteFailureGeneration.get() != failureGeneration) return false
+        check(metadataIndexDao.countMessagesMissingSearchText(SEARCH_TEXT_INDEX_VERSION) == 0)
+        return state.isReusableReady && missingBefore == 0
+    }
+
+    private suspend fun ensureSummaryProjectionReady() {
+        if (summaryProjectionReady) return
+        summaryProjectionBackfillMutex.withLock {
+            while (!summaryProjectionReady) {
+                val failureGeneration = derivedWriteFailureGeneration.get()
+                val canReuseReadyState = repairSummaryProjectionIfNeeded(failureGeneration)
+                if (derivedWriteFailureGeneration.get() != failureGeneration) continue
+                if (!canReuseReadyState) {
+                    markDerivedComponentReady("message_summary_projection")
+                }
+                if (derivedWriteFailureGeneration.get() != failureGeneration) continue
+                summaryProjectionReady = true
+                if (derivedWriteFailureGeneration.get() != failureGeneration) {
+                    summaryProjectionReady = false
+                }
+            }
         }
+    }
+
+    private suspend fun repairSummaryProjectionIfNeeded(failureGeneration: Long): Boolean {
+        val state = readDerivedState("message_summary_projection")
+        if (state.lastError != null) {
+            state.cursorMessageId
+                ?.let { dao.getById(it) }
+                ?.let { repairSummaryProjection(it) }
+        }
+        val missingBefore = dao.countMessagesMissingSummaryProjection(SUMMARY_PROJECTION_VERSION)
+        var beforeReceivedAt = Long.MAX_VALUE
+        var beforeId = "\uFFFF"
+        while (dao.countMessagesMissingSummaryProjection(SUMMARY_PROJECTION_VERSION) > 0) {
+            val messages = dao.getMissingSummaryProjectionPage(
+                summaryProjectionVersion = SUMMARY_PROJECTION_VERSION,
+                beforeReceivedAt = beforeReceivedAt,
+                beforeId = beforeId,
+                limit = METADATA_BACKFILL_BATCH_SIZE,
+            )
+            if (messages.isEmpty() && derivedWriteFailureGeneration.get() != failureGeneration) {
+                return false
+            }
+            check(messages.isNotEmpty()) { "message summary repair made no progress" }
+            database.withTransaction {
+                messages.forEach { repairSummaryProjection(it) }
+            }
+            beforeReceivedAt = messages.last().receivedAt
+            beforeId = messages.last().id
+            kotlinx.coroutines.yield()
+        }
+        if (derivedWriteFailureGeneration.get() != failureGeneration) return false
+        check(dao.countMessagesMissingSummaryProjection(SUMMARY_PROJECTION_VERSION) == 0)
+        return state.isReusableReady && missingBefore == 0
+    }
+
+    private suspend fun repairSummaryProjection(entity: MessageEntity) {
+        dao.updateListPayload(
+            entity.id,
+            MessageEntity.buildListPayloadJson(entity.rawPayloadJson),
+        )
+        metadataIndexDao.insertAll(listOf(summaryProjectionMarker(entity.id, entity.receivedAt)))
+    }
+
+    private fun summaryProjectionMarker(messageId: String, receivedAt: Long) =
+        MessageMetadataIndexEntity(
+            messageId = messageId,
+            keyName = "summary_projection",
+            valueNorm = SUMMARY_PROJECTION_VERSION,
+            label = null,
+            receivedAt = receivedAt,
+        )
+
+    private fun readDerivedState(component: String): DerivedState {
+        return database.openHelper.writableDatabase.query(
+            """
+            SELECT status, cursor_local_message_id, last_error
+            FROM message_derived_state
+            WHERE component = ?
+            """.trimIndent(),
+            arrayOf(component),
+        ).use { cursor ->
+            if (!cursor.moveToFirst()) return@use DerivedState(null, null, null)
+            DerivedState(
+                status = cursor.getString(0),
+                cursorMessageId = cursor.takeUnless { it.isNull(1) }?.getString(1),
+                lastError = cursor.takeUnless { it.isNull(2) }?.getString(2),
+            )
+        }
+    }
+
+    private fun markDerivedComponentReady(component: String) {
+        val revision = database.openHelper.writableDatabase.query(
+            "SELECT revision FROM message_store_revision WHERE id = 1"
+        ).use { cursor -> if (cursor.moveToFirst()) cursor.getLong(0) else 0L }
+        database.openHelper.writableDatabase.execSQL(
+            """
+            UPDATE message_derived_state
+            SET status = 'ready', source_revision = ?, cursor_local_message_id = NULL,
+                updated_at_epoch_ms = ?, last_error = NULL
+            WHERE component = ?
+            """.trimIndent(),
+            arrayOf<Any>(revision, System.currentTimeMillis(), component),
+        )
+    }
+
+    private data class DerivedState(
+        val status: String?,
+        val cursorMessageId: String?,
+        val lastError: String?,
+    ) {
+        val isReusableReady: Boolean
+            get() = status == "ready" && cursorMessageId == null && lastError == null
     }
 
     private suspend fun pruneTopLevelMessageDuplicates(stableMessageIds: Set<String>) {

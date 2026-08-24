@@ -36,6 +36,8 @@ import io.ethan.pushgo.util.FcmSupport
 import io.ethan.pushgo.util.UrlValidators
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -990,7 +992,8 @@ class SettingsViewModel(
         return false
     }
 
-    suspend fun unsubscribeChannelAndDeleteHistory(
+    @Suppress("UNUSED_PARAMETER")
+    private suspend fun removedLegacyChannelDeletionPath(
         context: Context,
         channelId: String,
         expectedGateway: String,
@@ -998,31 +1001,7 @@ class SettingsViewModel(
         expectedUseProvider: Boolean,
     ) {
         val normalizedChannelId = ChannelIdValidator.normalize(channelId)
-        channelRepository.requireUnchangedActiveSubscription(
-            rawChannelId = normalizedChannelId,
-            expectedGatewayUrl = expectedGateway,
-            expectedUpdatedAt = expectedUpdatedAt,
-        )
-        channelRepository.channelPassword(
-            expectedGatewayUrl = expectedGateway,
-            channelId = normalizedChannelId,
-        )
-            ?: throw ChannelSubscriptionException.local(
-                message = "Channel password missing",
-                code = "channel_password_missing",
-                category = io.ethan.pushgo.data.GatewayErrorCategory.VALIDATION,
-            )
-        val useProvider = withContext(Dispatchers.Main.immediate) {
-            shouldUseFcm(context)
-        }
-        if (useProvider != expectedUseProvider) {
-            throw ChannelSubscriptionException.local(
-                message = "Channel delivery mode changed while removal was pending",
-                code = "channel_delivery_mode_changed_during_removal",
-                category = io.ethan.pushgo.data.GatewayErrorCategory.VALIDATION,
-            )
-        }
-
+        val useProvider = expectedUseProvider
         if (useProvider) {
             val token = withContext(Dispatchers.Main.immediate) {
                 settingsRepository.getFcmToken()?.trim().takeUnless { it.isNullOrEmpty() }
@@ -1160,29 +1139,23 @@ class SettingsViewModel(
         localError: Throwable,
         channelId: String,
         expectedGateway: String,
-    ): String? {
-        return try {
-            channelRepository.channelPassword(
-                expectedGatewayUrl = expectedGateway,
-                channelId = channelId,
-            )
-        } catch (credentialReadError: Throwable) {
-            throw ChannelSubscriptionException(
-                message = "Channel removal compensation state could not be verified",
-                code = "channel_removal_compensation_state_unavailable",
-                category = io.ethan.pushgo.data.GatewayErrorCategory.INTERNAL,
-                detail = "local=${localError.message}; credential_read=${credentialReadError.message}",
-            )
-        }
+    ): String? = try {
+        channelRepository.channelPassword(expectedGateway, channelId)
+    } catch (credentialReadError: Throwable) {
+        throw ChannelSubscriptionException(
+            message = "Channel removal compensation state could not be verified",
+            code = "channel_removal_compensation_state_unavailable",
+            category = io.ethan.pushgo.data.GatewayErrorCategory.INTERNAL,
+            detail = "local=${localError.message}; credential_read=${credentialReadError.message}",
+        )
     }
 
-    private fun gatewayChangedDuringRemoval(): ChannelSubscriptionException {
-        return ChannelSubscriptionException.local(
+    private fun gatewayChangedDuringRemoval(): ChannelSubscriptionException =
+        ChannelSubscriptionException.local(
             message = "Gateway changed while channel removal was pending",
             code = "gateway_changed_during_channel_removal",
             category = io.ethan.pushgo.data.GatewayErrorCategory.VALIDATION,
         )
-    }
 
     fun saveDecryptionConfig() {
         viewModelScope.launch {
@@ -1262,6 +1235,11 @@ class SettingsViewModel(
             privateModeEnabled = !useFcmChannel,
         )
         isChannelModeLoaded = true
+    }
+
+    @VisibleForTesting
+    internal suspend fun cancelScopeForTesting() {
+        viewModelScope.coroutineContext[Job]?.cancelAndJoin()
     }
 
     suspend fun loadAllMessages() = messageRepository.loadAllForExport()

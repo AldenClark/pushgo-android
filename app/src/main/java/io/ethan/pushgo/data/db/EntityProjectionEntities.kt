@@ -265,6 +265,11 @@ data class TopLevelEventHeadEntity(
     @ColumnInfo(name = "event_time_epoch")
     val eventTimeEpoch: Long?,
 ) {
+    fun isNewerThan(current: TopLevelEventHeadEntity): Boolean {
+        if (receivedAt != current.receivedAt) return receivedAt > current.receivedAt
+        return sourceId > current.sourceId
+    }
+
     fun asModel(): PushMessage = asModelInternal(
         id = sourceId,
         messageId = messageId,
@@ -373,6 +378,11 @@ data class ThingHeadEntity(
     @ColumnInfo(name = "observed_time_epoch")
     val observedTimeEpoch: Long?,
 ) {
+    fun isNewerThan(current: ThingHeadEntity): Boolean {
+        if (receivedAt != current.receivedAt) return receivedAt > current.receivedAt
+        return sourceId > current.sourceId
+    }
+
     fun asModel(): PushMessage = asModelInternal(
         id = sourceId,
         messageId = messageId,
@@ -589,6 +599,15 @@ private fun parsePayloadObject(raw: String?): JSONObject? {
 private fun mergeEntityPayloadJson(existingRaw: String?, incomingRaw: String): String {
     val incoming = parsePayloadObject(incomingRaw) ?: return incomingRaw
     val merged = parsePayloadObject(existingRaw)?.let(::copyJsonObject) ?: JSONObject()
+    if (incoming.has("location")) {
+        // Nested location is the canonical representation for this patch. A null value is an
+        // atomic tombstone for the logical location pair, including legacy flat aliases.
+        merged.remove("location_type")
+        merged.remove("location_value")
+    } else if (incoming.has("location_type") || incoming.has("location_value")) {
+        // A legacy flat pair supersedes an older nested representation.
+        merged.remove("location")
+    }
     val keys = incoming.keys()
     while (keys.hasNext()) {
         val key = keys.next()

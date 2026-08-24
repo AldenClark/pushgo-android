@@ -3,6 +3,8 @@ package io.ethan.pushgo
 import android.app.Application
 import android.os.Bundle
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import coil3.ImageLoader
 import coil3.SingletonImageLoader
 import coil3.disk.DiskCache
@@ -22,11 +24,15 @@ import io.ethan.pushgo.notifications.NotificationHelper
 import io.ethan.pushgo.notifications.PrivateChannelServiceManager
 import io.ethan.pushgo.notifications.ProviderIngressCoordinator
 import io.ethan.pushgo.testing.InstrumentationRuntime
+import io.ethan.pushgo.ui.PendingLocalDeletionDrainScheduler
 import io.ethan.pushgo.update.UpdateCheckScheduler
 import io.ethan.pushgo.util.FcmSupport
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.collect
@@ -45,6 +51,7 @@ class PushGoApp : Application(), SingletonImageLoader.Factory {
 
     @Volatile
     private var initializedContainer: AppContainer? = null
+    private var containerJob: Job? = null
     @Volatile
     private var startupStorageError: String? = null
     @Volatile
@@ -55,10 +62,41 @@ class PushGoApp : Application(), SingletonImageLoader.Factory {
     private var cachedUseFcmChannel: Boolean = true
 
     val container: AppContainer
-        get() = initializedContainer
+        get() = containerOrNull()
             ?: error(startupStorageError ?: "Local persistent storage is unavailable.")
 
-    fun containerOrNull(): AppContainer? = initializedContainer
+    fun containerOrNull(): AppContainer? {
+        initializedContainer?.let { return it }
+        if (!InstrumentationRuntime.isUnderInstrumentationTest()) return null
+        return synchronized(this) {
+            initializedContainer ?: runCatching { createContainer() }
+                .onFailure { error ->
+                    startupStorageError = error.message.orEmpty().trim()
+                        .ifEmpty { "Local persistent storage init failed." }
+                }
+                .getOrNull()
+                .also { initializedContainer = it }
+        }
+    }
+
+    /**
+     * Releases the target application's database handle before a migration test
+     * replaces database files. The next test-owned access lazily opens a fresh
+     * container. This is deliberately unavailable outside instrumentation.
+     */
+    fun releaseStorageForInstrumentationTest() {
+        check(InstrumentationRuntime.isUnderInstrumentationTest())
+        val (job, database) = synchronized(this) {
+            val currentJob = containerJob
+            val currentDatabase = initializedContainer?.database
+            containerJob = null
+            initializedContainer = null
+            startupStorageError = null
+            currentJob to currentDatabase
+        }
+        runBlocking { job?.cancelAndJoin() }
+        database?.close()
+    }
 
     fun startupStorageErrorMessage(): String? = startupStorageError
     fun cachedUseFcmChannel(): Boolean = cachedUseFcmChannel
@@ -76,12 +114,18 @@ class PushGoApp : Application(), SingletonImageLoader.Factory {
     private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val imageStoreForCoil by lazy { MessageImageStore(this) }
     private var startedActivities: Int = 0
-    private var resumedActivities: Int = 0
     private var pendingDeletionLifecycleGeneration: Long = 0L
 
     override fun onCreate() {
         super.onCreate()
-        val container = runCatching { AppContainer(this, appScope) }
+        if (InstrumentationRuntime.isUnderInstrumentationTest()) {
+            // Test fixtures own their database lifecycle. Opening the production
+            // container here would race migration tests that replace pushgo.db.
+            NotificationHelper.cleanupObsoleteChannels(this)
+            NotificationHelper.ensureManagedChannels(this)
+            return
+        }
+        val container = runCatching { createContainer() }
             .onFailure { error ->
                 val reason = error.message.orEmpty().trim()
                 startupStorageError = "Local persistent storage init failed: $reason".trim()
@@ -99,11 +143,7 @@ class PushGoApp : Application(), SingletonImageLoader.Factory {
             NotificationHelper.ensureManagedChannels(this)
             return
         }
-        if (InstrumentationRuntime.isUnderInstrumentationTest()) {
-            NotificationHelper.cleanupObsoleteChannels(this)
-            NotificationHelper.ensureManagedChannels(this)
-            return
-        }
+        container.pendingLocalDeletionCoordinator.start()
         cachedUseFcmChannel = container.settingsRepository.getCachedUseFcmChannel()
         appScope.launch {
             runCatching {
@@ -134,9 +174,25 @@ class PushGoApp : Application(), SingletonImageLoader.Factory {
         UpdateCheckScheduler.refreshSchedule(this)
         ImageCacheCleanupScheduler.refreshSchedule(this)
         scheduleStartupSyncIfNeeded()
+        val lifecycleHandler = Handler(Looper.getMainLooper())
+        val deletionInteractionBoundary = StartedActivityInteractionBoundary(
+            scheduleDelayed = { delayMillis, block ->
+                lifecycleHandler.postDelayed(block, delayMillis)
+            },
+            onInteractionChanged = { interactionActive ->
+                val generation = ++pendingDeletionLifecycleGeneration
+                appScope.launch {
+                    container.pendingLocalDeletionCoordinator.setInteractionActive(
+                        interactionActive,
+                        generation,
+                    )
+                }
+            },
+        )
         registerActivityLifecycleCallbacks(object : ActivityLifecycleCallbacks {
             override fun onActivityStarted(activity: android.app.Activity) {
                 startedActivities += 1
+                deletionInteractionBoundary.onActivityStarted()
                 val becameForeground = startedActivities == 1
                 AlertPlaybackController.stopAll(this@PushGoApp)
                 val automationSession = PushGoAutomation.isSessionConfigured()
@@ -152,30 +208,14 @@ class PushGoApp : Application(), SingletonImageLoader.Factory {
 
             override fun onActivityStopped(activity: android.app.Activity) {
                 startedActivities = (startedActivities - 1).coerceAtLeast(0)
+                deletionInteractionBoundary.onActivityStopped(activity.isChangingConfigurations)
                 container.privateChannelClient.setForeground(startedActivities > 0)
                 PrivateChannelServiceManager.refreshForMode(this@PushGoApp, isEffectiveFcmModeEnabled())
             }
 
             override fun onActivityCreated(activity: android.app.Activity, savedInstanceState: Bundle?) {}
-            override fun onActivityResumed(activity: android.app.Activity) {
-                resumedActivities += 1
-                if (resumedActivities == 1) {
-                    val generation = ++pendingDeletionLifecycleGeneration
-                    appScope.launch {
-                        container.pendingLocalDeletionCoordinator.setInteractionActive(true, generation)
-                    }
-                }
-            }
-
-            override fun onActivityPaused(activity: android.app.Activity) {
-                resumedActivities = (resumedActivities - 1).coerceAtLeast(0)
-                if (resumedActivities == 0) {
-                    val generation = ++pendingDeletionLifecycleGeneration
-                    appScope.launch {
-                        container.pendingLocalDeletionCoordinator.setInteractionActive(false, generation)
-                    }
-                }
-            }
+            override fun onActivityResumed(activity: android.app.Activity) {}
+            override fun onActivityPaused(activity: android.app.Activity) {}
             override fun onActivitySaveInstanceState(activity: android.app.Activity, outState: Bundle) {}
             override fun onActivityDestroyed(activity: android.app.Activity) {}
         })
@@ -186,6 +226,27 @@ class PushGoApp : Application(), SingletonImageLoader.Factory {
         }
         NotificationHelper.cleanupObsoleteChannels(this)
         NotificationHelper.ensureManagedChannels(this)
+    }
+
+    private fun createContainer(): AppContainer {
+        val job = SupervisorJob(appScope.coroutineContext[Job])
+        return runCatching {
+            AppContainer(
+                context = this,
+                appScope = CoroutineScope(job + Dispatchers.IO),
+                pendingLocalDeletionDrainScheduler = if (
+                    InstrumentationRuntime.isUnderInstrumentationTest()
+                ) {
+                    PendingLocalDeletionDrainScheduler.None
+                } else {
+                    io.ethan.pushgo.ui.WorkManagerPendingLocalDeletionDrainScheduler(this)
+                },
+            )
+        }.onSuccess {
+            containerJob = job
+        }.onFailure {
+            job.cancel()
+        }.getOrThrow()
     }
 
     private fun scheduleStartupSyncIfNeeded() {
@@ -469,5 +530,40 @@ class PushGoApp : Application(), SingletonImageLoader.Factory {
 
     private fun isEffectiveFcmModeEnabled(): Boolean {
         return effectiveFcmModeForSelection(cachedUseFcmChannel)
+    }
+}
+
+/** Mirrors ProcessLifecycleOwner's started boundary without treating pause/configuration as background. */
+internal class StartedActivityInteractionBoundary(
+    private val scheduleDelayed: (delayMillis: Long, block: Runnable) -> Unit,
+    private val onInteractionChanged: (Boolean) -> Unit,
+) {
+    private var startedCount = 0
+    private var generation = 0L
+    private var interactionActive = false
+
+    fun onActivityStarted() {
+        startedCount += 1
+        generation += 1
+        if (!interactionActive) {
+            interactionActive = true
+            onInteractionChanged(true)
+        }
+    }
+
+    fun onActivityStopped(isChangingConfigurations: Boolean = false) {
+        startedCount = (startedCount - 1).coerceAtLeast(0)
+        if (startedCount != 0 || isChangingConfigurations) return
+        val scheduledGeneration = ++generation
+        scheduleDelayed(PROCESS_STOP_DEBOUNCE_MILLIS, Runnable {
+            if (startedCount == 0 && generation == scheduledGeneration) {
+                interactionActive = false
+                onInteractionChanged(false)
+            }
+        })
+    }
+
+    companion object {
+        internal const val PROCESS_STOP_DEBOUNCE_MILLIS = 700L
     }
 }

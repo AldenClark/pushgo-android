@@ -43,6 +43,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -290,7 +291,11 @@ private fun MessageHistoryCleanupStatusDialog(
     val detail = when (phase) {
         MessageHistoryCleanupPhase.Confirmation -> stringResource(R.string.history_cleanup_confirm_detail)
         MessageHistoryCleanupPhase.Cleaning -> stringResource(R.string.history_cleanup_cleaning_detail)
-        is MessageHistoryCleanupPhase.Success -> stringResource(R.string.history_cleanup_success, phase.count)
+        is MessageHistoryCleanupPhase.Success -> pluralStringResource(
+            R.plurals.history_cleanup_success,
+            phase.count,
+            phase.count,
+        )
         is MessageHistoryCleanupPhase.Failure -> phase.message
     }
 

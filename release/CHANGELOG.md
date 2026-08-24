@@ -20,30 +20,39 @@ PushGo Android policy:
 
 ## [Unreleased]
 
-## [v1.3.0] - 2026-08-04
+### Changed
+- Placeholder for next development cycle.
+
+## [v1.3.0] - 2026-08-24
+
+### Added
+- Added durable, Gateway/device-scoped provider delivery and ACK state so process death, network interruption, Gateway switching, and duplicate delivery remain recoverable.
+- Added durable pending-deletion execution and WorkManager recovery for messages, events, things, and channels, including notification and credential cleanup after restart.
+- Added Room schemas and migrations through version 30 for provider staging, scoped ACK state, durable deletion, bounded ACK tombstones, and legacy pre-send uncertainty.
+- Added normalized indexed search for large message histories, broader Event/Thing search semantics, bounded continuation, and a 100k-message performance regression gate.
+- Added localized product documentation links, accessibility semantics, and focused minimum/modern Android runtime coverage.
 
 ### Changed
 - Finalized Android `versionName=v1.3.0` and stable `versionCode=1030099`; downgrade to `v1.3.0-beta.1` is intentionally unsupported.
-- Switched provider ingress to non-destructive Pull v2 with exact structured fallback to the beta Pull route.
-- Persisted ACK Gateway/device ownership and protocol contract, routed v2 batches only through `/v2/messages/ack`, and retained legacy single ACK routing for direct deliveries.
+- Provider recovery prefers the non-destructive `POST /v2/messages/pull` and explicit `POST /v2/messages/ack` contract, but falls back to legacy `POST /messages/pull` only for an exact `404 route_not_found`, matching the Apple client; legacy responses are transactionally staged in Room before parsing or canonical persistence.
+- Persisted ACK Gateway/device ownership and protocol contract, routed v2 batches only through `/v2/messages/ack`, and retained legacy single ACK routing only for already-attributed legacy/direct deliveries.
 - Added `has_more` Pull draining with the outer queue `delivery_id` as the authoritative identity.
+- Upgraded the Android build stack to AGP `9.2.1`, refreshed core Android dependencies, and aligned package-install, image-decoding, Compose, backup, and SDK compatibility paths; retained the direct system request for excluding PushGo from battery optimization.
+- Restored the v1.2.6 delivery matrix with signed `arm64-v8a`, `armeabi-v7a`, `x86_64`, and universal APK artifacts.
+- Pinned the Rust/Android JNI toolchain and kept release-time checks deterministic without emulator startup in the tag-triggered publication job.
 
 ### Fixed
-- Prevented successful Pull from clearing local ACK state before a structurally valid Gateway ACK response confirms the requested batch.
-- Added Room v24→v25 migration for attributable ACK outbox records; unattributable beta markers are rebuilt from server-retained v2 messages.
-
-### Changed
-- Prepared Android beta version `v1.3.0-beta.1` for the next release cycle.
-- `versionCode` now resolves to beta code `1030001` from `versionName=v1.3.0-beta.1`.
-- Upgraded the Android build stack to AGP `9.2.1` with its compatible Gradle/toolchain baseline and refreshed core Android dependencies.
-- Cleaned Kotlin/lint warning fallout from the toolchain upgrade and aligned platform compatibility handling across update install, battery settings, image decoding, and Compose resource usage.
-
-### Added
-- Added versioned beta update notes source: `release/update-notes/v1.3.0-beta.1.json`.
-
-### Fixed
+- Made v2 delete-all ACKs terminal for structurally valid zero, partial, and full removal counts, and persisted legacy pre-send ambiguity so process death cannot strand already-removed deliveries.
+- Prevented successful Pull from clearing local ACK state before a structurally valid Gateway ACK confirms the requested immutable batch.
+- Propagated persistence, Pull, notification, page-state, cancellation, and retryable failures correctly through WorkManager instead of reporting false success.
+- Repaired duplicate delivery visibility, notification/media/page projections, silent replay behavior, private delivery identity, ACK scheduling fairness, and long-offline tombstone retention.
+- Prevented late older Event/Thing operations from rolling back the current derived head while retaining their immutable change-log entries.
+- Made Thing child messages addressable and deletable through notification local IDs, and bounded message-list payload projections to 16 KiB of list-required fields.
+- Prevented deletion recovery from cancelling its own active commit, protected newer channel credentials from older deletion replays, and repaired Room-to-WorkManager handoff gaps.
+- Reduced the first search delay on complete 100k-message histories, prevented unnecessary index rebuilds, and continued bounded Event/Thing search after early matches.
+- Hardened Rust JNI lifecycle and packaging across `arm64-v8a`, `armeabi-v7a`, and `x86_64`.
 - Fixed release-audit noise caused by stale Android resources and launcher asset duplication after the build-stack refresh.
-- Fixed several Android compatibility and policy edge cases surfaced by the upgraded toolchain, including backup rules, package-install settings routing, and obsolete SDK-guard branches.
+- Fixed Android compatibility, image-cache/rendering, accessibility, settings navigation, and package-install edge cases surfaced by the upgraded toolchain.
 
 ## [v1.2.6] - 2026-06-09
 

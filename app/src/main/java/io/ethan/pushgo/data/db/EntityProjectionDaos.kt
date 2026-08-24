@@ -1,11 +1,21 @@
 package io.ethan.pushgo.data.db
 
 import androidx.room.Dao
+import androidx.room.ColumnInfo
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import androidx.room.Update
 import kotlinx.coroutines.flow.Flow
+
+data class ThingSubMessageSearchCandidate(
+    val id: String,
+    @ColumnInfo(name = "thing_id") val thingId: String?,
+    val title: String,
+    val body: String,
+    @ColumnInfo(name = "body_preview") val bodyPreview: String,
+    @ColumnInfo(name = "message_id") val messageId: String?,
+)
 
 @Dao
 interface EventChangeLogDao {
@@ -333,6 +343,9 @@ interface ThingSubMessageDao {
     @Update
     suspend fun update(message: ThingSubMessageEntity): Int
 
+    @Query("SELECT * FROM thing_sub_messages WHERE id = :id LIMIT 1")
+    suspend fun getById(id: String): ThingSubMessageEntity?
+
     @Query("SELECT * FROM thing_sub_messages WHERE message_id = :messageId LIMIT 1")
     suspend fun getByMessageId(messageId: String): ThingSubMessageEntity?
 
@@ -350,6 +363,72 @@ interface ThingSubMessageDao {
         """
     )
     suspend fun getByThingId(thingId: String): List<ThingSubMessageEntity>
+
+    @Query(
+        """
+        SELECT * FROM thing_sub_messages
+        WHERE thing_id IN (:thingIds)
+        ORDER BY COALESCE(occurred_at_epoch, event_time_epoch, received_at) DESC,
+                 received_at DESC,
+                 id DESC
+        """
+    )
+    suspend fun getByThingIds(thingIds: List<String>): List<ThingSubMessageEntity>
+
+    /**
+     * Bounded list hydration for the Thing list. The correlated count keeps this
+     * compatible with API 28 SQLite (no window-function dependency).
+     */
+    @Query(
+        """
+        SELECT child.*
+        FROM thing_sub_messages child
+        WHERE child.thing_id IN (:thingIds)
+          AND (
+            SELECT COUNT(*)
+            FROM thing_sub_messages newer
+            WHERE newer.thing_id = child.thing_id
+              AND (
+                COALESCE(newer.occurred_at_epoch, newer.event_time_epoch, newer.received_at)
+                    > COALESCE(child.occurred_at_epoch, child.event_time_epoch, child.received_at)
+                OR (
+                    COALESCE(newer.occurred_at_epoch, newer.event_time_epoch, newer.received_at)
+                        = COALESCE(child.occurred_at_epoch, child.event_time_epoch, child.received_at)
+                    AND newer.received_at > child.received_at
+                )
+                OR (
+                    COALESCE(newer.occurred_at_epoch, newer.event_time_epoch, newer.received_at)
+                        = COALESCE(child.occurred_at_epoch, child.event_time_epoch, child.received_at)
+                    AND newer.received_at = child.received_at
+                    AND newer.id > child.id
+                )
+              )
+          ) < :perThingLimit
+        ORDER BY COALESCE(child.occurred_at_epoch, child.event_time_epoch, child.received_at) DESC,
+                 child.received_at DESC,
+                 child.id DESC
+        LIMIT :totalLimit
+        """
+    )
+    suspend fun getByThingIdsBounded(
+        thingIds: List<String>,
+        perThingLimit: Int,
+        totalLimit: Int,
+    ): List<ThingSubMessageEntity>
+
+    @Query("SELECT COUNT(*) FROM thing_sub_messages WHERE thing_id IN (:thingIds)")
+    suspend fun countByThingIds(thingIds: List<String>): Int
+
+    @Query(
+        """
+        SELECT id, thing_id, title, body, body_preview, message_id
+        FROM thing_sub_messages
+        WHERE (:afterId IS NULL OR id > :afterId)
+        ORDER BY id ASC
+        LIMIT :limit
+        """
+    )
+    suspend fun getSearchCandidates(afterId: String?, limit: Int): List<ThingSubMessageSearchCandidate>
 
     @Query("DELETE FROM thing_sub_messages")
     suspend fun deleteAll()

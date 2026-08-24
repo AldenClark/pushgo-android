@@ -23,4 +23,6 @@ data class InboundDeliveryAckOutboxEntity(
     val updatedAt: Long,
     @ColumnInfo(name = "attempt_count")
     val attemptCount: Int = 0,
+    @ColumnInfo(name = "last_attempt_uncertain", defaultValue = "0")
+    val lastAttemptUncertain: Boolean = false,
 )

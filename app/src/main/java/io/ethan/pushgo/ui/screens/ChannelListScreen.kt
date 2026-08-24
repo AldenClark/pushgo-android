@@ -60,6 +60,7 @@ import androidx.navigation.NavController
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.ethan.pushgo.R
 import io.ethan.pushgo.data.AppContainer
+import io.ethan.pushgo.data.PendingLocalDeletionOperation
 import io.ethan.pushgo.data.model.ChannelSubscription
 import io.ethan.pushgo.ui.PendingLocalDeletionCoordinator
 import io.ethan.pushgo.ui.accessibility.joinAccessibilitySummary
@@ -257,18 +258,12 @@ fun ChannelListScreen(
                                     val expectedUseProvider = viewModel.channelRemovalUsesProvider(appContext)
                                     container.pendingLocalDeletionCoordinator.schedule(
                                         summary = summary,
-                                        scope = PendingLocalDeletionCoordinator.Scope(
-                                            channelIds = setOf(channelId.trim())
+                                        operation = PendingLocalDeletionOperation.channel(
+                                            id = channelId,
+                                            expectedGatewayUrl = expectedGateway,
+                                            expectedUpdatedAt = expectedUpdatedAt,
+                                            expectedUseProvider = expectedUseProvider,
                                         ),
-                                        onCommit = {
-                                            viewModel.unsubscribeChannelAndDeleteHistory(
-                                                context = appContext,
-                                                channelId = channelId,
-                                                expectedGateway = expectedGateway,
-                                                expectedUpdatedAt = expectedUpdatedAt,
-                                                expectedUseProvider = expectedUseProvider,
-                                            )
-                                        },
                                         onCompletion = viewModel::handleUnsubscribeAndDeleteHistoryCompletion,
                                     )
                                 } catch (error: Exception) {

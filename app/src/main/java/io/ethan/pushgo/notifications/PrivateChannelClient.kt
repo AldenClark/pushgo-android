@@ -15,6 +15,10 @@ import io.ethan.pushgo.data.ChannelPasswordValidator
 import io.ethan.pushgo.data.ChannelSubscriptionRepository
 import io.ethan.pushgo.data.ChannelSubscriptionException
 import io.ethan.pushgo.data.EntityRepository
+import io.ethan.pushgo.data.GatewayErrorCategory
+import io.ethan.pushgo.data.INBOUND_DELIVERY_ACK_STATE_ACKED
+import io.ethan.pushgo.data.INBOUND_DELIVERY_ACK_STATE_PENDING
+import io.ethan.pushgo.data.InboundDeliveryScope
 import io.ethan.pushgo.data.InboundDeliveryLedgerRepository
 import io.ethan.pushgo.data.MessageRepository
 import io.ethan.pushgo.data.SettingsRepository
@@ -52,6 +56,21 @@ import kotlin.random.Random
 
 internal const val PRIVATE_STREAM_ACK_STATUS_IGNORE = 0
 internal const val PRIVATE_STREAM_ACK_STATUS_OK = 1
+
+internal fun gatewayMatchesExpectedSnapshot(current: String, expected: String): Boolean =
+    current.trim().removeSuffix("/") == expected.trim().removeSuffix("/")
+
+internal fun privateTransportFailure(error: Throwable): ChannelSubscriptionException {
+    val detail = error.message?.trim().takeUnless { it.isNullOrEmpty() }
+        ?: error::class.java.simpleName
+    return ChannelSubscriptionException(
+        message = "private request failed: $detail",
+        code = "private_transport_failure",
+        category = GatewayErrorCategory.NETWORK,
+        detail = detail,
+        retryable = true,
+    )
+}
 
 enum class AckDrainOutcome {
     IDLE,
@@ -103,13 +122,30 @@ internal fun normalizePendingAckDeliveryIds(rawValues: Iterable<String>): List<S
 }
 
 internal object PrivateStreamAckPolicy {
-    fun statusForHandledResult(result: Result<Boolean>): Int {
-        return if (result.getOrDefault(false)) {
+    fun statusForDelivery(
+        handledResult: Result<Boolean>,
+        ackStateBefore: String?,
+        ackStateAfter: String?,
+    ): Int {
+        val wasDurablyPersisted = isDurableAckState(ackStateBefore)
+        val isDurablyPersisted = isDurableAckState(ackStateAfter)
+        return if (isDurablyPersisted && (handledResult.getOrDefault(false) || wasDurablyPersisted)) {
             PRIVATE_STREAM_ACK_STATUS_OK
         } else {
             PRIVATE_STREAM_ACK_STATUS_IGNORE
         }
     }
+
+    private fun isDurableAckState(ackState: String?): Boolean =
+        ackState == INBOUND_DELIVERY_ACK_STATE_PENDING ||
+            ackState == INBOUND_DELIVERY_ACK_STATE_ACKED
+}
+
+internal fun authoritativePrivatePayload(
+    payload: Map<String, String>,
+    deliveryId: String,
+): Map<String, String> = payload.toMutableMap().apply {
+    this["delivery_id"] = deliveryId
 }
 
 enum class KeepaliveState {
@@ -682,10 +718,17 @@ class PrivateChannelClient(
         }
     }
 
-    suspend fun privateSubscribeChannel(rawChannelId: String, rawPassword: String): Boolean {
+    suspend fun privateSubscribeChannel(rawChannelId: String, rawPassword: String): Boolean =
+        privateSubscribeChannel(rawChannelId, rawPassword, expectedGatewayUrl = null)
+
+    suspend fun privateSubscribeChannel(
+        rawChannelId: String,
+        rawPassword: String,
+        expectedGatewayUrl: String?,
+    ): Boolean {
         val channelId = ChannelIdValidator.normalize(rawChannelId)
         val password = ChannelPasswordValidator.normalize(rawPassword)
-        val (baseUrl, token) = channelRepository.loadGatewayConfig()
+        val (baseUrl, token) = loadExpectedGatewayConfig(expectedGatewayUrl)
         return withDeviceStateRetry(baseUrl, token) { state ->
             privateWithRouteRetry(baseUrl, token, state) {
                 privatePost(baseUrl, token, "/channel/subscribe", JSONObject().apply {
@@ -727,9 +770,15 @@ class PrivateChannelClient(
         }
     }
 
-    suspend fun privateUnsubscribeChannel(rawChannelId: String): Boolean {
+    suspend fun privateUnsubscribeChannel(rawChannelId: String): Boolean =
+        privateUnsubscribeChannel(rawChannelId, expectedGatewayUrl = null)
+
+    suspend fun privateUnsubscribeChannel(
+        rawChannelId: String,
+        expectedGatewayUrl: String?,
+    ): Boolean {
         val channelId = ChannelIdValidator.normalize(rawChannelId)
-        val (baseUrl, token) = channelRepository.loadGatewayConfig()
+        val (baseUrl, token) = loadExpectedGatewayConfig(expectedGatewayUrl)
         return withDeviceStateRetry(baseUrl, token) { state ->
             privateWithRouteRetry(baseUrl, token, state) {
                 privatePost(baseUrl, token, "/channel/unsubscribe", JSONObject().apply {
@@ -741,6 +790,21 @@ class PrivateChannelClient(
             lastSubscribeAtMs = 0L
             true
         }
+    }
+
+    private suspend fun loadExpectedGatewayConfig(expectedGatewayUrl: String?): Pair<String, String?> {
+        val config = channelRepository.loadGatewayConfig()
+        if (
+            expectedGatewayUrl != null &&
+            !gatewayMatchesExpectedSnapshot(config.first, expectedGatewayUrl)
+        ) {
+            throw ChannelSubscriptionException.local(
+                message = "Gateway changed while channel removal was pending",
+                code = "gateway_changed_during_channel_removal",
+                category = GatewayErrorCategory.CONFLICT,
+            )
+        }
+        return config
     }
 
     private fun refreshLoop() {
@@ -868,12 +932,12 @@ class PrivateChannelClient(
         }
     }
 
-    private suspend fun handlePulledMessage(payload: JSONObject, deliveryId: String): Boolean {
-        val payloadMap = payloadStringMap(payload).toMutableMap().apply {
-            if (this["delivery_id"].isNullOrBlank()) {
-                this["delivery_id"] = deliveryId
-            }
-        }
+    private suspend fun handlePulledMessage(
+        payload: JSONObject,
+        deliveryId: String,
+        deliveryScope: InboundDeliveryScope?,
+    ): Boolean {
+        val payloadMap = authoritativePrivatePayload(payloadStringMap(payload), deliveryId)
         val keyBytes = settingsRepository.getNotificationKeyBytes()
         val parsed = NotificationIngressParser.parse(
             data = payloadMap,
@@ -891,7 +955,14 @@ class PrivateChannelClient(
             inboundDeliveryLedgerRepository = inboundDeliveryLedgerRepository,
             settingsRepository = settingsRepository,
             inbound = parsed,
-        ).shouldAck
+            deliveryScope = deliveryScope,
+        ) { message, imageUrl ->
+            enqueueMessagePostProcess(
+                context = appContext,
+                messageId = message.id,
+                imageUrl = imageUrl,
+            )
+        }.shouldAck
     }
 
     private fun payloadStringMap(payload: JSONObject): Map<String, String> {
@@ -929,6 +1000,8 @@ class PrivateChannelClient(
             state
         }
         val transportProfile = resolvePrivateTransportProfile(baseUrl, token)
+        val deliveryScope = InboundDeliveryScope.create(baseUrl, state.deviceKey)
+            ?: throw IllegalStateException("invalid private delivery scope")
         val host = runCatching { URL(baseUrl).host }.getOrNull()?.trim().orEmpty()
         if (host.isEmpty()) {
             onFailure("stream_preflight", IllegalStateException("empty gateway host"), loopToken = loopToken)
@@ -951,6 +1024,7 @@ class PrivateChannelClient(
             loopToken = loopToken,
             host = host,
             state = state,
+            deliveryScope = deliveryScope,
             bearerToken = token,
             transportProfile = transportProfile,
         )
@@ -960,6 +1034,7 @@ class PrivateChannelClient(
         loopToken: Long,
         host: String,
         state: DeviceState,
+        deliveryScope: InboundDeliveryScope,
         bearerToken: String?,
         transportProfile: PrivateTransportProfile,
     ): Boolean {
@@ -1172,7 +1247,13 @@ class PrivateChannelClient(
                         }
                     )
                 }
-                handleSessionEvent(handle, root, sessionGeneration, loopToken)
+                handleSessionEvent(
+                    handle = handle,
+                    root = root,
+                    sessionGeneration = sessionGeneration,
+                    loopToken = loopToken,
+                    deliveryScope = deliveryScope,
+                )
             }
             false
         } catch (_: CancellationException) {
@@ -1348,6 +1429,7 @@ class PrivateChannelClient(
         root: JSONObject,
         sessionGeneration: Long,
         loopToken: Long,
+        deliveryScope: InboundDeliveryScope?,
     ) {
         if (!isCurrentSession(handle, sessionGeneration, loopToken)) {
             return
@@ -1446,29 +1528,41 @@ class PrivateChannelClient(
                 }
                 val payload = root.optJSONObject("payload") ?: JSONObject()
                 val seq = if (root.has("seq") && !root.isNull("seq")) root.optLong("seq", 0L) else 0L
+                val ackStateBefore = inboundDeliveryLedgerRepository.deliveryAckState(
+                    deliveryId = deliveryId,
+                    scope = deliveryScope,
+                )
                 val handledResult = runCatching {
-                    handlePulledMessage(payload, deliveryId)
+                    handlePulledMessage(payload, deliveryId, deliveryScope)
                 }.onFailure {
                     io.ethan.pushgo.util.SilentSink.w(TAG, "stream deliver failed id=$deliveryId error=${it.message}")
                 }
-                val handledOk = handledResult.getOrDefault(false)
-                val shouldMarkAcked = handledOk && inboundDeliveryLedgerRepository.shouldAck(deliveryId)
+                val localAckState = inboundDeliveryLedgerRepository.deliveryAckState(
+                    deliveryId = deliveryId,
+                    scope = deliveryScope,
+                )
+                val ackStatus = PrivateStreamAckPolicy.statusForDelivery(
+                    handledResult = handledResult,
+                    ackStateBefore = ackStateBefore,
+                    ackStateAfter = localAckState,
+                )
                 var streamAcked = false
                 if (ackId > 0L) {
-                    val status = PrivateStreamAckPolicy.statusForHandledResult(handledResult)
                     val resolved = runInterruptible(Dispatchers.IO) {
-                        WarpLinkNativeBridge.sessionResolveMessage(handle, ackId, status)
+                        WarpLinkNativeBridge.sessionResolveMessage(handle, ackId, ackStatus)
                     }
                     if (!resolved) {
                         io.ethan.pushgo.util.SilentSink.w(TAG, "stream resolve message failed id=$deliveryId ackId=$ackId")
-                    } else if (status == PRIVATE_STREAM_ACK_STATUS_OK) {
+                    } else if (ackStatus == PRIVATE_STREAM_ACK_STATUS_OK) {
                         streamAcked = true
                     }
                 }
-                if (shouldMarkAcked && streamAcked) {
-                    inboundDeliveryLedgerRepository.markAcked(listOf(deliveryId))
+                if (localAckState == INBOUND_DELIVERY_ACK_STATE_PENDING && streamAcked) {
+                    // ACKED means the durable message was accepted by the native stream resolver.
+                    // A later replay still receives AckOk in case the process died before wire send.
+                    inboundDeliveryLedgerRepository.markAcked(listOf(deliveryId), deliveryScope)
                 }
-                if (handledOk && seq > 0L) {
+                if (streamAcked && seq > 0L) {
                     updateResumeState(null, seq)
                 }
             }
@@ -2295,10 +2389,11 @@ class PrivateChannelClient(
                 io.ethan.pushgo.util.SilentSink.w(TAG, "private request failed endpoint=$endpoint error=${error.message}")
                 throw error
             }
+            if (error is CancellationException) throw error
             val detail = error.message?.trim().takeUnless { it.isNullOrEmpty() }
                 ?: error::class.java.simpleName
             io.ethan.pushgo.util.SilentSink.e(TAG, "private request transport failure endpoint=$endpoint error=$detail", error)
-            throw ChannelSubscriptionException("private request failed: $detail")
+            throw privateTransportFailure(error)
         } finally {
             connection.disconnect()
         }
@@ -2764,6 +2859,7 @@ class PrivateChannelClient(
     @VisibleForTesting
     internal suspend fun injectSessionEventForTesting(
         eventJson: String,
+        deliveryScope: InboundDeliveryScope? = null,
         sessionHandle: Long = 1L,
         sessionGeneration: Long = 1L,
         loopToken: Long = 1L,
@@ -2805,7 +2901,13 @@ class PrivateChannelClient(
             )
             return
         }
-        handleSessionEvent(sessionHandle, root, sessionGeneration, loopToken)
+        handleSessionEvent(
+            handle = sessionHandle,
+            root = root,
+            sessionGeneration = sessionGeneration,
+            loopToken = loopToken,
+            deliveryScope = deliveryScope,
+        )
     }
 
     fun requestInSessionProbe(): Boolean {

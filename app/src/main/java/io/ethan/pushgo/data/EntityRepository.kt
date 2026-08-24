@@ -16,14 +16,21 @@ import io.ethan.pushgo.data.db.ThingSubEventDao
 import io.ethan.pushgo.data.db.ThingSubEventEntity
 import io.ethan.pushgo.data.db.ThingSubMessageDao
 import io.ethan.pushgo.data.db.ThingSubMessageEntity
+import io.ethan.pushgo.data.db.ThingSubMessageSearchCandidate
 import io.ethan.pushgo.data.db.TopLevelEventHeadDao
 import io.ethan.pushgo.data.db.TopLevelEventHeadEntity
 import io.ethan.pushgo.data.model.PushMessage
+import io.ethan.pushgo.util.SearchTextNormalizer
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import java.time.Instant
+
+/** Hard limits for the Thing list; detail views intentionally use the complete history path. */
+const val THING_LIST_RELATED_MESSAGES_PER_THING_LIMIT = 8
+const val THING_LIST_RELATED_MESSAGES_TOTAL_LIMIT = 240
+private const val THING_RELATED_MESSAGE_SEARCH_RESULT_LIMIT = 400
 
 data class IncomingEntityRecord(
     val entityType: String,
@@ -74,6 +81,21 @@ data class EntityProjectionDetail(
         )
     }
 }
+
+data class ThingProjectionPage(
+    val headMessages: List<PushMessage>,
+    val relatedMessages: List<PushMessage>,
+    /** True when child history was capped and the page is not a complete relation snapshot. */
+    val hasMoreRelatedMessages: Boolean = false,
+) {
+    fun asMessages(): List<PushMessage> = headMessages + relatedMessages
+}
+
+data class ThingRelatedMessageSearchPage(
+    val thingIds: List<String>,
+    val nextCursor: String?,
+    val hasMore: Boolean,
+)
 
 class EntityRepository(
     private val database: PushGoDatabase,
@@ -231,6 +253,62 @@ class EntityRepository(
         ).map(ThingHeadEntity::asModel)
     }
 
+    suspend fun getThingProjectionPage(
+        before: EntityProjectionCursor?,
+        limit: Int,
+    ): ThingProjectionPage = database.withTransaction {
+        val headMessages = getThingProjectionMessagesPage(before = before, limit = limit)
+        val thingIds = headMessages
+            .asSequence()
+            .mapNotNull { it.thingId?.trim()?.takeIf(String::isNotEmpty) }
+            .distinct()
+            .toList()
+        val relatedMessages = if (thingIds.isEmpty()) {
+            emptyList()
+        } else {
+            thingSubMessageDao.getByThingIdsBounded(
+                thingIds = thingIds,
+                perThingLimit = THING_LIST_RELATED_MESSAGES_PER_THING_LIMIT,
+                totalLimit = THING_LIST_RELATED_MESSAGES_TOTAL_LIMIT,
+            ).map(ThingSubMessageEntity::asModel)
+        }
+        val relatedMessageCount = if (thingIds.isEmpty()) 0 else thingSubMessageDao.countByThingIds(thingIds)
+        ThingProjectionPage(
+            headMessages = headMessages,
+            relatedMessages = relatedMessages,
+            hasMoreRelatedMessages = relatedMessageCount > relatedMessages.size,
+        )
+    }
+
+    suspend fun searchThingIdsByRelatedMessageText(
+        rawQuery: String,
+        afterId: String? = null,
+        limit: Int = THING_RELATED_MESSAGE_SEARCH_RESULT_LIMIT,
+    ): ThingRelatedMessageSearchPage {
+        val query = SearchTextNormalizer.normalizedQuery(rawQuery).take(512)
+        if (query.isEmpty()) return ThingRelatedMessageSearchPage(emptyList(), null, hasMore = false)
+        val pageSize = limit.coerceIn(1, THING_RELATED_MESSAGE_SEARCH_RESULT_LIMIT)
+        val candidates = thingSubMessageDao.getSearchCandidates(
+            afterId = afterId,
+            limit = pageSize + 1,
+        )
+        val ids = candidates
+            .asSequence()
+            .filter { candidate -> candidate.matches(query) }
+            .mapNotNull { it.thingId?.trim()?.takeIf(String::isNotEmpty) }
+            .distinct()
+            .toList()
+        return ThingRelatedMessageSearchPage(
+            thingIds = ids,
+            nextCursor = candidates.lastOrNull()?.id,
+            hasMore = candidates.size > pageSize,
+        )
+    }
+
+    private fun ThingSubMessageSearchCandidate.matches(query: String): Boolean =
+        SearchTextNormalizer.joinedCandidates(listOf(title, body, bodyPreview, id, messageId))
+            .contains(query)
+
     suspend fun getThingProjectionDetail(thingId: String): EntityProjectionDetail? {
         val normalized = thingId.trim()
         if (normalized.isEmpty()) return null
@@ -272,12 +350,13 @@ class EntityRepository(
     suspend fun insertIncoming(
         entity: IncomingEntityRecord,
         providerAckIdentity: ProviderAckIdentity? = null,
+        deliveryScope: InboundDeliveryScope? = providerAckIdentity.inboundDeliveryScope(),
     ): Boolean {
         val scopedEntity = entity.copy(
             localDeliveryKey = entity.deliveryId
                 ?.trim()
                 ?.takeIf { it.isNotEmpty() }
-                ?.let { providerAckIdentity.scopedDeliveryStorageKey(it) },
+                ?.let { deliveryScope.scopedDeliveryStorageKey(it) },
         )
         val entityType = scopedEntity.entityType.trim().lowercase()
         return database.withTransaction {
@@ -292,6 +371,7 @@ class EntityRepository(
                         opId = scopedEntity.opId,
                         appliedAt = scopedEntity.receivedAt.toEpochMilli(),
                         providerAckIdentity = providerAckIdentity,
+                        deliveryScope = deliveryScope,
                     )
                     if (!deliveryClaimed) {
                         return@withTransaction false
@@ -305,6 +385,7 @@ class EntityRepository(
                         deliveryId = scopedEntity.deliveryId,
                         appliedAt = scopedEntity.receivedAt.toEpochMilli(),
                         providerAckIdentity = providerAckIdentity,
+                        deliveryScope = deliveryScope,
                     )
                     if (!claimed) {
                         false
@@ -445,12 +526,16 @@ class EntityRepository(
             } else {
                 eventChangeLogDao.insert(EventChangeLogEntity.fromIncoming(entity))
                 val eventId = entity.eventId?.trim()?.takeIf { it.isNotEmpty() } ?: entity.entityId
-                topLevelEventHeadDao.upsert(
-                    TopLevelEventHeadEntity.fromMerged(
-                        existing = topLevelEventHeadDao.getByEventId(eventId),
-                        entity = entity,
+                val existing = topLevelEventHeadDao.getByEventId(eventId)
+                val incoming = TopLevelEventHeadEntity.fromIncoming(entity)
+                if (existing == null || incoming.isNewerThan(existing)) {
+                    topLevelEventHeadDao.upsert(
+                        TopLevelEventHeadEntity.fromMerged(
+                            existing = existing,
+                            entity = entity,
+                        )
                     )
-                )
+                }
                 true
             }
         } else {
@@ -473,12 +558,16 @@ class EntityRepository(
         }
         thingChangeLogDao.insert(ThingChangeLogEntity.fromIncoming(entity))
         val thingId = entity.thingId?.trim()?.takeIf { it.isNotEmpty() } ?: entity.entityId
-        thingHeadDao.upsert(
-            ThingHeadEntity.fromMerged(
-                existing = thingHeadDao.getByThingId(thingId),
-                entity = entity,
+        val existing = thingHeadDao.getByThingId(thingId)
+        val incoming = ThingHeadEntity.fromIncoming(entity)
+        if (existing == null || incoming.isNewerThan(existing)) {
+            thingHeadDao.upsert(
+                ThingHeadEntity.fromMerged(
+                    existing = existing,
+                    entity = entity,
+                )
             )
-        )
+        }
         replayPendingForThing(thingId)
         return true
     }

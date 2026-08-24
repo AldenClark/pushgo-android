@@ -12,6 +12,7 @@ import android.content.Intent
 import android.graphics.Color
 import android.media.AudioAttributes
 import android.os.Build
+import android.os.Bundle
 import android.provider.Settings
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
@@ -24,14 +25,34 @@ import io.ethan.pushgo.data.model.PushMessage
 import io.ethan.pushgo.markdown.MessagePreviewExtractor
 
 object NotificationHelper {
+    private const val TAG = "NotificationHelper"
     private const val LEGACY_SUMMARY_NOTIFICATION_ID = 10_001
     private const val NOTIFICATION_GROUP_PREFIX = "io.ethan.pushgo.notifications.groups."
+    private const val NOTIFICATION_METADATA_EVENT_ID = "io.ethan.pushgo.notification.event_id"
+    private const val NOTIFICATION_METADATA_THING_ID = "io.ethan.pushgo.notification.thing_id"
     private const val MESSAGE_CHANNEL_GROUP_ID = "io.ethan.pushgo.notification_channels.messages"
     private val managedLevels = listOf("critical", "high", "normal", "low")
 
     const val EXTRA_MESSAGE_ID = "extra_message_id"
     const val EXTRA_ENTITY_TYPE = "extra_entity_type"
     const val EXTRA_ENTITY_ID = "extra_entity_id"
+
+    internal enum class NotificationPostBehavior(
+        val silenceSystemAlert: Boolean,
+        val startCustomAlert: Boolean,
+        val onlyAlertOnce: Boolean,
+    ) {
+        NEW_DELIVERY(
+            silenceSystemAlert = false,
+            startCustomAlert = true,
+            onlyAlertOnce = false,
+        ),
+        SILENT_REPLAY(
+            silenceSystemAlert = true,
+            startCustomAlert = false,
+            onlyAlertOnce = true,
+        ),
+    }
 
     internal fun normalizeNotificationPresentationLevel(level: String?): String? {
         return level
@@ -138,9 +159,35 @@ object NotificationHelper {
         context: Context,
         message: PushMessage,
         level: String?,
-    ) {
-        if (!canPostNotifications(context)) return
-        if (!shouldPostSystemNotification(context, NotificationKind.MESSAGE, level)) return
+    ): Boolean = showMessageNotification(
+        context = context,
+        message = message,
+        level = level,
+        postBehavior = NotificationPostBehavior.NEW_DELIVERY,
+    )
+
+    /** Reposts an already-persisted message without replaying system or custom alert audio. */
+    @SuppressLint("MissingPermission")
+    fun showMessageReplayNotificationSilently(
+        context: Context,
+        message: PushMessage,
+        level: String?,
+    ): Boolean = showMessageNotification(
+        context = context,
+        message = message,
+        level = level,
+        postBehavior = NotificationPostBehavior.SILENT_REPLAY,
+    )
+
+    @SuppressLint("MissingPermission")
+    private fun showMessageNotification(
+        context: Context,
+        message: PushMessage,
+        level: String?,
+        postBehavior: NotificationPostBehavior,
+    ): Boolean {
+        if (!canPostNotifications(context)) return true
+        if (!shouldPostSystemNotification(context, NotificationKind.MESSAGE, level)) return true
         val channelId = ensureChannel(context, level)
         val profile = resolveLevelProfile(level)
         val route = routeForMessage(message)
@@ -162,6 +209,7 @@ object NotificationHelper {
             .setStyle(NotificationCompat.BigTextStyle().bigText(bodyPreview))
             .setContentIntent(contentIntent)
             .setAutoCancel(true)
+            .setOnlyAlertOnce(postBehavior.onlyAlertOnce)
             .setPriority(profile.compatPriority)
             .setCategory(NotificationCompat.CATEGORY_MESSAGE)
             .setBadgeIconType(NotificationCompat.BADGE_ICON_SMALL)
@@ -171,13 +219,21 @@ object NotificationHelper {
             .setLights(profile.lightColor, 1_500, 1_000)
             .setDeleteIntent(alertStopDeleteIntent(context, route.notificationId))
 
-        if (profile.shouldVibrate) {
+        if (postBehavior.silenceSystemAlert) {
+            builder.setSilent(true)
+        } else if (profile.shouldVibrate) {
             builder.setVibrate(profile.vibrationPattern)
         }
-        runCatching {
+        return runCatching {
             NotificationManagerCompat.from(context).notify(route.notificationId, builder.build())
-            AlertPlaybackController.startOrUpdate(context, route.notificationId, level, channelId)
+            if (postBehavior.startCustomAlert) {
+                AlertPlaybackController.startOrUpdate(context, route.notificationId, level, channelId)
+            }
             reconcileActiveNotificationGroups(context)
+            true
+        }.getOrElse { error ->
+            io.ethan.pushgo.util.SilentSink.w(TAG, "message notification display failed", error)
+            false
         }
     }
 
@@ -192,10 +248,60 @@ object NotificationHelper {
         title: String,
         body: String,
         level: String?,
-    ) {
-        if (!canPostNotifications(context)) return
-        val kind = entityKind(entityType) ?: return
-        if (!shouldPostSystemNotification(context, kind, level)) return
+    ): Boolean = showEntityNotification(
+        context = context,
+        entityType = entityType,
+        entityId = entityId,
+        groupChannel = groupChannel,
+        eventId = eventId,
+        thingId = thingId,
+        title = title,
+        body = body,
+        level = level,
+        postBehavior = NotificationPostBehavior.NEW_DELIVERY,
+    )
+
+    /** Reposts an already-persisted entity without replaying system or custom alert audio. */
+    @SuppressLint("MissingPermission")
+    fun showEntityReplayNotificationSilently(
+        context: Context,
+        entityType: String,
+        entityId: String,
+        groupChannel: String?,
+        eventId: String?,
+        thingId: String?,
+        title: String,
+        body: String,
+        level: String?,
+    ): Boolean = showEntityNotification(
+        context = context,
+        entityType = entityType,
+        entityId = entityId,
+        groupChannel = groupChannel,
+        eventId = eventId,
+        thingId = thingId,
+        title = title,
+        body = body,
+        level = level,
+        postBehavior = NotificationPostBehavior.SILENT_REPLAY,
+    )
+
+    @SuppressLint("MissingPermission")
+    private fun showEntityNotification(
+        context: Context,
+        entityType: String,
+        entityId: String,
+        groupChannel: String?,
+        eventId: String?,
+        thingId: String?,
+        title: String,
+        body: String,
+        level: String?,
+        postBehavior: NotificationPostBehavior,
+    ): Boolean {
+        if (!canPostNotifications(context)) return true
+        val kind = entityKind(entityType) ?: return true
+        if (!shouldPostSystemNotification(context, kind, level)) return true
         val channelId = ensureChannel(context, level)
         val route = routeForEntity(
             entityType = entityType,
@@ -223,6 +329,7 @@ object NotificationHelper {
             .setStyle(NotificationCompat.BigTextStyle().bigText(body))
             .setContentIntent(contentIntent)
             .setAutoCancel(true)
+            .setOnlyAlertOnce(postBehavior.onlyAlertOnce)
             .setPriority(profile.compatPriority)
             .setCategory(NotificationCompat.CATEGORY_STATUS)
             .setBadgeIconType(NotificationCompat.BADGE_ICON_SMALL)
@@ -231,15 +338,24 @@ object NotificationHelper {
             .setGroupAlertBehavior(NotificationCompat.GROUP_ALERT_CHILDREN)
             .setLights(profile.lightColor, 1_500, 1_000)
             .setDeleteIntent(alertStopDeleteIntent(context, route.notificationId))
+            .addExtras(entityNotificationMetadata(eventId, thingId))
 
-        if (profile.shouldVibrate) {
+        if (postBehavior.silenceSystemAlert) {
+            builder.setSilent(true)
+        } else if (profile.shouldVibrate) {
             builder.setVibrate(profile.vibrationPattern)
         }
 
-        runCatching {
+        return runCatching {
             NotificationManagerCompat.from(context).notify(route.notificationId, builder.build())
-            AlertPlaybackController.startOrUpdate(context, route.notificationId, level, channelId)
+            if (postBehavior.startCustomAlert) {
+                AlertPlaybackController.startOrUpdate(context, route.notificationId, level, channelId)
+            }
             reconcileActiveNotificationGroups(context)
+            true
+        }.getOrElse { error ->
+            io.ethan.pushgo.util.SilentSink.w(TAG, "entity notification display failed", error)
+            false
         }
     }
 
@@ -312,6 +428,112 @@ object NotificationHelper {
                 AlertPlaybackController.stopForNotification(context, notificationId)
             }
         reconcileActiveNotificationGroups(context)
+    }
+
+    /** Cancels the event and any thing/event notification whose persisted metadata references it. */
+    fun cancelEventNotifications(context: Context, eventIds: Collection<String>) {
+        cancelEntityDeletionNotifications(
+            context = context,
+            eventIds = eventIds,
+            thingIds = emptySet(),
+        )
+    }
+
+    /** Cancels the thing and any associated entity notification carrying its thing metadata. */
+    fun cancelThingNotifications(context: Context, thingIds: Collection<String>) {
+        cancelEntityDeletionNotifications(
+            context = context,
+            eventIds = emptySet(),
+            thingIds = thingIds,
+        )
+    }
+
+    private fun cancelEntityDeletionNotifications(
+        context: Context,
+        eventIds: Collection<String>,
+        thingIds: Collection<String>,
+    ) {
+        val normalizedEventIds = eventIds.normalizeNotificationIds()
+        val normalizedThingIds = thingIds.normalizeNotificationIds()
+        if (normalizedEventIds.isEmpty() && normalizedThingIds.isEmpty()) return
+        val platformManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        val manager = NotificationManagerCompat.from(context)
+        platformManager.activeNotifications
+            .asSequence()
+            .filter { status ->
+                notificationMatchesEntityDeletion(
+                    notification = status.notification,
+                    eventIds = normalizedEventIds,
+                    thingIds = normalizedThingIds,
+                )
+            }
+            .forEach { status ->
+                manager.cancel(status.tag, status.id)
+                AlertPlaybackController.stopForNotification(context, status.id)
+            }
+        normalizedEventIds.forEach { id ->
+            val notificationId = "event:$id".hashCode()
+            manager.cancel(notificationId)
+            AlertPlaybackController.stopForNotification(context, notificationId)
+        }
+        normalizedThingIds.forEach { id ->
+            val notificationId = "thing:$id".hashCode()
+            manager.cancel(notificationId)
+            AlertPlaybackController.stopForNotification(context, notificationId)
+        }
+        reconcileActiveNotificationGroups(context)
+    }
+
+    internal fun notificationGroupMatchesEntityDeletion(
+        groupKey: String?,
+        eventIds: Set<String>,
+        thingIds: Set<String>,
+    ): Boolean {
+        val group = groupKey?.takeIf { it.startsWith(NOTIFICATION_GROUP_PREFIX) } ?: return false
+        val parts = group.removePrefix(NOTIFICATION_GROUP_PREFIX).split('|').toSet()
+        return eventIds.any { "event=$it" in parts } || thingIds.any { "thing=$it" in parts }
+    }
+
+    private fun notificationMatchesEntityDeletion(
+        notification: Notification,
+        eventIds: Set<String>,
+        thingIds: Set<String>,
+    ): Boolean {
+        val metadataEventId = notification.extras.getString(NOTIFICATION_METADATA_EVENT_ID)?.trim()
+        val metadataThingId = notification.extras.getString(NOTIFICATION_METADATA_THING_ID)?.trim()
+        return (metadataEventId != null && metadataEventId in eventIds) ||
+            (metadataThingId != null && metadataThingId in thingIds) ||
+            notificationGroupMatchesEntityDeletion(notification.group, eventIds, thingIds)
+    }
+
+    /**
+     * Replays channel notification cleanup after its Room rows have already been deleted.
+     * Notification groups persist outside the app process and encode the normalized channel ID,
+     * so this does not depend on querying deleted message/entity rows.
+     */
+    fun cancelChannelNotifications(context: Context, channelId: String) {
+        val normalizedChannelId = channelId.trim()
+        if (normalizedChannelId.isEmpty()) return
+        val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        val managerCompat = NotificationManagerCompat.from(context)
+        manager.activeNotifications
+            .asSequence()
+            .filter { status -> notificationGroupBelongsToChannel(status.notification.group, normalizedChannelId) }
+            .forEach { status ->
+                managerCompat.cancel(status.tag, status.id)
+                AlertPlaybackController.stopForNotification(context, status.id)
+            }
+        reconcileActiveNotificationGroups(context)
+    }
+
+    internal fun notificationGroupBelongsToChannel(groupKey: String?, channelId: String): Boolean {
+        val normalizedChannelId = channelId.trim()
+        if (normalizedChannelId.isEmpty()) return false
+        val group = groupKey?.takeIf { it.startsWith(NOTIFICATION_GROUP_PREFIX) } ?: return false
+        return group
+            .removePrefix(NOTIFICATION_GROUP_PREFIX)
+            .split('|')
+            .any { part -> part == "channel=$normalizedChannelId" }
     }
 
     fun stopAlertPlaybackForLaunchIntent(
@@ -429,9 +651,7 @@ object NotificationHelper {
         if (kind != NotificationKind.MESSAGE) {
             normalizedGroupPart("event", eventId)?.let(parts::add)
         }
-        if (kind == NotificationKind.THING) {
-            normalizedGroupPart("thing", thingId)?.let(parts::add)
-        }
+        normalizedGroupPart("thing", thingId)?.let(parts::add)
         if (parts.size == 1) {
             parts += "scope=global"
         }
@@ -442,6 +662,20 @@ object NotificationHelper {
         val normalized = value?.trim()?.ifEmpty { null } ?: return null
         return "$label=$normalized"
     }
+
+    private fun entityNotificationMetadata(eventId: String?, thingId: String?): Bundle = Bundle().apply {
+        eventId?.trim()?.takeIf { it.isNotEmpty() }?.let {
+            putString(NOTIFICATION_METADATA_EVENT_ID, it)
+        }
+        thingId?.trim()?.takeIf { it.isNotEmpty() }?.let {
+            putString(NOTIFICATION_METADATA_THING_ID, it)
+        }
+    }
+
+    private fun Collection<String>.normalizeNotificationIds(): Set<String> = asSequence()
+        .map(String::trim)
+        .filter(String::isNotEmpty)
+        .toSet()
 
     private fun summaryTextForGroup(
         context: Context,

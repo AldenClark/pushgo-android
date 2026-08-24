@@ -75,6 +75,7 @@ import io.ethan.pushgo.R
 import io.ethan.pushgo.data.ChannelSubscriptionRepository
 import io.ethan.pushgo.data.MessageImageStore
 import io.ethan.pushgo.data.MessageRepository
+import io.ethan.pushgo.data.PendingLocalDeletionOperation
 import io.ethan.pushgo.data.model.PushMessage
 import io.ethan.pushgo.data.model.MessageSeverity
 import io.ethan.pushgo.markdown.MessageBodyResolver
@@ -227,12 +228,9 @@ fun MessageDetailScreen(
                                 summary = targetMessage.title.trim().ifEmpty {
                                     messagesTabLabel
                                 },
-                                scope = PendingLocalDeletionCoordinator.Scope(
-                                    messageIds = setOf(targetMessage.id),
+                                operation = PendingLocalDeletionOperation.messages(
+                                    setOf(targetMessage.id),
                                 ),
-                                onCommit = {
-                                    stateCoordinator.deleteMessage(targetMessage.id)
-                                },
                                 onCompletion = { result ->
                                     val error = result.exceptionOrNull()
                                     if (error != null) {

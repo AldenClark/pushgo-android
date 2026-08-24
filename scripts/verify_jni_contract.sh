@@ -40,6 +40,87 @@ while read -r method descriptor; do
   fi
 done < "$contract_file"
 
+# The method names above guard symbol presence. The descriptor pass below also
+# proves the Java ABI types on both sides; JNI short symbols do not encode them.
+python3 - "$contract_file" "$kotlin_source" "$rust_source" <<'PY'
+import re
+import sys
+from pathlib import Path
+
+contract_path, kotlin_path, rust_path = map(Path, sys.argv[1:])
+contract = {}
+for raw in contract_path.read_text().splitlines():
+    parts = raw.split()
+    if len(parts) == 2 and parts[0].startswith("native"):
+        contract[parts[0]] = parts[1]
+
+java_types = {
+    "Int": "I",
+    "Long": "J",
+    "String": "Ljava/lang/String;",
+    "Unit": "V",
+}
+
+def kotlin_descriptor(parameters: str, return_type: str | None) -> str:
+    encoded = []
+    if parameters.strip():
+        for parameter in parameters.split(","):
+            type_name = parameter.split(":", 1)[1].strip().rstrip("?")
+            encoded.append(java_types[type_name])
+    normalized_return = return_type.rstrip("?") if return_type else "Unit"
+    return f"({''.join(encoded)}){java_types[normalized_return]}"
+
+kotlin_contract = {}
+for match in re.finditer(
+    r"external\s+fun\s+(native\w+)\s*\(([^)]*)\)(?:\s*:\s*([A-Za-z?]+))?",
+    kotlin_path.read_text(),
+):
+    kotlin_contract[match.group(1)] = kotlin_descriptor(match.group(2), match.group(3))
+
+rust_param_types = {
+    "jint": "I",
+    "jlong": "J",
+    "JString": "Ljava/lang/String;",
+}
+rust_return_types = {
+    None: "V",
+    "jint": "I",
+    "jlong": "J",
+    "jstring": "Ljava/lang/String;",
+}
+rust_contract = {}
+pattern = re.compile(
+    r'pub\s+extern\s+"system"\s+fn\s+'
+    r'Java_io_ethan_pushgo_notifications_WarpLinkNativeBridge_(native\w+)\s*'
+    r'\((.*?)\)\s*(?:->\s*([A-Za-z0-9_:<>]+))?\s*\{',
+    re.S,
+)
+for match in pattern.finditer(rust_path.read_text()):
+    parameters = [item.strip() for item in match.group(2).split(",") if item.strip()]
+    declared_types = [item.split(":", 1)[1].strip().split("<", 1)[0] for item in parameters]
+    if declared_types[:2] != ["EnvUnowned", "JClass"]:
+        raise SystemExit(f"unexpected JNI receiver types for {match.group(1)}: {declared_types[:2]}")
+    encoded = "".join(rust_param_types[type_name] for type_name in declared_types[2:])
+    rust_contract[match.group(1)] = f"({encoded}){rust_return_types[match.group(3)]}"
+
+for side, actual in (("Kotlin", kotlin_contract), ("Rust", rust_contract)):
+    missing = sorted(set(contract) - set(actual))
+    extra = sorted(set(actual) - set(contract))
+    mismatched = sorted(
+        method for method in set(contract) & set(actual)
+        if contract[method] != actual[method]
+    )
+    if missing or extra or mismatched:
+        details = [
+            f"{method}: expected={contract.get(method)} actual={actual.get(method)}"
+            for method in mismatched
+        ]
+        raise SystemExit(
+            f"{side} JNI descriptor drift; missing={missing} extra={extra} "
+            f"mismatched={details}"
+        )
+PY
+
 rust_channel="$(sed -n 's/^channel = "\([^"]*\)"$/\1/p' "$toolchain_file")"
 rust_version="$(sed -n 's/^rust-version = "\([^"]*\)"$/\1/p' "$manifest")"
 if [[ -z "$rust_channel" || "$rust_channel" != "$rust_version" ]]; then
@@ -101,10 +182,10 @@ if rg '^\s*uses:' "$release_workflow" | rg -qv '@[0-9a-f]{40}([[:space:]]|$)'; t
   echo "all Android release actions must be pinned to full commit SHAs" >&2
   exit 1
 fi
-checkjni_line="$(rg -n 'Run real JNI instrumentation with CheckJNI' "$release_workflow" | cut -d: -f1)"
+verification_line="$(rg -n 'Validate version contract and run tests' "$release_workflow" | cut -d: -f1)"
 first_secret_line="$(rg -n '\$\{\{ secrets\.' "$release_workflow" | head -1 | cut -d: -f1)"
-if [[ -z "$checkjni_line" || -z "$first_secret_line" || "$first_secret_line" -le "$checkjni_line" ]]; then
-  echo "release secrets must not be loaded before the real JNI/CheckJNI gate" >&2
+if [[ -z "$verification_line" || -z "$first_secret_line" || "$first_secret_line" -le "$verification_line" ]]; then
+  echo "release secrets must not be loaded before source, JNI, Rust, unit, and lint verification" >&2
   exit 1
 fi
 

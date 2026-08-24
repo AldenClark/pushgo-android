@@ -22,6 +22,7 @@ import java.io.File
         MessageDerivedStateEntity::class,
         InboundDeliveryLedgerEntity::class,
         InboundDeliveryAckOutboxEntity::class,
+        LegacyProviderIngressEntity::class,
         OperationLedgerEntity::class,
         EventChangeLogEntity::class,
         ThingChangeLogEntity::class,
@@ -33,8 +34,9 @@ import java.io.File
         PendingThingEventEntity::class,
         ChannelSubscriptionEntity::class,
         AppSettingsEntity::class,
+        PendingLocalDeletionEntity::class,
     ],
-    version = 26,
+    version = 30,
     exportSchema = true,
 )
 abstract class PushGoDatabase : RoomDatabase() {
@@ -43,6 +45,7 @@ abstract class PushGoDatabase : RoomDatabase() {
     abstract fun messageMetadataIndexDao(): MessageMetadataIndexDao
     abstract fun inboundDeliveryLedgerDao(): InboundDeliveryLedgerDao
     abstract fun inboundDeliveryAckOutboxDao(): InboundDeliveryAckOutboxDao
+    abstract fun legacyProviderIngressDao(): LegacyProviderIngressDao
     abstract fun operationLedgerDao(): OperationLedgerDao
     abstract fun eventChangeLogDao(): EventChangeLogDao
     abstract fun thingChangeLogDao(): ThingChangeLogDao
@@ -54,6 +57,7 @@ abstract class PushGoDatabase : RoomDatabase() {
     abstract fun pendingThingEventDao(): PendingThingEventDao
     abstract fun channelSubscriptionDao(): ChannelSubscriptionDao
     abstract fun appSettingsDao(): AppSettingsDao
+    abstract fun pendingLocalDeletionDao(): PendingLocalDeletionDao
 
     companion object {
         private const val TAG = "PushGoDatabase"
@@ -240,6 +244,73 @@ abstract class PushGoDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_26_27 = object : Migration(26, 27) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS legacy_provider_ingress (
+                        gateway_url TEXT NOT NULL,
+                        device_key TEXT NOT NULL,
+                        delivery_id TEXT NOT NULL,
+                        payload_json TEXT NOT NULL,
+                        enqueued_at INTEGER NOT NULL,
+                        PRIMARY KEY(gateway_url, device_key, delivery_id)
+                    )
+                    """.trimIndent()
+                )
+            }
+        }
+
+        private val MIGRATION_27_28 = object : Migration(27, 28) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS pending_local_deletions (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        summary TEXT NOT NULL,
+                        operation_kind TEXT NOT NULL,
+                        target_ids_json TEXT NOT NULL,
+                        expected_gateway_url TEXT,
+                        expected_updated_at INTEGER,
+                        expected_use_provider INTEGER,
+                        requested_at_epoch_ms INTEGER NOT NULL,
+                        undo_deadline_epoch_ms INTEGER NOT NULL,
+                        state TEXT NOT NULL,
+                        attempt_count INTEGER NOT NULL,
+                        next_attempt_at_epoch_ms INTEGER NOT NULL,
+                        updated_at_epoch_ms INTEGER NOT NULL,
+                        last_error TEXT
+                    )
+                    """.trimIndent()
+                )
+                db.execSQL(
+                    """
+                    CREATE INDEX IF NOT EXISTS
+                    index_pending_local_deletions_state_next_attempt_at_epoch_ms_undo_deadline_epoch_ms
+                    ON pending_local_deletions(state, next_attempt_at_epoch_ms, undo_deadline_epoch_ms)
+                    """.trimIndent()
+                )
+            }
+        }
+
+        private val MIGRATION_28_29 = object : Migration(28, 29) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS index_inbound_delivery_ledger_ack_state_acked_at " +
+                        "ON inbound_delivery_ledger(ack_state, acked_at)"
+                )
+            }
+        }
+
+        private val MIGRATION_29_30 = object : Migration(29, 30) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "ALTER TABLE inbound_delivery_ack_outbox " +
+                        "ADD COLUMN last_attempt_uncertain INTEGER NOT NULL DEFAULT 0"
+                )
+            }
+        }
+
         fun build(context: Context): PushGoDatabase {
             return runCatching {
                 newBuilder(
@@ -287,6 +358,10 @@ abstract class PushGoDatabase : RoomDatabase() {
                     MIGRATION_23_24,
                     MIGRATION_24_25,
                     MIGRATION_25_26,
+                    MIGRATION_26_27,
+                    MIGRATION_27_28,
+                    MIGRATION_28_29,
+                    MIGRATION_29_30,
                 )
                 .setJournalMode(RoomDatabase.JournalMode.WRITE_AHEAD_LOGGING)
                 .addCallback(object : RoomDatabase.Callback() {
@@ -462,24 +537,29 @@ abstract class PushGoDatabase : RoomDatabase() {
                 INSERT INTO message_channel_counts(
                     channel, total_count, unread_count, latest_received_at,
                     latest_unread_at, updated_at_epoch_ms
-                ) VALUES(
+                )
+                SELECT
                     $newKey,
-                    1,
-                    CASE WHEN NEW.is_read = 0 THEN 1 ELSE 0 END,
+                    0,
+                    0,
                     NEW.received_at,
                     CASE WHEN NEW.is_read = 0 THEN NEW.received_at END,
                     $now
-                ) ON CONFLICT(channel) DO UPDATE SET
+                WHERE NOT EXISTS (
+                    SELECT 1 FROM message_channel_counts WHERE channel = $newKey
+                );
+                UPDATE message_channel_counts SET
                     total_count = total_count + 1,
-                    unread_count = unread_count + excluded.unread_count,
+                    unread_count = unread_count + CASE WHEN NEW.is_read = 0 THEN 1 ELSE 0 END,
                     latest_received_at = CASE
-                        WHEN latest_received_at IS NULL OR excluded.latest_received_at > latest_received_at
-                        THEN excluded.latest_received_at ELSE latest_received_at END,
+                        WHEN latest_received_at IS NULL OR NEW.received_at > latest_received_at
+                        THEN NEW.received_at ELSE latest_received_at END,
                     latest_unread_at = CASE
-                        WHEN excluded.latest_unread_at IS NOT NULL
-                             AND (latest_unread_at IS NULL OR excluded.latest_unread_at > latest_unread_at)
-                        THEN excluded.latest_unread_at ELSE latest_unread_at END,
-                    updated_at_epoch_ms = excluded.updated_at_epoch_ms;
+                        WHEN NEW.is_read = 0
+                             AND (latest_unread_at IS NULL OR NEW.received_at > latest_unread_at)
+                        THEN NEW.received_at ELSE latest_unread_at END,
+                    updated_at_epoch_ms = $now
+                WHERE channel = $newKey;
             """.trimIndent()
             val removeOldChannel = """
                 UPDATE message_channel_counts

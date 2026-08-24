@@ -12,13 +12,14 @@ internal suspend fun claimOperationScope(
     deliveryId: String?,
     appliedAt: Long,
     providerAckIdentity: ProviderAckIdentity? = null,
+    deliveryScope: InboundDeliveryScope? = providerAckIdentity.inboundDeliveryScope(),
 ): Boolean {
     val normalizedOpId = opId?.trim()?.takeIf { it.isNotEmpty() } ?: return true
     val normalizedType = canonicalEntityTypeOrEmpty(entityType)
     val normalizedEntityId = entityId?.trim()?.takeIf { it.isNotEmpty() }
     val normalizedChannel = channelId?.trim()?.takeIf { it.isNotEmpty() }
     val normalizedDeliveryId = deliveryId?.trim()?.takeIf { it.isNotEmpty() }
-    val scopeKey = providerAckIdentity.scopedDeliveryStorageKey(composeOperationScopeKey(
+    val scopeKey = deliveryScope.scopedDeliveryStorageKey(composeOperationScopeKey(
         channelId = normalizedChannel,
         entityType = normalizedType,
         entityId = normalizedEntityId,
