@@ -15,7 +15,7 @@
 | Channels | 创建、订阅、改名、两类退订 | invalid/auth/failure/keep/delete/undo | remote、credentials、history | contract + Room + UI | P0；低层部分已有、UI 缺口 | Channel repository/UI |
 | Gateway settings | 修改真实服务器 | invalid/cancel/failure | preferences/token、后续 endpoint | unit + contract + UI | P0；UI 缺口 | Settings VM/UI |
 | Decryption settings | 配置 Key 并恢复消息 | encoding/invalid/missing/wrong | secure storage、plaintext | unit + UI + relaunch | P0；component 有、UI 缺口 | Settings/Decryptor |
-| Page visibility | 控制主导航入口 | hide/show/relaunch | preferences、Tabs | VM + UI + relaunch | P0；UI 缺口 | Settings/Main UI |
+| Page visibility | 控制主导航入口 | hide/show/relaunch | preferences、Tabs | VM + UI + relaunch | P0；真实 Settings 控件关闭/恢复 Event 入口并分别 activity relaunch 核对已实现 | Settings/Main UI |
 | Transport selector | 在 FCM/Private 间真实切换 | unavailable/failure/restart/late old | service、token、connection、Room | integration + UI | P0；integration 强、UI 缺口 | Settings VM/Service manager |
 | Notification permission/Doze | 恢复可靠通知条件 | denied/allowed/return/snooze expiry | OS settings、UI card | unit + physical UI | P0/P1；NOT RUN | Settings/system adapters |
 | Ingress/ACK | 收到且最终显示一次 | duplicate/order/persist fail/retry/death | ledger、Room、notification、UI | property + device + real FCM | P0；低层强、real FCM NOT RUN | Messaging/ACK workers |

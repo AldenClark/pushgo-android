@@ -198,7 +198,7 @@ fun SettingsScreen(
     }
 
     Scaffold(
-        modifier = Modifier.testTag("screen.settings.content"),
+        modifier = Modifier.testTag("screen.settings"),
         topBar = {
             Column(
                 modifier = Modifier.background(uiColors.surfaceBase),
@@ -234,7 +234,8 @@ fun SettingsScreen(
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(scaffoldPadding),
+                .padding(scaffoldPadding)
+                .testTag("screen.settings.content"),
             contentPadding = PaddingValues(bottom = bottomGestureInset + 24.dp),
         ) {
 
