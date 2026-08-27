@@ -11,7 +11,7 @@
 | History cleanup | 按范围清理 | cutoff/DST/cancel/failure | messages/entities/index/stats | DAO boundary + UI | P1；UI 缺口 | Cleanup/Repositories |
 | Delete/Undo | 删除或恢复并持久化 | pending/claim/failure/death/reopen | Room、Worker、notification | integration + UI | P0；真实详情删除、行隐藏、Undo、activity relaunch 已有；process death/notification 待物理 lane | Pending deletion |
 | Events | 浏览、筛选、关闭事件 | ongoing/closed/slow/error/duplicate | event head/timeline/Thing relation | Room + contract + UI | P0；App-owned 摄入→投影→列表→准确详情→确认关闭→投影更新→仅进行中筛选排除→activity relaunch 后 closed 持久化已实现；slow/error/duplicate close 待补 | Event UI/Repository |
-| Things | 浏览对象和三个页签 | active/filter/missing/deep link | head、Events/Messages/Updates | Room + router + UI | P0；App-owned 摄入→投影→准确概览与 Events/Messages/Updates 三页签已实现，筛选/关联打开/深链待补 | Thing UI/Repository |
+| Things | 浏览对象和三个页签 | active/filter/missing/deep link | head、Events/Messages/Updates | Room + router + UI | P0；App-owned 摄入→投影→准确概览、Events/Messages/Updates 三页签、准确关联详情、返回原 Thing/页签与 relaunch 已实现；筛选/深链/删除待补 | Thing UI/Repository |
 | Channels | 创建、订阅、改名、两类退订 | invalid/auth/failure/keep/delete/undo | remote、credentials、history | contract + Room + UI | P0；低层部分已有、UI 缺口 | Channel repository/UI |
 | Gateway settings | 修改真实服务器 | invalid/cancel/failure | preferences/token、后续 endpoint | unit + contract + UI | P0；UI 缺口 | Settings VM/UI |
 | Decryption settings | 配置 Key 并恢复消息 | encoding/invalid/missing/wrong | secure storage、plaintext | unit + UI + relaunch | P0；component 有、UI 缺口 | Settings/Decryptor |

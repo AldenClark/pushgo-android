@@ -3,6 +3,7 @@ package io.ethan.pushgo.testing
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
+import androidx.test.espresso.Espresso.pressBack
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import io.ethan.pushgo.util.DiagnosticLogStore
 import org.junit.Test
@@ -79,11 +80,37 @@ class QualityEntityJourneyInstrumentedTest : QualityAppJourneyTestCase() {
             .assertIsDisplayed()
 
         composeRule.onNodeWithTag("tab.thing.detail.events").performClick()
-        composeRule.onNodeWithText("Quality Related Event").assertIsDisplayed()
+        composeRule.onNodeWithTag("event.row.quality-related-event")
+            .assertIsDisplayed()
+            .assertTextContains("Quality Related Event")
+            .performClick()
+        composeRule.onNodeWithTag("sheet.event.detail").assertIsDisplayed()
+        composeRule.onNodeWithTag("sheet.event.detail", useUnmergedTree = true)
+            .assert(hasAnyDescendant(hasText("A deterministic event associated with Quality Reactor Alpha.")))
+        dismissTopSheet()
+        composeRule.onNodeWithTag("event.row.quality-related-event").assertIsDisplayed()
+
         composeRule.onNodeWithTag("tab.thing.detail.messages").performClick()
-        composeRule.onNodeWithText("Quality Related Message").assertIsDisplayed()
+        composeRule.onNodeWithTag("thing.related.message.quality-related-message")
+            .assertIsDisplayed()
+            .performClick()
+        composeRule.onNodeWithTag("sheet.thing.related.message.detail").assertIsDisplayed()
+        composeRule.onNodeWithTag("field.message.detail.title", useUnmergedTree = true)
+            .assertTextEquals("Quality Related Message")
+        composeRule.onNodeWithTag("field.message.detail.body", useUnmergedTree = true)
+            .assertTextEquals("The linked reactor message is visible in the Messages tab.")
+        dismissTopSheet()
+        composeRule.onNodeWithTag("thing.related.message.quality-related-message").assertIsDisplayed()
+
         composeRule.onNodeWithTag("tab.thing.detail.updates").performClick()
-        composeRule.onNodeWithText("Quality Initial Thing Snapshot").assertIsDisplayed()
+        composeRule.onNodeWithTag("thing.related.update.quality-delivery-thing-initial")
+            .assertIsDisplayed()
+            .performClick()
+        composeRule.onNodeWithTag("sheet.thing.related.update.detail").assertIsDisplayed()
+        composeRule.onNodeWithTag("content.thing.related.update.detail", useUnmergedTree = true)
+            .assert(hasAnyDescendant(hasText("Quality Initial Thing Snapshot")))
+        dismissTopSheet()
+        composeRule.onNodeWithTag("thing.related.update.quality-delivery-thing-initial").assertIsDisplayed()
 
         scenario?.close()
         scenario = launchMainActivity()
@@ -92,6 +119,19 @@ class QualityEntityJourneyInstrumentedTest : QualityAppJourneyTestCase() {
             composeRule.onAllNodes(hasTestTag("thing.row.quality-thing"))
                 .fetchSemanticsNodes().isNotEmpty()
         }
-        composeRule.onNodeWithTag("thing.row.quality-thing").assertIsDisplayed()
+        composeRule.onNodeWithTag("thing.row.quality-thing").assertIsDisplayed().performClick()
+        composeRule.onNodeWithTag("event.row.quality-related-event").assertIsDisplayed().performClick()
+        composeRule.onNodeWithTag("sheet.event.detail").assertIsDisplayed()
+        composeRule.onNodeWithTag("sheet.event.detail", useUnmergedTree = true)
+            .assert(hasAnyDescendant(hasText("Quality Related Event")))
+    }
+
+    private fun dismissTopSheet() {
+        pressBack()
+        composeRule.waitUntil(timeoutMillis = 5_000) {
+            composeRule.onAllNodes(hasTestTag("sheet.thing.detail"))
+                .fetchSemanticsNodes().isNotEmpty()
+        }
+        composeRule.onNodeWithTag("sheet.thing.detail").assertIsDisplayed()
     }
 }

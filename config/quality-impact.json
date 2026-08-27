@@ -71,7 +71,7 @@
       "capabilities": ["events", "things"],
       "minimum_evidence": ["entity projection/repository tests", "Android Event close/filter/relaunch and Thing accurate list/detail/relation/relaunch journeys"],
       "lane": "device",
-      "known_evidence_gaps": ["Event slow/error/duplicate-close recovery and Thing relation opening/deep links remain incomplete."],
+      "known_evidence_gaps": ["Event slow/error/duplicate-close recovery and Thing filters/deep links/delete outcomes remain incomplete."],
       "escalation_reasons": ["Entity projections feed lists, details, relations, ingress, and notifications."]
     },
     {

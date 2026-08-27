@@ -60,6 +60,8 @@ import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.text
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -401,7 +403,9 @@ internal fun MessageDetailCoreContent(
                 SelectablePlainTextRenderer(
                     text = message.title,
                     modifier = Modifier
-                        .weight(1f),
+                        .weight(1f)
+                        .testTag("field.message.detail.title")
+                        .semantics { this.text = AnnotatedString(message.title) },
                     typeface = remember { android.graphics.Typeface.create("sans-serif", android.graphics.Typeface.BOLD) },
                     textSizeSp = MaterialTheme.typography.headlineSmall.fontSize.value,
                     textColorArgb = uiColors.textPrimary.toArgb(),
@@ -546,7 +550,10 @@ internal fun MessageDetailCoreContent(
 
         FullMarkdownRenderer(
             text = resolvedBodyText,
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .testTag("field.message.detail.body")
+                .semantics { this.text = AnnotatedString(resolvedBodyText) },
             onOpenLink = onOpenUrl,
             onOpenImage = { imageUrl ->
                 activeAnimatedImageKey = null

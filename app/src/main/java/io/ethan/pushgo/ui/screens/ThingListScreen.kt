@@ -592,7 +592,12 @@ fun ThingListScreen(
         }
     }
 
-    if (selectedThing != null) {
+    if (
+        selectedThing != null &&
+        selectedRelatedMessage == null &&
+        selectedRelatedEvent == null &&
+        selectedRelatedUpdate == null
+    ) {
         val thing = selectedThing!!
         PushGoModalBottomSheet(
             onDismissRequest = {
@@ -608,6 +613,7 @@ fun ThingListScreen(
             ThingDetailSheet(
                 thing = thing,
                 initialTab = selectedThingInitialTab,
+                onSelectedTabChange = { selectedThingInitialTab = it },
                 channelNameMap = channelNameMap,
                 bottomGestureInset = bottomGestureInset,
                 onOpenRelatedEvent = { selectedRelatedEvent = it },
@@ -673,6 +679,7 @@ fun ThingListScreen(
     if (selectedRelatedMessage != null) {
         val message = selectedRelatedMessage!!
         PushGoModalBottomSheet(
+            modifier = Modifier.testTag("sheet.thing.related.message.detail"),
             onDismissRequest = { selectedRelatedMessage = null },
             paneTitle = message.message.title,
         ) {
@@ -683,6 +690,7 @@ fun ThingListScreen(
     if (selectedRelatedUpdate != null) {
         val update = selectedRelatedUpdate!!
         PushGoModalBottomSheet(
+            modifier = Modifier.testTag("sheet.thing.related.update.detail"),
             onDismissRequest = { selectedRelatedUpdate = null },
             paneTitle = update.title,
         ) {
@@ -1324,6 +1332,7 @@ private fun mergeThingCardsInternal(existing: List<ThingCardModel>, incoming: Li
 private fun ThingDetailSheet(
     thing: ThingCardModel,
     initialTab: ThingDetailTab?,
+    onSelectedTabChange: (ThingDetailTab) -> Unit,
     channelNameMap: Map<String, String>,
     bottomGestureInset: Dp,
     onOpenRelatedEvent: (EventCardModel) -> Unit,
@@ -1334,6 +1343,7 @@ private fun ThingDetailSheet(
     var previewImageUrl by remember { mutableStateOf<String?>(null) }
     var showMetadataSheet by remember { mutableStateOf(false) }
     var selectedTab by remember(thing.thingId, initialTab) { mutableStateOf(initialTab ?: ThingDetailTab.Events) }
+    LaunchedEffect(selectedTab) { onSelectedTabChange(selectedTab) }
     val uiColors = PushGoThemeExtras.colors
     val attrsEntries = remember(thing.attrsJson) { parseThingDisplayAttributes(thing.attrsJson) }
     val metadataEntries = remember(thing.metadataJson) { parseThingDisplayAttributes(thing.metadataJson) }
@@ -1571,6 +1581,9 @@ private fun ThingDetailSheet(
                                     Column(
                                         modifier = Modifier
                                             .fillMaxWidth()
+                                            .testTag(
+                                                "thing.related.message.${rowMessage.messageId?.trim()?.takeIf { it.isNotEmpty() } ?: rowMessage.id}"
+                                            )
                                             .clickable { onOpenRelatedMessage(related) }
                                             .padding(vertical = 10.dp),
                                     ) {
@@ -1611,6 +1624,7 @@ private fun ThingDetailSheet(
                                 Column(
                                     modifier = Modifier
                                         .fillMaxWidth()
+                                        .testTag("thing.related.update.${update.updateId}")
                                         .clickable { onOpenRelatedUpdate(update) }
                                         .padding(vertical = 8.dp),
                                     verticalArrangement = Arrangement.spacedBy(5.dp),
@@ -1740,6 +1754,7 @@ private fun ThingUpdateDetailSheet(update: ThingRelatedUpdate) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
+            .testTag("content.thing.related.update.detail")
             .verticalScroll(rememberScrollState())
             .padding(horizontal = 24.dp)
             .padding(bottom = 32.dp),
