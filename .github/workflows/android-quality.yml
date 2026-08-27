@@ -34,20 +34,46 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 0
+
+      - name: Plan changed capability evidence
+        if: github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref == 'refs/heads/main')
+        env:
+          QUALITY_BASE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          python3 -m unittest discover -s scripts/tests -p 'test_quality_impact.py'
+          python3 scripts/quality_impact.py \
+            --audit-product-tree \
+            --output build/quality-results/android-impact-tree-audit.json \
+            --check
+          python3 scripts/quality_impact.py \
+            --base "$QUALITY_BASE_SHA" \
+            --head "$GITHUB_SHA" \
+            --output build/quality-results/android-impact-plan.json \
+            --check
+          impact_lane="$(python3 -c 'import json; print(json.load(open("build/quality-results/android-impact-plan.json"))["recommended_lane"])')"
+          if [[ "$impact_lane" == "not-run" ]]; then
+            echo "QUALITY_SKIP_FAST=1" >> "$GITHUB_ENV"
+          fi
 
       - name: Set up Java
+        if: env.QUALITY_SKIP_FAST != '1'
         uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
         with:
           distribution: temurin
           java-version: "21"
 
       - name: Set up Gradle
+        if: env.QUALITY_SKIP_FAST != '1'
         uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb # v6
 
       - name: Set up Android SDK
+        if: env.QUALITY_SKIP_FAST != '1'
         uses: android-actions/setup-android@40fd30fb8d7440372e1316f5d1809ec01dcd3699 # v4
 
       - name: Prepare native toolchain
+        if: env.QUALITY_SKIP_FAST != '1'
         shell: bash
         run: |
           rustup target add aarch64-linux-android armv7-linux-androideabi x86_64-linux-android
@@ -55,7 +81,20 @@ jobs:
           cargo install cargo-ndk --version "$cargo_ndk_version" --locked
 
       - name: Run fast product regression
+        if: env.QUALITY_SKIP_FAST != '1'
         run: ./scripts/quality_test.sh pr
+
+      - name: Record intentional no-product host run
+        if: env.QUALITY_SKIP_FAST == '1'
+        run: |
+          python3 scripts/quality_result.py \
+            --output build/quality-results/android-changed-host-summary.json \
+            --platform android \
+            --lane changed-host \
+            --product-status NOT_RUN \
+            --test-system-status PASSED \
+            --not-run "No mapped Android product capability changed; host product lane intentionally not run." \
+            --reason "documentation or unrelated support-only change"
 
       - name: Upload JVM evidence
         if: always()
@@ -77,8 +116,27 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 0
+
+      - name: Plan changed device evidence
+        if: github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref == 'refs/heads/main')
+        env:
+          QUALITY_BASE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          python3 scripts/quality_impact.py \
+            --base "$QUALITY_BASE_SHA" \
+            --head "$GITHUB_SHA" \
+            --output build/quality-results/android-impact-plan.json \
+            --check
+          impact_lane="$(python3 -c 'import json; print(json.load(open("build/quality-results/android-impact-plan.json"))["recommended_lane"])')"
+          case "$impact_lane" in
+            not-run|pr) echo "QUALITY_SKIP_DEVICE=1" >> "$GITHUB_ENV" ;;
+            *) echo "QUALITY_LANE=$impact_lane" >> "$GITHUB_ENV" ;;
+          esac
 
       - name: Enable KVM
+        if: env.QUALITY_SKIP_DEVICE != '1'
         shell: bash
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
@@ -86,18 +144,22 @@ jobs:
           sudo udevadm trigger --name-match=kvm
 
       - name: Set up Java
+        if: env.QUALITY_SKIP_DEVICE != '1'
         uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
         with:
           distribution: temurin
           java-version: "21"
 
       - name: Set up Gradle
+        if: env.QUALITY_SKIP_DEVICE != '1'
         uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb # v6
 
       - name: Set up Android SDK
+        if: env.QUALITY_SKIP_DEVICE != '1'
         uses: android-actions/setup-android@40fd30fb8d7440372e1316f5d1809ec01dcd3699 # v4
 
       - name: Prepare native toolchain
+        if: env.QUALITY_SKIP_DEVICE != '1'
         shell: bash
         run: |
           rustup target add aarch64-linux-android armv7-linux-androideabi x86_64-linux-android
@@ -105,6 +167,7 @@ jobs:
           cargo install cargo-ndk --version "$cargo_ndk_version" --locked
 
       - name: Run representative device lane
+        if: env.QUALITY_SKIP_DEVICE != '1'
         uses: ReactiveCircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
         with:
           api-level: 35
@@ -113,6 +176,18 @@ jobs:
           disable-animations: true
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none -no-snapshot-save
           script: ./scripts/quality_test.sh "$QUALITY_LANE"
+
+      - name: Record intentional no-device run
+        if: env.QUALITY_SKIP_DEVICE == '1'
+        run: |
+          python3 scripts/quality_result.py \
+            --output build/quality-results/android-changed-device-summary.json \
+            --platform android \
+            --lane changed-device \
+            --product-status NOT_RUN \
+            --test-system-status PASSED \
+            --not-run "The deterministic impact plan requires no Android device evidence for this change." \
+            --reason "device phase not selected"
 
       - name: Upload device evidence
         if: always()

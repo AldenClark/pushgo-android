@@ -38,6 +38,8 @@
 # Local updater operation artifacts
 /docs/
 /tmp/
+__pycache__/
+*.py[cod]
 /dist/
 /.ci/
 **/*.idsig

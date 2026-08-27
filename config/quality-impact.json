@@ -1,0 +1,144 @@
+{
+  "schema_version": 1,
+  "platform": "android",
+  "lane_order": ["not-run", "pr", "pr-ui", "device", "nightly", "release"],
+  "product_paths": [
+    "app/src/main/**",
+    "app/src/debug/**",
+    "app/src/release/**",
+    "native/**",
+    "app/build.gradle.kts",
+    "build.gradle.kts",
+    "settings.gradle.kts",
+    "gradle.properties",
+    "gradle/libs.versions.toml"
+  ],
+  "manual_impact_questions": [
+    "Which user-visible outcome and protected behavior can change?",
+    "Which callers, ViewModels, Room tables/queries, error paths, migrations, and relaunch outcomes are affected?",
+    "Which notification, Service, Worker, Receiver, update, media, or OS consumers share this contract?",
+    "Does an existing Oracle fail on a credible wrong value/state, or must the change add or strengthen one?"
+  ],
+  "rules": [
+    {
+      "id": "quality-system",
+      "paths": ["AGENTS.md", "app/src/test/**", "scripts/tests/**", "scripts/quality_*.py", "scripts/quality_*.sh", ".github/workflows/android-quality.yml", "config/quality-impact.json"],
+      "capabilities": ["quality-system-trustworthiness"],
+      "minimum_evidence": ["quality selector unit/negative controls", "Android JVM suite and androidTest compilation"],
+      "lane": "pr",
+      "escalation_reasons": ["Test infrastructure changes require representative product evidence; syntax alone is insufficient."]
+    },
+    {
+      "id": "quality-device-test-system",
+      "paths": ["app/src/androidTest/**"],
+      "capabilities": ["quality-system-trustworthiness"],
+      "minimum_evidence": ["androidTest compilation", "Android core App UI representative lane"],
+      "lane": "pr-ui",
+      "known_evidence_gaps": ["A changed device test outside curated lanes still needs an explicit focused class invocation."],
+      "escalation_reasons": ["Instrumented-test changes require device execution; compilation alone cannot validate the Oracle."]
+    },
+    {
+      "id": "quality-runtime-release-isolation",
+      "paths": ["app/src/main/java/io/ethan/pushgo/testing/**", "app/src/debug/**", "app/src/release/**", "app/src/main/java/io/ethan/pushgo/PushGoApp.kt", "app/src/main/java/io/ethan/pushgo/data/AppContainer.kt", "app/src/main/java/io/ethan/pushgo/data/AppAutomationController.kt"],
+      "capabilities": ["app-owned-quality-runtime", "release-runtime-isolation", "app-launch"],
+      "minimum_evidence": ["QualityRuntime JVM tests", "App-owned Android UI journey", "Release build/runtime isolation"],
+      "lane": "release",
+      "escalation_reasons": ["Composition-root or Runtime changes cross Room lifecycle and Release boundaries."]
+    },
+    {
+      "id": "room-schema-shared-store",
+      "paths": ["app/src/main/java/io/ethan/pushgo/data/db/**"],
+      "capabilities": ["app-launch", "messages", "events", "things", "channels", "ingress-ack", "delete-undo"],
+      "minimum_evidence": ["DAO/query correctness", "old-version migration and reopen device tests", "representative UI content/relaunch journeys"],
+      "lane": "device",
+      "known_evidence_gaps": ["Migration UI and 50-run startup reliability are not yet proven."],
+      "escalation_reasons": ["Room schema/query changes affect all canonical and derived consumers."]
+    },
+    {
+      "id": "messages-search-delete",
+      "paths": ["app/src/main/java/io/ethan/pushgo/data/Message*.kt", "app/src/main/java/io/ethan/pushgo/data/QualityFaultPagingSource.kt", "app/src/main/java/io/ethan/pushgo/data/PendingLocalDeletion*.kt", "app/src/main/java/io/ethan/pushgo/data/RepositoryPendingLocalDeletionExecutor.kt", "app/src/main/java/io/ethan/pushgo/data/model/Message*.kt", "app/src/main/java/io/ethan/pushgo/ui/Message*.kt", "app/src/main/java/io/ethan/pushgo/ui/PendingLocalDeletion*.kt", "app/src/main/java/io/ethan/pushgo/ui/viewmodel/Message*.kt", "app/src/main/java/io/ethan/pushgo/ui/screens/Message*.kt", "app/src/main/java/io/ethan/pushgo/ui/screens/PushGoSearchBar.kt", "app/src/main/java/io/ethan/pushgo/util/SearchTextNormalizer.kt"],
+      "capabilities": ["messages", "message-detail", "search-filter", "delete-undo"],
+      "minimum_evidence": ["JVM/Room message/search/deletion tests", "Android accurate content/search/delete/relaunch UI journeys"],
+      "lane": "device",
+      "known_evidence_gaps": ["pagination/refresh/mark-read/media performance remain incomplete."]
+    },
+    {
+      "id": "events-things",
+      "paths": ["app/src/main/java/io/ethan/pushgo/data/CanonicalEntityType.kt", "app/src/main/java/io/ethan/pushgo/data/Entity*.kt", "app/src/main/java/io/ethan/pushgo/ui/screens/Event*.kt", "app/src/main/java/io/ethan/pushgo/ui/screens/Thing*.kt", "app/src/main/java/io/ethan/pushgo/ui/screens/Entity*.kt"],
+      "capabilities": ["events", "things"],
+      "minimum_evidence": ["entity projection/repository tests", "Android Event/Thing accurate list/detail/relation/relaunch journeys"],
+      "lane": "device",
+      "known_evidence_gaps": ["Event close/filter and Thing relation opening/deep links remain incomplete."],
+      "escalation_reasons": ["Entity projections feed lists, details, relations, ingress, and notifications."]
+    },
+    {
+      "id": "channels-settings-transport",
+      "paths": ["app/src/main/java/io/ethan/pushgo/data/Channel*.kt", "app/src/main/java/io/ethan/pushgo/data/SettingsRepository.kt", "app/src/main/java/io/ethan/pushgo/data/SecureSecretStore.kt", "app/src/main/java/io/ethan/pushgo/data/AndroidKeystoreSecretStore.kt", "app/src/main/java/io/ethan/pushgo/data/NotificationKeyValidator.kt", "app/src/main/java/io/ethan/pushgo/data/RepositoryPendingChannelDeletionBackend.kt", "app/src/main/java/io/ethan/pushgo/data/DurablePendingChannelDeletionExecutor.kt", "app/src/main/java/io/ethan/pushgo/data/model/ChannelSubscription.kt", "app/src/main/java/io/ethan/pushgo/data/model/KeyEncoding.kt", "app/src/main/java/io/ethan/pushgo/data/model/ServerConfig.kt", "app/src/main/java/io/ethan/pushgo/ui/screens/Channel*.kt", "app/src/main/java/io/ethan/pushgo/ui/screens/Settings*.kt", "app/src/main/java/io/ethan/pushgo/ui/screens/MessageDecryptionScreen.kt", "app/src/main/java/io/ethan/pushgo/ui/viewmodel/Settings*.kt", "app/src/main/java/io/ethan/pushgo/ui/viewmodel/GatewayErrorUi.kt", "app/src/main/java/io/ethan/pushgo/util/SystemSettingsNavigator.kt", "app/src/main/java/io/ethan/pushgo/util/UrlValidators.kt"],
+      "capabilities": ["channels", "gateway-settings", "decryption-settings", "page-visibility", "transport-selector"],
+      "minimum_evidence": ["validation/service/transport integration tests", "real Settings/Channel UI action and relaunch journey"],
+      "lane": "device",
+      "known_evidence_gaps": ["Channel create/rename/two unsubscribe outcomes and full Settings/transport UI persistence are missing."],
+      "escalation_reasons": ["Credentials and remote/local reconciliation require failure and recovery evidence."]
+    },
+    {
+      "id": "ingress-notifications-services-workers",
+      "paths": ["app/src/main/java/io/ethan/pushgo/notifications/**", "app/src/main/java/io/ethan/pushgo/data/Inbound*.kt", "app/src/main/java/io/ethan/pushgo/data/Operation*.kt", "app/src/main/java/io/ethan/pushgo/data/PushTokenProvider.kt", "app/src/main/java/io/ethan/pushgo/util/FcmSupport.kt", "app/src/main/java/io/ethan/pushgo/util/JsonCompat.kt", "app/src/main/java/io/ethan/pushgo/util/PayloadTimeNormalizer.kt", "app/src/main/java/io/ethan/pushgo/util/ReminderSnoozeStore.kt", "app/src/main/AndroidManifest.xml"],
+      "capabilities": ["ingress-ack", "notification-permission-doze", "private-foreground-service", "alert-playback", "background-workers"],
+      "minimum_evidence": ["idempotency/ACK/retry/service policy JVM tests", "device process/lifecycle boundaries", "final Room and UI state"],
+      "lane": "nightly",
+      "known_evidence_gaps": ["real FCM/private transport, notification permission, Doze, reboot, and physical audio remain NOT RUN."],
+      "escalation_reasons": ["Ingress and services cross process, durable work, notification, and UI consumers."]
+    },
+    {
+      "id": "media-markdown-cache",
+      "paths": ["app/src/main/java/io/ethan/pushgo/data/*Image*.kt", "app/src/main/java/io/ethan/pushgo/markdown/**", "app/src/main/java/io/ethan/pushgo/ui/markdown/**", "app/src/main/java/io/ethan/pushgo/ui/screens/PushGoAsyncImage.kt", "app/src/main/java/io/ethan/pushgo/ui/screens/PushGoPlayableImage.kt", "app/src/main/java/io/ethan/pushgo/ui/screens/ZoomableImagePreviewDialog.kt"],
+      "capabilities": ["message-media", "image-preview-share-cache"],
+      "minimum_evidence": ["parser/cache correctness", "preview/share consumer UI", "resource cleanup device evidence"],
+      "lane": "nightly",
+      "known_evidence_gaps": ["save/share failure consumers and lifecycle performance are incomplete."]
+    },
+    {
+      "id": "update-install",
+      "paths": ["app/src/main/java/io/ethan/pushgo/update/**", "scripts/*update*", ".github/workflows/android-release.yml"],
+      "capabilities": ["update-ui-install"],
+      "minimum_evidence": ["feed/signature/policy JVM tests", "Release contract", "physical install/upgrade checklist"],
+      "lane": "release",
+      "known_evidence_gaps": ["physical permission/install/upgrade/process-death evidence remains NOT RUN."],
+      "escalation_reasons": ["Update changes cross signed feed, download, installer, and rollback boundaries."]
+    },
+    {
+      "id": "app-shell-navigation",
+      "paths": ["app/src/main/java/io/ethan/pushgo/MainActivity.kt", "app/src/main/java/io/ethan/pushgo/data/AppCoroutineDispatchers.kt", "app/src/main/java/io/ethan/pushgo/data/AppConstants.kt", "app/src/main/java/io/ethan/pushgo/data/OpaqueId.kt", "app/src/main/java/io/ethan/pushgo/ui/PushGoAppRoot.kt", "app/src/main/java/io/ethan/pushgo/ui/PushGoViewModelFactory.kt", "app/src/main/java/io/ethan/pushgo/ui/MessageDetailViewModelFactory.kt", "app/src/main/java/io/ethan/pushgo/ui/EdgeToEdgeInsets.kt", "app/src/main/java/io/ethan/pushgo/ui/viewmodel/UiMessage.kt", "app/src/main/java/io/ethan/pushgo/ui/screens/AppEmptyState.kt", "app/src/main/java/io/ethan/pushgo/util/DiagnosticLogStore.kt", "app/src/main/java/io/ethan/pushgo/util/ExternalNavigation.kt", "app/src/main/java/io/ethan/pushgo/util/SilentSink.kt"],
+      "capabilities": ["app-launch", "primary-navigation"],
+      "minimum_evidence": ["App state/navigation JVM tests", "real control navigation UI journey"],
+      "lane": "pr-ui",
+      "escalation_reasons": ["App composition/navigation affects reachability of every downstream capability."]
+    },
+    {
+      "id": "shared-ui-accessibility-localization",
+      "paths": ["app/src/main/java/io/ethan/pushgo/ui/Accessibility*.kt", "app/src/main/java/io/ethan/pushgo/ui/accessibility/**", "app/src/main/java/io/ethan/pushgo/ui/theme/**", "app/src/main/java/io/ethan/pushgo/ui/screens/PushGo*.kt", "app/src/main/java/io/ethan/pushgo/ui/screens/ClipboardExtensions.kt", "app/src/main/java/io/ethan/pushgo/ui/screens/EntityMetaBadges.kt", "app/src/main/java/io/ethan/pushgo/ui/util/**", "app/src/main/res/**"],
+      "capabilities": ["accessibility-localization", "shared-ui"],
+      "minimum_evidence": ["accessibility semantics/contrast tests", "representative core UI task", "nightly locale/font review"],
+      "lane": "nightly",
+      "known_evidence_gaps": ["physical TalkBack, large font, and complete zh/en task evidence remain NOT RUN."]
+    },
+    {
+      "id": "export-candidate",
+      "paths": ["app/src/main/java/io/ethan/pushgo/ui/export/**"],
+      "capabilities": ["export-candidate"],
+      "minimum_evidence": ["product reachability review before any UI claim"],
+      "lane": "pr",
+      "known_evidence_gaps": ["No confirmed user entry exists; do not add UI tests that invoke helpers directly."],
+      "escalation_reasons": ["Unreachable helpers must be connected or removed, never counted as a user capability."]
+    },
+    {
+      "id": "release-build-native-platform-contract",
+      "paths": ["native/**", "app/build.gradle.kts", "build.gradle.kts", "settings.gradle.kts", "gradle.properties", "gradle/libs.versions.toml", "app/src/main/AndroidManifest.xml", "app/src/main/res/xml/**", "app/src/main/ic_launcher-playstore.png", "scripts/verify_*.sh", "scripts/verify_*.py", "scripts/*release*", ".github/workflows/android-release.yml"],
+      "capabilities": ["build-native-package-signing-privacy-release"],
+      "minimum_evidence": ["JNI/build/release contract tests", "Release APK build", "Release Quality Runtime isolation"],
+      "lane": "release",
+      "known_evidence_gaps": ["Signing, installer, supported-old-version upgrade, and physical package verification need the controlled Release environment."],
+      "escalation_reasons": ["Build/native changes cross ABI, packaging, signing, privacy, and Release boundaries."]
+    }
+  ]
+}

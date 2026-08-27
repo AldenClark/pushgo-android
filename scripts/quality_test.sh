@@ -9,7 +9,10 @@ mkdir -p "$results_root"
 
 claims=()
 selected_claims=()
-not_run=("real FCM/notification permission/Doze/reboot/install/physical accessibility evidence")
+not_run=(
+  "real FCM/notification permission/Doze/reboot/install/physical accessibility evidence"
+  "Macrobenchmark/physical-device performance evidence"
+)
 
 write_result() {
   local product_status="$1"
