@@ -42,7 +42,7 @@ jobs:
         env:
           QUALITY_BASE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
         run: |
-          python3 -m unittest discover -s scripts/tests -p 'test_quality_impact.py'
+          python3 -m unittest discover -s scripts/tests -p 'test_*.py'
           python3 scripts/quality_impact.py \
             --audit-product-tree \
             --output build/quality-results/android-impact-tree-audit.json \
@@ -52,6 +52,7 @@ jobs:
             --head "$GITHUB_SHA" \
             --output build/quality-results/android-impact-plan.json \
             --check
+          echo "QUALITY_IMPACT_PLAN=build/quality-results/android-impact-plan.json" >> "$GITHUB_ENV"
           impact_lane="$(python3 -c 'import json; print(json.load(open("build/quality-results/android-impact-plan.json"))["recommended_lane"])')"
           if [[ "$impact_lane" == "not-run" ]]; then
             echo "QUALITY_SKIP_FAST=1" >> "$GITHUB_ENV"
@@ -129,6 +130,7 @@ jobs:
             --head "$GITHUB_SHA" \
             --output build/quality-results/android-impact-plan.json \
             --check
+          echo "QUALITY_IMPACT_PLAN=build/quality-results/android-impact-plan.json" >> "$GITHUB_ENV"
           impact_lane="$(python3 -c 'import json; print(json.load(open("build/quality-results/android-impact-plan.json"))["recommended_lane"])')"
           case "$impact_lane" in
             not-run|pr) echo "QUALITY_SKIP_DEVICE=1" >> "$GITHUB_ENV" ;;

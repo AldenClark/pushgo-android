@@ -6,7 +6,10 @@
     "app/src/main/**",
     "app/src/debug/**",
     "app/src/release/**",
+    "app/schemas/**",
     "native/**",
+    "release/update-feed-v1.json",
+    "release/update-notes/*.json",
     "app/build.gradle.kts",
     "build.gradle.kts",
     "settings.gradle.kts",
@@ -47,7 +50,7 @@
     },
     {
       "id": "room-schema-shared-store",
-      "paths": ["app/src/main/java/io/ethan/pushgo/data/db/**"],
+      "paths": ["app/src/main/java/io/ethan/pushgo/data/db/**", "app/schemas/**"],
       "capabilities": ["app-launch", "messages", "events", "things", "channels", "ingress-ack", "delete-undo"],
       "minimum_evidence": ["DAO/query correctness", "old-version migration and reopen device tests", "representative UI content/relaunch journeys"],
       "lane": "device",
@@ -73,7 +76,7 @@
     },
     {
       "id": "channels-settings-transport",
-      "paths": ["app/src/main/java/io/ethan/pushgo/data/Channel*.kt", "app/src/main/java/io/ethan/pushgo/data/SettingsRepository.kt", "app/src/main/java/io/ethan/pushgo/data/SecureSecretStore.kt", "app/src/main/java/io/ethan/pushgo/data/AndroidKeystoreSecretStore.kt", "app/src/main/java/io/ethan/pushgo/data/NotificationKeyValidator.kt", "app/src/main/java/io/ethan/pushgo/data/RepositoryPendingChannelDeletionBackend.kt", "app/src/main/java/io/ethan/pushgo/data/DurablePendingChannelDeletionExecutor.kt", "app/src/main/java/io/ethan/pushgo/data/model/ChannelSubscription.kt", "app/src/main/java/io/ethan/pushgo/data/model/KeyEncoding.kt", "app/src/main/java/io/ethan/pushgo/data/model/ServerConfig.kt", "app/src/main/java/io/ethan/pushgo/ui/screens/Channel*.kt", "app/src/main/java/io/ethan/pushgo/ui/screens/Settings*.kt", "app/src/main/java/io/ethan/pushgo/ui/screens/MessageDecryptionScreen.kt", "app/src/main/java/io/ethan/pushgo/ui/viewmodel/Settings*.kt", "app/src/main/java/io/ethan/pushgo/ui/viewmodel/GatewayErrorUi.kt", "app/src/main/java/io/ethan/pushgo/util/SystemSettingsNavigator.kt", "app/src/main/java/io/ethan/pushgo/util/UrlValidators.kt"],
+      "paths": ["app/src/main/java/io/ethan/pushgo/data/Channel*.kt", "app/src/main/java/io/ethan/pushgo/data/SettingsRepository.kt", "app/src/main/java/io/ethan/pushgo/data/SecureSecretStore.kt", "app/src/main/java/io/ethan/pushgo/data/AndroidKeystoreSecretStore.kt", "app/src/main/java/io/ethan/pushgo/data/NotificationKeyValidator.kt", "app/src/main/java/io/ethan/pushgo/data/RepositoryPendingChannelDeletionBackend.kt", "app/src/main/java/io/ethan/pushgo/data/DurablePendingChannelDeletionExecutor.kt", "app/src/main/java/io/ethan/pushgo/data/model/ChannelSubscription.kt", "app/src/main/java/io/ethan/pushgo/data/model/KeyEncoding.kt", "app/src/main/java/io/ethan/pushgo/data/model/ServerConfig.kt", "app/src/main/java/io/ethan/pushgo/ui/screens/Channel*.kt", "app/src/main/java/io/ethan/pushgo/ui/screens/Settings*.kt", "app/src/main/java/io/ethan/pushgo/ui/screens/ConnectionDiagnosis*.kt", "app/src/main/java/io/ethan/pushgo/ui/screens/MessageDecryptionScreen.kt", "app/src/main/java/io/ethan/pushgo/ui/viewmodel/Settings*.kt", "app/src/main/java/io/ethan/pushgo/ui/viewmodel/ConnectionDiagnosis*.kt", "app/src/main/java/io/ethan/pushgo/ui/viewmodel/GatewayErrorUi.kt", "app/src/main/java/io/ethan/pushgo/util/SystemSettingsNavigator.kt", "app/src/main/java/io/ethan/pushgo/util/UrlValidators.kt"],
       "capabilities": ["channels", "gateway-settings", "decryption-settings", "page-visibility", "transport-selector"],
       "minimum_evidence": ["validation/service/transport integration tests", "real Settings/Channel UI action and relaunch journey"],
       "lane": "device",
@@ -96,6 +99,15 @@
       "minimum_evidence": ["parser/cache correctness", "preview/share consumer UI", "resource cleanup device evidence"],
       "lane": "nightly",
       "known_evidence_gaps": ["save/share failure consumers and lifecycle performance are incomplete."]
+    },
+    {
+      "id": "update-distribution-contract",
+      "paths": ["release/update-feed-v1.json", "release/update-notes/*.json"],
+      "capabilities": ["update-distribution"],
+      "minimum_evidence": ["signed update feed semantic contract"],
+      "required_checks": ["android-update-distribution-contract"],
+      "lane": "pr",
+      "escalation_reasons": ["Machine-consumed update metadata can prevent or misdirect user updates without changing App source."]
     },
     {
       "id": "update-install",
@@ -136,6 +148,7 @@
       "paths": ["native/**", "app/build.gradle.kts", "build.gradle.kts", "settings.gradle.kts", "gradle.properties", "gradle/libs.versions.toml", "app/src/main/AndroidManifest.xml", "app/src/main/res/xml/**", "app/src/main/ic_launcher-playstore.png", "scripts/verify_*.sh", "scripts/verify_*.py", "scripts/*release*", ".github/workflows/android-release.yml"],
       "capabilities": ["build-native-package-signing-privacy-release"],
       "minimum_evidence": ["JNI/build/release contract tests", "Release APK build", "Release Quality Runtime isolation"],
+      "required_checks": ["android-release-static-contract"],
       "lane": "release",
       "known_evidence_gaps": ["Signing, installer, supported-old-version upgrade, and physical package verification need the controlled Release environment."],
       "escalation_reasons": ["Build/native changes cross ABI, packaging, signing, privacy, and Release boundaries."]

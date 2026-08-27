@@ -67,6 +67,20 @@ class QualityImpactPlanTests(unittest.TestCase):
         self.assertEqual("pr-ui", plan["recommended_lane"])
         self.assertIn("Android core App UI representative lane", plan["minimum_evidence"])
 
+    def test_room_schema_export_requires_device_migration_evidence(self):
+        plan = self.plan("app/schemas/io.ethan.pushgo.data.db.PushGoDatabase/31.json")
+
+        self.assertEqual("device", plan["recommended_lane"])
+        self.assertIn("messages", plan["impacted_capabilities"])
+
+    def test_machine_consumed_update_feed_runs_contract_without_device_lane(self):
+        plan = self.plan("release/update-feed-v1.json")
+
+        self.assertEqual("READY", plan["plan_status"])
+        self.assertEqual("pr", plan["recommended_lane"])
+        self.assertIn("update-distribution", plan["impacted_capabilities"])
+        self.assertEqual(["android-update-distribution-contract"], plan["required_checks"])
+
     def test_service_consumer_upgrades_app_change_to_nightly(self):
         plan = self.plan(
             "app/src/main/java/io/ethan/pushgo/MainActivity.kt",
@@ -75,6 +89,15 @@ class QualityImpactPlanTests(unittest.TestCase):
 
         self.assertEqual("nightly", plan["recommended_lane"])
         self.assertIn("private-foreground-service", plan["impacted_capabilities"])
+
+    def test_historical_connection_diagnosis_surface_maps_to_transport_evidence(self):
+        plan = self.plan(
+            "app/src/main/java/io/ethan/pushgo/ui/screens/ConnectionDiagnosisScreen.kt",
+            "app/src/main/java/io/ethan/pushgo/ui/viewmodel/ConnectionDiagnosisViewModel.kt",
+        )
+
+        self.assertEqual("device", plan["recommended_lane"])
+        self.assertIn("transport-selector", plan["impacted_capabilities"])
 
 
 if __name__ == "__main__":

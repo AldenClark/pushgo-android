@@ -46,6 +46,66 @@ on_exit() {
 }
 trap on_exit EXIT
 
+run_impact_contracts() {
+  local plan_path="${QUALITY_IMPACT_PLAN:-}"
+  local check
+  local release_tag
+  local checks_output
+  if ! checks_output="$(
+    python3 - "$plan_path" "$lane" <<'PY'
+import json
+import pathlib
+import sys
+
+plan_path, lane = sys.argv[1:]
+checks = set()
+if plan_path:
+    path = pathlib.Path(plan_path)
+    if not path.is_file():
+        raise SystemExit(f"impact plan is not a regular file: {path}")
+    checks.update(json.loads(path.read_text()).get("required_checks", []))
+if lane == "release":
+    checks.update({"android-release-static-contract", "android-update-distribution-contract"})
+print("\n".join(sorted(checks)))
+PY
+  )"; then
+    echo "status=BLOCKED"
+    echo "reason=invalid_android_impact_plan"
+    exit 2
+  fi
+  while IFS= read -r check; do
+    [[ -n "$check" ]] || continue
+    case "$check" in
+      android-update-distribution-contract)
+        selected_claims+=("Android signed update feed contract")
+        "$repo_root/scripts/verify_update_feed.sh" "$repo_root/release/update-feed-v1.json"
+        "$repo_root/gradlew" testDebugUnitTest \
+          --tests io.ethan.pushgo.update.UpdateFeedSignatureRegressionTest
+        claims+=("Android signed update feed contract")
+        ;;
+      android-release-static-contract)
+        selected_claims+=("Android JNI/toolchain/schema/release static contracts")
+        "$repo_root/scripts/verify_jni_contract.sh"
+        release_tag="$($repo_root/gradlew -q :app:printReleaseVersionInfo | sed -n 's/^versionName=//p' | tail -n 1)"
+        [[ -n "$release_tag" ]] || {
+          echo "status=BLOCKED"
+          echo "reason=unable_to_resolve_android_release_tag"
+          exit 2
+        }
+        "$repo_root/scripts/verify_android_release_contract.sh" "$release_tag"
+        claims+=("Android JNI/toolchain/schema/release static contracts")
+        ;;
+      *)
+        echo "status=BLOCKED"
+        echo "reason=unsupported_android_impact_check:$check"
+        exit 2
+        ;;
+    esac
+  done <<< "$checks_output"
+}
+
+run_impact_contracts
+
 run_jvm_and_compile_device_tests() {
   selected_claims+=("Android JVM behavior suite and androidTest compilation")
   "$repo_root/scripts/quality_doctor.sh" --allow-no-device

@@ -24,6 +24,7 @@
 | Background workers | 跨进程恢复 durable work | constraints/retry/death/duplicate | ACK/ingress/post/deletion/service | Worker unit + device | P1；部分已有 | Worker/schedulers |
 | Image preview/share/cache | 查看、缩放、分享并释放资源 | load/error/cancel/permission/cleanup | file consumer、cache、Worker | component + UI + device | P1；component 部分有 | Media UI/Image cleanup |
 | Update UI/install | 检查并安全安装更新 | stable/beta/later/skip/permission/death | feed、download、signature、installer | JVM + UI + physical | P0/P1 Release；部分脚本、UI 缺口 | Update subsystem |
+| Update distribution metadata | 用户获得签名、版本与文案一致的更新 | version/build/channel/signature/notes/URL | signed feed、版本化 notes | semantic contract + Release install | P0 Release；Feed 契约已进 PR，物理安装仍 NOT RUN | release feed/workflow |
 | Accessibility/localization | 用 TalkBack/大字体完成核心任务 | focus/actions/font/zh/en | semantics、OS accessibility | component + physical task | P1；component 有、physical NOT RUN | Shared UI/screens |
 | Performance | 在预算内得到正确结果 | cold/warm/10k/search/scroll/detail | TTID/TTFD/frame/trace + content | correctness + Macrobenchmark | P1；slow 状态 Oracle 已可证伪，物理设备 Macrobenchmark 模块待建 | App/benchmark module |
 | Export candidate | 导出消息文件 | reachable/cancel/failure/large | JSON/URI consumer | product reachability review | 删除候选；不投入本轮预算 | Export helpers |

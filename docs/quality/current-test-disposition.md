@@ -91,4 +91,5 @@
 - Quality device 进程显式建立唯一 `pushgo-quality-<session>.db`，结束时释放 Room、删除 DB 与 session artifacts；Production 数据进程不激活 Quality Profile，避免迁移测试被测试 DB 污染。
 - `device` lane 仅执行上述纵向旅程及迁移、删除、ACK 三类高风险数据边界；`nightly` 增加 data/transport/work 边界；`release` 复用显式高价值 UI 与 Nightly 风险边界并构建 Release，不再默认执行全部遗留 androidTest。诊断、极端规模和低后果组合不进入常规反馈链。
 - `config/quality-impact.json`、`scripts/quality_impact.py` 与 `scripts/quality_changed.sh` 已把产品变更映射到具名能力和最低 Lane。PR 的 host/device 阶段共享同一计划：普通 JVM 变化不启动模拟器，Compose/Room/Service 等风险升级时才运行对应代表设备 Lane；修改 `androidTest` 最低升级到 `pr-ui`，避免只编译不执行；未映射产品路径直接 `BLOCKED`，文档变更写结构化 `NOT_RUN`。
+- 计划中的 `required_checks` 必须进入 selected/executed 收据：更新 Feed/notes 在快速 PR Lane 做签名与语义契约，不无差别启动设备；Gradle/native/release 边界则执行 JNI、schema 和发布静态契约并保持 Release Lane。最近 120 次历史变更回放已修复 Room schema export、update feed 与旧 Connection Diagnosis 漏选；无效计划直接 `BLOCKED`。
 - 路径计划只是不可低于的下限。AI/开发者仍需追 ViewModel、Room、错误分支、Service/Worker/Receiver 和 OS 消费者；Macrobenchmark/物理设备性能在结果中明确 `not_run`，不得由 slow-state UI 用例替代。

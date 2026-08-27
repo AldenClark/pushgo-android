@@ -55,6 +55,16 @@ echo "$raw" | jq -e '
 ' >/dev/null
 echo "$raw" | jq -e '
   .payload.entries[]
+  | (.channel == "stable" or .channel == "beta")
+    and (.versionCode | type == "number" and . > 0)
+    and (.versionName | type == "string" and test("^v[0-9]+\\.[0-9]+\\.[0-9]+(-beta\\.[1-9][0-9]*)?$"))
+    and (.apkUrl | type == "string" and startswith("https://"))
+    and (.apkSha256 | type == "string" and test("^[0-9a-fA-F]{64}$"))
+    and (.releaseNotesUrl | type == "string" and startswith("https://"))
+    and ([.packages[] | (.apkUrl | startswith("https://")) and (.apkSha256 | test("^[0-9a-fA-F]{64}$"))] | all)
+' >/dev/null
+echo "$raw" | jq -e '
+  .payload.entries[]
   | (.versionName | type == "string" and length > 0)
     and (
       (
