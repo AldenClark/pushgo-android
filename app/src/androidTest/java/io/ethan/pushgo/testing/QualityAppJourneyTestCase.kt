@@ -36,6 +36,7 @@ abstract class QualityAppJourneyTestCase {
         fixture: QualityFixture,
         faults: QualityFaults = QualityFaults(),
         messageRefreshScenario: QualityMessageRefreshScenario = QualityMessageRefreshScenario.NONE,
+        eventCloseScenario: QualityEventCloseScenario = QualityEventCloseScenario.NONE,
     ) {
         val current = QualitySessionDescriptor(
             schemaVersion = 1,
@@ -43,6 +44,7 @@ abstract class QualityAppJourneyTestCase {
             fixture = fixture,
             faults = faults,
             messageRefreshScenario = messageRefreshScenario,
+            eventCloseScenario = eventCloseScenario,
         )
         app.releaseStorageForInstrumentationTest()
         assertTrue(app.deleteDatabase(current.databaseName) || !app.getDatabasePath(current.databaseName).exists())

@@ -14,6 +14,20 @@ import org.junit.Test
 
 class EntitySearchSemanticsTest {
     @Test
+    fun eventLifecycleNormalizesRealIngressSynonymsByBusinessMeaning() {
+        listOf("ongoing", "active", "open", "ack", "acknowledged", "muted", "triggered")
+            .forEach { raw ->
+                assertTrue("expected ongoing event state: $raw", EventLifecycleState.fromRaw(raw) == EventLifecycleState.Ongoing)
+            }
+        listOf("closed", "close", "resolved", "ended", "done", "completed", "cancelled", "canceled")
+            .forEach { raw ->
+                assertTrue("expected closed event state: $raw", EventLifecycleState.fromRaw(raw) == EventLifecycleState.Closed)
+            }
+        assertTrue(EventLifecycleState.fromRaw("future-state") == EventLifecycleState.Unknown)
+        assertTrue(EventLifecycleState.fromRaw(null) == EventLifecycleState.Unknown)
+    }
+
+    @Test
     fun eventSearchCoversAppleIdentityMetadataAndBodyFields() {
         val event = event(
             title = "Crème Brûlée alert",

@@ -26,6 +26,7 @@ class QualityRuntimeTest {
                 messageRefreshDelayMs = 2_500,
             ),
             messageRefreshScenario = QualityMessageRefreshScenario.FAIL_ONCE_THEN_NEW_MESSAGE,
+            eventCloseScenario = QualityEventCloseScenario.ACCEPTED_AND_DELIVERED,
         )
 
         val decoded = QualityRuntime.decode(QualityRuntime.encode(session))
@@ -33,6 +34,7 @@ class QualityRuntimeTest {
         assertEquals(session, decoded)
         assertTrue(decoded.databaseName.startsWith("pushgo-quality-"))
         assertTrue(decoded.databaseName != "pushgo.db")
+        assertEquals(QualityEventCloseScenario.ACCEPTED_AND_DELIVERED, decoded.eventCloseScenario)
     }
 
     @Test

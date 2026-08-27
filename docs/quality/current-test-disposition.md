@@ -87,7 +87,7 @@
 ## 本轮新增与 Lane 调整
 
 - `QualityMessageJourneyInstrumentedTest`：真实启动 App，覆盖 App-owned 纯空态、准确列表/详情/activity relaunch、52 条数据跨 page size 50、单条/全部已读与未读筛选往返、搜索排除/目标集合/详情、删除→隐藏→Undo→relaunch、首次 slow→真实空态、错误→点击 Retry→真实空态、慢刷新旧快照、新 Provider 拉取页经解析/持久化进入列表和详情、首次刷新失败保留旧快照并由 Retry 恢复，以及真实底部导航。批量已读旅程曾触发非主线程 Toast/announce 崩溃并已修复；本轮刷新新结果与失败恢复 emulator 2/2 通过，不以直接修改 Compose 集合或 DB 文件存在作为 Oracle。
-- `QualityEntityJourneyInstrumentedTest`：复用同一个 App-owned session 生命周期，但按 Entity 能力独立覆盖 Event 摄入→投影→准确详情与 Thing 准确概览/Events-Messages-Updates 三个真实页签；不再把 Entity 覆盖塞进聚合 Message 类。
+- `QualityEntityJourneyInstrumentedTest`：复用同一个 App-owned session 生命周期，但按 Entity 能力独立覆盖 Event 摄入→投影→准确详情→确认关闭→正式解析/持久化→仅进行中筛选排除→activity relaunch 后 closed 保留，以及 Thing 准确概览/Events-Messages-Updates 三个真实页签；不再把 Entity 覆盖塞进聚合 Message 类，也不以 Room 行数或 test tag 存在作为最终 Oracle。
 - Quality device 进程显式建立唯一 `pushgo-quality-<session>.db`，结束时释放 Room、删除 DB 与 session artifacts；Production 数据进程不激活 Quality Profile，避免迁移测试被测试 DB 污染。
 - `device` lane 仅执行上述纵向旅程及迁移、删除、ACK 三类高风险数据边界；`nightly` 增加 data/transport/work 边界；`release` 复用显式高价值 UI 与 Nightly 风险边界并构建 Release，不再默认执行全部遗留 androidTest。诊断、极端规模和低后果组合不进入常规反馈链。
 - `config/quality-impact.json`、`scripts/quality_impact.py` 与 `scripts/quality_changed.sh` 已把产品变更映射到具名能力和最低 Lane。PR 的 host/device 阶段共享同一计划：普通 JVM 变化不启动模拟器，Compose/Room/Service 等风险升级时才运行对应代表设备 Lane；修改 `androidTest` 最低升级到 `pr-ui`，避免只编译不执行；未映射产品路径直接 `BLOCKED`，文档变更写结构化 `NOT_RUN`。

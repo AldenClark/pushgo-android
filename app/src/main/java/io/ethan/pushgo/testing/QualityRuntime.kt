@@ -40,6 +40,17 @@ enum class QualityMessageRefreshScenario(val wireValue: String) {
     }
 }
 
+enum class QualityEventCloseScenario(val wireValue: String) {
+    NONE("none"),
+    ACCEPTED_AND_DELIVERED("accepted_and_delivered");
+
+    companion object {
+        fun fromWireValue(value: String): QualityEventCloseScenario? = entries.firstOrNull {
+            it.wireValue == value
+        }
+    }
+}
+
 data class QualityFaults(
     val messageLoadDelayMs: Int? = null,
     val messageRefreshDelayMs: Int? = null,
@@ -52,6 +63,7 @@ data class QualitySessionDescriptor(
     val fixture: QualityFixture,
     val faults: QualityFaults,
     val messageRefreshScenario: QualityMessageRefreshScenario = QualityMessageRefreshScenario.NONE,
+    val eventCloseScenario: QualityEventCloseScenario = QualityEventCloseScenario.NONE,
 ) {
     val databaseName: String
         get() = "pushgo-quality-$sessionId.db"
@@ -180,6 +192,12 @@ object QualityRuntime {
         ) {
             "unsupported message refresh scenario: $refreshScenarioValue"
         }
+        val eventCloseScenarioValue = payload.optString("event_close_scenario", "none").trim()
+        val eventCloseScenario = requireNotNull(
+            QualityEventCloseScenario.fromWireValue(eventCloseScenarioValue)
+        ) {
+            "unsupported event close scenario: $eventCloseScenarioValue"
+        }
         val faultsJson = payload.optJSONObject("faults")
         val delay = faultsJson?.takeIf { it.has("message_load_delay_ms") }
             ?.getInt("message_load_delay_ms")
@@ -201,6 +219,7 @@ object QualityRuntime {
                 failMessageLoad = faultsJson?.optBoolean("fail_message_load", false) ?: false,
             ),
             messageRefreshScenario = refreshScenario,
+            eventCloseScenario = eventCloseScenario,
         )
     }
 
@@ -218,6 +237,7 @@ object QualityRuntime {
             .put("session_id", session.sessionId)
             .put("fixture", session.fixture.wireValue)
             .put("message_refresh_scenario", session.messageRefreshScenario.wireValue)
+            .put("event_close_scenario", session.eventCloseScenario.wireValue)
             .put("faults", faults)
         return Base64.getEncoder().encodeToString(payload.toString().toByteArray())
     }

@@ -4,14 +4,18 @@ import androidx.compose.ui.test.*
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import io.ethan.pushgo.util.DiagnosticLogStore
 import org.junit.Test
 import org.junit.runner.RunWith
 
 @RunWith(AndroidJUnit4::class)
 class QualityEntityJourneyInstrumentedTest : QualityAppJourneyTestCase() {
     @Test
-    fun eventFixtureUsesTheProductionProjectionAndOpensAccurateDetail() {
-        configureAndLaunch(fixture = QualityFixture.EVENT_STANDARD)
+    fun eventClosePersistsAndOngoingFilterReflectsTheRealProjection() {
+        configureAndLaunch(
+            fixture = QualityFixture.EVENT_STANDARD,
+            eventCloseScenario = QualityEventCloseScenario.ACCEPTED_AND_DELIVERED,
+        )
 
         composeRule.onNodeWithTag("nav.item.events").assertIsDisplayed().performClick()
         composeRule.waitUntil(timeoutMillis = 8_000) {
@@ -25,6 +29,25 @@ class QualityEntityJourneyInstrumentedTest : QualityAppJourneyTestCase() {
         composeRule.onNodeWithTag("field.event.detail.summary")
             .assertTextEquals("Cooling loop temperature crossed the quality threshold.")
 
+        composeRule.onNodeWithTag("event.close.action").assertIsDisplayed().performClick()
+        composeRule.onNodeWithTag("event.close.confirm").assertIsDisplayed().performClick()
+        try {
+            composeRule.waitUntil(timeoutMillis = 8_000) {
+                composeRule.onAllNodes(hasTestTag("sheet.event.detail"))
+                    .fetchSemanticsNodes().isEmpty()
+            }
+        } catch (failure: Throwable) {
+            println("Event close diagnostics: ${DiagnosticLogStore.snapshot().takeLast(20)}")
+            throw failure
+        }
+        composeRule.onNodeWithTag("event.row.quality-event").assertIsDisplayed()
+        composeRule.onNodeWithTag("event.filters.action").performClick()
+        composeRule.onNodeWithTag("event.filters.ongoing").assertIsDisplayed().performClick()
+        composeRule.waitUntil(timeoutMillis = 8_000) {
+            composeRule.onAllNodes(hasTestTag("event.row.quality-event"))
+                .fetchSemanticsNodes().isEmpty()
+        }
+
         scenario?.close()
         scenario = launchMainActivity()
         composeRule.onNodeWithTag("nav.item.events").assertIsDisplayed().performClick()
@@ -32,7 +55,9 @@ class QualityEntityJourneyInstrumentedTest : QualityAppJourneyTestCase() {
             composeRule.onAllNodes(hasTestTag("event.row.quality-event"))
                 .fetchSemanticsNodes().isNotEmpty()
         }
-        composeRule.onNodeWithTag("event.row.quality-event").assertIsDisplayed()
+        composeRule.onNodeWithTag("event.row.quality-event").assertIsDisplayed().performClick()
+        composeRule.onNodeWithTag("field.event.detail.status.closed").assertIsDisplayed()
+        composeRule.onNodeWithTag("event.close.action").assertDoesNotExist()
     }
 
     @Test

@@ -9,6 +9,10 @@ import kotlinx.coroutines.withTimeout
 import org.json.JSONObject
 import java.net.URLEncoder
 
+fun interface EventCloseRoundTrip {
+    suspend fun deliver(outboundPayload: JSONObject)
+}
+
 class ChannelSubscriptionRepository(
     private val store: ChannelSubscriptionStore,
     private val settingsRepository: SettingsRepository,
@@ -18,6 +22,7 @@ class ChannelSubscriptionRepository(
     private val database: PushGoDatabase,
     private val pushTokenProvider: PushTokenProvider,
     service: ChannelSubscriptionService? = null,
+    private val eventCloseRoundTrip: EventCloseRoundTrip? = null,
 ) {
     companion object {
         private const val FCM_CHANNEL_TYPE = "fcm"
@@ -756,12 +761,17 @@ class ChannelSubscriptionRepository(
         } else {
             "/event/close"
         }
-        service.eventToChannel(
-            baseUrl = config.address,
-            token = config.token,
-            payload = payload,
-            endpointPath = endpointPath,
-        )
+        val roundTrip = eventCloseRoundTrip
+        if (roundTrip != null) {
+            roundTrip.deliver(payload)
+        } else {
+            service.eventToChannel(
+                baseUrl = config.address,
+                token = config.token,
+                payload = payload,
+                endpointPath = endpointPath,
+            )
+        }
     }
 
     private suspend fun resolveServerConfig(): ServerConfig {

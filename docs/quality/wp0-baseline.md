@@ -7,7 +7,7 @@
 | 检查 | 结果 | 证据边界 |
 | --- | --- | --- |
 | `./gradlew testDebugUnitTest` | PASSED：275 tests，0 failure/error/skipped | JVM/unit；不证明 Room device、真实 App UI 或系统能力 |
-| API 37 emulator 核心质量旅程 | PASSED：既有 9/9；慢刷新切片另行 1/1 | 证明 App-owned Room→Paging/Compose→消息空态/详情/重启/分页/已读/搜索/删除撤销/首次 slow/error/retry/慢刷新旧快照保留/真实导航，以及 Event 准确详情与 Thing 三关系页签；不证明 refresh 新结果/失败、Event close、Channel/Settings 完整旅程或真实 FCM/权限/物理性能 |
+| API 37 emulator 核心质量旅程 | PASSED：既有核心集；Event close focused 1/1 | 证明 App-owned Room→Paging/Compose→消息空态/详情/重启/分页/已读/搜索/删除撤销/首次 slow/error/retry/慢刷新旧快照保留/真实导航，以及 Event 准确详情→确认关闭→canonical projection→筛选排除→activity relaunch 持久化与 Thing 三关系页签；不证明 Event slow/error/duplicate close、Channel/Settings 完整旅程或真实 FCM/权限/物理性能 |
 | API 37 emulator 核心数据边界 | PASSED：18/18 | Production profile 下证明迁移、删除恢复与 ACK；与 Quality UI 进程隔离，防止 DB 会话污染 |
 | `assembleRelease` | PASSED | 证明当前生产变体可编译、压缩、lintVital 并产出 APK；不等同于安装/升级/签名链已通过 |
 | 真实 FCM/Private/权限/安装 | NOT RUN | 不允许由 JVM 或 synthetic contract 代替 |

@@ -69,9 +69,9 @@
       "id": "events-things",
       "paths": ["app/src/main/java/io/ethan/pushgo/data/CanonicalEntityType.kt", "app/src/main/java/io/ethan/pushgo/data/Entity*.kt", "app/src/main/java/io/ethan/pushgo/ui/screens/Event*.kt", "app/src/main/java/io/ethan/pushgo/ui/screens/Thing*.kt", "app/src/main/java/io/ethan/pushgo/ui/screens/Entity*.kt"],
       "capabilities": ["events", "things"],
-      "minimum_evidence": ["entity projection/repository tests", "Android Event/Thing accurate list/detail/relation/relaunch journeys"],
+      "minimum_evidence": ["entity projection/repository tests", "Android Event close/filter/relaunch and Thing accurate list/detail/relation/relaunch journeys"],
       "lane": "device",
-      "known_evidence_gaps": ["Event close/filter and Thing relation opening/deep links remain incomplete."],
+      "known_evidence_gaps": ["Event slow/error/duplicate-close recovery and Thing relation opening/deep links remain incomplete."],
       "escalation_reasons": ["Entity projections feed lists, details, relations, ingress, and notifications."]
     },
     {

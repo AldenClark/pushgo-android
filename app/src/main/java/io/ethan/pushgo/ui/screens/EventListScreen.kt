@@ -159,8 +159,8 @@ enum class EventLifecycleState(val token: String) {
     companion object {
         fun fromRaw(raw: String?): EventLifecycleState {
             return when (raw?.trim()?.uppercase()) {
-                "ONGOING" -> Ongoing
-                "CLOSED" -> Closed
+                "ONGOING", "ACTIVE", "OPEN", "ACK", "ACKNOWLEDGED", "MUTED", "TRIGGERED" -> Ongoing
+                "CLOSED", "CLOSE", "RESOLVED", "ENDED", "DONE", "COMPLETED", "CANCELLED", "CANCELED" -> Closed
                 else -> Unknown
             }
         }
@@ -200,7 +200,6 @@ fun EventListScreen(
     var selectedTagFilters by remember { mutableStateOf<Set<String>>(emptySet()) }
     var showOnlyOpen by remember { mutableStateOf(false) }
     var channelNameMap by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
-    var pendingCloseEvent by remember { mutableStateOf<EventCardModel?>(null) }
     val context = LocalContext.current
     val appContext = context.applicationContext
     val effectivePendingScope by container.pendingLocalDeletionCoordinator.effectiveScope.collectAsStateWithLifecycle()
@@ -216,8 +215,10 @@ fun EventListScreen(
     val bottomBarNestedScrollConnection = rememberBottomBarNestedScrollConnection(onBottomBarVisibilityChanged)
     var listTopInWindow by remember { mutableFloatStateOf(0f) }
 
-    fun showToast(message: String) {
-        Toast.makeText(appContext, message, Toast.LENGTH_SHORT).show()
+    suspend fun showToast(message: String) {
+        withContext(Dispatchers.Main.immediate) {
+            Toast.makeText(appContext, message, Toast.LENGTH_SHORT).show()
+        }
     }
 
     fun isPendingLocalDeletion(event: EventCardModel): Boolean {
@@ -290,13 +291,20 @@ fun EventListScreen(
                 rawSeverity = event.severity?.wireValue,
             )
         }.onSuccess {
-            showToast(closeEventSuccessMessage)
-            if (selectedEvent?.eventId == event.eventId) {
-                selectedEvent = null
-                onEventDetailClosed()
+            withContext(Dispatchers.Main.immediate) {
+                Toast.makeText(appContext, closeEventSuccessMessage, Toast.LENGTH_SHORT).show()
+                if (selectedEvent?.eventId == event.eventId) {
+                    selectedEvent = null
+                    onEventDetailClosed()
+                }
             }
             reloadEventsInternal()
         }.onFailure { error ->
+            io.ethan.pushgo.util.SilentSink.w(
+                "EventListScreen",
+                "event close failed",
+                error,
+            )
             showToast(error.toUserFacingText(context, R.string.error_event_close_failed))
         }
     }
@@ -321,7 +329,9 @@ fun EventListScreen(
             onCompletion = { result ->
                 val error = result.exceptionOrNull()
                 if (error != null) {
-                    showToast(error.toUserFacingText(context, R.string.error_request_failed))
+                    scope.launch {
+                        showToast(error.toUserFacingText(context, R.string.error_request_failed))
+                    }
                 }
             },
         )
@@ -547,7 +557,10 @@ fun EventListScreen(
                 event = event,
                 channelDisplayName = event.channelId?.let { channelNameMap[it] ?: it },
                 bottomGestureInset = bottomGestureInset,
-                onCloseEvent = { pendingCloseEvent = selectedEvent },
+                onCloseEvent = {
+                    val targetEvent = selectedEvent ?: return@EventDetailSheet
+                    scope.launch { closeEvent(targetEvent) }
+                },
                 onDeleteEvent = {
                     val event = selectedEvent ?: return@EventDetailSheet
                     scope.launch {
@@ -584,7 +597,10 @@ fun EventListScreen(
                                 ) {
                                     Box {
                                         var menuExpanded by remember { mutableStateOf(false) }
-                                        IconButton(onClick = { menuExpanded = true }) {
+                                        IconButton(
+                                            onClick = { menuExpanded = true },
+                                            modifier = Modifier.testTag("event.filters.action"),
+                                        ) {
                                             val active = selectedChannelFilters.isNotEmpty() || selectedTagFilters.isNotEmpty() || showOnlyOpen
                                             FilterMenuIcon(
                                                 active = active,
@@ -598,6 +614,7 @@ fun EventListScreen(
                                             DropdownMenuItem(
                                                 text = { Text(stringResource(R.string.filter_open_events)) },
                                                 onClick = { showOnlyOpen = !showOnlyOpen },
+                                                modifier = Modifier.testTag("event.filters.ongoing"),
                                                 trailingIcon = { if (showOnlyOpen) Icon(Icons.Outlined.Check, null, modifier = Modifier.size(18.dp)) }
                                             )
                                             if (channelOptions.isNotEmpty()) {
@@ -715,28 +732,6 @@ fun EventListScreen(
         }
     }
 
-    pendingCloseEvent?.let { targetEvent ->
-        AlertDialog(
-            onDismissRequest = { pendingCloseEvent = null },
-            title = { Text(text = stringResource(R.string.action_close_event)) },
-            text = { Text(text = targetEvent.title) },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        pendingCloseEvent = null
-                        scope.launch { closeEvent(targetEvent) }
-                    },
-                ) {
-                    Text(text = stringResource(R.string.label_confirm))
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { pendingCloseEvent = null }) {
-                    Text(text = stringResource(R.string.label_cancel))
-                }
-            },
-        )
-    }
 }
 
 @Composable
@@ -955,7 +950,7 @@ fun EventDetailSheet(
                     Row {
                         if (!isEnded) {
                             IconButton(
-                                modifier = Modifier.size(32.dp),
+                                modifier = Modifier.size(32.dp).testTag("event.close.action"),
                                 onClick = { showCloseConfirmation = true },
                             ) {
                                 Icon(
@@ -989,6 +984,9 @@ fun EventDetailSheet(
                         statusText = normalizedEventStatus(event.status) ?: stringResource(R.string.event_status_created_default),
                         state = event.state,
                         severity = event.severity,
+                        modifier = Modifier.testTag(
+                            "field.event.detail.status.${event.state.name.lowercase()}"
+                        ),
                     )
                     createdAt?.let { created ->
                         Text(
@@ -1185,6 +1183,7 @@ fun EventDetailSheet(
                         showCloseConfirmation = false
                         onCloseEvent()
                     },
+                    modifier = Modifier.testTag("event.close.confirm"),
                 ) {
                     Text(text = stringResource(R.string.action_close_event))
                 }
@@ -1204,9 +1203,18 @@ fun EventDetailSheet(
 }
 
 @Composable
-private fun EventStatusBadge(statusText: String, state: EventLifecycleState, severity: EventSeverity?) {
+private fun EventStatusBadge(
+    statusText: String,
+    state: EventLifecycleState,
+    severity: EventSeverity?,
+    modifier: Modifier = Modifier,
+) {
     val palette = eventSeverityPaletteInternal(severity) ?: eventStatePaletteInternal(state)
-    Surface(color = palette.background, shape = MaterialTheme.shapes.small) {
+    Surface(
+        modifier = modifier.semantics(mergeDescendants = true) {},
+        color = palette.background,
+        shape = MaterialTheme.shapes.small,
+    ) {
         Row(
             modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
             verticalAlignment = Alignment.CenterVertically,
