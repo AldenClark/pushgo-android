@@ -6,10 +6,15 @@ import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
+import org.junit.Rule
 import org.junit.Test
+import org.junit.rules.TemporaryFolder
 import kotlinx.coroutines.runBlocking
 
 class QualityRuntimeTest {
+    @get:Rule
+    val temporaryFolder = TemporaryFolder()
+
     @After
     fun tearDown() {
         QualityRuntime.resetForTesting()
@@ -27,6 +32,7 @@ class QualityRuntimeTest {
             ),
             messageRefreshScenario = QualityMessageRefreshScenario.FAIL_ONCE_THEN_NEW_MESSAGE,
             eventCloseScenario = QualityEventCloseScenario.ACCEPTED_AND_DELIVERED,
+            channelMutationScenario = QualityChannelMutationScenario.ACCEPTED,
         )
 
         val decoded = QualityRuntime.decode(QualityRuntime.encode(session))
@@ -35,6 +41,7 @@ class QualityRuntimeTest {
         assertTrue(decoded.databaseName.startsWith("pushgo-quality-"))
         assertTrue(decoded.databaseName != "pushgo.db")
         assertEquals(QualityEventCloseScenario.ACCEPTED_AND_DELIVERED, decoded.eventCloseScenario)
+        assertEquals(QualityChannelMutationScenario.ACCEPTED, decoded.channelMutationScenario)
     }
 
     @Test
@@ -112,6 +119,50 @@ class QualityRuntimeTest {
 
         assertTrue(artifact.path.startsWith(filesDir.path + File.separator))
         assertTrue(!artifact.path.contains(".."))
+    }
+
+    @Test
+    fun fixtureInitializationIsRecordedOncePerSessionAndSurvivesRuntimeReconfiguration() {
+        val session = QualitySessionDescriptor(
+            schemaVersion = 1,
+            sessionId = "fixture-init-session",
+            fixture = QualityFixture.CHANNELS_STANDARD,
+            faults = QualityFaults(),
+        )
+        val encoded = QualityRuntime.encode(session)
+        val filesDir = temporaryFolder.newFolder("files")
+        QualityRuntime.configure(encoded)
+
+        assertTrue(!QualityRuntime.fixtureInitializationWasRecorded(filesDir))
+        QualityRuntime.recordFixtureInitialization(filesDir)
+        assertTrue(QualityRuntime.fixtureInitializationWasRecorded(filesDir))
+
+        QualityRuntime.resetForTesting()
+        QualityRuntime.configure(encoded)
+
+        assertTrue(QualityRuntime.fixtureInitializationWasRecorded(filesDir))
+    }
+
+    @Test
+    fun invalidFixtureInitializationMarkerFailsLoudly() {
+        val session = QualitySessionDescriptor(
+            schemaVersion = 1,
+            sessionId = "invalid-fixture-init",
+            fixture = QualityFixture.MESSAGES_STANDARD,
+            faults = QualityFaults(),
+        )
+        val filesDir = temporaryFolder.newFolder("invalid-files")
+        QualityRuntime.configure(QualityRuntime.encode(session))
+        val marker = File(
+            filesDir,
+            "quality/sessions/${session.sessionId}/fixture-initialization.json",
+        )
+        assertTrue(marker.parentFile?.mkdirs() == true)
+        marker.writeText("not-json")
+
+        assertThrows(IllegalStateException::class.java) {
+            QualityRuntime.fixtureInitializationWasRecorded(filesDir)
+        }
     }
 
     @Test

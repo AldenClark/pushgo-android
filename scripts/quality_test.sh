@@ -119,7 +119,7 @@ run_jvm_and_compile_device_tests() {
 # These classes prove the highest-value product outcomes and storage boundaries.
 # Keeping the routine device lane curated prevents diagnostics and rare platform
 # permutations from consuming the feedback budget on every run.
-quality_device_classes="io.ethan.pushgo.testing.QualityMessageJourneyInstrumentedTest,io.ethan.pushgo.testing.QualityEntityJourneyInstrumentedTest,io.ethan.pushgo.testing.QualitySettingsJourneyInstrumentedTest"
+quality_device_classes="io.ethan.pushgo.testing.QualityMessageJourneyInstrumentedTest,io.ethan.pushgo.testing.QualityEntityJourneyInstrumentedTest,io.ethan.pushgo.testing.QualityChannelJourneyInstrumentedTest,io.ethan.pushgo.testing.QualitySettingsJourneyInstrumentedTest"
 core_data_classes="io.ethan.pushgo.data.db.PushGoDatabaseMigrationDeviceTest,io.ethan.pushgo.data.PendingLocalDeletionRoomDeviceTest,io.ethan.pushgo.data.ProviderAckScopeDeviceTest"
 nightly_data_classes="$core_data_classes,io.ethan.pushgo.testing.RuntimeDataLayerInstrumentedTest,io.ethan.pushgo.testing.RuntimeChannelSwitchInstrumentedTest,io.ethan.pushgo.testing.RuntimePrivateChannelStateFlowInstrumentedTest,io.ethan.pushgo.ui.PendingLocalDeletionWorkBoundaryDeviceTest"
 
@@ -136,12 +136,12 @@ run_quality_device_classes() {
   local session_id="android-lane-$(date +%s)"
   local payload
   payload="$(printf '{"schema_version":1,"session_id":"%s","fixture":"empty.clean","faults":{}}' "$session_id" | base64 | tr -d '\n')"
-  selected_claims+=("Android core App UI empty/content/pagination/read/search/delete/slow-load/slow-refresh/error-retry/navigation/Event/Thing journeys")
+  selected_claims+=("Android core App UI empty/content/pagination/read/search/delete/slow-load/slow-refresh/error-retry/navigation/Event/Thing/Channel journeys")
   "$repo_root/scripts/quality_doctor.sh"
   "$repo_root/gradlew" connectedDebugAndroidTest \
     "-Pandroid.testInstrumentationRunnerArguments.class=$quality_device_classes" \
     "-Pandroid.testInstrumentationRunnerArguments.pushgoQualitySessionBase64=$payload"
-  claims+=("Android core App UI empty/content/pagination/read/search/delete/slow-load/slow-refresh/error-retry/navigation/Event/Thing journeys")
+  claims+=("Android core App UI empty/content/pagination/read/search/delete/slow-load/slow-refresh/error-retry/navigation/Event/Thing/Channel journeys")
 }
 
 case "$lane" in

@@ -13,6 +13,13 @@ fun interface EventCloseRoundTrip {
     suspend fun deliver(outboundPayload: JSONObject)
 }
 
+interface ChannelMutationRoundTrip {
+    suspend fun ensureProviderRoute(providerToken: String): String
+    suspend fun subscribe(channelId: String?, channelName: String?, password: String): ChannelSubscribeResult
+    suspend fun rename(channelId: String, channelName: String, password: String): ChannelRenameResult
+    suspend fun unsubscribe(channelId: String)
+}
+
 class ChannelSubscriptionRepository(
     private val store: ChannelSubscriptionStore,
     private val settingsRepository: SettingsRepository,
@@ -23,6 +30,7 @@ class ChannelSubscriptionRepository(
     private val pushTokenProvider: PushTokenProvider,
     service: ChannelSubscriptionService? = null,
     private val eventCloseRoundTrip: EventCloseRoundTrip? = null,
+    private val channelMutationRoundTrip: ChannelMutationRoundTrip? = null,
 ) {
     companion object {
         private const val FCM_CHANNEL_TYPE = "fcm"
@@ -242,13 +250,14 @@ class ChannelSubscriptionRepository(
                     category = GatewayErrorCategory.VALIDATION,
                 )
 
-            val result = service.renameChannel(
-                baseUrl = config.address,
-                token = config.token,
-                channelId = channelId,
-                channelName = alias,
-                password = password,
-            )
+            val result = channelMutationRoundTrip?.rename(channelId, alias, password)
+                ?: service.renameChannel(
+                    baseUrl = config.address,
+                    token = config.token,
+                    channelId = channelId,
+                    channelName = alias,
+                    password = password,
+                )
             store.updateDisplayName(config.address, result.channelId, result.channelName)
             result
         }
@@ -288,6 +297,11 @@ class ChannelSubscriptionRepository(
                 code = "provider_token_missing",
                 category = GatewayErrorCategory.VALIDATION,
             )
+        if (channelMutationRoundTrip != null) {
+            ensureProviderRoute(token, config)
+            channelMutationRoundTrip.unsubscribe(channelId)
+            return
+        }
         var deviceKey = ensureProviderRoute(token, config)
         try {
             service.unsubscribe(
@@ -326,6 +340,18 @@ class ChannelSubscriptionRepository(
             )
         val config = resolveServerConfig()
         requireExpectedGateway(config, expectedGatewayUrl)
+        if (channelMutationRoundTrip != null) {
+            ensureProviderRoute(token, config)
+            val result = channelMutationRoundTrip.subscribe(channelId, null, normalizedPassword)
+            if (!result.subscribed) {
+                throw ChannelSubscriptionException.local(
+                    message = "Request failed",
+                    code = "channel_subscribe_failed",
+                    category = GatewayErrorCategory.INTERNAL,
+                )
+            }
+            return
+        }
         suspend fun subscribe(deviceKey: String): ChannelSubscribeResult {
             return service.subscribe(
                 baseUrl = config.address,
@@ -405,6 +431,10 @@ class ChannelSubscriptionRepository(
         val config = resolveServerConfig()
         val credentials = store.loadActiveCredentials(config.address)
         if (credentials.isEmpty()) return SyncOutcome()
+        if (channelMutationRoundTrip != null) {
+            ensureProviderRoute(normalizedToken, config)
+            return SyncOutcome()
+        }
         var deviceKey = ensureProviderRoute(normalizedToken, config)
         val channels = credentials.map { (channelId, password) ->
             ChannelSyncItem(channelId = channelId, password = password)
@@ -463,6 +493,20 @@ class ChannelSubscriptionRepository(
                 code = "provider_token_missing",
                 category = GatewayErrorCategory.VALIDATION,
             )
+        }
+        if (channelMutationRoundTrip != null) {
+            val deviceKey = channelMutationRoundTrip.ensureProviderRoute(normalizedToken).trim()
+            if (deviceKey.isEmpty()) {
+                throw ChannelSubscriptionException.local(
+                    message = "Request failed",
+                    code = "gateway_response_missing_device_key",
+                    category = GatewayErrorCategory.INTERNAL,
+                )
+            }
+            settingsRepository.setFcmToken(normalizedToken)
+            settingsRepository.setDeviceKey(deviceKey)
+            rememberAckCredential(config)
+            return deviceKey
         }
         val deviceKey = ensureDeviceIdentity(config)
         val previousToken = settingsRepository.getFcmToken()?.trim()?.ifEmpty { null }
@@ -558,6 +602,25 @@ class ChannelSubscriptionRepository(
                 category = GatewayErrorCategory.VALIDATION,
             )
         val config = resolveServerConfig()
+        if (channelMutationRoundTrip != null) {
+            ensureProviderRoute(token, config)
+            val result = channelMutationRoundTrip.subscribe(channelId, channelName, password)
+            if (!result.subscribed) {
+                throw ChannelSubscriptionException.local(
+                    message = "Request failed",
+                    code = "channel_subscribe_failed",
+                    category = GatewayErrorCategory.INTERNAL,
+                )
+            }
+            store.upsertSubscription(
+                gatewayUrl = config.address,
+                channelId = result.channelId,
+                displayName = result.channelName,
+                password = password,
+                lastSyncedAt = System.currentTimeMillis(),
+            )
+            return result
+        }
         suspend fun doSubscribe(activeDeviceKey: String): ChannelSubscribeResult {
             return service.subscribe(
                 baseUrl = config.address,

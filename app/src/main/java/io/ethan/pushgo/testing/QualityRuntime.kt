@@ -19,7 +19,8 @@ enum class QualityFixture(val wireValue: String) {
     MESSAGES_WORKFLOW("messages.workflow"),
     MESSAGES_LARGE("messages.large"),
     EVENT_STANDARD("event.standard"),
-    THING_STANDARD("thing.standard");
+    THING_STANDARD("thing.standard"),
+    CHANNELS_STANDARD("channels.standard");
 
     companion object {
         fun fromWireValue(value: String): QualityFixture? = entries.firstOrNull {
@@ -51,6 +52,17 @@ enum class QualityEventCloseScenario(val wireValue: String) {
     }
 }
 
+enum class QualityChannelMutationScenario(val wireValue: String) {
+    NONE("none"),
+    ACCEPTED("accepted");
+
+    companion object {
+        fun fromWireValue(value: String): QualityChannelMutationScenario? = entries.firstOrNull {
+            it.wireValue == value
+        }
+    }
+}
+
 data class QualityFaults(
     val messageLoadDelayMs: Int? = null,
     val messageRefreshDelayMs: Int? = null,
@@ -64,6 +76,7 @@ data class QualitySessionDescriptor(
     val faults: QualityFaults,
     val messageRefreshScenario: QualityMessageRefreshScenario = QualityMessageRefreshScenario.NONE,
     val eventCloseScenario: QualityEventCloseScenario = QualityEventCloseScenario.NONE,
+    val channelMutationScenario: QualityChannelMutationScenario = QualityChannelMutationScenario.NONE,
 ) {
     val databaseName: String
         get() = "pushgo-quality-$sessionId.db"
@@ -78,6 +91,7 @@ object QualityRuntime {
     const val ARG_SESSION_BASE64 = "pushgoQualitySessionBase64"
     private const val SCHEMA_VERSION = 1
     private const val MAX_PAYLOAD_BYTES = 65_536
+    private const val FIXTURE_INITIALIZATION_FILENAME = "fixture-initialization.json"
     private val sessionIdRegex = Regex("[A-Za-z0-9_-]{1,64}")
     private val artifactFilenameRegex = Regex("[A-Za-z0-9._-]{1,80}")
 
@@ -198,6 +212,12 @@ object QualityRuntime {
         ) {
             "unsupported event close scenario: $eventCloseScenarioValue"
         }
+        val channelMutationScenarioValue = payload.optString("channel_mutation_scenario", "none").trim()
+        val channelMutationScenario = requireNotNull(
+            QualityChannelMutationScenario.fromWireValue(channelMutationScenarioValue)
+        ) {
+            "unsupported channel mutation scenario: $channelMutationScenarioValue"
+        }
         val faultsJson = payload.optJSONObject("faults")
         val delay = faultsJson?.takeIf { it.has("message_load_delay_ms") }
             ?.getInt("message_load_delay_ms")
@@ -220,6 +240,7 @@ object QualityRuntime {
             ),
             messageRefreshScenario = refreshScenario,
             eventCloseScenario = eventCloseScenario,
+            channelMutationScenario = channelMutationScenario,
         )
     }
 
@@ -238,13 +259,74 @@ object QualityRuntime {
             .put("fixture", session.fixture.wireValue)
             .put("message_refresh_scenario", session.messageRefreshScenario.wireValue)
             .put("event_close_scenario", session.eventCloseScenario.wireValue)
+            .put("channel_mutation_scenario", session.channelMutationScenario.wireValue)
             .put("faults", faults)
         return Base64.getEncoder().encodeToString(payload.toString().toByteArray())
     }
 
     fun sessionRoot(context: Context): File? {
-        val session = currentSession() ?: return null
-        return File(context.filesDir, "quality/sessions/${session.sessionId}")
+        return sessionRootFromFilesDir(context.filesDir)
+    }
+
+    fun fixtureInitializationWasRecorded(filesDir: File): Boolean {
+        val session = currentSession() ?: return false
+        val marker = File(
+            sessionRootFromFilesDir(filesDir, session),
+            FIXTURE_INITIALIZATION_FILENAME,
+        )
+        if (!marker.exists()) return false
+        check(marker.isFile) {
+            "quality fixture initialization marker is not a regular file"
+        }
+        val payload = runCatching { JSONObject(marker.readText(Charsets.UTF_8)) }
+            .getOrElse {
+                throw IllegalStateException(
+                    "quality fixture initialization marker is unreadable or invalid",
+                    it,
+                )
+            }
+        check(payload.optInt("schema_version", -1) == session.schemaVersion) {
+            "quality fixture initialization marker schema does not match the session"
+        }
+        check(payload.optString("session_id") == session.sessionId) {
+            "quality fixture initialization marker session does not match"
+        }
+        check(payload.optString("fixture") == session.fixture.wireValue) {
+            "quality fixture initialization marker fixture does not match the session"
+        }
+        return true
+    }
+
+    fun recordFixtureInitialization(filesDir: File) {
+        val session = currentSession() ?: return
+        if (fixtureInitializationWasRecorded(filesDir)) return
+        val root = sessionRootFromFilesDir(filesDir, session)
+        check(root.isDirectory || root.mkdirs()) {
+            "quality session directory could not be created"
+        }
+        val marker = File(root, FIXTURE_INITIALIZATION_FILENAME)
+        val temporaryMarker = File.createTempFile(
+            ".fixture-initialization-",
+            ".tmp",
+            root,
+        )
+        try {
+            temporaryMarker.writeText(
+                JSONObject()
+                    .put("schema_version", session.schemaVersion)
+                    .put("session_id", session.sessionId)
+                    .put("fixture", session.fixture.wireValue)
+                    .toString(2),
+                Charsets.UTF_8,
+            )
+            check(temporaryMarker.renameTo(marker)) {
+                "quality fixture initialization marker could not be committed"
+            }
+        } finally {
+            if (temporaryMarker.exists()) {
+                temporaryMarker.delete()
+            }
+        }
     }
 
     fun artifactFile(context: Context, filename: String): File? {
@@ -258,6 +340,16 @@ object QualityRuntime {
         val session = currentSession() ?: return null
         return File(filesDir, "quality/sessions/${session.sessionId}/artifacts/$filename")
     }
+
+    private fun sessionRootFromFilesDir(filesDir: File): File? {
+        val session = currentSession() ?: return null
+        return sessionRootFromFilesDir(filesDir, session)
+    }
+
+    private fun sessionRootFromFilesDir(
+        filesDir: File,
+        session: QualitySessionDescriptor,
+    ): File = File(filesDir, "quality/sessions/${session.sessionId}")
 
     internal fun resetForTesting() {
         configuredProfile = RuntimeProfile.Production

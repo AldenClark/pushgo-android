@@ -5,7 +5,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
-import io.ethan.pushgo.testing.QualityFixture
 import io.ethan.pushgo.testing.QualityRuntime
 import org.json.JSONObject
 import java.io.File
@@ -531,14 +530,11 @@ object PushGoAutomation {
             qualityReadinessStatus = "inactive"
             return
         }
-        val fixtureReady = when (session.fixture) {
-            QualityFixture.EMPTY_CLEAN -> state.totalMessageCount == 0
-            QualityFixture.MESSAGES_STANDARD -> state.totalMessageCount > 0
-            QualityFixture.MESSAGES_WORKFLOW -> state.totalMessageCount == 52
-            QualityFixture.MESSAGES_LARGE -> state.totalMessageCount >= 1_000
-            QualityFixture.EVENT_STANDARD -> state.eventCount > 0
-            QualityFixture.THING_STANDARD -> state.thingCount > 0
-        }
+        // Readiness is preparation evidence, not a product oracle. A user journey may
+        // legitimately mutate fixture rows; its UI/Room assertions own that truth.
+        val fixtureReady = filesDirectory?.let {
+            QualityRuntime.fixtureInitializationWasRecorded(it)
+        } == true
         qualityReadinessStatus = if (runtimeErrorCount == 0 && fixtureReady) "ready" else "failed"
         val target = filesDirectory?.let {
             QualityRuntime.artifactFileFromFilesDir(it, "quality-readiness.json")
@@ -551,6 +547,7 @@ object PushGoAutomation {
                 .put("fixture", session.fixture.wireValue)
                 .put("status", qualityReadinessStatus)
                 .put("local_store_mode", "persistent")
+                .put("fixture_initialization_recorded", fixtureReady)
                 .put("total_message_count", state.totalMessageCount)
                 .put("runtime_error_count", runtimeErrorCount)
                 .put("generated_at", java.time.Instant.now().toString())

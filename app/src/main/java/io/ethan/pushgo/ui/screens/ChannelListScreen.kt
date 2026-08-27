@@ -157,14 +157,17 @@ fun ChannelListScreen(
                 color = uiColors.textPrimary
             )
 
-            IconButton(onClick = {
-                channelEntryMode = ChannelEntryMode.Create
-                createChannelName = ""
-                createChannelPassword = ""
-                subscribeChannelId = ""
-                subscribeChannelPassword = ""
-                showChannelEntrySheet = true
-            }) {
+            IconButton(
+                onClick = {
+                    channelEntryMode = ChannelEntryMode.Create
+                    createChannelName = ""
+                    createChannelPassword = ""
+                    subscribeChannelId = ""
+                    subscribeChannelPassword = ""
+                    showChannelEntrySheet = true
+                },
+                modifier = Modifier.testTag("action.channels.add"),
+            ) {
                 Icon(
                     imageVector = Icons.Outlined.Add,
                     contentDescription = stringResource(R.string.label_add_channel),
@@ -279,6 +282,7 @@ fun ChannelListScreen(
                             }
                         },
                         enabled = !viewModel.isRemovingChannel,
+                        modifier = Modifier.testTag("action.channel.unsubscribe.delete_history"),
                     )
                     TextButton(
                         onClick = {
@@ -289,6 +293,7 @@ fun ChannelListScreen(
                             }
                         },
                         enabled = !viewModel.isRemovingChannel,
+                        modifier = Modifier.testTag("action.channel.unsubscribe.keep_history"),
                     ) {
                         Text(stringResource(R.string.label_unsubscribe_keep_history))
                     }
@@ -317,7 +322,9 @@ fun ChannelListScreen(
                         value = renameAlias,
                         onValueChange = { renameAlias = it },
                         label = { Text(stringResource(R.string.label_channel_alias)) },
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("field.channel.rename.alias"),
                         singleLine = true,
                         colors = pushGoOutlinedTextFieldColors(),
                     )
@@ -338,6 +345,7 @@ fun ChannelListScreen(
                         }
                     },
                     enabled = !viewModel.isRenamingChannel && renameAlias.trim().isNotEmpty(),
+                    modifier = Modifier.testTag("action.channel.rename.save"),
                 ) {
                     Text(stringResource(R.string.label_save))
                 }
@@ -393,7 +401,9 @@ fun ChannelListScreen(
                             value = createChannelName,
                             onValueChange = { createChannelName = it },
                             label = { Text(stringResource(R.string.label_channel_name)) },
-                            modifier = Modifier.fillMaxWidth(),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag("field.channels.create.name"),
                             singleLine = true,
                             colors = pushGoOutlinedTextFieldColors(),
                         )
@@ -401,7 +411,9 @@ fun ChannelListScreen(
                             value = createChannelPassword,
                             onValueChange = { createChannelPassword = it },
                             label = { Text(stringResource(R.string.label_channel_password)) },
-                            modifier = Modifier.fillMaxWidth(),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag("field.channels.create.password"),
                             singleLine = true,
                             colors = pushGoOutlinedTextFieldColors(),
                         )
@@ -467,6 +479,7 @@ fun ChannelListScreen(
                             }
                         },
                         enabled = canSubmitChannelEntry,
+                        modifier = Modifier.testTag("action.channels.entry.submit"),
                         colors = pushGoPrimaryButtonColors(),
                     ) {
                         Text(stringResource(channelEntryMode.labelRes))
@@ -500,6 +513,7 @@ internal fun ChannelRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            .testTag("channel.row.${subscription.channelId}")
             .heightIn(min = 64.dp)
             .background(PushGoThemeExtras.colors.fieldContainer)
             .clickable { onCopy() }
@@ -527,7 +541,10 @@ internal fun ChannelRow(
         }
 
         Box {
-            IconButton(onClick = { menuExpanded = true }) {
+            IconButton(
+                onClick = { menuExpanded = true },
+                modifier = Modifier.testTag("action.channel.${subscription.channelId}.menu"),
+            ) {
                 Icon(
                     imageVector = Icons.Outlined.MoreVert,
                     contentDescription = stringResource(R.string.label_channel_actions),
@@ -539,6 +556,7 @@ internal fun ChannelRow(
                 onDismissRequest = { menuExpanded = false },
             ) {
                 DropdownMenuItem(
+                    modifier = Modifier.testTag("action.channel.${subscription.channelId}.rename"),
                     text = { Text(stringResource(R.string.label_rename_channel)) },
                     onClick = {
                         menuExpanded = false
@@ -552,6 +570,7 @@ internal fun ChannelRow(
                     }
                 )
                 DropdownMenuItem(
+                    modifier = Modifier.testTag("action.channel.${subscription.channelId}.unsubscribe"),
                     text = { Text(stringResource(R.string.label_unsubscribe_channel)) },
                     onClick = {
                         menuExpanded = false

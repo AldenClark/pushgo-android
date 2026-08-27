@@ -1,0 +1,112 @@
+package io.ethan.pushgo.testing
+
+import androidx.compose.ui.test.*
+import androidx.test.ext.junit.runners.AndroidJUnit4
+import org.junit.Test
+import org.junit.runner.RunWith
+
+@RunWith(AndroidJUnit4::class)
+class QualityChannelJourneyInstrumentedTest : QualityAppJourneyTestCase() {
+    @Test
+    fun createRenameAndBothUnsubscribeOutcomesReachAccuratePersistentUserResults() {
+        configureAndLaunch(
+            fixture = QualityFixture.CHANNELS_STANDARD,
+            channelMutationScenario = QualityChannelMutationScenario.ACCEPTED,
+        )
+
+        openChannels()
+        composeRule.onNodeWithTag("action.channels.add").performClick()
+        composeRule.onNodeWithTag("sheet.channels.entry").assertIsDisplayed()
+        composeRule.onNodeWithTag("field.channels.create.name").performTextInput("Quality Created Channel")
+        composeRule.onNodeWithTag("field.channels.create.password")
+            .performTextInput("quality-channel-password")
+        composeRule.onNodeWithTag("action.channels.entry.submit").performClick()
+        waitForNode("channel.row.01H00000000000000000000003")
+        composeRule.onNodeWithTag("channel.row.01H00000000000000000000003")
+            .assertTextContains("Quality Created Channel")
+
+        openChannelAction("01H00000000000000000000003", "rename")
+        val renameField = composeRule.onNodeWithTag("field.channel.rename.alias")
+        renameField.performTextClearance()
+        renameField.performTextInput("Quality Renamed Channel")
+        composeRule.onNodeWithTag("action.channel.rename.save").performClick()
+        composeRule.waitUntil(timeoutMillis = 8_000) {
+            composeRule.onAllNodes(
+                hasTestTag("channel.row.01H00000000000000000000003") and
+                    hasText("Quality Renamed Channel", substring = true)
+            ).fetchSemanticsNodes().isNotEmpty()
+        }
+        composeRule.onNodeWithTag("channel.row.01H00000000000000000000003")
+            .assertTextContains("Quality Renamed Channel")
+
+        relaunchAndOpenChannels()
+        composeRule.onNodeWithTag("channel.row.01H00000000000000000000003")
+            .assertIsDisplayed()
+            .assertTextContains("Quality Renamed Channel")
+
+        openChannelAction("01H00000000000000000000001", "unsubscribe")
+        composeRule.onNodeWithTag("action.channel.unsubscribe.keep_history").performClick()
+        waitForNodeToDisappear("channel.row.01H00000000000000000000001")
+        openMessages()
+        composeRule.onNodeWithText("Quality Keep History Message").assertIsDisplayed()
+
+        relaunchAndOpenChannels()
+        composeRule.onNodeWithTag("channel.row.01H00000000000000000000001").assertDoesNotExist()
+        openMessages()
+        composeRule.onNodeWithText("Quality Keep History Message").assertIsDisplayed()
+
+        openChannels()
+        openChannelAction("01H00000000000000000000002", "unsubscribe")
+        composeRule.onNodeWithTag("action.channel.unsubscribe.delete_history").performClick()
+        waitForNodeToDisappear("channel.row.01H00000000000000000000002")
+        waitForNode("state.pending_deletion")
+        waitForNodeToDisappear("state.pending_deletion", timeoutMillis = 15_000)
+
+        openMessages()
+        composeRule.onNodeWithText("Quality Keep History Message").assertIsDisplayed()
+        composeRule.onNodeWithText("Quality Delete History Message").assertDoesNotExist()
+
+        relaunchAndOpenChannels(recreateAppContainer = true)
+        composeRule.onNodeWithTag("channel.row.01H00000000000000000000002").assertDoesNotExist()
+        openMessages()
+        composeRule.onNodeWithText("Quality Keep History Message").assertIsDisplayed()
+        composeRule.onNodeWithText("Quality Delete History Message").assertDoesNotExist()
+    }
+
+    private fun openChannels() {
+        composeRule.onNodeWithTag("nav.item.channels").assertIsDisplayed().performClick()
+        composeRule.onNodeWithTag("screen.channels.list").assertIsDisplayed()
+    }
+
+    private fun openMessages() {
+        composeRule.onNodeWithTag("nav.item.messages").assertIsDisplayed().performClick()
+        composeRule.onNodeWithTag("screen.messages.list").assertIsDisplayed()
+    }
+
+    private fun relaunchAndOpenChannels(recreateAppContainer: Boolean = false) {
+        scenario?.close()
+        if (recreateAppContainer) {
+            app.releaseStorageForInstrumentationTest()
+        }
+        scenario = launchMainActivity()
+        openChannels()
+    }
+
+    private fun openChannelAction(channelId: String, action: String) {
+        composeRule.onNodeWithTag("action.channel.$channelId.menu").assertIsDisplayed().performClick()
+        composeRule.onNodeWithTag("action.channel.$channelId.$action").assertIsDisplayed().performClick()
+    }
+
+    private fun waitForNode(tag: String, timeoutMillis: Long = 8_000) {
+        composeRule.waitUntil(timeoutMillis = timeoutMillis) {
+            composeRule.onAllNodes(hasTestTag(tag)).fetchSemanticsNodes().isNotEmpty()
+        }
+        composeRule.onNodeWithTag(tag).assertIsDisplayed()
+    }
+
+    private fun waitForNodeToDisappear(tag: String, timeoutMillis: Long = 8_000) {
+        composeRule.waitUntil(timeoutMillis = timeoutMillis) {
+            composeRule.onAllNodes(hasTestTag(tag)).fetchSemanticsNodes().isEmpty()
+        }
+    }
+}

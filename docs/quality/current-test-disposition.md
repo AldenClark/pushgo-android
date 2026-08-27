@@ -78,7 +78,7 @@
 
 ## 当前首要缺口
 
-1. Messages、Event/Thing 与 Settings 页面可见性已按真实目的拆成 App-owned 纵向旅程；Channels、Settings server/decryption 与 transport 的用户结果旅程仍是当前 P0 缺口。
+1. Messages、Event/Thing、Channel accepted mutation 与 Settings 页面可见性已按真实目的拆成 App-owned 纵向旅程；Channel remote rejection/compensation、Settings server/decryption 与 transport 的用户结果旅程仍是当前 P0 缺口。
 2. Compose “UI baseline” 多数直接构造 ViewModel/Repository，是 component/integration，不是真实 App UI。
 3. Runtime/Automation 仍交换内部状态和路径，容易把准备失败拖成 UI timeout。
 4. 强 Room/ACK/迁移测试很多，但没有映射到页面内容、系统入口和 Release 门禁。
@@ -89,6 +89,7 @@
 - `QualityMessageJourneyInstrumentedTest`：真实启动 App，覆盖 App-owned 纯空态、准确列表/详情/activity relaunch、52 条数据跨 page size 50、单条/全部已读与未读筛选往返、搜索排除/目标集合/详情、删除→隐藏→Undo→relaunch、首次 slow→真实空态、错误→点击 Retry→真实空态、慢刷新旧快照、新 Provider 拉取页经解析/持久化进入列表和详情、首次刷新失败保留旧快照并由 Retry 恢复，以及真实底部导航。批量已读旅程曾触发非主线程 Toast/announce 崩溃并已修复；本轮刷新新结果与失败恢复 emulator 2/2 通过，不以直接修改 Compose 集合或 DB 文件存在作为 Oracle。
 - `QualityEntityJourneyInstrumentedTest`：复用同一个 App-owned session 生命周期，但按 Entity 能力独立覆盖 Event 摄入→投影→准确详情→确认关闭→正式解析/持久化→仅进行中筛选排除→activity relaunch 后 closed 保留，以及 Thing 准确概览、Events/Messages/Updates 三个真实页签、三类准确关联详情、返回原 Thing/页签和 activity relaunch 后关系仍可达；不再把 Entity 覆盖塞进聚合 Message 类，也不以 Room 行数、Sheet 壳或 test tag 存在作为最终 Oracle。该旅程还要求真实系统 Back 只关闭顶层关系详情，并通过生产标题/正文语义判断内容。
 - `QualitySettingsJourneyInstrumentedTest`：从真实 Channels→Settings 入口滚动到 Event 页面开关，关闭后核对底部入口消失并 activity relaunch 仍隐藏；再从同一控件恢复，真实点击入口打开 Event 独有页面，并再次 relaunch 后重复核对可达。测试不直接写 preferences，也不把开关 selected 或 test tag 存在当最终结果。
+- `QualityChannelJourneyInstrumentedTest`：从真实 Channels 页面创建频道、滑动改名并 activity relaunch 核对；随后分别执行“退订并保留历史”和“退订并删除历史”，以频道行、准确消息内容和再次 relaunch 后状态作为终点，最终一次重启会释放并重建 AppContainer/Room 连接。仅外部 Gateway mutation 使用 typed accepted boundary，Compose、Repository、Room、延迟删除事务与重启均走生产路径；不把 accepted 场景冒充远端拒绝/补偿证据。fixture 初始化使用会话级完成记录，容器重建不重新播种已合法删除的数据；该记录只判定准备状态，不能替代 UI/Room 产品 Oracle。
 - Quality device 进程显式建立唯一 `pushgo-quality-<session>.db`，结束时释放 Room、删除 DB 与 session artifacts；Production 数据进程不激活 Quality Profile，避免迁移测试被测试 DB 污染。
 - `device` lane 仅执行上述纵向旅程及迁移、删除、ACK 三类高风险数据边界；`nightly` 增加 data/transport/work 边界；`release` 复用显式高价值 UI 与 Nightly 风险边界并构建 Release，不再默认执行全部遗留 androidTest。诊断、极端规模和低后果组合不进入常规反馈链。
 - `config/quality-impact.json`、`scripts/quality_impact.py` 与 `scripts/quality_changed.sh` 已把产品变更映射到具名能力和最低 Lane。PR 的 host/device 阶段共享同一计划：普通 JVM 变化不启动模拟器，Compose/Room/Service 等风险升级时才运行对应代表设备 Lane；修改 `androidTest` 最低升级到 `pr-ui`，避免只编译不执行；未映射产品路径直接 `BLOCKED`，文档变更写结构化 `NOT_RUN`。

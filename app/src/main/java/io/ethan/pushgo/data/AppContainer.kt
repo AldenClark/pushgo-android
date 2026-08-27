@@ -12,6 +12,7 @@ import io.ethan.pushgo.notifications.NotificationIngressParser
 import io.ethan.pushgo.notifications.PrivateChannelClient
 import io.ethan.pushgo.testing.InstrumentationRuntime
 import io.ethan.pushgo.testing.QualityFixture
+import io.ethan.pushgo.testing.QualityChannelMutationScenario
 import io.ethan.pushgo.testing.QualityEventCloseScenario
 import io.ethan.pushgo.testing.QualityRuntime
 import io.ethan.pushgo.ui.PendingLocalDeletionDrainScheduler
@@ -134,6 +135,46 @@ class AppContainer(
         } else {
             null
         },
+        channelMutationRoundTrip = if (
+            QualityRuntime.currentSession()?.channelMutationScenario == QualityChannelMutationScenario.ACCEPTED
+        ) {
+            object : ChannelMutationRoundTrip {
+                override suspend fun ensureProviderRoute(providerToken: String): String {
+                    check(providerToken.isNotBlank()) { "quality channel route requires a provider token" }
+                    return "quality-channel-device"
+                }
+
+                override suspend fun subscribe(
+                    channelId: String?,
+                    channelName: String?,
+                    password: String,
+                ): ChannelSubscribeResult {
+                    check(password.isNotBlank()) { "quality channel subscribe requires a password" }
+                    val resolvedId = channelId ?: "01H00000000000000000000003"
+                    return ChannelSubscribeResult(
+                        channelId = resolvedId,
+                        channelName = channelName?.trim()?.ifEmpty { null } ?: resolvedId,
+                        created = channelId == null,
+                        subscribed = true,
+                    )
+                }
+
+                override suspend fun rename(
+                    channelId: String,
+                    channelName: String,
+                    password: String,
+                ): ChannelRenameResult {
+                    check(password.isNotBlank()) { "quality channel rename requires a password" }
+                    return ChannelRenameResult(channelId = channelId, channelName = channelName)
+                }
+
+                override suspend fun unsubscribe(channelId: String) {
+                    check(channelId.isNotBlank()) { "quality channel unsubscribe requires an id" }
+                }
+            }
+        } else {
+            null
+        },
     )
     val privateChannelClient = PrivateChannelClient(
         appContext = appContext,
@@ -187,11 +228,24 @@ class AppContainer(
 
     internal suspend fun initializeQualityFixtureIfNeeded() {
         val session = QualityRuntime.currentSession() ?: return
+        if (QualityRuntime.fixtureInitializationWasRecorded(appContext.filesDir)) return
         val messages = when (session.fixture) {
             QualityFixture.EMPTY_CLEAN -> emptyList()
             QualityFixture.MESSAGES_STANDARD -> listOf(qualityMessage(index = 0))
             QualityFixture.MESSAGES_WORKFLOW -> (0 until 52).map(::qualityWorkflowMessage)
             QualityFixture.MESSAGES_LARGE -> (0 until 1_000).map(::qualityMessage)
+            QualityFixture.CHANNELS_STANDARD -> listOf(
+                qualityChannelMessage(
+                    id = "quality-channel-keep-message",
+                    title = "Quality Keep History Message",
+                    channelId = "01H00000000000000000000001",
+                ),
+                qualityChannelMessage(
+                    id = "quality-channel-delete-message",
+                    title = "Quality Delete History Message",
+                    channelId = "01H00000000000000000000002",
+                ),
+            )
             QualityFixture.EVENT_STANDARD,
             QualityFixture.THING_STANDARD -> emptyList()
         }
@@ -232,8 +286,32 @@ class AppContainer(
                     "thing.standard did not reach its canonical projection"
                 }
             }
+            QualityFixture.CHANNELS_STANDARD -> {
+                val rawGateway = settingsRepository.getServerAddress()
+                    ?.trim()
+                    ?.ifEmpty { null }
+                    ?: AppConstants.defaultServerAddress
+                val gateway = UrlValidators.normalizeGatewayBaseUrl(rawGateway)
+                    ?: AppConstants.defaultServerAddress
+                settingsRepository.setFcmToken("quality-channel-provider-token")
+                channelStore.upsertSubscription(
+                    gateway,
+                    "01H00000000000000000000001",
+                    "Quality Keep History",
+                    "quality-channel-password",
+                )
+                channelStore.upsertSubscription(
+                    gateway,
+                    "01H00000000000000000000002",
+                    "Quality Delete History",
+                    "quality-channel-password",
+                )
+            }
             else -> Unit
         }
+        // Record completion only after every store mutation and canonical-projection
+        // check succeeds. Live row counts may legitimately change during the journey.
+        QualityRuntime.recordFixtureInitialization(appContext.filesDir)
     }
 
     suspend fun handlePushTokenUpdate(deviceToken: String) {
@@ -297,6 +375,33 @@ class AppContainer(
             isRead = index % 4 == 0,
             receivedAt = Instant.parse("2026-01-15T08:00:00Z").plusSeconds(index.toLong()),
             rawPayloadJson = rawPayload,
+            status = MessageStatus.NORMAL,
+            decryptionState = null,
+            notificationId = null,
+            serverId = "quality-session",
+            bodyPreview = body,
+        )
+    }
+
+    private fun qualityChannelMessage(id: String, title: String, channelId: String): PushMessage {
+        val body = "Deterministic history owned by $channelId."
+        return PushMessage(
+            id = id,
+            messageId = id,
+            title = title,
+            body = body,
+            channel = channelId,
+            url = null,
+            isRead = false,
+            receivedAt = Instant.parse("2026-01-15T08:00:00Z"),
+            rawPayloadJson = JSONObject()
+                .put("entity_type", "message")
+                .put("message_id", id)
+                .put("delivery_id", "quality-delivery-$id")
+                .put("channel_id", channelId)
+                .put("title", title)
+                .put("body", body)
+                .toString(),
             status = MessageStatus.NORMAL,
             decryptionState = null,
             notificationId = null,

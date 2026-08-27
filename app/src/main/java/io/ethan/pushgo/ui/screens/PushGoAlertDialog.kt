@@ -38,9 +38,11 @@ internal fun PushGoDestructiveTextButton(
     text: String,
     onClick: () -> Unit,
     enabled: Boolean = true,
+    modifier: Modifier = Modifier,
 ) {
     val uiColors = PushGoThemeExtras.colors
     TextButton(
+        modifier = modifier,
         onClick = onClick,
         enabled = enabled,
         colors = ButtonDefaults.textButtonColors(
