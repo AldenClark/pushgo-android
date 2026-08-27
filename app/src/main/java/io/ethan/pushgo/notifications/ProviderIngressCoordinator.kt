@@ -14,6 +14,7 @@ import io.ethan.pushgo.data.PullItem
 import io.ethan.pushgo.data.SettingsRepository
 import io.ethan.pushgo.data.model.PushMessage
 import io.ethan.pushgo.data.db.LegacyProviderIngressEntity
+import io.ethan.pushgo.testing.QualityRuntime
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import org.json.JSONObject
@@ -27,6 +28,7 @@ object ProviderIngressCoordinator {
         inboundDeliveryLedgerRepository: InboundDeliveryLedgerRepository,
         settingsRepository: SettingsRepository,
         deliveryId: String? = null,
+        reason: String = "unspecified",
         beforeMessageNotify: suspend (PushMessage, String?) -> Unit = { _, _ -> },
     ): Int {
         return try {
@@ -38,6 +40,7 @@ object ProviderIngressCoordinator {
                 inboundDeliveryLedgerRepository = inboundDeliveryLedgerRepository,
                 settingsRepository = settingsRepository,
                 deliveryId = deliveryId,
+                reason = reason,
                 beforeMessageNotify = beforeMessageNotify,
             )
         } finally {
@@ -69,6 +72,7 @@ object ProviderIngressCoordinator {
         inboundDeliveryLedgerRepository: InboundDeliveryLedgerRepository,
         settingsRepository: SettingsRepository,
         deliveryId: String? = null,
+        reason: String = "unspecified",
         beforeMessageNotify: suspend (PushMessage, String?) -> Unit = { _, _ -> },
     ): Int = ingressMutex.withLock {
         runCatching {
@@ -90,7 +94,14 @@ object ProviderIngressCoordinator {
         var hadPersistenceFailure = false
         val persistedCount = consumeProviderPullPages(
             requestedDeliveryId = deliveryId,
-            pullPage = { channelRepository.pullMessages(deliveryId) },
+            pullPage = {
+                if (reason == "messages_pull_to_refresh") {
+                    QualityRuntime.takeMessageRefreshPullOverride()?.getOrThrow()
+                        ?: channelRepository.pullMessages(deliveryId)
+                } else {
+                    channelRepository.pullMessages(deliveryId)
+                }
+            },
         ) { page ->
             val destination = page.destination
                 ?: error("provider pull page missing ACK destination")

@@ -61,9 +61,9 @@
       "id": "messages-search-delete",
       "paths": ["app/src/main/java/io/ethan/pushgo/data/Message*.kt", "app/src/main/java/io/ethan/pushgo/data/QualityFaultPagingSource.kt", "app/src/main/java/io/ethan/pushgo/data/PendingLocalDeletion*.kt", "app/src/main/java/io/ethan/pushgo/data/RepositoryPendingLocalDeletionExecutor.kt", "app/src/main/java/io/ethan/pushgo/data/model/Message*.kt", "app/src/main/java/io/ethan/pushgo/ui/Message*.kt", "app/src/main/java/io/ethan/pushgo/ui/PendingLocalDeletion*.kt", "app/src/main/java/io/ethan/pushgo/ui/viewmodel/Message*.kt", "app/src/main/java/io/ethan/pushgo/ui/screens/Message*.kt", "app/src/main/java/io/ethan/pushgo/ui/screens/PushGoSearchBar.kt", "app/src/main/java/io/ethan/pushgo/util/SearchTextNormalizer.kt"],
       "capabilities": ["messages", "message-detail", "search-filter", "delete-undo"],
-      "minimum_evidence": ["JVM/Room message/search/deletion tests", "Android accurate content/search/delete/relaunch UI journeys"],
+      "minimum_evidence": ["JVM/Room message/search/deletion tests", "Android accurate content/search/delete/relaunch UI journeys", "Android provider refresh new-result/failure-recovery UI journeys"],
       "lane": "device",
-      "known_evidence_gaps": ["refresh new-result/failure recovery and media performance remain incomplete; representative Android pagination/read and slow-refresh snapshot-preservation workflows are protected."]
+      "known_evidence_gaps": ["media performance remains incomplete; representative Android pagination/read plus slow, new-result, and failure-recovery refresh workflows are protected."]
     },
     {
       "id": "events-things",

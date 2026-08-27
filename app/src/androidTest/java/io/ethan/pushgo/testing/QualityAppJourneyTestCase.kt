@@ -35,12 +35,14 @@ abstract class QualityAppJourneyTestCase {
     protected fun configureAndLaunch(
         fixture: QualityFixture,
         faults: QualityFaults = QualityFaults(),
+        messageRefreshScenario: QualityMessageRefreshScenario = QualityMessageRefreshScenario.NONE,
     ) {
         val current = QualitySessionDescriptor(
             schemaVersion = 1,
             sessionId = "android-ui-${System.nanoTime()}",
             fixture = fixture,
             faults = faults,
+            messageRefreshScenario = messageRefreshScenario,
         )
         app.releaseStorageForInstrumentationTest()
         assertTrue(app.deleteDatabase(current.databaseName) || !app.getDatabasePath(current.databaseName).exists())

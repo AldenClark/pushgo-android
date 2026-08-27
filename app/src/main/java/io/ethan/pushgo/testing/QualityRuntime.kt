@@ -2,6 +2,10 @@ package io.ethan.pushgo.testing
 
 import android.content.Context
 import io.ethan.pushgo.BuildConfig
+import io.ethan.pushgo.data.ProviderAckDestination
+import io.ethan.pushgo.data.ProviderPullContract
+import io.ethan.pushgo.data.ProviderPullPage
+import io.ethan.pushgo.data.PullItem
 import java.io.File
 import java.util.Base64
 import java.util.concurrent.atomic.AtomicBoolean
@@ -24,6 +28,18 @@ enum class QualityFixture(val wireValue: String) {
     }
 }
 
+enum class QualityMessageRefreshScenario(val wireValue: String) {
+    NONE("none"),
+    NEW_MESSAGE("new_message"),
+    FAIL_ONCE_THEN_NEW_MESSAGE("fail_once_then_new_message");
+
+    companion object {
+        fun fromWireValue(value: String): QualityMessageRefreshScenario? = entries.firstOrNull {
+            it.wireValue == value
+        }
+    }
+}
+
 data class QualityFaults(
     val messageLoadDelayMs: Int? = null,
     val messageRefreshDelayMs: Int? = null,
@@ -35,6 +51,7 @@ data class QualitySessionDescriptor(
     val sessionId: String,
     val fixture: QualityFixture,
     val faults: QualityFaults,
+    val messageRefreshScenario: QualityMessageRefreshScenario = QualityMessageRefreshScenario.NONE,
 ) {
     val databaseName: String
         get() = "pushgo-quality-$sessionId.db"
@@ -57,6 +74,7 @@ object QualityRuntime {
     private val pendingMessageLoadDelay = AtomicBoolean(false)
     private val pendingMessageRefreshDelay = AtomicBoolean(false)
     private val remainingMessageLoadFailures = AtomicInteger(0)
+    private val messageRefreshScenarioAttempts = AtomicInteger(0)
 
     fun configure(encodedSession: String?): RuntimeProfile {
         configuredProfile = resolve(encodedSession)
@@ -64,6 +82,7 @@ object QualityRuntime {
         pendingMessageLoadDelay.set((faults?.messageLoadDelayMs ?: 0) > 0)
         pendingMessageRefreshDelay.set((faults?.messageRefreshDelayMs ?: 0) > 0)
         remainingMessageLoadFailures.set(if (faults?.failMessageLoad == true) 1 else 0)
+        messageRefreshScenarioAttempts.set(0)
         return configuredProfile
     }
 
@@ -82,6 +101,46 @@ object QualityRuntime {
         if (pendingMessageRefreshDelay.compareAndSet(true, false)) {
             delay(faults.messageRefreshDelayMs?.toLong() ?: 0L)
         }
+    }
+
+    fun takeMessageRefreshPullOverride(): Result<ProviderPullPage>? {
+        val scenario = currentSession()?.messageRefreshScenario ?: return null
+        if (scenario == QualityMessageRefreshScenario.NONE) return null
+        val attempt = messageRefreshScenarioAttempts.incrementAndGet()
+        if (scenario == QualityMessageRefreshScenario.FAIL_ONCE_THEN_NEW_MESSAGE && attempt == 1) {
+            return Result.failure(QualityMessageRefreshException())
+        }
+        val shouldReturnMessage = attempt == 1 ||
+            (scenario == QualityMessageRefreshScenario.FAIL_ONCE_THEN_NEW_MESSAGE && attempt == 2)
+        val items = if (shouldReturnMessage) {
+            listOf(
+                PullItem(
+                    deliveryId = "quality-delivery-refresh-result",
+                    payload = mapOf(
+                        "entity_type" to "message",
+                        "entity_id" to "quality-refresh-result",
+                        "message_id" to "quality-refresh-result",
+                        "title" to "P2 Refresh Result",
+                        "body" to "Persisted through the provider refresh ingress path.",
+                        "channel" to "quality",
+                        "received_at" to "2026-01-16T08:00:00Z",
+                    ),
+                ),
+            )
+        } else {
+            emptyList()
+        }
+        return Result.success(
+            ProviderPullPage(
+                items = items,
+                hasMore = false,
+                contract = ProviderPullContract.LEGACY,
+                destination = ProviderAckDestination(
+                    baseUrl = "https://quality.invalid",
+                    deviceKey = "quality-device",
+                ),
+            ),
+        )
     }
 
     fun currentSession(): QualitySessionDescriptor? {
@@ -115,6 +174,12 @@ object QualityRuntime {
         val fixture = requireNotNull(QualityFixture.fromWireValue(fixtureValue)) {
             "unsupported quality fixture: $fixtureValue"
         }
+        val refreshScenarioValue = payload.optString("message_refresh_scenario", "none").trim()
+        val refreshScenario = requireNotNull(
+            QualityMessageRefreshScenario.fromWireValue(refreshScenarioValue)
+        ) {
+            "unsupported message refresh scenario: $refreshScenarioValue"
+        }
         val faultsJson = payload.optJSONObject("faults")
         val delay = faultsJson?.takeIf { it.has("message_load_delay_ms") }
             ?.getInt("message_load_delay_ms")
@@ -135,6 +200,7 @@ object QualityRuntime {
                 messageRefreshDelayMs = refreshDelay,
                 failMessageLoad = faultsJson?.optBoolean("fail_message_load", false) ?: false,
             ),
+            messageRefreshScenario = refreshScenario,
         )
     }
 
@@ -151,6 +217,7 @@ object QualityRuntime {
             .put("schema_version", session.schemaVersion)
             .put("session_id", session.sessionId)
             .put("fixture", session.fixture.wireValue)
+            .put("message_refresh_scenario", session.messageRefreshScenario.wireValue)
             .put("faults", faults)
         return Base64.getEncoder().encodeToString(payload.toString().toByteArray())
     }
@@ -177,7 +244,10 @@ object QualityRuntime {
         pendingMessageLoadDelay.set(false)
         pendingMessageRefreshDelay.set(false)
         remainingMessageLoadFailures.set(0)
+        messageRefreshScenarioAttempts.set(0)
     }
 }
 
 class QualityMessageLoadException : IllegalStateException("Injected message list load failure")
+
+class QualityMessageRefreshException : IllegalStateException("Injected provider refresh failure")

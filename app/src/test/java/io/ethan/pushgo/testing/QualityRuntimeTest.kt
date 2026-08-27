@@ -25,6 +25,7 @@ class QualityRuntimeTest {
                 messageLoadDelayMs = 250,
                 messageRefreshDelayMs = 2_500,
             ),
+            messageRefreshScenario = QualityMessageRefreshScenario.FAIL_ONCE_THEN_NEW_MESSAGE,
         )
 
         val decoded = QualityRuntime.decode(QualityRuntime.encode(session))
@@ -129,6 +130,23 @@ class QualityRuntimeTest {
         }
         assertTrue(didFail)
         QualityRuntime.beforeMessageListLoad()
+    }
+
+    @Test
+    fun providerRefreshScenarioFailsOnceThenReturnsARealIngressPage() {
+        val session = QualitySessionDescriptor(
+            schemaVersion = 1,
+            sessionId = "refresh-recovery-contract",
+            fixture = QualityFixture.MESSAGES_STANDARD,
+            faults = QualityFaults(),
+            messageRefreshScenario = QualityMessageRefreshScenario.FAIL_ONCE_THEN_NEW_MESSAGE,
+        )
+        QualityRuntime.configure(QualityRuntime.encode(session))
+
+        assertTrue(checkNotNull(QualityRuntime.takeMessageRefreshPullOverride()).isFailure)
+        val page = checkNotNull(QualityRuntime.takeMessageRefreshPullOverride()).getOrThrow()
+        assertEquals("quality-refresh-result", page.items.single().payload["message_id"])
+        assertTrue(checkNotNull(QualityRuntime.takeMessageRefreshPullOverride()).getOrThrow().items.isEmpty())
     }
 
     private fun encodeJson(json: JSONObject): String {

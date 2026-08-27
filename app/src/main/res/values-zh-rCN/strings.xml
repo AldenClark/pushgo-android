@@ -97,6 +97,7 @@
     <string name="label_loading">加载中…</string>
     <string name="message_loading_slow">消息仍在加载，请稍候…</string>
     <string name="message_load_failed">无法加载消息，请重试。</string>
+    <string name="message_refresh_failed">刷新失败，请重试。</string>
     <string name="action_retry">重试</string>
     <string name="section_connection_device">连接与设备</string><string name="section_channels">频道</string>
     <string name="section_notification_settings">通知设置</string>

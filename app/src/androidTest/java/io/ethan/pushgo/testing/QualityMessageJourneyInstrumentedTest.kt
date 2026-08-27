@@ -214,6 +214,55 @@ class QualityMessageJourneyInstrumentedTest : QualityAppJourneyTestCase() {
     }
 
     @Test
+    fun refreshPersistsNewProviderResultOpensDetailAndSurvivesRelaunch() {
+        configureAndLaunch(
+            fixture = QualityFixture.MESSAGES_STANDARD,
+            messageRefreshScenario = QualityMessageRefreshScenario.NEW_MESSAGE,
+        )
+
+        composeRule.onNodeWithText("P2 Split Seed Message").assertIsDisplayed()
+        composeRule.onNodeWithTag("screen.messages.list").performTouchInput { swipeDown() }
+        composeRule.waitUntil(timeoutMillis = 8_000) {
+            composeRule.onAllNodes(hasText("P2 Refresh Result")).fetchSemanticsNodes().isNotEmpty()
+        }
+        composeRule.onNodeWithText("P2 Split Seed Message").assertExists()
+        composeRule.onNodeWithText("P2 Refresh Result").assertIsDisplayed().performClick()
+        composeRule.onNodeWithText("Persisted through the provider refresh ingress path.")
+            .assertIsDisplayed()
+
+        scenario?.close()
+        scenario = launchMainActivity()
+        composeRule.waitUntil(timeoutMillis = 8_000) {
+            composeRule.onAllNodes(hasText("P2 Refresh Result")).fetchSemanticsNodes().isNotEmpty()
+        }
+        composeRule.onNodeWithText("P2 Refresh Result").assertExists()
+    }
+
+    @Test
+    fun refreshFailureKeepsSnapshotAndRetryRecoversPersistedResult() {
+        configureAndLaunch(
+            fixture = QualityFixture.MESSAGES_STANDARD,
+            messageRefreshScenario = QualityMessageRefreshScenario.FAIL_ONCE_THEN_NEW_MESSAGE,
+        )
+
+        composeRule.onNodeWithText("P2 Split Seed Message").assertIsDisplayed()
+        composeRule.onNodeWithTag("screen.messages.list").performTouchInput { swipeDown() }
+        composeRule.waitUntil(timeoutMillis = 5_000) {
+            composeRule.onAllNodes(hasTestTag("state.messages.refresh.failed"))
+                .fetchSemanticsNodes().isNotEmpty()
+        }
+        composeRule.onNodeWithText("P2 Split Seed Message").assertIsDisplayed()
+        composeRule.onNodeWithTag("action.messages.refresh.retry").assertIsDisplayed().performClick()
+        composeRule.waitUntil(timeoutMillis = 8_000) {
+            composeRule.onAllNodes(hasText("P2 Refresh Result")).fetchSemanticsNodes().isNotEmpty()
+        }
+        composeRule.onNodeWithTag("state.messages.refresh.failed").assertDoesNotExist()
+        composeRule.onNodeWithText("P2 Refresh Result").assertIsDisplayed().performClick()
+        composeRule.onNodeWithText("Persisted through the provider refresh ingress path.")
+            .assertIsDisplayed()
+    }
+
+    @Test
     fun failedLoadShowsUsableRetryAndRecoversToTheRealEmptyResult() {
         configureAndLaunch(
             fixture = QualityFixture.EMPTY_CLEAN,

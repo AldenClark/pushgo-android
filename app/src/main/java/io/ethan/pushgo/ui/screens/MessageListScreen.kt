@@ -94,6 +94,7 @@ import io.ethan.pushgo.ui.viewmodel.MessageListViewModel
 import io.ethan.pushgo.ui.viewmodel.MessageSearchViewModel
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -143,6 +144,7 @@ fun MessageListScreen(
     var channelNameMap by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
     var isPullRefreshing by remember { mutableStateOf(false) }
     var isPullRefreshSlow by remember { mutableStateOf(false) }
+    var didPullRefreshFail by remember { mutableStateOf(false) }
     var isHistoryCleanupSheetVisible by rememberSaveable { mutableStateOf(false) }
     val messagesTabLabel = stringResource(R.string.tab_messages)
 
@@ -216,25 +218,28 @@ fun MessageListScreen(
         scope.launch {
             isPullRefreshing = true
             try {
-                runCatching {
-                    ProviderIngressCoordinator.pullPersistAndDrainAcks(
-                        context = context,
-                        channelRepository = container.channelRepository,
-                        messageRepository = container.messageRepository,
-                        entityRepository = container.entityRepository,
-                        inboundDeliveryLedgerRepository = container.inboundDeliveryLedgerRepository,
-                        settingsRepository = container.settingsRepository,
-                    )
-                }.onFailure { error ->
-                    io.ethan.pushgo.util.SilentSink.w(
-                        "MessageListScreen",
-                        "provider ingress refresh failed",
-                        error,
-                    )
-                }
-                channelNameMap = container.channelRepository.loadSubscriptionLookup(includeDeleted = true)
                 QualityRuntime.beforeMessageRefresh()
+                ProviderIngressCoordinator.pullPersistAndDrainAcks(
+                    context = context,
+                    channelRepository = container.channelRepository,
+                    messageRepository = container.messageRepository,
+                    entityRepository = container.entityRepository,
+                    inboundDeliveryLedgerRepository = container.inboundDeliveryLedgerRepository,
+                    settingsRepository = container.settingsRepository,
+                    reason = "messages_pull_to_refresh",
+                )
+                channelNameMap = container.channelRepository.loadSubscriptionLookup(includeDeleted = true)
                 messages.refresh()
+                didPullRefreshFail = false
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Throwable) {
+                didPullRefreshFail = true
+                io.ethan.pushgo.util.SilentSink.w(
+                    "MessageListScreen",
+                    "provider ingress refresh failed",
+                    error,
+                )
             } finally {
                 isPullRefreshing = false
             }
@@ -535,7 +540,33 @@ fun MessageListScreen(
                 }
 
                 if (query.isBlank()) {
-                    if (isPullRefreshSlow && filteredPagedItems.isNotEmpty()) {
+                    if (didPullRefreshFail) {
+                        item(key = "message-refresh-failed") {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = ScreenHorizontalPadding, vertical = 8.dp)
+                                    .testTag("state.messages.refresh.failed"),
+                                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Icon(Icons.Outlined.Warning, contentDescription = null)
+                                Text(
+                                    text = stringResource(R.string.message_refresh_failed),
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = uiColors.textSecondary,
+                                    modifier = Modifier.weight(1f),
+                                )
+                                TextButton(
+                                    onClick = { refreshProviderIngressFromPullDown() },
+                                    modifier = Modifier.testTag("action.messages.refresh.retry"),
+                                ) {
+                                    Text(stringResource(R.string.action_retry))
+                                }
+                            }
+                        }
+                    }
+                    if (!didPullRefreshFail && isPullRefreshSlow && filteredPagedItems.isNotEmpty()) {
                         item(key = "message-refresh-slow") {
                             Row(
                                 modifier = Modifier
@@ -580,7 +611,11 @@ fun MessageListScreen(
                             }
                         }
                     }
-                    if (filteredPagedItems.isEmpty() && messages.loadState.refresh is LoadState.NotLoading) {
+                    if (
+                        !didPullRefreshFail &&
+                        filteredPagedItems.isEmpty() &&
+                        messages.loadState.refresh is LoadState.NotLoading
+                    ) {
                         item {
                             AppEmptyState(
                                 icon = Icons.Outlined.Email,

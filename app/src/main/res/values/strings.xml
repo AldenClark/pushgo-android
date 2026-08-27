@@ -104,6 +104,7 @@
     <string name="label_loading">Loading…</string>
     <string name="message_loading_slow">Messages are still loading. Please wait…</string>
     <string name="message_load_failed">Unable to load messages. Please try again.</string>
+    <string name="message_refresh_failed">Refresh failed. Please retry.</string>
     <string name="action_retry">Retry</string>
     <string name="section_connection_device">Connection &amp; Device</string><string name="section_channels">Channels</string>
     <string name="section_notification_settings">Notification Settings</string>
