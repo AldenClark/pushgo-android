@@ -79,6 +79,7 @@ import io.ethan.pushgo.data.model.MessageSeverity
 import io.ethan.pushgo.notifications.ForegroundNotificationPresentationState
 import io.ethan.pushgo.notifications.ForegroundNotificationTopMetrics
 import io.ethan.pushgo.notifications.ProviderIngressCoordinator
+import io.ethan.pushgo.testing.QualityRuntime
 import io.ethan.pushgo.ui.viewmodel.toUserFacingText
 import io.ethan.pushgo.ui.PendingLocalDeletionCoordinator
 import io.ethan.pushgo.ui.PushGoViewModelFactory
@@ -141,6 +142,7 @@ fun MessageListScreen(
     val bottomBarNestedScrollConnection = rememberBottomBarNestedScrollConnection(onBottomBarVisibilityChanged)
     var channelNameMap by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
     var isPullRefreshing by remember { mutableStateOf(false) }
+    var isPullRefreshSlow by remember { mutableStateOf(false) }
     var isHistoryCleanupSheetVisible by rememberSaveable { mutableStateOf(false) }
     val messagesTabLabel = stringResource(R.string.tab_messages)
 
@@ -150,6 +152,16 @@ fun MessageListScreen(
             delay(1_000)
             if (messages.loadState.refresh is LoadState.Loading) {
                 isMessageLoadSlow = true
+            }
+        }
+    }
+
+    LaunchedEffect(isPullRefreshing) {
+        isPullRefreshSlow = false
+        if (isPullRefreshing) {
+            delay(1_000)
+            if (isPullRefreshing) {
+                isPullRefreshSlow = true
             }
         }
     }
@@ -203,25 +215,29 @@ fun MessageListScreen(
         if (isPullRefreshing) return
         scope.launch {
             isPullRefreshing = true
-            runCatching {
-                ProviderIngressCoordinator.pullPersistAndDrainAcks(
-                    context = context,
-                    channelRepository = container.channelRepository,
-                    messageRepository = container.messageRepository,
-                    entityRepository = container.entityRepository,
-                    inboundDeliveryLedgerRepository = container.inboundDeliveryLedgerRepository,
-                    settingsRepository = container.settingsRepository,
-                )
-            }.onFailure { error ->
-                io.ethan.pushgo.util.SilentSink.w(
-                    "MessageListScreen",
-                    "provider ingress refresh failed",
-                    error,
-                )
+            try {
+                runCatching {
+                    ProviderIngressCoordinator.pullPersistAndDrainAcks(
+                        context = context,
+                        channelRepository = container.channelRepository,
+                        messageRepository = container.messageRepository,
+                        entityRepository = container.entityRepository,
+                        inboundDeliveryLedgerRepository = container.inboundDeliveryLedgerRepository,
+                        settingsRepository = container.settingsRepository,
+                    )
+                }.onFailure { error ->
+                    io.ethan.pushgo.util.SilentSink.w(
+                        "MessageListScreen",
+                        "provider ingress refresh failed",
+                        error,
+                    )
+                }
+                channelNameMap = container.channelRepository.loadSubscriptionLookup(includeDeleted = true)
+                QualityRuntime.beforeMessageRefresh()
+                messages.refresh()
+            } finally {
+                isPullRefreshing = false
             }
-            channelNameMap = container.channelRepository.loadSubscriptionLookup(includeDeleted = true)
-            messages.refresh()
-            isPullRefreshing = false
         }
     }
 
@@ -519,6 +535,25 @@ fun MessageListScreen(
                 }
 
                 if (query.isBlank()) {
+                    if (isPullRefreshSlow && filteredPagedItems.isNotEmpty()) {
+                        item(key = "message-refresh-slow") {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = ScreenHorizontalPadding, vertical = 8.dp)
+                                    .testTag("state.messages.refresh.slow"),
+                                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+                                Text(
+                                    text = stringResource(R.string.message_loading_slow),
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = uiColors.textSecondary,
+                                )
+                            }
+                        }
+                    }
                     when {
                         filteredPagedItems.isEmpty() && messages.loadState.refresh is LoadState.Loading -> {
                             item {

@@ -21,7 +21,10 @@ class QualityRuntimeTest {
             schemaVersion = 1,
             sessionId = "android-pr-123_retry-1",
             fixture = QualityFixture.MESSAGES_STANDARD,
-            faults = QualityFaults(messageLoadDelayMs = 250),
+            faults = QualityFaults(
+                messageLoadDelayMs = 250,
+                messageRefreshDelayMs = 2_500,
+            ),
         )
 
         val decoded = QualityRuntime.decode(QualityRuntime.encode(session))
@@ -67,6 +70,21 @@ class QualityRuntimeTest {
                 .put("session_id", "slow-load-negative-control")
                 .put("fixture", "messages.standard")
                 .put("faults", JSONObject().put("message_load_delay_ms", 30_001))
+        )
+
+        assertThrows(IllegalArgumentException::class.java) {
+            QualityRuntime.decode(encoded)
+        }
+    }
+
+    @Test
+    fun unboundedRefreshDelayFaultIsRejected() {
+        val encoded = encodeJson(
+            JSONObject()
+                .put("schema_version", 1)
+                .put("session_id", "slow-refresh-negative-control")
+                .put("fixture", "messages.standard")
+                .put("faults", JSONObject().put("message_refresh_delay_ms", 30_001))
         )
 
         assertThrows(IllegalArgumentException::class.java) {

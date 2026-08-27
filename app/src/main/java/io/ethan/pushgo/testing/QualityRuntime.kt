@@ -26,6 +26,7 @@ enum class QualityFixture(val wireValue: String) {
 
 data class QualityFaults(
     val messageLoadDelayMs: Int? = null,
+    val messageRefreshDelayMs: Int? = null,
     val failMessageLoad: Boolean = false,
 )
 
@@ -54,12 +55,14 @@ object QualityRuntime {
     @Volatile
     private var configuredProfile: RuntimeProfile = RuntimeProfile.Production
     private val pendingMessageLoadDelay = AtomicBoolean(false)
+    private val pendingMessageRefreshDelay = AtomicBoolean(false)
     private val remainingMessageLoadFailures = AtomicInteger(0)
 
     fun configure(encodedSession: String?): RuntimeProfile {
         configuredProfile = resolve(encodedSession)
         val faults = currentSession()?.faults
         pendingMessageLoadDelay.set((faults?.messageLoadDelayMs ?: 0) > 0)
+        pendingMessageRefreshDelay.set((faults?.messageRefreshDelayMs ?: 0) > 0)
         remainingMessageLoadFailures.set(if (faults?.failMessageLoad == true) 1 else 0)
         return configuredProfile
     }
@@ -71,6 +74,13 @@ object QualityRuntime {
         }
         if (remainingMessageLoadFailures.getAndUpdate { value -> (value - 1).coerceAtLeast(0) } > 0) {
             throw QualityMessageLoadException()
+        }
+    }
+
+    suspend fun beforeMessageRefresh() {
+        val faults = currentSession()?.faults ?: return
+        if (pendingMessageRefreshDelay.compareAndSet(true, false)) {
+            delay(faults.messageRefreshDelayMs?.toLong() ?: 0L)
         }
     }
 
@@ -111,12 +121,18 @@ object QualityRuntime {
         require(delay == null || delay in 0..30_000) {
             "message load delay must be between 0 and 30000 ms"
         }
+        val refreshDelay = faultsJson?.takeIf { it.has("message_refresh_delay_ms") }
+            ?.getInt("message_refresh_delay_ms")
+        require(refreshDelay == null || refreshDelay in 0..30_000) {
+            "message refresh delay must be between 0 and 30000 ms"
+        }
         return QualitySessionDescriptor(
             schemaVersion = schemaVersion,
             sessionId = sessionId,
             fixture = fixture,
             faults = QualityFaults(
                 messageLoadDelayMs = delay,
+                messageRefreshDelayMs = refreshDelay,
                 failMessageLoad = faultsJson?.optBoolean("fail_message_load", false) ?: false,
             ),
         )
@@ -127,6 +143,9 @@ object QualityRuntime {
             .put("fail_message_load", session.faults.failMessageLoad)
         session.faults.messageLoadDelayMs?.let {
             faults.put("message_load_delay_ms", it)
+        }
+        session.faults.messageRefreshDelayMs?.let {
+            faults.put("message_refresh_delay_ms", it)
         }
         val payload = JSONObject()
             .put("schema_version", session.schemaVersion)
@@ -156,6 +175,7 @@ object QualityRuntime {
     internal fun resetForTesting() {
         configuredProfile = RuntimeProfile.Production
         pendingMessageLoadDelay.set(false)
+        pendingMessageRefreshDelay.set(false)
         remainingMessageLoadFailures.set(0)
     }
 }

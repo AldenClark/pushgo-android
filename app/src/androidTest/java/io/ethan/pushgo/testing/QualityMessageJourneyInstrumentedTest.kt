@@ -191,6 +191,29 @@ class QualityMessageJourneyInstrumentedTest : QualityAppJourneyTestCase() {
     }
 
     @Test
+    fun slowRefreshKeepsAccurateContentVisibleUntilCompletion() {
+        configureAndLaunch(
+            fixture = QualityFixture.MESSAGES_STANDARD,
+            faults = QualityFaults(messageRefreshDelayMs = 2_500),
+        )
+
+        composeRule.onNodeWithText("P2 Split Seed Message").assertIsDisplayed()
+        composeRule.onNodeWithTag("screen.messages.list").performTouchInput { swipeDown() }
+        composeRule.onNodeWithText("P2 Split Seed Message").assertIsDisplayed()
+        composeRule.waitUntil(timeoutMillis = 2_500) {
+            composeRule.onAllNodes(hasTestTag("state.messages.refresh.slow"))
+                .fetchSemanticsNodes().isNotEmpty()
+        }
+        composeRule.onNodeWithTag("state.messages.refresh.slow").assertIsDisplayed()
+        composeRule.onNodeWithText("P2 Split Seed Message").assertIsDisplayed()
+        composeRule.waitUntil(timeoutMillis = 6_000) {
+            composeRule.onAllNodes(hasTestTag("state.messages.refresh.slow"))
+                .fetchSemanticsNodes().isEmpty()
+        }
+        composeRule.onNodeWithText("P2 Split Seed Message").assertIsDisplayed()
+    }
+
+    @Test
     fun failedLoadShowsUsableRetryAndRecoversToTheRealEmptyResult() {
         configureAndLaunch(
             fixture = QualityFixture.EMPTY_CLEAN,

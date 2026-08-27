@@ -63,7 +63,7 @@
       "capabilities": ["messages", "message-detail", "search-filter", "delete-undo"],
       "minimum_evidence": ["JVM/Room message/search/deletion tests", "Android accurate content/search/delete/relaunch UI journeys"],
       "lane": "device",
-      "known_evidence_gaps": ["refresh/media performance remain incomplete; the representative Android pagination/read workflow is protected."]
+      "known_evidence_gaps": ["refresh new-result/failure recovery and media performance remain incomplete; representative Android pagination/read and slow-refresh snapshot-preservation workflows are protected."]
     },
     {
       "id": "events-things",

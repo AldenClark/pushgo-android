@@ -136,12 +136,12 @@ run_quality_device_classes() {
   local session_id="android-lane-$(date +%s)"
   local payload
   payload="$(printf '{"schema_version":1,"session_id":"%s","fixture":"empty.clean","faults":{}}' "$session_id" | base64 | tr -d '\n')"
-  selected_claims+=("Android core App UI empty/content/search/delete/slow/error-retry/navigation/Event/Thing journeys")
+  selected_claims+=("Android core App UI empty/content/pagination/read/search/delete/slow-load/slow-refresh/error-retry/navigation/Event/Thing journeys")
   "$repo_root/scripts/quality_doctor.sh"
   "$repo_root/gradlew" connectedDebugAndroidTest \
     "-Pandroid.testInstrumentationRunnerArguments.class=$quality_device_classes" \
     "-Pandroid.testInstrumentationRunnerArguments.pushgoQualitySessionBase64=$payload"
-  claims+=("Android core App UI empty/content/search/delete/slow/error-retry/navigation/Event/Thing journeys")
+  claims+=("Android core App UI empty/content/pagination/read/search/delete/slow-load/slow-refresh/error-retry/navigation/Event/Thing journeys")
 }
 
 case "$lane" in
