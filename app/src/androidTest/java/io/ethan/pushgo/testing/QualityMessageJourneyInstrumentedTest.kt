@@ -3,7 +3,10 @@ package io.ethan.pushgo.testing
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
+import androidx.test.espresso.Espresso.pressBack
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import io.ethan.pushgo.R
+import io.ethan.pushgo.ui.accessibility.hasContentDescriptionContaining
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -46,6 +49,72 @@ class QualityMessageJourneyInstrumentedTest : QualityAppJourneyTestCase() {
             ).fetchSemanticsNodes().isNotEmpty()
         }
         composeRule.onNodeWithText("P2 Split Seed Message").assertExists()
+    }
+
+    @Test
+    fun workflowFixtureLoadsSecondPageAndPersistsReadActions() {
+        configureAndLaunch(fixture = QualityFixture.MESSAGES_WORKFLOW)
+
+        composeRule.onNodeWithText("Quality workflow 51").assertIsDisplayed()
+        composeRule.onNodeWithTag("action.messages.mark_all_read").assertIsDisplayed()
+        for (attempt in 0 until 14) {
+            if (composeRule.onAllNodes(hasText("Quality workflow 0")).fetchSemanticsNodes().isNotEmpty()) {
+                break
+            }
+            composeRule.onNodeWithTag("screen.messages.list").performTouchInput { swipeUp() }
+            composeRule.waitForIdle()
+        }
+        composeRule.onNodeWithText("Quality workflow 0").assertExists()
+
+        val workflowRow = composeRule.onNode(hasContentDescriptionContaining("Quality workflow 1"))
+        val unreadLabel = app.getString(R.string.a11y_state_unread)
+        val readLabel = app.getString(R.string.a11y_state_read)
+        workflowRow.assert(hasStateDescription(unreadLabel)).performClick()
+        composeRule.onNodeWithTag("sheet.message.detail").assertIsDisplayed()
+        pressBack()
+        composeRule.waitUntil(timeoutMillis = 8_000) {
+            composeRule.onAllNodes(hasTestTag("sheet.message.detail"))
+                .fetchSemanticsNodes().isEmpty()
+        }
+        workflowRow.assert(hasStateDescription(readLabel))
+
+        for (attempt in 0 until 14) {
+            if (composeRule.onAllNodes(hasTestTag("action.messages.mark_all_read"))
+                    .fetchSemanticsNodes().isNotEmpty()
+            ) {
+                break
+            }
+            composeRule.onNodeWithTag("screen.messages.list").performTouchInput { swipeDown() }
+            composeRule.waitForIdle()
+        }
+        composeRule.onNodeWithTag("action.messages.mark_all_read").assertIsDisplayed().performClick()
+        composeRule.waitUntil(timeoutMillis = 8_000) {
+            composeRule.onAllNodes(hasTestTag("action.messages.mark_all_read"))
+                .fetchSemanticsNodes().isEmpty()
+        }
+        scenario?.close()
+        scenario = launchMainActivity()
+        composeRule.waitUntil(timeoutMillis = 8_000) {
+            composeRule.onAllNodes(hasTestTag("screen.messages.list"))
+                .fetchSemanticsNodes().isNotEmpty()
+        }
+        composeRule.onNodeWithTag("action.messages.mark_all_read").assertDoesNotExist()
+
+        composeRule.onNodeWithTag("action.messages.filter").performClick()
+        composeRule.onNodeWithTag("filter.unread_only").assertIsDisplayed().performClick()
+        composeRule.waitUntil(timeoutMillis = 8_000) {
+            composeRule.onAllNodes(hasTestTag("state.messages.empty"))
+                .fetchSemanticsNodes().isNotEmpty()
+        }
+        composeRule.onNodeWithTag("state.messages.empty").assertIsDisplayed()
+        composeRule.onNodeWithTag("action.messages.filter").performClick()
+        composeRule.onNodeWithTag("filter.unread_only").assertIsDisplayed().performClick()
+        composeRule.waitUntil(timeoutMillis = 8_000) {
+            composeRule.onAllNodes(hasText("Quality workflow 51"))
+                .fetchSemanticsNodes().isNotEmpty()
+        }
+        composeRule.onNodeWithText("Quality workflow 51").assertIsDisplayed()
+        composeRule.onNodeWithTag("state.messages.empty").assertDoesNotExist()
     }
 
     @Test

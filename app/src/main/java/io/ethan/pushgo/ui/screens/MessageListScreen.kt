@@ -92,8 +92,10 @@ import io.ethan.pushgo.ui.theme.PushGoThemeExtras
 import io.ethan.pushgo.ui.viewmodel.MessageListViewModel
 import io.ethan.pushgo.ui.viewmodel.MessageSearchViewModel
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -375,17 +377,20 @@ fun MessageListScreen(
                                             Row(verticalAlignment = Alignment.CenterVertically) {
                                                 if (query.isBlank() && currentScopeUnreadCount > 0) {
                                                     IconButton(
+                                                        modifier = Modifier.testTag("action.messages.mark_all_read"),
                                                         onClick = {
                                                             scope.launch {
                                                                 val changed = viewModel.markCurrentScopeRead()
                                                                 if (changed <= 0) return@launch
                                                                 val localizedToastText = resources.getQuantityString(R.plurals.message_marked_read_selected_count, changed, changed)
-                                                                Toast.makeText(
-                                                                    context,
-                                                                    localizedToastText,
-                                                                    Toast.LENGTH_SHORT,
-                                                                ).show()
-                                                                announceForAccessibility(context, localizedToastText)
+                                                                withContext(Dispatchers.Main.immediate) {
+                                                                    Toast.makeText(
+                                                                        context,
+                                                                        localizedToastText,
+                                                                        Toast.LENGTH_SHORT,
+                                                                    ).show()
+                                                                    announceForAccessibility(context, localizedToastText)
+                                                                }
                                                             }
                                                         }
                                                     ) {
@@ -396,7 +401,10 @@ fun MessageListScreen(
                                                         )
                                                     }
                                                 }
-                                                IconButton(onClick = { searchMenuExpanded = true }) {
+                                                IconButton(
+                                                    modifier = Modifier.testTag("action.messages.filter"),
+                                                    onClick = { searchMenuExpanded = true },
+                                                ) {
                                                     FilterMenuIcon(
                                                         active = hasActiveFilter,
                                                         inactiveTint = uiColors.iconMuted,
@@ -413,6 +421,7 @@ fun MessageListScreen(
                                                     verticalArrangement = Arrangement.spacedBy(8.dp),
                                                 ) {
                                                     FilterChip(
+                                                        modifier = Modifier.testTag("filter.unread_only"),
                                                         selected = filterState.unreadOnly,
                                                         onClick = viewModel::toggleUnreadOnlyFilter,
                                                         label = { Text(stringResource(R.string.message_show_unread_only)) },

@@ -5,9 +5,9 @@
 | 真实入口 | 用户目的 | 关键状态/分支 | 数据/系统终点 | 最低证据 | Lane/当前状态 | 主要 owner |
 | --- | --- | --- | --- | --- | --- | --- |
 | App launch | 进入可操作 App | Empty/Content/slow/fatal/migration | App-owned Room、首屏、导航 | Room + UI + Macrobenchmark | P0；empty/content/slow/error 已有真实 App UI，migration UI/Macrobenchmark 待补 | `MainActivity`、`AppContainer`、DB |
-| Messages list | 浏览/分页/刷新消息 | first/page/refresh/slow/error | summary query、列表集合 | DAO + VM + UI | P0；首次 slow/error/retry 与准确集合已有，分页/refresh UI 待补 | Message repository/VM/UI |
-| Message detail | 阅读准确内容 | missing/decrypt/media/read/delete | Room、read state、notification | unit + UI + relaunch | P0；准确字段/详情/activity relaunch、删除撤销已有；read/media 待补 | Detail VM/UI/Repository |
-| Search/filter | 找到且只找到目标集合 | latest query/index rebuild/error | search index、结果集合 | property + Room + UI | P0；错误词排除、目标集合与准确详情 UI 已有；index error/rebuild 留低层 | DAO/Search UI |
+| Messages list | 浏览/分页/刷新消息 | first/page/refresh/slow/error | summary query、列表集合 | DAO + VM + UI | P0；首次 slow/error/retry、准确集合与跨 50 条页界已有；refresh UI 待补 | Message repository/VM/UI |
+| Message detail | 阅读准确内容 | missing/decrypt/media/read/delete | Room、read state、notification | unit + UI + relaunch | P0；准确字段/详情、单条/全部已读、未读筛选、activity relaunch 与删除撤销已有；media 待补 | Detail VM/UI/Repository |
+| Search/filter | 找到且只找到目标集合 | latest query/unread/index rebuild/error | search index、结果集合 | property + Room + UI | P0；错误词排除、目标集合/准确详情与未读筛选往返 UI 已有；channel/tag 与 index error/rebuild 待补 | DAO/Search UI |
 | History cleanup | 按范围清理 | cutoff/DST/cancel/failure | messages/entities/index/stats | DAO boundary + UI | P1；UI 缺口 | Cleanup/Repositories |
 | Delete/Undo | 删除或恢复并持久化 | pending/claim/failure/death/reopen | Room、Worker、notification | integration + UI | P0；真实详情删除、行隐藏、Undo、activity relaunch 已有；process death/notification 待物理 lane | Pending deletion |
 | Events | 浏览、筛选、关闭事件 | ongoing/closed/slow/error/duplicate | event head/timeline/Thing relation | Room + contract + UI | P0；App-owned 摄入→投影→列表→准确详情已实现，筛选/关闭/错误恢复待补 | Event UI/Repository |

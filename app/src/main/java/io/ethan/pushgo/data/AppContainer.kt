@@ -146,6 +146,7 @@ class AppContainer(
         val messages = when (session.fixture) {
             QualityFixture.EMPTY_CLEAN -> emptyList()
             QualityFixture.MESSAGES_STANDARD -> listOf(qualityMessage(index = 0))
+            QualityFixture.MESSAGES_WORKFLOW -> (0 until 52).map(::qualityWorkflowMessage)
             QualityFixture.MESSAGES_LARGE -> (0 until 1_000).map(::qualityMessage)
             QualityFixture.EVENT_STANDARD,
             QualityFixture.THING_STANDARD -> emptyList()
@@ -208,6 +209,37 @@ class AppContainer(
             url = null,
             isRead = false,
             receivedAt = receivedAt,
+            rawPayloadJson = rawPayload,
+            status = MessageStatus.NORMAL,
+            decryptionState = null,
+            notificationId = null,
+            serverId = "quality-session",
+            bodyPreview = body,
+        )
+    }
+
+    private fun qualityWorkflowMessage(index: Int): PushMessage {
+        val stableId = "quality-workflow-$index"
+        val title = "Quality workflow $index"
+        val body = "Cross-page deterministic workflow row $index."
+        val channel = if (index % 2 == 0) "workflow-alpha" else "workflow-beta"
+        val rawPayload = JSONObject()
+            .put("entity_type", "message")
+            .put("message_id", stableId)
+            .put("delivery_id", "quality-delivery-$stableId")
+            .put("title", title)
+            .put("body", body)
+            .put("tags", org.json.JSONArray(listOf("workflow", if (index % 2 == 0) "even" else "odd")))
+            .toString()
+        return PushMessage(
+            id = stableId,
+            messageId = stableId,
+            title = title,
+            body = body,
+            channel = channel,
+            url = null,
+            isRead = index % 4 == 0,
+            receivedAt = Instant.parse("2026-01-15T08:00:00Z").plusSeconds(index.toLong()),
             rawPayloadJson = rawPayload,
             status = MessageStatus.NORMAL,
             decryptionState = null,

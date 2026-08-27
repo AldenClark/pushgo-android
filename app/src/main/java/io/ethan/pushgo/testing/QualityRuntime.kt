@@ -12,6 +12,7 @@ import org.json.JSONObject
 enum class QualityFixture(val wireValue: String) {
     EMPTY_CLEAN("empty.clean"),
     MESSAGES_STANDARD("messages.standard"),
+    MESSAGES_WORKFLOW("messages.workflow"),
     MESSAGES_LARGE("messages.large"),
     EVENT_STANDARD("event.standard"),
     THING_STANDARD("thing.standard");

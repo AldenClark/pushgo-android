@@ -534,6 +534,7 @@ object PushGoAutomation {
         val fixtureReady = when (session.fixture) {
             QualityFixture.EMPTY_CLEAN -> state.totalMessageCount == 0
             QualityFixture.MESSAGES_STANDARD -> state.totalMessageCount > 0
+            QualityFixture.MESSAGES_WORKFLOW -> state.totalMessageCount == 52
             QualityFixture.MESSAGES_LARGE -> state.totalMessageCount >= 1_000
             QualityFixture.EVENT_STANDARD -> state.eventCount > 0
             QualityFixture.THING_STANDARD -> state.thingCount > 0

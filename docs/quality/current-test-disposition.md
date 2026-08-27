@@ -78,7 +78,7 @@
 
 ## 当前首要缺口
 
-1. 只有一条聚合 UIAutomator baseline，Messages/Events/Things/Channels/Settings 的用户旅程没有按真实目的拆分。
+1. Messages 与 Event/Thing 已按真实目的拆成 App-owned 纵向旅程；Channels/Settings/transport 的用户结果旅程仍是当前 P0 缺口。
 2. Compose “UI baseline” 多数直接构造 ViewModel/Repository，是 component/integration，不是真实 App UI。
 3. Runtime/Automation 仍交换内部状态和路径，容易把准备失败拖成 UI timeout。
 4. 强 Room/ACK/迁移测试很多，但没有映射到页面内容、系统入口和 Release 门禁。
@@ -86,7 +86,7 @@
 
 ## 本轮新增与 Lane 调整
 
-- `QualityMessageJourneyInstrumentedTest`：真实启动 App，覆盖 App-owned 纯空态、准确列表/详情/activity relaunch、搜索排除/目标集合/详情、删除→隐藏→Undo→relaunch、slow→真实空态、错误→点击 Retry→真实空态和真实底部导航。
+- `QualityMessageJourneyInstrumentedTest`：真实启动 App，覆盖 App-owned 纯空态、准确列表/详情/activity relaunch、52 条数据跨 page size 50、单条/全部已读与未读筛选往返、搜索排除/目标集合/详情、删除→隐藏→Undo→relaunch、slow→真实空态、错误→点击 Retry→真实空态和真实底部导航。批量已读旅程曾真实触发非主线程 Toast/announce 崩溃，产品修复后 focused 回归 1/1 通过。
 - `QualityEntityJourneyInstrumentedTest`：复用同一个 App-owned session 生命周期，但按 Entity 能力独立覆盖 Event 摄入→投影→准确详情与 Thing 准确概览/Events-Messages-Updates 三个真实页签；不再把 Entity 覆盖塞进聚合 Message 类。
 - Quality device 进程显式建立唯一 `pushgo-quality-<session>.db`，结束时释放 Room、删除 DB 与 session artifacts；Production 数据进程不激活 Quality Profile，避免迁移测试被测试 DB 污染。
 - `device` lane 仅执行上述纵向旅程及迁移、删除、ACK 三类高风险数据边界；`nightly` 增加 data/transport/work 边界；`release` 复用显式高价值 UI 与 Nightly 风险边界并构建 Release，不再默认执行全部遗留 androidTest。诊断、极端规模和低后果组合不进入常规反馈链。
