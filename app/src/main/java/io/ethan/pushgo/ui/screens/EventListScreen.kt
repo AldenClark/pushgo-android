@@ -803,6 +803,7 @@ fun EventListRowItem(
             modifier = Modifier
                 .fillMaxWidth()
                 .background(uiColors.surfaceBase)
+                .testTag("event.row.${event.eventId}")
                 .clickable(onClick = onClick)
                 .pushGoMergedActionSemantics(
                     summary = rowSummary,
@@ -923,6 +924,7 @@ fun EventDetailSheet(
     Column(
         modifier = Modifier
             .fillMaxWidth()
+            .testTag("sheet.event.detail")
             .verticalScroll(rememberScrollState())
             .padding(horizontal = 16.dp)
             .padding(bottom = bottomGestureInset + 24.dp),
@@ -1021,6 +1023,7 @@ fun EventDetailSheet(
                             text = event.summary,
                             style = MaterialTheme.typography.bodyLarge,
                             color = MaterialTheme.colorScheme.onSurface,
+                            modifier = Modifier.testTag("field.event.detail.summary"),
                         )
                     }
                     if (!event.message.isNullOrBlank()) {

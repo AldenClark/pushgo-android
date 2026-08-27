@@ -14,6 +14,7 @@ import io.ethan.pushgo.ui.PendingLocalDeletionCoordinator
 import io.ethan.pushgo.ui.WorkManagerPendingLocalDeletionDrainScheduler
 import io.ethan.pushgo.update.UpdateManager
 import kotlinx.coroutines.CoroutineScope
+import org.json.JSONArray
 import org.json.JSONObject
 import java.time.Instant
 
@@ -146,8 +147,36 @@ class AppContainer(
             QualityFixture.EMPTY_CLEAN -> emptyList()
             QualityFixture.MESSAGES_STANDARD -> listOf(qualityMessage(index = 0))
             QualityFixture.MESSAGES_LARGE -> (0 until 1_000).map(::qualityMessage)
+            QualityFixture.EVENT_STANDARD,
+            QualityFixture.THING_STANDARD -> emptyList()
         }
         messageRepository.insertAll(messages)
+        when (session.fixture) {
+            QualityFixture.EVENT_STANDARD -> {
+                entityRepository.insertIncoming(qualityEvent())
+                check(entityRepository.eventCount() == 1) {
+                    "event.standard did not reach its canonical projection"
+                }
+            }
+            QualityFixture.THING_STANDARD -> {
+                entityRepository.insertIncoming(qualityThing(
+                    title = "Quality Initial Thing Snapshot",
+                    deliverySuffix = "initial",
+                    receivedAt = Instant.parse("2026-01-15T08:00:00Z"),
+                ))
+                entityRepository.insertIncoming(qualityThing(
+                    title = "Quality Reactor Alpha",
+                    deliverySuffix = "current",
+                    receivedAt = Instant.parse("2026-01-15T08:01:00Z"),
+                ))
+                entityRepository.insertIncoming(qualityEvent(thingId = "quality-thing"))
+                messageRepository.insertIncoming(qualityThingMessage())
+                check(entityRepository.thingCount() == 1) {
+                    "thing.standard did not reach its canonical projection"
+                }
+            }
+            else -> Unit
+        }
     }
 
     suspend fun handlePushTokenUpdate(deviceToken: String) {
@@ -185,6 +214,119 @@ class AppContainer(
             notificationId = null,
             serverId = "quality-session",
             bodyPreview = body,
+        )
+    }
+
+    private fun qualityEvent(thingId: String? = null): IncomingEntityRecord {
+        val stableId = if (thingId == null) "quality-event" else "quality-related-event"
+        val title = if (thingId == null) "Quality Cooling Alert" else "Quality Related Event"
+        val description = if (thingId == null) {
+            "Cooling loop temperature crossed the quality threshold."
+        } else {
+            "A deterministic event associated with Quality Reactor Alpha."
+        }
+        val receivedAt = if (thingId == null) {
+            Instant.parse("2026-01-15T08:02:00Z")
+        } else {
+            Instant.parse("2026-01-15T08:03:00Z")
+        }
+        val payload = JSONObject()
+            .put("entity_type", "event")
+            .put("entity_id", stableId)
+            .put("event_id", stableId)
+            .put("delivery_id", "quality-delivery-$stableId")
+            .put("op_id", "quality-op-$stableId")
+            .put("event_state", "ONGOING")
+            .put("event_time", receivedAt.toString())
+            .put("title", title)
+            .put("description", description)
+            .put("status", "investigating")
+            .put("message", "Inspect the deterministic cooling fixture.")
+            .put("severity", "high")
+            .put("tags", JSONArray(listOf("quality", "cooling")))
+        thingId?.let { payload.put("thing_id", it) }
+        return IncomingEntityRecord(
+            entityType = "event",
+            entityId = stableId,
+            channel = "quality",
+            title = title,
+            body = "Inspect the deterministic cooling fixture.",
+            rawPayloadJson = payload.toString(),
+            receivedAt = receivedAt,
+            opId = "quality-op-$stableId",
+            deliveryId = "quality-delivery-$stableId",
+            serverId = "quality-session",
+            eventId = stableId,
+            thingId = thingId,
+            eventState = "ONGOING",
+            eventTimeEpoch = receivedAt.toEpochMilli(),
+            observedTimeEpoch = null,
+        )
+    }
+
+    private fun qualityThing(
+        title: String,
+        deliverySuffix: String,
+        receivedAt: Instant,
+    ): IncomingEntityRecord {
+        val payload = JSONObject()
+            .put("entity_type", "thing")
+            .put("entity_id", "quality-thing")
+            .put("thing_id", "quality-thing")
+            .put("delivery_id", "quality-delivery-thing-$deliverySuffix")
+            .put("op_id", "quality-op-thing-$deliverySuffix")
+            .put("observed_at", receivedAt.toString())
+            .put("title", title)
+            .put("description", "A deterministic reactor with linked events, messages, and updates.")
+            .put("state", "active")
+            .put("tags", JSONArray(listOf("quality", "reactor")))
+            .put("attrs", JSONObject().put("temperature_c", 72).put("zone", "rack-7"))
+            .put("metadata", JSONObject().put("owner", "quality-suite"))
+        return IncomingEntityRecord(
+            entityType = "thing",
+            entityId = "quality-thing",
+            channel = "quality",
+            title = title,
+            body = "A deterministic reactor with linked events, messages, and updates.",
+            rawPayloadJson = payload.toString(),
+            receivedAt = receivedAt,
+            opId = "quality-op-thing-$deliverySuffix",
+            deliveryId = "quality-delivery-thing-$deliverySuffix",
+            serverId = "quality-session",
+            eventId = null,
+            thingId = "quality-thing",
+            eventState = null,
+            eventTimeEpoch = null,
+            observedTimeEpoch = receivedAt.toEpochMilli(),
+        )
+    }
+
+    private fun qualityThingMessage(): PushMessage {
+        val receivedAt = Instant.parse("2026-01-15T08:04:00Z")
+        val payload = JSONObject()
+            .put("entity_type", "message")
+            .put("entity_id", "quality-related-message")
+            .put("message_id", "quality-related-message")
+            .put("thing_id", "quality-thing")
+            .put("delivery_id", "quality-delivery-related-message")
+            .put("op_id", "quality-op-related-message")
+            .put("occurred_at", receivedAt.toString())
+            .put("tags", JSONArray(listOf("quality", "reactor")))
+        return PushMessage(
+            id = "quality-related-message",
+            messageId = "quality-related-message",
+            title = "Quality Related Message",
+            body = "The linked reactor message is visible in the Messages tab.",
+            channel = "quality",
+            url = null,
+            isRead = false,
+            receivedAt = receivedAt,
+            rawPayloadJson = payload.toString(),
+            status = MessageStatus.NORMAL,
+            decryptionState = null,
+            notificationId = null,
+            serverId = "quality-session",
+            bodyPreview = "The linked reactor message is visible in the Messages tab.",
         )
     }
 }

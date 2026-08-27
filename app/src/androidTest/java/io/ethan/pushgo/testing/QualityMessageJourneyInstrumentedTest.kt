@@ -1,44 +1,16 @@
 package io.ethan.pushgo.testing
 
-import android.content.Intent
 import androidx.compose.ui.test.*
-import androidx.compose.ui.test.junit4.createEmptyComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
-import androidx.test.core.app.ActivityScenario
-import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
-import io.ethan.pushgo.MainActivity
-import io.ethan.pushgo.PushGoApp
-import org.junit.After
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
-import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 
 @RunWith(AndroidJUnit4::class)
-class QualityMessageJourneyInstrumentedTest {
-    @get:Rule
-    val composeRule = createEmptyComposeRule()
-
-    private val app: PushGoApp
-        get() = ApplicationProvider.getApplicationContext()
-    private var scenario: ActivityScenario<MainActivity>? = null
-
-    @After
-    fun tearDown() {
-        scenario?.close()
-        scenario = null
-        val databaseName = QualityRuntime.currentSession()?.databaseName
-        val sessionRoot = QualityRuntime.sessionRoot(app)
-        app.releaseStorageForInstrumentationTest()
-        if (databaseName != null) {
-            app.deleteDatabase(databaseName)
-        }
-        sessionRoot?.deleteRecursively()
-        QualityRuntime.configure(null)
-    }
+class QualityMessageJourneyInstrumentedTest : QualityAppJourneyTestCase() {
 
     @Test
     fun emptyFixtureShowsTheFunctionalEmptyStateInAnAppOwnedDatabase() {
@@ -186,26 +158,4 @@ class QualityMessageJourneyInstrumentedTest {
         composeRule.onNodeWithTag("screen.settings.content").assertIsDisplayed()
     }
 
-    private fun configureAndLaunch(
-        fixture: QualityFixture,
-        faults: QualityFaults = QualityFaults(),
-    ) {
-        val current = QualitySessionDescriptor(
-            schemaVersion = 1,
-            sessionId = "android-ui-${System.nanoTime()}",
-            fixture = fixture,
-            faults = faults,
-        )
-        app.releaseStorageForInstrumentationTest()
-        assertTrue(app.deleteDatabase(current.databaseName) || !app.getDatabasePath(current.databaseName).exists())
-        QualityRuntime.configure(QualityRuntime.encode(current))
-        scenario = launchMainActivity()
-    }
-
-    private fun launchMainActivity(): ActivityScenario<MainActivity> {
-        val intent = Intent(app, MainActivity::class.java).apply {
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
-        }
-        return ActivityScenario.launch(intent)
-    }
 }

@@ -8,4 +8,5 @@
 - Performance work couples correct content with TTID/TTFD/frame/trace milestones in nightly/release scope; proxy file or timing checks do not count.
 - Retries may recover classified emulator/runner faults only, never product assertion failures.
 - Report `PASSED`, `FAILED`, `FLAKY`, `BLOCKED`, and `NOT RUN` separately. Emulator success does not prove real FCM, permission, Doze, reboot, installer, or physical accessibility behavior.
+- Treat `build/quality-results/*-summary.json` as an execution receipt, never as whole-product coverage. `selected_claims` states intent; only `executed_claims` completed. Keep product and test-system status separate.
 - Update the capability matrix and Apple workstream progress record when scope/evidence changes. The cross-platform policy is `../pushgo/design/workstreams/pushgo-quality-testing-overhaul/ai-development-policy.md` when both repositories are checked out as siblings.

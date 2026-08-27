@@ -12,7 +12,9 @@ import org.json.JSONObject
 enum class QualityFixture(val wireValue: String) {
     EMPTY_CLEAN("empty.clean"),
     MESSAGES_STANDARD("messages.standard"),
-    MESSAGES_LARGE("messages.large");
+    MESSAGES_LARGE("messages.large"),
+    EVENT_STANDARD("event.standard"),
+    THING_STANDARD("thing.standard");
 
     companion object {
         fun fromWireValue(value: String): QualityFixture? = entries.firstOrNull {

@@ -32,6 +32,20 @@ class QualityRuntimeTest {
     }
 
     @Test
+    fun everyAppOwnedFixtureRoundTripsThroughTheSessionAllowlist() {
+        QualityFixture.entries.forEachIndexed { index, fixture ->
+            val session = QualitySessionDescriptor(
+                schemaVersion = 1,
+                sessionId = "fixture-roundtrip-$index",
+                fixture = fixture,
+                faults = QualityFaults(),
+            )
+
+            assertEquals(fixture, QualityRuntime.decode(QualityRuntime.encode(session)).fixture)
+        }
+    }
+
+    @Test
     fun pathTraversalSessionIdIsRejected() {
         val encoded = encodeJson(
             JSONObject()

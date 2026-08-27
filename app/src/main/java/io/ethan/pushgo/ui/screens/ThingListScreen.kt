@@ -943,6 +943,7 @@ internal fun ThingRow(
             modifier = Modifier
                 .fillMaxWidth()
                 .background(uiColors.surfaceBase)
+                .testTag("thing.row.${thing.thingId}")
                 .clickable(onClick = onClick)
                 .pushGoMergedActionSemantics(
                     summary = rowSummary,
@@ -1340,6 +1341,7 @@ private fun ThingDetailSheet(
     Column(
         modifier = Modifier
             .fillMaxWidth()
+            .testTag("sheet.thing.detail")
             .verticalScroll(rememberScrollState())
             .padding(horizontal = 16.dp)
             .padding(bottom = bottomGestureInset + 24.dp),
@@ -1490,7 +1492,7 @@ private fun ThingDetailSheet(
                 selected = selectedTab == ThingDetailTab.Events,
                 onClick = { selectedTab = ThingDetailTab.Events },
                 shape = SegmentedButtonDefaults.itemShape(index = 0, count = 3),
-                modifier = Modifier.weight(1f),
+                modifier = Modifier.weight(1f).testTag("tab.thing.detail.events"),
                 icon = {},
             ) {
                 Text(stringResource(R.string.thing_detail_tab_events))
@@ -1499,7 +1501,7 @@ private fun ThingDetailSheet(
                 selected = selectedTab == ThingDetailTab.Messages,
                 onClick = { selectedTab = ThingDetailTab.Messages },
                 shape = SegmentedButtonDefaults.itemShape(index = 1, count = 3),
-                modifier = Modifier.weight(1f),
+                modifier = Modifier.weight(1f).testTag("tab.thing.detail.messages"),
                 icon = {},
             ) {
                 Text(stringResource(R.string.thing_detail_tab_messages))
@@ -1508,7 +1510,7 @@ private fun ThingDetailSheet(
                 selected = selectedTab == ThingDetailTab.Updates,
                 onClick = { selectedTab = ThingDetailTab.Updates },
                 shape = SegmentedButtonDefaults.itemShape(index = 2, count = 3),
-                modifier = Modifier.weight(1f),
+                modifier = Modifier.weight(1f).testTag("tab.thing.detail.updates"),
                 icon = {},
             ) {
                 Text(stringResource(R.string.thing_detail_tab_updates))
