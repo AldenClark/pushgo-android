@@ -341,7 +341,7 @@ fun MessageListScreen(
                     .thenBy { it.first },
             )
     }
-    Box(modifier = Modifier.fillMaxSize()) {
+    Box(modifier = Modifier.fillMaxSize().testTag("screen.messages.list")) {
         PullToRefreshBox(
             isRefreshing = isPullRefreshing,
             onRefresh = { refreshProviderIngressFromPullDown() },
@@ -364,7 +364,8 @@ fun MessageListScreen(
                                         value = query,
                                         onValueChange = searchViewModel::updateQuery,
                                         placeholderText = stringResource(R.string.label_search),
-                                        modifier = Modifier.weight(1f).testTag("field.message.search")
+                                        modifier = Modifier.weight(1f),
+                                        inputTestTag = "field.message.search",
                                     ) {
                                         val hasActiveFilter = filterState.channels.isNotEmpty()
                                             || filterState.tags.isNotEmpty()
@@ -575,7 +576,14 @@ fun MessageListScreen(
                     }
                 } else {
                     if (filteredSearchResults.isEmpty() && searchResults.loadState.refresh is LoadState.NotLoading) {
-                        item { AppEmptyState(icon = Icons.Default.Search, title = stringResource(R.string.label_no_search_results), description = stringResource(R.string.message_list_empty_hint)) }
+                        item {
+                            AppEmptyState(
+                                icon = Icons.Default.Search,
+                                title = stringResource(R.string.label_no_search_results),
+                                description = stringResource(R.string.message_list_empty_hint),
+                                modifier = Modifier.testTag("state.messages.search.empty"),
+                            )
+                        }
                     } else {
                         items(count = searchResults.itemCount, key = searchResults.itemKey { it.id }) { index ->
                             val message = searchResults[index]

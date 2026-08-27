@@ -6,10 +6,10 @@
 | --- | --- | --- | --- | --- | --- | --- |
 | App launch | 进入可操作 App | Empty/Content/slow/fatal/migration | App-owned Room、首屏、导航 | Room + UI + Macrobenchmark | P0；empty/content/slow/error 已有真实 App UI，migration UI/Macrobenchmark 待补 | `MainActivity`、`AppContainer`、DB |
 | Messages list | 浏览/分页/刷新消息 | first/page/refresh/slow/error | summary query、列表集合 | DAO + VM + UI | P0；首次 slow/error/retry 与准确集合已有，分页/refresh UI 待补 | Message repository/VM/UI |
-| Message detail | 阅读准确内容 | missing/decrypt/media/read/delete | Room、read state、notification | unit + UI + relaunch | P0；准确字段/详情/activity relaunch 已有，读删/媒体待补 | Detail VM/UI/Repository |
-| Search/filter | 找到且只找到目标集合 | latest query/index rebuild/error | search index、结果集合 | property + Room + UI | P0；Room 强、UI 缺口 | DAO/Search UI |
+| Message detail | 阅读准确内容 | missing/decrypt/media/read/delete | Room、read state、notification | unit + UI + relaunch | P0；准确字段/详情/activity relaunch、删除撤销已有；read/media 待补 | Detail VM/UI/Repository |
+| Search/filter | 找到且只找到目标集合 | latest query/index rebuild/error | search index、结果集合 | property + Room + UI | P0；错误词排除、目标集合与准确详情 UI 已有；index error/rebuild 留低层 | DAO/Search UI |
 | History cleanup | 按范围清理 | cutoff/DST/cancel/failure | messages/entities/index/stats | DAO boundary + UI | P1；UI 缺口 | Cleanup/Repositories |
-| Delete/Undo | 删除或恢复并持久化 | pending/claim/failure/death/reopen | Room、Worker、notification | integration + UI | P0；强低层、UI 缺口 | Pending deletion |
+| Delete/Undo | 删除或恢复并持久化 | pending/claim/failure/death/reopen | Room、Worker、notification | integration + UI | P0；真实详情删除、行隐藏、Undo、activity relaunch 已有；process death/notification 待物理 lane | Pending deletion |
 | Events | 浏览、筛选、关闭事件 | ongoing/closed/slow/error/duplicate | event head/timeline/Thing relation | Room + contract + UI | P0；UI 旅程缺口 | Event UI/Repository |
 | Things | 浏览对象和三个页签 | active/filter/missing/deep link | head、Events/Messages/Updates | Room + router + UI | P0；UI 旅程缺口 | Thing UI/Repository |
 | Channels | 创建、订阅、改名、两类退订 | invalid/auth/failure/keep/delete/undo | remote、credentials、history | contract + Room + UI | P0；低层部分已有、UI 缺口 | Channel repository/UI |

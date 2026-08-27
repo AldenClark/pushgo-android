@@ -35,6 +35,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInWindow
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
 import io.ethan.pushgo.ui.viewmodel.toUserFacingText
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.pluralStringResource
@@ -689,7 +690,7 @@ fun ThingListScreen(
         }
     }
 
-    Box(modifier = Modifier.fillMaxSize()) {
+    Box(modifier = Modifier.fillMaxSize().testTag("screen.things.list")) {
         PullToRefreshBox(
             isRefreshing = isPullRefreshing,
             onRefresh = { refreshProviderIngressFromPullDown() },

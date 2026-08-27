@@ -26,6 +26,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import io.ethan.pushgo.R
@@ -37,6 +38,7 @@ internal fun PushGoSearchBar(
     onValueChange: (String) -> Unit,
     placeholderText: String,
     modifier: Modifier = Modifier,
+    inputTestTag: String? = null,
     trailingContent: @Composable RowScope.() -> Unit = {},
 ) {
     val uiColors = PushGoThemeExtras.colors
@@ -57,6 +59,7 @@ internal fun PushGoSearchBar(
             onValueChange = onValueChange,
             modifier = Modifier
                 .weight(1f)
+                .then(if (inputTestTag != null) Modifier.testTag(inputTestTag) else Modifier)
                 .semantics {
                     contentDescription = placeholderText
                     stateDescription = value.ifBlank { emptyStateLabel }

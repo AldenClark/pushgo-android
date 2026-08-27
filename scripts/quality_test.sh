@@ -62,9 +62,8 @@ case "$lane" in
   release)
     run_jvm_and_compile_device_tests
     run_quality_device_classes
-    "$repo_root/scripts/quality_doctor.sh"
-    "$repo_root/gradlew" connectedDebugAndroidTest assembleRelease \
-      "-Pandroid.testInstrumentationRunnerArguments.notClass=$quality_device_classes"
+    run_device_classes "$nightly_data_classes"
+    "$repo_root/gradlew" assembleRelease
     ;;
   *)
     echo "status=BLOCKED"

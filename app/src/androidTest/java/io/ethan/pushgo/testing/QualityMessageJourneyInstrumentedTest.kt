@@ -77,6 +77,58 @@ class QualityMessageJourneyInstrumentedTest {
     }
 
     @Test
+    fun searchReturnsOnlyTheTargetAndOpensItsRealDetail() {
+        configureAndLaunch(fixture = QualityFixture.MESSAGES_STANDARD)
+
+        composeRule.onNodeWithTag("field.message.search")
+            .assertIsDisplayed()
+            .performTextInput("not-present-in-any-message")
+        composeRule.waitUntil(timeoutMillis = 8_000) {
+            composeRule.onAllNodes(hasTestTag("state.messages.search.empty"))
+                .fetchSemanticsNodes().isNotEmpty()
+        }
+        composeRule.onNodeWithText("P2 Split Seed Message").assertDoesNotExist()
+
+        composeRule.onNodeWithTag("field.message.search").performTextClearance()
+        composeRule.onNodeWithTag("field.message.search").performTextInput("P2 Split")
+        composeRule.waitUntil(timeoutMillis = 8_000) {
+            composeRule.onAllNodes(hasText("P2 Split Seed Message"))
+                .fetchSemanticsNodes().isNotEmpty()
+        }
+        composeRule.onNodeWithTag("state.messages.search.empty").assertDoesNotExist()
+        composeRule.onNodeWithText("P2 Split Seed Message").performClick()
+        composeRule.onNodeWithTag("sheet.message.detail").assertIsDisplayed()
+        composeRule.onNodeWithText("Seeded from fixture.seed_messages for UI validation.")
+            .assertIsDisplayed()
+    }
+
+    @Test
+    fun deleteUndoRestoresTheSameObjectAcrossActivityRelaunch() {
+        configureAndLaunch(fixture = QualityFixture.MESSAGES_STANDARD)
+
+        composeRule.onNodeWithText("P2 Split Seed Message").assertIsDisplayed().performClick()
+        composeRule.onNodeWithTag("action.message.delete").assertIsDisplayed().performClick()
+        composeRule.waitUntil(timeoutMillis = 5_000) {
+            composeRule.onAllNodes(hasTestTag("state.pending_deletion"))
+                .fetchSemanticsNodes().isNotEmpty()
+        }
+        composeRule.onNodeWithTag("message.row.quality-standard-message").assertDoesNotExist()
+        composeRule.onNodeWithTag("action.pending_deletion.undo").assertIsDisplayed().performClick()
+        composeRule.waitUntil(timeoutMillis = 8_000) {
+            composeRule.onAllNodes(hasText("P2 Split Seed Message"))
+                .fetchSemanticsNodes().isNotEmpty()
+        }
+
+        scenario?.close()
+        scenario = launchMainActivity()
+        composeRule.waitUntil(timeoutMillis = 8_000) {
+            composeRule.onAllNodes(hasText("P2 Split Seed Message"))
+                .fetchSemanticsNodes().isNotEmpty()
+        }
+        composeRule.onNodeWithText("P2 Split Seed Message").assertExists()
+    }
+
+    @Test
     fun slowLoadBecomesVisibleBeforeTheRealEmptyResult() {
         configureAndLaunch(
             fixture = QualityFixture.EMPTY_CLEAN,
@@ -117,6 +169,21 @@ class QualityMessageJourneyInstrumentedTest {
             ).fetchSemanticsNodes().isNotEmpty()
         }
         composeRule.onNodeWithTag("state.messages.empty").assertIsDisplayed()
+    }
+
+    @Test
+    fun primaryNavigationUsesRealControlsAndReachesEveryProductScreen() {
+        configureAndLaunch(fixture = QualityFixture.EMPTY_CLEAN)
+
+        composeRule.onNodeWithTag("screen.messages.list").assertIsDisplayed()
+        composeRule.onNodeWithTag("nav.item.events").assertIsDisplayed().performClick()
+        composeRule.onNodeWithTag("screen.events.list").assertIsDisplayed()
+        composeRule.onNodeWithTag("nav.item.things").assertIsDisplayed().performClick()
+        composeRule.onNodeWithTag("screen.things.list").assertIsDisplayed()
+        composeRule.onNodeWithTag("nav.item.channels").assertIsDisplayed().performClick()
+        composeRule.onNodeWithTag("screen.channels.list").assertIsDisplayed()
+        composeRule.onNodeWithTag("action.channels.settings").assertIsDisplayed().performClick()
+        composeRule.onNodeWithTag("screen.settings.content").assertIsDisplayed()
     }
 
     private fun configureAndLaunch(

@@ -86,6 +86,6 @@
 
 ## 本轮新增与 Lane 调整
 
-- `QualityMessageJourneyInstrumentedTest`：真实启动 App，覆盖 App-owned 纯空态、准确列表/详情/activity relaunch、slow→真实空态、错误→点击 Retry→真实空态，保留为 PR 之后的核心 device 证据。
+- `QualityMessageJourneyInstrumentedTest`：真实启动 App，覆盖 App-owned 纯空态、准确列表/详情/activity relaunch、搜索排除/目标集合/详情、删除→隐藏→Undo→relaunch、slow→真实空态、错误→点击 Retry→真实空态，以及真实底部导航进入四个主页面与 Settings。
 - Quality device 进程显式建立唯一 `pushgo-quality-<session>.db`，结束时释放 Room、删除 DB 与 session artifacts；Production 数据进程不激活 Quality Profile，避免迁移测试被测试 DB 污染。
-- `device` lane 仅执行上述纵向旅程及迁移、删除、ACK 三类高风险数据边界；`nightly` 增加 data/transport/work 边界；`release` 才执行全部 androidTest。诊断、极端规模和低后果组合不进入日常反馈链。
+- `device` lane 仅执行上述纵向旅程及迁移、删除、ACK 三类高风险数据边界；`nightly` 增加 data/transport/work 边界；`release` 复用显式高价值 UI 与 Nightly 风险边界并构建 Release，不再默认执行全部遗留 androidTest。诊断、极端规模和低后果组合不进入常规反馈链。

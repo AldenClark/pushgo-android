@@ -298,6 +298,9 @@ fun PushGoAppRoot(
                     items.forEach { item ->
                         val selected = currentRoute.matches(item)
                         NavigationBarItem(
+                            modifier = Modifier.testTag(
+                                "nav.item.${item.topLevelRoute()?.spec?.wireValue ?: "unknown"}"
+                            ),
                             selected = selected,
                             onClick = {
                                 val topLevelRoute = item.topLevelRoute()

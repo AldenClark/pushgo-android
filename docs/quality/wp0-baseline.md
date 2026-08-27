@@ -7,8 +7,9 @@
 | 检查 | 结果 | 证据边界 |
 | --- | --- | --- |
 | `./gradlew testDebugUnitTest` | PASSED：274 tests，0 failure/error/skipped | JVM/unit；不证明 Room device、真实 App UI 或系统能力 |
-| API 37 emulator 核心消息旅程 | PASSED：4/4 | 证明 App-owned Room→Paging/Compose→空态/详情/重启/slow/error/retry，不证明真实 FCM/权限/物理性能 |
+| API 37 emulator 核心质量旅程 | PASSED：7/7 | 证明 App-owned Room→Paging/Compose→空态/详情/重启/搜索/删除撤销/slow/error/retry/真实导航；不证明真实 FCM/权限/物理性能 |
 | API 37 emulator 核心数据边界 | PASSED：18/18 | Production profile 下证明迁移、删除恢复与 ACK；与 Quality UI 进程隔离，防止 DB 会话污染 |
+| `assembleRelease` | PASSED | 证明当前生产变体可编译、压缩、lintVital 并产出 APK；不等同于安装/升级/签名链已通过 |
 | 真实 FCM/Private/权限/安装 | NOT RUN | 不允许由 JVM 或 synthetic contract 代替 |
 
 ## 现有 device 测试形态
@@ -25,7 +26,7 @@
 
 ## 首个可证伪基线结论
 
-Android 的 JVM 层保持全绿，并已新增四次真实 App UI 设备执行证据；它们只覆盖消息核心纵向切片，仍不能代表 Events/Things/Channels/Settings 或真实系统能力。因此“低层很强”“消息 UI 已证明”和“全平台能力已证明”继续分栏报告。
+Android 的 JVM 层保持全绿，真实 App UI 旅程已扩到消息目的和主导航可达性；Events/Things/Channels 当前只证明页面可达，尚未证明其完整业务动作，真实系统能力亦未运行。因此“页面可达”“业务旅程已证明”和“系统能力已证明”继续分栏报告。
 
 ## 当前执行阻力
 

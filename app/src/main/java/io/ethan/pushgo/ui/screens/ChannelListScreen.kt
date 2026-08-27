@@ -138,6 +138,7 @@ fun ChannelListScreen(
     Column(
         modifier = Modifier
             .fillMaxSize()
+            .testTag("screen.channels.list")
             .background(uiColors.surfaceBase)
     ) {
         Row(
@@ -170,11 +171,14 @@ fun ChannelListScreen(
                     tint = uiColors.accentPrimary
                 )
             }
-            IconButton(onClick = {
-                navController.navigate(io.ethan.pushgo.ui.SettingsRoute) {
-                    launchSingleTop = true
-                }
-            }) {
+            IconButton(
+                onClick = {
+                    navController.navigate(io.ethan.pushgo.ui.SettingsRoute) {
+                        launchSingleTop = true
+                    }
+                },
+                modifier = Modifier.testTag("action.channels.settings"),
+            ) {
                 Icon(
                     imageVector = Icons.Outlined.Settings,
                     contentDescription = stringResource(R.string.tab_settings),
