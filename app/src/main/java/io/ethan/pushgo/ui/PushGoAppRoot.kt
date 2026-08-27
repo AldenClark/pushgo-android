@@ -27,6 +27,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.res.stringResource
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -109,6 +111,8 @@ fun PushGoAppRoot(
     var autoUpdatePromptedVersionCode by rememberSaveable { mutableIntStateOf(-1) }
     var autoUpdateWasInstalling by remember { mutableStateOf(false) }
     val appScope = rememberCoroutineScope()
+    val qualityReadinessStatus = PushGoAutomation.qualityReadinessStatus
+    val qualitySessionId = PushGoAutomation.qualitySessionId()
 
     val unreadCount by container.messageRepository.observeUnreadCount().collectAsStateWithLifecycle(initialValue = 0)
     val eventCount by container.entityRepository.observeEventCount().collectAsStateWithLifecycle(initialValue = 0)
@@ -370,6 +374,16 @@ fun PushGoAppRoot(
                 },
                 onThingDetailOpened = { openedEntityType = "thing"; openedEntityId = it }, onThingDetailClosed = { openedEntityType = null; openedEntityId = null }
             )
+            if (qualityReadinessStatus != "inactive" && qualitySessionId != null) {
+                Box(
+                    modifier = Modifier
+                        .size(1.dp)
+                        .testTag("quality-runtime.$qualityReadinessStatus")
+                        .semantics {
+                            contentDescription = "quality-runtime.$qualityReadinessStatus:$qualitySessionId"
+                        }
+                )
+            }
             if (selectedMessageId != null) {
                 MessageDetailScreen(
                     messageId = selectedMessageId!!, repository = container.messageRepository,

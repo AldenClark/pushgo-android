@@ -231,7 +231,7 @@ class PushGoApp : Application(), SingletonImageLoader.Factory {
     private fun createContainer(): AppContainer {
         val job = SupervisorJob(appScope.coroutineContext[Job])
         return runCatching {
-            AppContainer(
+            val container = AppContainer(
                 context = this,
                 appScope = CoroutineScope(job + Dispatchers.IO),
                 pendingLocalDeletionDrainScheduler = if (
@@ -242,6 +242,10 @@ class PushGoApp : Application(), SingletonImageLoader.Factory {
                     io.ethan.pushgo.ui.WorkManagerPendingLocalDeletionDrainScheduler(this)
                 },
             )
+            if (io.ethan.pushgo.testing.QualityRuntime.currentSession() != null) {
+                runBlocking { container.initializeQualityFixtureIfNeeded() }
+            }
+            container
         }.onSuccess {
             containerJob = job
         }.onFailure {

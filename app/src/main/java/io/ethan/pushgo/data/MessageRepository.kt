@@ -27,6 +27,7 @@ import io.ethan.pushgo.data.model.MessageFacetOptionCount
 import io.ethan.pushgo.data.model.MessageFilter
 import io.ethan.pushgo.data.model.MessageListItem
 import io.ethan.pushgo.data.model.PushMessage
+import io.ethan.pushgo.testing.QualityRuntime
 import io.ethan.pushgo.util.SearchTextNormalizer
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -111,7 +112,7 @@ class MessageRepository(
                 initialLoadSize = 50
             ),
             pagingSourceFactory = {
-                dao.observeMessages(
+                val source = dao.observeMessages(
                     readState = if (filter.unreadOnly) false else null,
                     withUrl = if (filter.withUrlOnly) 1 else 0,
                     channels = filter.channels.toList(),
@@ -123,6 +124,8 @@ class MessageRepository(
                     excludedIds = normalizedExcludedIds,
                     excludedCount = normalizedExcludedIds.size,
                 )
+                if (QualityRuntime.currentSession() == null) source
+                else QualityFaultPagingSource(source)
             }
         ).flow.map { pagingData ->
             pagingData.map(MessageListRow::asListItem)

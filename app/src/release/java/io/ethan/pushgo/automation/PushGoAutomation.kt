@@ -76,6 +76,7 @@ object PushGoAutomation {
     )
 
     val requestVersion: Int = 0
+    val qualityReadinessStatus: String = "inactive"
 
     fun configureFromIntent(intent: Intent?, filesDir: File? = null) = Unit
 
@@ -117,4 +118,6 @@ object PushGoAutomation {
     fun startupGatewayToken(): String? = null
 
     fun isSessionConfigured(): Boolean = false
+
+    fun qualitySessionId(): String? = null
 }

@@ -92,6 +92,7 @@ import io.ethan.pushgo.ui.theme.PushGoThemeExtras
 import io.ethan.pushgo.ui.viewmodel.MessageListViewModel
 import io.ethan.pushgo.ui.viewmodel.MessageSearchViewModel
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.time.Instant
 import java.time.ZoneId
@@ -120,6 +121,7 @@ fun MessageListScreen(
     val searchViewModel: MessageSearchViewModel = viewModel(factory = factory)
     val uiColors = PushGoThemeExtras.colors
     val messages = viewModel.messages.collectAsLazyPagingItems()
+    var isMessageLoadSlow by remember { mutableStateOf(false) }
     val filterState by viewModel.filterState.collectAsStateWithLifecycle()
     val currentScopeUnreadCount by viewModel.currentScopeUnreadCount.collectAsStateWithLifecycle()
     val facetChannelCounts by viewModel.facetChannelCounts.collectAsStateWithLifecycle()
@@ -139,6 +141,16 @@ fun MessageListScreen(
     var isPullRefreshing by remember { mutableStateOf(false) }
     var isHistoryCleanupSheetVisible by rememberSaveable { mutableStateOf(false) }
     val messagesTabLabel = stringResource(R.string.tab_messages)
+
+    LaunchedEffect(messages.loadState.refresh) {
+        isMessageLoadSlow = false
+        if (messages.loadState.refresh is LoadState.Loading) {
+            delay(1_000)
+            if (messages.loadState.refresh is LoadState.Loading) {
+                isMessageLoadSlow = true
+            }
+        }
+    }
 
     fun isPendingLocalDeletion(message: MessageListItem): Boolean {
         return effectivePendingScope.suppressesMessage(
@@ -497,8 +509,41 @@ fun MessageListScreen(
                 }
 
                 if (query.isBlank()) {
+                    when {
+                        filteredPagedItems.isEmpty() && messages.loadState.refresh is LoadState.Loading -> {
+                            item {
+                                MessageLoadStatePanel(
+                                    message = stringResource(
+                                        if (isMessageLoadSlow) R.string.message_loading_slow
+                                        else R.string.label_loading
+                                    ),
+                                    stateTag = if (isMessageLoadSlow) {
+                                        "state.messages.loading.slow"
+                                    } else {
+                                        "state.messages.loading"
+                                    },
+                                )
+                            }
+                        }
+                        messages.loadState.refresh is LoadState.Error -> {
+                            item {
+                                MessageLoadStatePanel(
+                                    message = stringResource(R.string.message_load_failed),
+                                    stateTag = "state.messages.load_failed",
+                                    onRetry = messages::retry,
+                                )
+                            }
+                        }
+                    }
                     if (filteredPagedItems.isEmpty() && messages.loadState.refresh is LoadState.NotLoading) {
-                        item { AppEmptyState(icon = Icons.Outlined.Email, title = stringResource(R.string.message_list_empty_title), description = stringResource(R.string.message_list_empty_hint)) }
+                        item {
+                            AppEmptyState(
+                                icon = Icons.Outlined.Email,
+                                title = stringResource(R.string.message_list_empty_title),
+                                description = stringResource(R.string.message_list_empty_hint),
+                                modifier = Modifier.testTag("state.messages.empty"),
+                            )
+                        }
                     } else {
                         items(
                             count = messages.itemCount,
@@ -574,6 +619,45 @@ fun MessageListScreen(
             },
         )
 
+}
+
+@Composable
+private fun MessageLoadStatePanel(
+    message: String,
+    stateTag: String,
+    onRetry: (() -> Unit)? = null,
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 24.dp, vertical = 32.dp)
+            .testTag(stateTag),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        if (onRetry == null) {
+            CircularProgressIndicator(modifier = Modifier.size(28.dp))
+        } else {
+            Icon(
+                imageVector = Icons.Outlined.WarningAmber,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        Text(
+            text = message,
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        onRetry?.let { retry ->
+            Button(
+                onClick = retry,
+                modifier = Modifier.testTag("action.messages.retry"),
+            ) {
+                Text(stringResource(R.string.action_retry))
+            }
+        }
+    }
 }
 
 @Composable

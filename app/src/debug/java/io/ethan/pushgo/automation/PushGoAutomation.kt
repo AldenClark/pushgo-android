@@ -3,7 +3,10 @@ package io.ethan.pushgo.automation
 import android.content.Intent
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import io.ethan.pushgo.testing.QualityFixture
+import io.ethan.pushgo.testing.QualityRuntime
 import org.json.JSONObject
 import java.io.File
 import java.util.Base64
@@ -126,14 +129,36 @@ object PushGoAutomation {
     private var activeTrace: ActiveTrace? = null
     var requestVersion by mutableIntStateOf(0)
         private set
+    var qualityReadinessStatus by mutableStateOf("inactive")
+        private set
 
     fun configureFromIntent(intent: Intent?, filesDir: File? = null) {
         if (intent == null) return
         filesDirectory = filesDir ?: filesDirectory
-        responsePath = normalized(intent.getStringExtra(EXTRA_RESPONSE_PATH)) ?: responsePath
-        statePath = normalized(intent.getStringExtra(EXTRA_STATE_PATH)) ?: statePath
-        eventsPath = normalized(intent.getStringExtra(EXTRA_EVENTS_PATH)) ?: eventsPath
-        tracePath = normalized(intent.getStringExtra(EXTRA_TRACE_PATH)) ?: tracePath
+        val appFilesDir = filesDirectory
+        if (QualityRuntime.currentSession() != null && appFilesDir != null) {
+            responsePath = QualityRuntime.artifactFileFromFilesDir(
+                appFilesDir,
+                "automation-response.json",
+            )?.path
+            statePath = QualityRuntime.artifactFileFromFilesDir(
+                appFilesDir,
+                "automation-state.json",
+            )?.path
+            eventsPath = QualityRuntime.artifactFileFromFilesDir(
+                appFilesDir,
+                "automation-events.jsonl",
+            )?.path
+            tracePath = QualityRuntime.artifactFileFromFilesDir(
+                appFilesDir,
+                "automation-trace.jsonl",
+            )?.path
+        } else {
+            responsePath = normalized(intent.getStringExtra(EXTRA_RESPONSE_PATH)) ?: responsePath
+            statePath = normalized(intent.getStringExtra(EXTRA_STATE_PATH)) ?: statePath
+            eventsPath = normalized(intent.getStringExtra(EXTRA_EVENTS_PATH)) ?: eventsPath
+            tracePath = normalized(intent.getStringExtra(EXTRA_TRACE_PATH)) ?: tracePath
+        }
         startupGatewayBaseUrl = normalized(intent.getStringExtra(EXTRA_GATEWAY_BASE_URL)) ?: startupGatewayBaseUrl
         startupGatewayToken = normalized(intent.getStringExtra(EXTRA_GATEWAY_TOKEN)) ?: startupGatewayToken
         val rawRequest = normalized(intent.getStringExtra(EXTRA_REQUEST_JSON)) ?: return
@@ -159,6 +184,7 @@ object PushGoAutomation {
                 .put("visible_screen", state.visibleScreen),
         )
         writeDerivedEvents(previousState, state)
+        updateQualityReadiness(state)
     }
 
     fun writeResponse(
@@ -490,11 +516,43 @@ object PushGoAutomation {
     fun startupGatewayToken(): String? = startupGatewayToken
 
     fun isSessionConfigured(): Boolean {
-        return pendingRequest != null ||
+        return QualityRuntime.currentSession() != null ||
+            pendingRequest != null ||
             responsePath != null ||
             statePath != null ||
             eventsPath != null ||
             tracePath != null
+    }
+
+    fun qualitySessionId(): String? = QualityRuntime.currentSession()?.sessionId
+
+    private fun updateQualityReadiness(state: AutomationState) {
+        val session = QualityRuntime.currentSession() ?: run {
+            qualityReadinessStatus = "inactive"
+            return
+        }
+        val fixtureReady = when (session.fixture) {
+            QualityFixture.EMPTY_CLEAN -> state.totalMessageCount == 0
+            QualityFixture.MESSAGES_STANDARD -> state.totalMessageCount > 0
+            QualityFixture.MESSAGES_LARGE -> state.totalMessageCount >= 1_000
+        }
+        qualityReadinessStatus = if (runtimeErrorCount == 0 && fixtureReady) "ready" else "failed"
+        val target = filesDirectory?.let {
+            QualityRuntime.artifactFileFromFilesDir(it, "quality-readiness.json")
+        }
+        writeJson(
+            target?.path,
+            JSONObject()
+                .put("schema_version", session.schemaVersion)
+                .put("session_id", session.sessionId)
+                .put("fixture", session.fixture.wireValue)
+                .put("status", qualityReadinessStatus)
+                .put("local_store_mode", "persistent")
+                .put("total_message_count", state.totalMessageCount)
+                .put("runtime_error_count", runtimeErrorCount)
+                .put("generated_at", java.time.Instant.now().toString())
+                .toString(2),
+        )
     }
 
     private fun writeTraceAnnotation(type: String, command: String?, details: JSONObject) {

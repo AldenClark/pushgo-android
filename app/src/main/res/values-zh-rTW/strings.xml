@@ -80,6 +80,9 @@
     <string name="label_no_title">(無標題)</string>
     <string name="label_group_ungrouped">未分組</string>
     <string name="label_loading">載入中…</string>
+    <string name="message_loading_slow">訊息仍在載入，請稍候…</string>
+    <string name="message_load_failed">無法載入訊息，請重試。</string>
+    <string name="action_retry">重試</string>
     <string name="section_connection_device">連線與裝置</string><string name="section_channels">頻道</string>
     <string name="section_decryption">訊息解密</string>
     <string name="section_security">安全</string>
