@@ -88,6 +88,10 @@
 4. 强 Room/ACK/迁移测试很多；消息系统通知的代表性纵向链路已映射到准确页面/数据终点与 Nightly/Release，Event/Thing 动作、系统 mark-read/delete/copy 仍需同样迁移。
 5. 真实 FCM、用户权限拒绝/再次授权、Doze、进程死亡冷启动、OEM/真机、安装流程和性能设备证据仍需独立 Lane。
 
+## Test-system/flake 处置
+
+`config/quality-test-system-issues.json` 取代分类器内无 owner/到期的字符串白名单。`android-quality-precondition` 是 0 重试的准备边界；`android-compose-snapshot-observer-runtime` 是有 owner 且 2026-09-11 到期的 active flake，同样不允许自动重试。分类器只看本轮 XML，且每一个 failure 都必须精确命中 active 登记；混入一个产品断言就按产品失败。收据必须记录 issue ID，未知/过期 ID、无 ID 的 `FLAKY`、无替代证据 quarantine 都被脚本拒绝。跨平台操作规则见兄弟 Apple 仓库的 `docs/quality/test-system-issue-governance.md`。
+
 ## 本轮新增与 Lane 调整
 
 - `QualityMessageJourneyInstrumentedTest`：真实启动 App，覆盖 App-owned 纯空态、准确列表/详情/activity relaunch、52 条数据跨 page size 50、单条/全部已读与未读筛选往返、搜索排除/目标集合/详情、删除→隐藏→Undo→relaunch、首次 slow→真实空态、错误→点击 Retry→真实空态、慢刷新旧快照、新 Provider 拉取页经解析/持久化进入列表和详情、首次刷新失败保留旧快照并由 Retry 恢复，以及真实底部导航。详情正文 Oracle 限定在真实详情字段 owner 内核对准确内容，避免列表行与详情同文案造成双节点误归因；仍不以任意可见同文案、直接修改 Compose 集合或 DB 文件存在作为 Oracle。

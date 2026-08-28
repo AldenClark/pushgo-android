@@ -10,6 +10,7 @@ mkdir -p "$results_root"
 
 claims=()
 selected_claims=()
+test_system_issue_ids=()
 not_run=(
   "real FCM, user permission-decision UI, Doze/reboot/install, and physical accessibility evidence"
 )
@@ -33,11 +34,12 @@ write_result() {
   for item in "${selected_claims[@]}"; do args+=(--selected-claim "$item"); done
   for item in "${claims[@]}"; do args+=(--claim "$item"); done
   for item in "${not_run[@]}"; do args+=(--not-run "$item"); done
+  for item in "${test_system_issue_ids[@]}"; do args+=(--test-system-issue-id "$item"); done
   [[ -z "$reason" ]] || args+=(--reason "$reason")
   python3 "$repo_root/scripts/quality_result.py" "${args[@]}"
 }
 
-has_current_test_system_failure() {
+classify_current_test_system_failure() {
   local report_root="$repo_root/app/build/outputs/androidTest-results/connected"
   python3 "$repo_root/scripts/classify_android_test_failure.py" \
     --report-root "$report_root" \
@@ -46,11 +48,21 @@ has_current_test_system_failure() {
 
 on_exit() {
   local status=$?
+  local classification=""
+  local issue_ids=""
+  local issue_id=""
+  local -a classified_ids=()
   if [[ $status -eq 0 ]]; then
     write_result PASSED PASSED
   elif [[ $status -eq 2 ]]; then
     write_result NOT_RUN BLOCKED "lane preparation was blocked before product evidence completed"
-  elif has_current_test_system_failure; then
+  elif classification="$(classify_current_test_system_failure)"; then
+    printf '%s\n' "$classification"
+    issue_ids="$(printf '%s\n' "$classification" | sed -n 's/^classification_issue_ids=//p')"
+    IFS=',' read -r -a classified_ids <<< "$issue_ids"
+    for issue_id in "${classified_ids[@]}"; do
+      [[ -z "$issue_id" ]] || test_system_issue_ids+=("$issue_id")
+    done
     write_result NOT_RUN FAILED "a recognized test-runtime/precondition failure prevented product evidence; inspect current device XML"
   else
     write_result FAILED PASSED "an executed product oracle failed; inspect Gradle/device reports for the first failure"
@@ -58,6 +70,12 @@ on_exit() {
   printf 'quality_result=%s\n' "$result_file"
 }
 trap on_exit EXIT
+
+if ! python3 "$repo_root/scripts/quality_test_system_issues.py" --check; then
+  echo "status=BLOCKED"
+  echo "reason=invalid_or_expired_android_test_system_issue_registry"
+  exit 2
+fi
 
 run_impact_contracts() {
   local plan_path="${QUALITY_IMPACT_PLAN:-}"
