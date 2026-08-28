@@ -17,6 +17,7 @@ enum class QualityFixture(val wireValue: String) {
     EMPTY_CLEAN("empty.clean"),
     MESSAGES_STANDARD("messages.standard"),
     MESSAGES_ENCRYPTED_VALID("messages.encrypted.valid"),
+    MESSAGES_ENCRYPTED_CORRUPT("messages.encrypted.corrupt"),
     MESSAGES_WORKFLOW("messages.workflow"),
     MESSAGES_LARGE("messages.large"),
     EVENT_STANDARD("event.standard"),

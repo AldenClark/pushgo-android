@@ -244,7 +244,8 @@ class AppContainer(
         val messages = when (session.fixture) {
             QualityFixture.EMPTY_CLEAN -> emptyList()
             QualityFixture.MESSAGES_STANDARD -> listOf(qualityMessage(index = 0))
-            QualityFixture.MESSAGES_ENCRYPTED_VALID -> emptyList()
+            QualityFixture.MESSAGES_ENCRYPTED_VALID,
+            QualityFixture.MESSAGES_ENCRYPTED_CORRUPT -> emptyList()
             QualityFixture.MESSAGES_WORKFLOW -> (0 until 52).map(::qualityWorkflowMessage)
             QualityFixture.MESSAGES_LARGE -> (0 until 1_000).map(::qualityMessage)
             QualityFixture.CHANNELS_STANDARD -> listOf(
@@ -264,21 +265,32 @@ class AppContainer(
         }
         messageRepository.insertAll(messages)
         when (session.fixture) {
-            QualityFixture.MESSAGES_ENCRYPTED_VALID -> {
+            QualityFixture.MESSAGES_ENCRYPTED_VALID,
+            QualityFixture.MESSAGES_ENCRYPTED_CORRUPT -> {
+                val isCorrupt = session.fixture == QualityFixture.MESSAGES_ENCRYPTED_CORRUPT
+                val messageId = if (isCorrupt) {
+                    "quality-corrupt-encrypted-message"
+                } else {
+                    "quality-encrypted-message"
+                }
                 val parsed = checkNotNull(
                     NotificationIngressParser.parse(
-                        data = qualityEncryptedMessagePayload(),
-                        transportMessageId = "quality-encrypted-delivery",
+                        data = qualityEncryptedMessagePayload(corruptCiphertext = isCorrupt),
+                        transportMessageId = if (isCorrupt) {
+                            "quality-corrupt-encrypted-delivery"
+                        } else {
+                            "quality-encrypted-delivery"
+                        },
                         keyBytes = null,
                         textLocalizer = NotificationIngressParser.NotificationTextLocalizer.fromContext(appContext),
                     ) as? InboundPersistenceRequest.Message
-                ) { "messages.encrypted.valid did not parse as a message" }
+                ) { "${session.fixture.wireValue} did not parse as a message" }
                 check(messageRepository.insertIncoming(parsed.message)) {
-                    "messages.encrypted.valid did not reach the canonical store"
+                    "${session.fixture.wireValue} did not reach the canonical store"
                 }
                 val stored = checkNotNull(
-                    messageRepository.getByMessageId("quality-encrypted-message")
-                ) { "messages.encrypted.valid canonical message is missing" }
+                    messageRepository.getByMessageId(messageId)
+                ) { "${session.fixture.wireValue} canonical message is missing" }
                 check(stored.decryptionState == io.ethan.pushgo.data.model.DecryptionState.NOT_CONFIGURED)
                 check(stored.body == "Configure decryption to read this message.")
             }
@@ -345,7 +357,9 @@ class AppContainer(
         QualityRuntime.recordFixtureInitialization(appContext.filesDir)
     }
 
-    private fun qualityEncryptedMessagePayload(): Map<String, String> {
+    private fun qualityEncryptedMessagePayload(
+        corruptCiphertext: Boolean = false,
+    ): Map<String, String> {
         val keyBytes = "QualityKey123456".toByteArray(Charsets.UTF_8)
         val iv = ByteArray(12) { index -> index.toByte() }
         val plaintext = JSONObject()
@@ -362,11 +376,22 @@ class AppContainer(
         val envelope = ByteArray(ciphertextAndTag.size + iv.size)
         System.arraycopy(ciphertextAndTag, 0, envelope, 0, ciphertextAndTag.size)
         System.arraycopy(iv, 0, envelope, ciphertextAndTag.size, iv.size)
+        if (corruptCiphertext && envelope.isNotEmpty()) {
+            envelope[0] = (envelope[0].toInt() xor 0x01).toByte()
+        }
         return mapOf(
             "entity_type" to "message",
-            "message_id" to "quality-encrypted-message",
-            "delivery_id" to "quality-encrypted-delivery",
-            "title" to "Encrypted Quality Message",
+            "message_id" to if (corruptCiphertext) {
+                "quality-corrupt-encrypted-message"
+            } else {
+                "quality-encrypted-message"
+            },
+            "delivery_id" to if (corruptCiphertext) {
+                "quality-corrupt-encrypted-delivery"
+            } else {
+                "quality-encrypted-delivery"
+            },
+            "title" to if (corruptCiphertext) "Corrupt Encrypted Message" else "Encrypted Quality Message",
             "body" to "Configure decryption to read this message.",
             "ciphertext" to Base64.getEncoder().encodeToString(envelope),
             "sent_at" to "2026-01-15T08:00:00Z",

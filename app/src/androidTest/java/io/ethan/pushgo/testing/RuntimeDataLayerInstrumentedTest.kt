@@ -115,6 +115,22 @@ class RuntimeDataLayerInstrumentedTest {
         val persistedBeforeRecovery = checkNotNull(messages.getById(original.id))
         assertEquals(DecryptionState.NOT_CONFIGURED, persistedBeforeRecovery.decryptionState)
 
+        val failedReport = EncryptedMessageRecoveryService(messages).recover(
+            ByteArray(16) { 0x5A.toByte() },
+        )
+        val failed = checkNotNull(messages.getById(original.id))
+        assertEquals(1, failedReport.examinedCount)
+        assertEquals(1, failedReport.updatedCount)
+        assertEquals(0, failedReport.decryptedCount)
+        assertEquals(original.id, failed.id)
+        assertEquals(original.messageId, failed.messageId)
+        assertTrue(failed.isRead)
+        assertEquals(persistedBeforeRecovery.receivedAt, failed.receivedAt)
+        assertEquals(original.title, failed.title)
+        assertEquals(original.body, failed.body)
+        assertEquals(DecryptionState.DECRYPT_FAILED, failed.decryptionState)
+        assertEquals(encodedCiphertext, JSONObject(failed.rawPayloadJson).getString("ciphertext"))
+
         val report = EncryptedMessageRecoveryService(messages).recover(keyBytes)
         val recovered = checkNotNull(messages.getById(original.id))
 

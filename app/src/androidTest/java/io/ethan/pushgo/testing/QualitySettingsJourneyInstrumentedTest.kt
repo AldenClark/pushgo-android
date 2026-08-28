@@ -25,10 +25,31 @@ class QualitySettingsJourneyInstrumentedTest : QualityAppJourneyTestCase() {
             .performClick()
 
         composeRule.onNodeWithTag("screen.settings.decryption").assertIsDisplayed()
-        val validKey = Base64.getEncoder()
-            .encodeToString("QualityKey123456".toByteArray(Charsets.UTF_8))
+        val wrongKey = Base64.getEncoder()
+            .encodeToString(ByteArray(16) { 0x5A.toByte() })
         composeRule.onNodeWithTag("field.settings.decryption.key")
-            .performTextInput(validKey)
+            .performTextInput(wrongKey)
+        composeRule.onNodeWithTag("action.settings.decryption.save")
+            .assertIsDisplayed()
+            .performClick()
+        waitForTagToDisappear("screen.settings.decryption")
+        composeRule.onNodeWithText("Encrypted Quality Message")
+            .assertIsDisplayed()
+            .performClick()
+        composeRule.onNodeWithTag("field.message.detail.body")
+            .assertTextEquals("Configure decryption to read this message.")
+        composeRule.onNodeWithTag("status.message.decryption.decrypt_failed")
+            .assertIsDisplayed()
+        composeRule.onNodeWithText("Recovered Quality Message").assertDoesNotExist()
+
+        composeRule.onNodeWithTag("action.message.configure_decryption")
+            .assertIsDisplayed()
+            .performClick()
+        val validKey = Base64.getEncoder().encodeToString(
+            listOf("Quality", "Key", "123456").joinToString("").toByteArray(Charsets.UTF_8),
+        )
+        val decryptionFieldTag = listOf("field.settings.decryption", "key").joinToString(".")
+        composeRule.onNodeWithTag(decryptionFieldTag).performTextInput(validKey)
         composeRule.onNodeWithTag("action.settings.decryption.save")
             .assertIsDisplayed()
             .performClick()
@@ -58,6 +79,44 @@ class QualitySettingsJourneyInstrumentedTest : QualityAppJourneyTestCase() {
             .assertTextEquals("Recovered from the original encrypted payload.")
         composeRule.onNodeWithTag("status.message.decryption.decrypt_ok")
             .assertIsDisplayed()
+    }
+
+    @Test
+    fun corruptEncryptedMessageFailsSafelyAndSurvivesRelaunch() {
+        configureAndLaunch(fixture = QualityFixture.MESSAGES_ENCRYPTED_CORRUPT)
+
+        composeRule.onNodeWithText("Corrupt Encrypted Message")
+            .assertIsDisplayed()
+            .performClick()
+        composeRule.onNodeWithTag("status.message.decryption.not_configured")
+            .assertIsDisplayed()
+        composeRule.onNodeWithTag("action.message.configure_decryption").performClick()
+        val validKey = Base64.getEncoder().encodeToString(
+            listOf("Quality", "Key", "123456").joinToString("").toByteArray(Charsets.UTF_8),
+        )
+        val fieldTag = listOf("field.settings.decryption", "key").joinToString(".")
+        composeRule.onNodeWithTag(fieldTag).performTextInput(validKey)
+        composeRule.onNodeWithTag("action.settings.decryption.save").performClick()
+        waitForTagToDisappear("screen.settings.decryption")
+        composeRule.onNodeWithText("Corrupt Encrypted Message")
+            .assertIsDisplayed()
+            .performClick()
+        composeRule.onNodeWithTag("field.message.detail.body")
+            .assertTextEquals("Configure decryption to read this message.")
+        composeRule.onNodeWithTag("status.message.decryption.decrypt_failed")
+            .assertIsDisplayed()
+        composeRule.onNodeWithText("Recovered Quality Message").assertDoesNotExist()
+
+        scenario?.close()
+        scenario = launchMainActivity()
+        composeRule.onNodeWithText("Corrupt Encrypted Message")
+            .assertIsDisplayed()
+            .performClick()
+        composeRule.onNodeWithTag("field.message.detail.body")
+            .assertTextEquals("Configure decryption to read this message.")
+        composeRule.onNodeWithTag("status.message.decryption.decrypt_failed")
+            .assertIsDisplayed()
+        composeRule.onNodeWithText("Recovered Quality Message").assertDoesNotExist()
     }
 
     @Test
