@@ -37,8 +37,8 @@ class QualityMessageJourneyInstrumentedTest : QualityAppJourneyTestCase() {
         configureAndLaunch(fixture = QualityFixture.MESSAGES_STANDARD)
 
         composeRule.onNodeWithText("P2 Split Seed Message").assertIsDisplayed().performClick()
-        composeRule.onNodeWithText("Seeded from fixture.seed_messages for UI validation.")
-            .assertIsDisplayed()
+        composeRule.onNodeWithTag("field.message.detail.body")
+            .assertTextContains("Seeded from fixture.seed_messages for UI validation.")
 
         scenario?.close()
         scenario = launchMainActivity()
@@ -139,8 +139,8 @@ class QualityMessageJourneyInstrumentedTest : QualityAppJourneyTestCase() {
         composeRule.onNodeWithTag("state.messages.search.empty").assertDoesNotExist()
         composeRule.onNodeWithText("P2 Split Seed Message").performClick()
         composeRule.onNodeWithTag("sheet.message.detail").assertIsDisplayed()
-        composeRule.onNodeWithText("Seeded from fixture.seed_messages for UI validation.")
-            .assertIsDisplayed()
+        composeRule.onNodeWithTag("field.message.detail.body")
+            .assertTextContains("Seeded from fixture.seed_messages for UI validation.")
     }
 
     @Test
@@ -227,8 +227,8 @@ class QualityMessageJourneyInstrumentedTest : QualityAppJourneyTestCase() {
         }
         composeRule.onNodeWithText("P2 Split Seed Message").assertExists()
         composeRule.onNodeWithText("P2 Refresh Result").assertIsDisplayed().performClick()
-        composeRule.onNodeWithText("Persisted through the provider refresh ingress path.")
-            .assertIsDisplayed()
+        composeRule.onNodeWithTag("field.message.detail.body")
+            .assertTextContains("Persisted through the provider refresh ingress path.")
 
         scenario?.close()
         scenario = launchMainActivity()
@@ -258,8 +258,8 @@ class QualityMessageJourneyInstrumentedTest : QualityAppJourneyTestCase() {
         }
         composeRule.onNodeWithTag("state.messages.refresh.failed").assertDoesNotExist()
         composeRule.onNodeWithText("P2 Refresh Result").assertIsDisplayed().performClick()
-        composeRule.onNodeWithText("Persisted through the provider refresh ingress path.")
-            .assertIsDisplayed()
+        composeRule.onNodeWithTag("field.message.detail.body")
+            .assertTextContains("Persisted through the provider refresh ingress path.")
     }
 
     @Test

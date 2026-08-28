@@ -472,8 +472,9 @@ fun SettingsScreen(
                 DecryptionKeyForm(
                     viewModel = viewModel,
                     onSave = {
-                        viewModel.saveDecryptionConfig()
-                        showDecryptionSheet = false
+                        viewModel.saveDecryptionConfig {
+                            showDecryptionSheet = false
+                        }
                     },
                     fillRemaining = false,
                     modifier = Modifier
@@ -505,6 +506,7 @@ fun SettingsScreen(
                 GatewaySection(
                     gatewayAddress = uiState.gatewayAddress,
                     gatewayToken = uiState.gatewayToken,
+                    errorMessage = viewModel.gatewayErrorMessage?.resolve(context),
                     isSavingGateway = uiState.isSavingGateway,
                     onGatewayAddressChange = viewModel::updateGatewayAddress,
                     onGatewayTokenChange = viewModel::updateGatewayToken,
@@ -955,7 +957,12 @@ private fun DecryptionSettingsRow(
                 .then(if (testTag != null) Modifier.testTag(testTag) else Modifier)
                 .clickable { onAction() },
             headlineContent = { Text(stringResource(R.string.section_decryption)) },
-            supportingContent = { Text(text = statusText, color = statusColor) },
+            supportingContent = {
+                Text(
+                    text = statusText,
+                    color = statusColor,
+                )
+            },
             leadingContent = {
                 Icon(
                     imageVector = Icons.Outlined.Lock,
@@ -1300,6 +1307,7 @@ private fun isFcmSupported(context: Context): Boolean {
 private fun GatewaySection(
     gatewayAddress: String,
     gatewayToken: String,
+    errorMessage: String?,
     isSavingGateway: Boolean,
     onGatewayAddressChange: (String) -> Unit,
     onGatewayTokenChange: (String) -> Unit,
@@ -1326,6 +1334,16 @@ private fun GatewaySection(
                 .fillMaxWidth()
                 .testTag("field.settings.gateway.token"),
         )
+        errorMessage?.let { message ->
+            Text(
+                text = message,
+                style = MaterialTheme.typography.bodySmall,
+                color = uiColors.stateDanger.foreground,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("feedback.settings.gateway"),
+            )
+        }
         Text(
             text = stringResource(R.string.label_gateway_change_channel_reset_hint),
             style = MaterialTheme.typography.bodySmall,

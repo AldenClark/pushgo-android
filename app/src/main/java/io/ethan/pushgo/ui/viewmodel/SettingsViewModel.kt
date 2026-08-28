@@ -8,6 +8,7 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import io.ethan.pushgo.BuildConfig
 import io.ethan.pushgo.R
 import io.ethan.pushgo.data.AppConstants
 import io.ethan.pushgo.data.ChannelIdException
@@ -26,6 +27,8 @@ import io.ethan.pushgo.data.model.KeyEncoding
 import io.ethan.pushgo.notifications.MessageStateCoordinator
 import io.ethan.pushgo.notifications.PrivateChannelClient
 import io.ethan.pushgo.notifications.PrivateChannelServiceManager
+import io.ethan.pushgo.testing.QualityChannelMutationScenario
+import io.ethan.pushgo.testing.QualityRuntime
 import io.ethan.pushgo.update.UpdateCandidate
 import io.ethan.pushgo.update.UpdateCheckScheduler
 import io.ethan.pushgo.update.UpdateInstallStartResult
@@ -82,6 +85,8 @@ class SettingsViewModel(
         private set
     var gatewayToken by mutableStateOf("")
         private set
+    var gatewayErrorMessage by mutableStateOf<UiMessage?>(null)
+        private set
 
     var deviceToken by mutableStateOf<String?>(null)
         private set
@@ -102,6 +107,8 @@ class SettingsViewModel(
     var decryptionUpdatedAt by mutableStateOf<Instant?>(null)
         private set
     var isDecryptionConfigured by mutableStateOf(false)
+        private set
+    var decryptionErrorMessage by mutableStateOf<UiMessage?>(null)
         private set
     private var hasEditedDecryptionKeyInput = false
 
@@ -654,24 +661,29 @@ class SettingsViewModel(
 
     fun updateGatewayAddress(value: String) {
         gatewayAddress = value
+        gatewayErrorMessage = null
     }
 
     fun updateGatewayToken(value: String) {
         gatewayToken = value
+        gatewayErrorMessage = null
     }
 
     fun updateDecryptionKeyInput(value: String) {
         decryptionKeyInput = value
         hasEditedDecryptionKeyInput = true
+        decryptionErrorMessage = null
     }
 
     fun updateKeyEncoding(value: KeyEncoding) {
         keyEncoding = value
+        decryptionErrorMessage = null
     }
 
     fun saveGatewayConfig(context: Context) {
         viewModelScope.launch {
             isSavingGateway = true
+            gatewayErrorMessage = null
             try {
                 val previousAddress = UrlValidators.normalizeGatewayBaseUrl(
                     settingsRepository.getServerAddress()
@@ -688,7 +700,7 @@ class SettingsViewModel(
                 val rawAddress = gatewayAddress.trim().ifBlank { AppConstants.defaultServerAddress }
                 val normalizedAddress = UrlValidators.normalizeGatewayBaseUrl(rawAddress)
                 if (normalizedAddress == null) {
-                    errorMessage = ResMessage(R.string.error_invalid_server_address)
+                    gatewayErrorMessage = ResMessage(R.string.error_invalid_server_address)
                     return@launch
                 }
                 val token = gatewayToken.trim().ifBlank { null }
@@ -703,6 +715,16 @@ class SettingsViewModel(
                 settingsRepository.setServerAddress(normalizedAddress)
                 settingsRepository.setGatewayToken(token)
                 gatewayAddress = normalizedAddress
+                if (
+                    BuildConfig.DEBUG &&
+                    QualityRuntime.currentSession()?.channelMutationScenario ==
+                    QualityChannelMutationScenario.ACCEPTED
+                ) {
+                    gatewayPrivateChannelEnabled = true
+                    refreshChannelSubscriptions()
+                    successMessage = ResMessage(R.string.message_gateway_saved)
+                    return@launch
+                }
                 gatewayPrivateChannelEnabled = gatewayPrivateChannelEnabledFetcher()
                 var activeFcmToken: String? = null
                 if (shouldUseFcm(context)) {
@@ -766,7 +788,7 @@ class SettingsViewModel(
                 refreshChannelSubscriptions()
                 successMessage = ResMessage(R.string.message_gateway_saved)
             } catch (ex: Exception) {
-                errorMessage = ex.toUiErrorMessage(R.string.error_request_failed)
+                gatewayErrorMessage = ex.toUiErrorMessage(R.string.error_request_failed)
             } finally {
                 isSavingGateway = false
             }
@@ -1157,9 +1179,10 @@ class SettingsViewModel(
             category = io.ethan.pushgo.data.GatewayErrorCategory.VALIDATION,
         )
 
-    fun saveDecryptionConfig() {
+    fun saveDecryptionConfig(onSuccess: () -> Unit = {}) {
         viewModelScope.launch {
             isSavingDecryption = true
+            decryptionErrorMessage = null
             try {
                 val trimmed = decryptionKeyInput.trim()
                 if (trimmed.isEmpty()) {
@@ -1174,6 +1197,7 @@ class SettingsViewModel(
                     decryptionKeyInput = ""
                     hasEditedDecryptionKeyInput = false
                     successMessage = ResMessage(R.string.message_decryption_saved)
+                    onSuccess()
                     return@launch
                 }
                 val normalized = NotificationKeyValidator.normalizedKeyBytes(
@@ -1187,14 +1211,15 @@ class SettingsViewModel(
                 decryptionKeyInput = ""
                 hasEditedDecryptionKeyInput = false
                 successMessage = ResMessage(R.string.message_decryption_saved)
+                onSuccess()
             } catch (ex: NotificationKeyValidationException) {
-                errorMessage = when (ex) {
+                decryptionErrorMessage = when (ex) {
                     is NotificationKeyValidationException.InvalidBase64 -> ResMessage(R.string.error_invalid_base64)
                     is NotificationKeyValidationException.InvalidHex -> ResMessage(R.string.error_invalid_hex)
                     is NotificationKeyValidationException.InvalidLength -> ResMessage(R.string.error_invalid_key_length)
                 }
             } catch (ex: Exception) {
-                errorMessage = ex.toUiErrorMessage(R.string.error_request_failed)
+                decryptionErrorMessage = ex.toUiErrorMessage(R.string.error_request_failed)
             } finally {
                 isSavingDecryption = false
             }
