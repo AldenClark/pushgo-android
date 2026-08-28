@@ -6,6 +6,7 @@ import java.time.Instant
 
 data class SettingsUiState(
     val gatewayAddress: String = "",
+    val savedGatewayAddress: String = "",
     val gatewayToken: String = "",
     val deviceToken: String? = null,
     val useFcmChannel: Boolean = true,

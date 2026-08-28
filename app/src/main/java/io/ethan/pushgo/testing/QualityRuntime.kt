@@ -68,6 +68,7 @@ data class QualityFaults(
     val messageLoadDelayMs: Int? = null,
     val messageRefreshDelayMs: Int? = null,
     val failMessageLoad: Boolean = false,
+    val failGatewaySwitchValidationOnce: Boolean = false,
 )
 
 data class QualitySessionDescriptor(
@@ -107,6 +108,7 @@ object QualityRuntime {
     private val pendingMessageLoadDelay = AtomicBoolean(false)
     private val pendingMessageRefreshDelay = AtomicBoolean(false)
     private val remainingMessageLoadFailures = AtomicInteger(0)
+    private val remainingGatewaySwitchValidationFailures = AtomicInteger(0)
     private val messageRefreshScenarioAttempts = AtomicInteger(0)
 
     fun configure(encodedSession: String?): RuntimeProfile {
@@ -115,6 +117,9 @@ object QualityRuntime {
         pendingMessageLoadDelay.set((faults?.messageLoadDelayMs ?: 0) > 0)
         pendingMessageRefreshDelay.set((faults?.messageRefreshDelayMs ?: 0) > 0)
         remainingMessageLoadFailures.set(if (faults?.failMessageLoad == true) 1 else 0)
+        remainingGatewaySwitchValidationFailures.set(
+            if (faults?.failGatewaySwitchValidationOnce == true) 1 else 0
+        )
         messageRefreshScenarioAttempts.set(0)
         return configuredProfile
     }
@@ -133,6 +138,15 @@ object QualityRuntime {
         val faults = currentSession()?.faults ?: return
         if (pendingMessageRefreshDelay.compareAndSet(true, false)) {
             delay(faults.messageRefreshDelayMs?.toLong() ?: 0L)
+        }
+    }
+
+    fun beforeGatewaySwitchValidation() {
+        if (remainingGatewaySwitchValidationFailures.getAndUpdate { value ->
+                (value - 1).coerceAtLeast(0)
+            } > 0
+        ) {
+            throw QualityGatewaySwitchValidationException()
         }
     }
 
@@ -244,6 +258,10 @@ object QualityRuntime {
                 messageLoadDelayMs = delay,
                 messageRefreshDelayMs = refreshDelay,
                 failMessageLoad = faultsJson?.optBoolean("fail_message_load", false) ?: false,
+                failGatewaySwitchValidationOnce = faultsJson?.optBoolean(
+                    "fail_gateway_switch_validation_once",
+                    false,
+                ) ?: false,
             ),
             messageRefreshScenario = refreshScenario,
             eventCloseScenario = eventCloseScenario,
@@ -254,6 +272,10 @@ object QualityRuntime {
     fun encode(session: QualitySessionDescriptor): String {
         val faults = JSONObject()
             .put("fail_message_load", session.faults.failMessageLoad)
+            .put(
+                "fail_gateway_switch_validation_once",
+                session.faults.failGatewaySwitchValidationOnce,
+            )
         session.faults.messageLoadDelayMs?.let {
             faults.put("message_load_delay_ms", it)
         }
@@ -363,6 +385,7 @@ object QualityRuntime {
         pendingMessageLoadDelay.set(false)
         pendingMessageRefreshDelay.set(false)
         remainingMessageLoadFailures.set(0)
+        remainingGatewaySwitchValidationFailures.set(0)
         messageRefreshScenarioAttempts.set(0)
     }
 }
@@ -370,3 +393,6 @@ object QualityRuntime {
 class QualityMessageLoadException : IllegalStateException("Injected message list load failure")
 
 class QualityMessageRefreshException : IllegalStateException("Injected provider refresh failure")
+
+class QualityGatewaySwitchValidationException :
+    IllegalStateException("Injected candidate gateway registration failure")

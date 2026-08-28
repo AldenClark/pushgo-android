@@ -30,6 +30,7 @@ class QualityRuntimeTest {
             faults = QualityFaults(
                 messageLoadDelayMs = 250,
                 messageRefreshDelayMs = 2_500,
+                failGatewaySwitchValidationOnce = true,
             ),
             messageRefreshScenario = QualityMessageRefreshScenario.FAIL_ONCE_THEN_NEW_MESSAGE,
             eventCloseScenario = QualityEventCloseScenario.ACCEPTED_AND_DELIVERED,
@@ -188,6 +189,22 @@ class QualityRuntimeTest {
         }
         assertTrue(didFail)
         QualityRuntime.beforeMessageListLoad()
+    }
+
+    @Test
+    fun gatewaySwitchValidationFaultFailsOnceThenAllowsTheSameUserRetry() {
+        val session = QualitySessionDescriptor(
+            schemaVersion = 1,
+            sessionId = "gateway-switch-retry-contract",
+            fixture = QualityFixture.CHANNELS_STANDARD,
+            faults = QualityFaults(failGatewaySwitchValidationOnce = true),
+        )
+        QualityRuntime.configure(QualityRuntime.encode(session))
+
+        assertThrows(QualityGatewaySwitchValidationException::class.java) {
+            QualityRuntime.beforeGatewaySwitchValidation()
+        }
+        QualityRuntime.beforeGatewaySwitchValidation()
     }
 
     @Test

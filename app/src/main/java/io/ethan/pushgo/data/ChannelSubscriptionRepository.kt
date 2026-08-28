@@ -400,6 +400,102 @@ class ChannelSubscriptionRepository(
         return ensureProviderRoute(normalized, config)
     }
 
+    /**
+     * Registers a candidate gateway and its delivery route without changing
+     * the locally active gateway, token, device key, or ACK destination.
+     */
+    suspend fun prepareGatewaySwitch(
+        address: String,
+        gatewayToken: String?,
+        providerToken: String?,
+        channelType: String,
+    ): PreparedGatewaySwitch {
+        val normalizedAddress = UrlValidators.normalizeGatewayBaseUrl(address)
+            ?: throw ChannelSubscriptionException.local(
+                message = "Request failed",
+                code = "invalid_gateway_address",
+                category = GatewayErrorCategory.VALIDATION,
+            )
+        val normalizedGatewayToken = gatewayToken?.trim()?.ifEmpty { null }
+        val normalizedProviderToken = providerToken?.trim()?.ifEmpty { null }
+        val normalizedChannelType = channelType.trim().lowercase()
+        if (normalizedChannelType !in setOf(FCM_CHANNEL_TYPE, "private")) {
+            throw ChannelSubscriptionException.local(
+                message = "Request failed",
+                code = "invalid_channel_type",
+                category = GatewayErrorCategory.VALIDATION,
+            )
+        }
+        if (normalizedChannelType == FCM_CHANNEL_TYPE && normalizedProviderToken == null) {
+            throw ChannelSubscriptionException.local(
+                message = "Request failed",
+                code = "provider_token_missing",
+                category = GatewayErrorCategory.VALIDATION,
+            )
+        }
+
+        val resolvedDeviceKey = if (channelMutationRoundTrip != null) {
+            channelMutationRoundTrip.ensureProviderRoute(
+                normalizedProviderToken ?: "quality-private-route"
+            ).trim()
+        } else {
+            val registered = service.registerDevice(
+                baseUrl = normalizedAddress,
+                token = normalizedGatewayToken,
+                platform = "android",
+                // Device keys are gateway-scoped identities. A candidate must
+                // obtain its own identity instead of presenting the key issued
+                // by the currently active gateway.
+                deviceKey = null,
+            )
+            service.upsertDeviceChannel(
+                baseUrl = normalizedAddress,
+                token = normalizedGatewayToken,
+                deviceKey = registered.deviceKey,
+                platform = "android",
+                channelType = normalizedChannelType,
+                providerToken = normalizedProviderToken,
+            ).deviceKey.trim()
+        }
+        if (resolvedDeviceKey.isEmpty()) {
+            throw ChannelSubscriptionException.local(
+                message = "Request failed",
+                code = "gateway_response_missing_device_key",
+                category = GatewayErrorCategory.INTERNAL,
+            )
+        }
+        return PreparedGatewaySwitch(
+            address = normalizedAddress,
+            gatewayToken = normalizedGatewayToken,
+            providerToken = normalizedProviderToken,
+            channelType = normalizedChannelType,
+            deviceKey = resolvedDeviceKey,
+        )
+    }
+
+    /** Commits only a candidate that already completed remote registration. */
+    suspend fun commitGatewaySwitch(prepared: PreparedGatewaySwitch) {
+        val previousAddress = settingsRepository.getServerAddress()
+        val previousGatewayToken = settingsRepository.getGatewayToken()
+        val previousProviderToken = settingsRepository.getFcmToken()
+        val previousDeviceKey = settingsRepository.getDeviceKey()
+        try {
+            settingsRepository.setServerAddress(prepared.address)
+            settingsRepository.setGatewayToken(prepared.gatewayToken)
+            settingsRepository.setDeviceKey(prepared.deviceKey)
+            if (prepared.channelType == FCM_CHANNEL_TYPE) {
+                settingsRepository.setFcmToken(prepared.providerToken)
+            }
+            settingsRepository.setGatewayAckToken(prepared.address, prepared.gatewayToken)
+        } catch (error: Throwable) {
+            runCatching { settingsRepository.setServerAddress(previousAddress) }
+            runCatching { settingsRepository.setGatewayToken(previousGatewayToken) }
+            runCatching { settingsRepository.setFcmToken(previousProviderToken) }
+            runCatching { settingsRepository.setDeviceKey(previousDeviceKey) }
+            throw error
+        }
+    }
+
     suspend fun cleanupPreviousGatewayDeviceRoute(
         previousBaseUrl: String,
         previousToken: String?,
@@ -864,6 +960,14 @@ class ChannelSubscriptionRepository(
         val invalidChannels: List<String>
             get() = (staleChannels + passwordMismatchChannels).distinct()
     }
+
+    data class PreparedGatewaySwitch(
+        val address: String,
+        val gatewayToken: String?,
+        val providerToken: String?,
+        val channelType: String,
+        val deviceKey: String,
+    )
 
     private fun shouldSoftDeleteForServerError(error: ChannelSubscriptionException): Boolean {
         if (error.matchesCode("channel_not_found") || error.matchesCode("password_mismatch")) {

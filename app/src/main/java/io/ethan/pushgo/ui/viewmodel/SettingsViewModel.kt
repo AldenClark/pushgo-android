@@ -14,7 +14,9 @@ import io.ethan.pushgo.data.AppConstants
 import io.ethan.pushgo.data.ChannelIdException
 import io.ethan.pushgo.data.ChannelIdValidator
 import io.ethan.pushgo.data.ChannelNameException
+import io.ethan.pushgo.data.ChannelNameValidator
 import io.ethan.pushgo.data.ChannelPasswordException
+import io.ethan.pushgo.data.ChannelPasswordValidator
 import io.ethan.pushgo.data.ChannelSubscriptionException
 import io.ethan.pushgo.data.ChannelSubscriptionRepository
 import io.ethan.pushgo.data.MessageRepository
@@ -84,9 +86,14 @@ class SettingsViewModel(
 
     var gatewayAddress by mutableStateOf("")
         private set
+    var savedGatewayAddress by mutableStateOf("")
+        private set
     var gatewayToken by mutableStateOf("")
         private set
+    private var savedGatewayToken = ""
     var gatewayErrorMessage by mutableStateOf<UiMessage?>(null)
+        private set
+    var channelEntryErrorMessage by mutableStateOf<UiMessage?>(null)
         private set
 
     var deviceToken by mutableStateOf<String?>(null)
@@ -186,14 +193,16 @@ class SettingsViewModel(
     init {
         viewModelScope.launch {
             settingsRepository.serverAddressFlow.collect { value ->
+                savedGatewayAddress = value ?: AppConstants.defaultServerAddress
                 if (!hasLoadedGatewayAddress) {
-                    gatewayAddress = value ?: AppConstants.defaultServerAddress
+                    gatewayAddress = savedGatewayAddress
                     hasLoadedGatewayAddress = true
                 }
             }
         }
         viewModelScope.launch {
-            gatewayToken = settingsRepository.getGatewayToken() ?: ""
+            savedGatewayToken = settingsRepository.getGatewayToken().orEmpty()
+            gatewayToken = savedGatewayToken
             val initialUseFcm = settingsRepository.getUseFcmChannel()
             useFcmChannel = initialUseFcm
             isFcmSupported = true
@@ -503,21 +512,24 @@ class SettingsViewModel(
         }
     }
 
-    private suspend fun requireFcmToken(context: Context): String? {
+    private suspend fun requireFcmToken(
+        context: Context,
+        errorSink: (UiMessage) -> Unit = { errorMessage = it },
+    ): String? {
         isFcmSupported = isFcmSupported(context)
         if (!isFcmSupported) {
-            errorMessage = ResMessage(R.string.error_fcm_not_supported)
+            errorSink(ResMessage(R.string.error_fcm_not_supported))
             return null
         }
         return try {
             fetchFcmTokenWithRetry()
         } catch (ex: TimeoutCancellationException) {
             io.ethan.pushgo.util.SilentSink.w(TAG, "FCM token request timed out", ex)
-            errorMessage = ResMessage(R.string.error_fcm_token_timeout)
+            errorSink(ResMessage(R.string.error_fcm_token_timeout))
             null
         } catch (ex: Exception) {
             io.ethan.pushgo.util.SilentSink.e(TAG, "Unable to get FCM token: ${ex.message}", ex)
-            errorMessage = ResMessage(classifyFcmTokenFailureRes(ex))
+            errorSink(ResMessage(classifyFcmTokenFailureRes(ex)))
             null
         }
     }
@@ -624,6 +636,7 @@ class SettingsViewModel(
     private fun buildUiState(): SettingsUiState {
         return SettingsUiState(
             gatewayAddress = gatewayAddress,
+            savedGatewayAddress = savedGatewayAddress,
             gatewayToken = gatewayToken,
             deviceToken = deviceToken,
             useFcmChannel = useFcmChannel,
@@ -662,6 +675,18 @@ class SettingsViewModel(
 
     fun updateGatewayAddress(value: String) {
         gatewayAddress = value
+        gatewayErrorMessage = null
+    }
+
+    fun beginGatewayEdit() {
+        gatewayAddress = savedGatewayAddress.ifBlank { AppConstants.defaultServerAddress }
+        gatewayToken = savedGatewayToken
+        gatewayErrorMessage = null
+    }
+
+    fun cancelGatewayEdit() {
+        gatewayAddress = savedGatewayAddress.ifBlank { AppConstants.defaultServerAddress }
+        gatewayToken = savedGatewayToken
         gatewayErrorMessage = null
     }
 
@@ -709,13 +734,35 @@ class SettingsViewModel(
                 val newIdentity = "${normalizedAddress}|${token.orEmpty()}"
                 if (oldIdentity == newIdentity) {
                     gatewayAddress = normalizedAddress
+                    savedGatewayAddress = normalizedAddress
                     gatewayToken = token.orEmpty()
+                    savedGatewayToken = gatewayToken
                     successMessage = ResMessage(R.string.message_gateway_saved)
                     return@launch
                 }
-                settingsRepository.setServerAddress(normalizedAddress)
-                settingsRepository.setGatewayToken(token)
-                gatewayAddress = normalizedAddress
+                val useProviderRoute = shouldUseFcm(context)
+                val activeFcmToken = if (useProviderRoute) {
+                    settingsRepository.getFcmToken()
+                        ?.trim()
+                        ?.ifEmpty { null }
+                        ?: fetchFcmTokenWithRetry()
+                } else {
+                    null
+                }
+                if (BuildConfig.DEBUG) {
+                    QualityRuntime.beforeGatewaySwitchValidation()
+                }
+                val preparedGateway = channelRepository.prepareGatewaySwitch(
+                    address = normalizedAddress,
+                    gatewayToken = token,
+                    providerToken = activeFcmToken,
+                    channelType = if (useProviderRoute) "fcm" else "private",
+                )
+                channelRepository.commitGatewaySwitch(preparedGateway)
+                gatewayAddress = preparedGateway.address
+                savedGatewayAddress = preparedGateway.address
+                gatewayToken = preparedGateway.gatewayToken.orEmpty()
+                savedGatewayToken = gatewayToken
                 if (
                     BuildConfig.DEBUG &&
                     QualityRuntime.currentSession()?.channelMutationScenario ==
@@ -727,12 +774,11 @@ class SettingsViewModel(
                     return@launch
                 }
                 gatewayPrivateChannelEnabled = gatewayPrivateChannelEnabledFetcher()
-                var activeFcmToken: String? = null
-                if (shouldUseFcm(context)) {
-                    val fcmToken = requireFcmToken(context) ?: return@launch
-                    channelRepository.syncProviderDeviceToken(fcmToken)
-                    activeFcmToken = fcmToken
-                    privateChannelClient.setRuntime(fcmAvailable = true, systemToken = fcmToken)
+                if (useProviderRoute) {
+                    privateChannelClient.setRuntime(
+                        fcmAvailable = true,
+                        systemToken = activeFcmToken,
+                    )
                 } else {
                     if (gatewayPrivateChannelEnabled == false) {
                         if (isFcmSupported(context)) {
@@ -740,9 +786,9 @@ class SettingsViewModel(
                             useFcmChannel = true
                             enableFcmProvider(context, keepEnabledWhenTokenMissing = true)
                             PrivateChannelServiceManager.refreshForMode(context, true)
-                            errorMessage = ResMessage(R.string.error_gateway_private_disabled_use_fcm)
+                            gatewayErrorMessage = ResMessage(R.string.error_gateway_private_disabled_use_fcm)
                         } else {
-                            errorMessage = ResMessage(R.string.error_private_disabled_and_fcm_unavailable)
+                            gatewayErrorMessage = ResMessage(R.string.error_private_disabled_and_fcm_unavailable)
                         }
                         return@launch
                     }
@@ -853,10 +899,13 @@ class SettingsViewModel(
     suspend fun createChannel(context: Context, alias: String, password: String): Boolean {
         if (isSavingChannel) return false
         isSavingChannel = true
+        channelEntryErrorMessage = null
         return try {
+            ChannelNameValidator.normalize(alias)
+            ChannelPasswordValidator.normalize(password)
             if (shouldUseFcm(context)) {
                 val token = settingsRepository.getFcmToken()?.trim().takeUnless { it.isNullOrEmpty() }
-                    ?: requireFcmToken(context)
+                    ?: requireFcmToken(context) { channelEntryErrorMessage = it }
                     ?: return false
                 channelRepository.syncProviderDeviceToken(token)
                 val created = channelRepository.createChannel(alias, password, token)
@@ -871,7 +920,7 @@ class SettingsViewModel(
             } else {
                 val created = privateChannelClient.privateCreateChannel(alias, password)
                 if (!created.subscribed || created.channelId.isBlank()) {
-                    errorMessage = ResMessage(R.string.error_private_channel_create_failed)
+                    channelEntryErrorMessage = ResMessage(R.string.error_private_channel_create_failed)
                     return false
                 }
                 channelRepository.upsertLocalPrivateCredential(
@@ -891,21 +940,21 @@ class SettingsViewModel(
                 true
             }
         } catch (ex: ChannelIdException) {
-            errorMessage = ResMessage(ex.resId)
+            channelEntryErrorMessage = ResMessage(ex.resId)
             false
         } catch (ex: ChannelNameException) {
-            errorMessage = ResMessage(ex.resId, ex.args)
+            channelEntryErrorMessage = ResMessage(ex.resId, ex.args)
             false
         } catch (ex: ChannelPasswordException) {
-            errorMessage = ResMessage(ex.resId)
+            channelEntryErrorMessage = ResMessage(ex.resId)
             false
         } catch (ex: ChannelSubscriptionException) {
             io.ethan.pushgo.util.SilentSink.w(TAG, "createChannel failed (private) message=${ex.message}", ex)
-            errorMessage = ex.toUiErrorMessage(R.string.error_private_channel_create_failed)
+            channelEntryErrorMessage = ex.toUiErrorMessage(R.string.error_private_channel_create_failed)
             false
         } catch (ex: Exception) {
             io.ethan.pushgo.util.SilentSink.e(TAG, "createChannel unexpected failure (private)", ex)
-            errorMessage = ex.toUiErrorMessage(R.string.error_private_channel_create_failed)
+            channelEntryErrorMessage = ex.toUiErrorMessage(R.string.error_private_channel_create_failed)
             false
         } finally {
             isSavingChannel = false
@@ -915,10 +964,13 @@ class SettingsViewModel(
     suspend fun subscribeChannel(context: Context, channelId: String, password: String): Boolean {
         if (isSavingChannel) return false
         isSavingChannel = true
+        channelEntryErrorMessage = null
         return try {
+            ChannelIdValidator.normalize(channelId)
+            ChannelPasswordValidator.normalize(password)
             if (shouldUseFcm(context)) {
                 val token = settingsRepository.getFcmToken()?.trim().takeUnless { it.isNullOrEmpty() }
-                    ?: requireFcmToken(context)
+                    ?: requireFcmToken(context) { channelEntryErrorMessage = it }
                     ?: return false
                 channelRepository.syncProviderDeviceToken(token)
                 channelRepository.subscribeChannel(channelId, password, token)
@@ -929,7 +981,7 @@ class SettingsViewModel(
                 val normalizedChannelId = ChannelIdValidator.normalize(channelId)
                 val subscribed = privateChannelClient.privateSubscribeChannel(normalizedChannelId, password)
                 if (!subscribed) {
-                    errorMessage = ResMessage(R.string.error_private_channel_subscribe_failed)
+                    channelEntryErrorMessage = ResMessage(R.string.error_private_channel_subscribe_failed)
                     return false
                 }
                 val existsResult = runCatching { channelRepository.channelExists(normalizedChannelId) }.getOrNull()
@@ -945,20 +997,24 @@ class SettingsViewModel(
                 true
             }
         } catch (ex: ChannelIdException) {
-            errorMessage = ResMessage(ex.resId)
+            channelEntryErrorMessage = ResMessage(ex.resId)
             false
         } catch (ex: ChannelPasswordException) {
-            errorMessage = ResMessage(ex.resId)
+            channelEntryErrorMessage = ResMessage(ex.resId)
             false
         } catch (ex: ChannelSubscriptionException) {
-            errorMessage = ex.toUiErrorMessage(R.string.error_private_channel_subscribe_failed)
+            channelEntryErrorMessage = ex.toUiErrorMessage(R.string.error_private_channel_subscribe_failed)
             false
         } catch (ex: Exception) {
-            errorMessage = ex.toUiErrorMessage(R.string.error_private_channel_subscribe_failed)
+            channelEntryErrorMessage = ex.toUiErrorMessage(R.string.error_private_channel_subscribe_failed)
             false
         } finally {
             isSavingChannel = false
         }
+    }
+
+    fun clearChannelEntryError() {
+        channelEntryErrorMessage = null
     }
 
     suspend fun renameChannel(channelId: String, alias: String) {

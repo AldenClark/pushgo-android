@@ -18,8 +18,13 @@ class QualityChannelJourneyInstrumentedTest : QualityAppJourneyTestCase() {
         composeRule.onNodeWithTag("action.channels.add").performClick()
         composeRule.onNodeWithTag("sheet.channels.entry").assertIsDisplayed()
         composeRule.onNodeWithTag("field.channels.create.name").performTextInput("Quality Created Channel")
+        composeRule.onNodeWithTag("action.channels.entry.submit").performClick()
+        waitForNode("feedback.channels.entry")
+        composeRule.onNodeWithTag("sheet.channels.entry").assertIsDisplayed()
+
         composeRule.onNodeWithTag("field.channels.create.password")
             .performTextInput("quality-channel-password")
+        composeRule.onNodeWithTag("feedback.channels.entry").assertDoesNotExist()
         composeRule.onNodeWithTag("action.channels.entry.submit").performClick()
         waitForNode("channel.row.01H00000000000000000000003")
         composeRule.onNodeWithTag("channel.row.01H00000000000000000000003")

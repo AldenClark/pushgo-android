@@ -1,6 +1,7 @@
 package io.ethan.pushgo.testing
 
 import androidx.compose.ui.test.*
+import androidx.test.espresso.Espresso.pressBack
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import java.util.Base64
 import org.junit.Test
@@ -92,6 +93,7 @@ class QualitySettingsJourneyInstrumentedTest : QualityAppJourneyTestCase() {
     fun serverConfigurationRejectsInvalidInputAndScopesDataAfterRelaunch() {
         configureAndLaunch(
             fixture = QualityFixture.CHANNELS_STANDARD,
+            faults = QualityFaults(failGatewaySwitchValidationOnce = true),
             channelMutationScenario = QualityChannelMutationScenario.ACCEPTED,
         )
         openSettings()
@@ -109,6 +111,23 @@ class QualitySettingsJourneyInstrumentedTest : QualityAppJourneyTestCase() {
         val normalizedAddress = "https://quality-settings.invalid/api"
         addressField.performTextClearance()
         addressField.performTextInput("$normalizedAddress/")
+        composeRule.onNodeWithTag("action.settings.gateway.save").performClick()
+        waitForTag("feedback.settings.gateway")
+        composeRule.onNodeWithTag("sheet.settings.gateway").assertIsDisplayed()
+        composeRule.onNodeWithTag("row.settings.gateway")
+            .assertTextContains(io.ethan.pushgo.data.AppConstants.defaultServerAddress)
+
+        pressBack()
+        composeRule.waitForIdle()
+        pressBack()
+        waitForTagToDisappear("sheet.settings.gateway")
+        composeRule.onNodeWithTag("row.settings.gateway")
+            .assertTextContains(io.ethan.pushgo.data.AppConstants.defaultServerAddress)
+            .performClick()
+        val retryAddressField = composeRule.onNodeWithTag("field.settings.gateway.address")
+        retryAddressField.assertTextContains(io.ethan.pushgo.data.AppConstants.defaultServerAddress)
+        retryAddressField.performTextClearance()
+        retryAddressField.performTextInput("$normalizedAddress/")
         composeRule.onNodeWithTag("action.settings.gateway.save").performClick()
         waitForTagToDisappear("sheet.settings.gateway")
         composeRule.onNodeWithTag("row.settings.gateway")

@@ -261,13 +261,16 @@ fun SettingsScreen(
                 SettingsSectionHeader(text = stringResource(R.string.section_connection_device))
             }
             item {
-                val gatewaySubtitle = uiState.gatewayAddress.ifBlank { AppConstants.defaultServerAddress }
+                val gatewaySubtitle = uiState.savedGatewayAddress.ifBlank { AppConstants.defaultServerAddress }
                 SettingsRow(
                     testTag = "row.settings.gateway",
                     icon = Icons.Outlined.Dns,
                     title = stringResource(R.string.label_gateway_settings),
                     subtitle = gatewaySubtitle,
-                    onClick = { showGatewaySheet = true },
+                    onClick = {
+                        viewModel.beginGatewayEdit()
+                        showGatewaySheet = true
+                    },
                 )
             }
             if (uiState.isChannelModeLoaded) {
@@ -489,7 +492,10 @@ fun SettingsScreen(
         val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
         PushGoModalBottomSheet(
             modifier = Modifier.testTag("sheet.settings.gateway"),
-            onDismissRequest = { showGatewaySheet = false },
+            onDismissRequest = {
+                viewModel.cancelGatewayEdit()
+                showGatewaySheet = false
+            },
             sheetState = sheetState,
             paneTitle = stringResource(R.string.a11y_pane_gateway_settings),
         ) {

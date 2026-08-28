@@ -159,6 +159,7 @@ fun ChannelListScreen(
 
             IconButton(
                 onClick = {
+                    viewModel.clearChannelEntryError()
                     channelEntryMode = ChannelEntryMode.Create
                     createChannelName = ""
                     createChannelPassword = ""
@@ -362,7 +363,10 @@ fun ChannelListScreen(
         val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
         PushGoModalBottomSheet(
             modifier = Modifier.testTag("sheet.channels.entry"),
-            onDismissRequest = { showChannelEntrySheet = false },
+            onDismissRequest = {
+                viewModel.clearChannelEntryError()
+                showChannelEntrySheet = false
+            },
             sheetState = sheetState,
             paneTitle = stringResource(R.string.a11y_pane_channel_management),
         ) {
@@ -383,7 +387,10 @@ fun ChannelListScreen(
                     ChannelEntryMode.entries.forEachIndexed { index, mode ->
                         SegmentedButton(
                             selected = channelEntryMode == mode,
-                            onClick = { channelEntryMode = mode },
+                            onClick = {
+                                viewModel.clearChannelEntryError()
+                                channelEntryMode = mode
+                            },
                             shape = SegmentedButtonDefaults.itemShape(
                                 index = index,
                                 count = ChannelEntryMode.entries.size
@@ -395,11 +402,25 @@ fun ChannelListScreen(
                     }
                 }
 
+                viewModel.channelEntryErrorMessage?.let { message ->
+                    Text(
+                        text = message.resolve(context),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = uiColors.stateDanger.foreground,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("feedback.channels.entry"),
+                    )
+                }
+
                 when (channelEntryMode) {
                     ChannelEntryMode.Create -> {
                         OutlinedTextField(
                             value = createChannelName,
-                            onValueChange = { createChannelName = it },
+                            onValueChange = {
+                                viewModel.clearChannelEntryError()
+                                createChannelName = it
+                            },
                             label = { Text(stringResource(R.string.label_channel_name)) },
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -409,7 +430,10 @@ fun ChannelListScreen(
                         )
                         OutlinedTextField(
                             value = createChannelPassword,
-                            onValueChange = { createChannelPassword = it },
+                            onValueChange = {
+                                viewModel.clearChannelEntryError()
+                                createChannelPassword = it
+                            },
                             label = { Text(stringResource(R.string.label_channel_password)) },
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -422,7 +446,10 @@ fun ChannelListScreen(
                     ChannelEntryMode.Subscribe -> {
                         OutlinedTextField(
                             value = subscribeChannelId,
-                            onValueChange = { subscribeChannelId = it },
+                            onValueChange = {
+                                viewModel.clearChannelEntryError()
+                                subscribeChannelId = it
+                            },
                             label = { Text(stringResource(R.string.label_channel_id)) },
                             modifier = Modifier.fillMaxWidth(),
                             singleLine = true,
@@ -430,7 +457,10 @@ fun ChannelListScreen(
                         )
                         OutlinedTextField(
                             value = subscribeChannelPassword,
-                            onValueChange = { subscribeChannelPassword = it },
+                            onValueChange = {
+                                viewModel.clearChannelEntryError()
+                                subscribeChannelPassword = it
+                            },
                             label = { Text(stringResource(R.string.label_channel_password)) },
                             modifier = Modifier.fillMaxWidth(),
                             singleLine = true,
@@ -443,7 +473,10 @@ fun ChannelListScreen(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.End,
                 ) {
-                    TextButton(onClick = { showChannelEntrySheet = false }) {
+                    TextButton(onClick = {
+                        viewModel.clearChannelEntryError()
+                        showChannelEntrySheet = false
+                    }) {
                         Text(stringResource(R.string.label_cancel))
                     }
                     Button(
