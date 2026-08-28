@@ -297,6 +297,12 @@
     <string name="label_notification_transport_unavailable_hint">網關私有通道已關閉，且此裝置不支援 FCM。推送不可用。</string>
     <string name="message_image_saved">圖片已儲存到相簿。</string>
     <string name="message_show_unread_only">只顯示未讀</string>
+    <plurals name="message_notification_group_summary">
+        <item quantity="other">%1$d 則訊息通知</item>
+    </plurals>
+    <plurals name="entity_notification_group_summary">
+        <item quantity="other">%1$d 則事件或物件通知</item>
+    </plurals>
     <string name="message_text_copied">內容已複製。</string>
     <string name="a11y_value_empty">空白</string>
     <string name="a11y_state_on">開啟</string>

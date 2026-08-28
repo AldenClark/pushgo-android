@@ -132,7 +132,7 @@
       "capabilities": ["accessibility-localization", "shared-ui"],
       "minimum_evidence": ["accessibility semantics/contrast tests", "representative core UI task", "nightly locale/font review"],
       "lane": "nightly",
-      "known_evidence_gaps": ["physical TalkBack, large font, and complete zh/en task evidence remain NOT RUN."]
+      "known_evidence_gaps": ["API 37 zh-CN fontScale 1.5 message-detail/channel-create task and production localization completeness are covered. Physical TalkBack and risk-representative additional device/locale tasks remain NOT RUN."]
     },
     {
       "id": "export-candidate",

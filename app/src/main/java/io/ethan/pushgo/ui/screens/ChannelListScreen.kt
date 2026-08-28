@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -55,6 +56,8 @@ import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -439,6 +442,8 @@ fun ChannelListScreen(
                                 .fillMaxWidth()
                                 .testTag("field.channels.create.password"),
                             singleLine = true,
+                            visualTransformation = PasswordVisualTransformation(),
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
                             colors = pushGoOutlinedTextFieldColors(),
                         )
                     }
@@ -464,6 +469,8 @@ fun ChannelListScreen(
                             label = { Text(stringResource(R.string.label_channel_password)) },
                             modifier = Modifier.fillMaxWidth(),
                             singleLine = true,
+                            visualTransformation = PasswordVisualTransformation(),
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
                             colors = pushGoOutlinedTextFieldColors(),
                         )
                     }

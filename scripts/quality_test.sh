@@ -110,13 +110,14 @@ PY
 run_impact_contracts
 
 run_jvm_and_compile_device_tests() {
-  selected_claims+=("Android JVM behavior suite and androidTest compilation")
+  selected_claims+=("Android JVM behavior suite, localization completeness, and androidTest compilation")
   "$repo_root/scripts/quality_doctor.sh" --allow-no-device
+  python3 "$repo_root/scripts/verify_android_localizations.py"
   "$repo_root/gradlew" \
     testDebugUnitTest \
     compileDebugAndroidTestKotlin \
     assembleDebug
-  claims+=("Android JVM behavior suite and androidTest compilation")
+  claims+=("Android JVM behavior suite, localization completeness, and androidTest compilation")
 }
 
 # These classes prove the highest-value product outcomes and storage boundaries.
@@ -188,20 +189,65 @@ run_performance() {
   claims+=("Android 100k real Room correctness and provisional selected-emulator search ceiling")
 }
 
+run_accessibility_localization() {
+  local doctor_output
+  local device_serial
+  local device_api
+  selected_claims+=("Android zh-CN large-font real message-detail and add-channel journey")
+  python3 "$repo_root/scripts/verify_android_localizations.py"
+  doctor_output="$("$repo_root/scripts/quality_doctor.sh")"
+  printf '%s\n' "$doctor_output"
+  device_serial="$(printf '%s\n' "$doctor_output" | awk -F= '$1 == "device_serial" { print $2; exit }')"
+  device_api="$(printf '%s\n' "$doctor_output" | awk -F= '$1 == "device_api" { print $2; exit }')"
+  [[ -n "$device_serial" ]] || {
+    echo "status=BLOCKED"
+    echo "reason=quality_doctor_missing_device_serial"
+    exit 2
+  }
+  [[ "$device_api" =~ ^[0-9]+$ ]] && (( device_api >= 33 )) || {
+    echo "status=BLOCKED"
+    echo "reason=accessibility_localization_requires_api_33_or_newer:$device_api"
+    exit 2
+  }
+  ANDROID_SERIAL="$device_serial" "$repo_root/gradlew" connectedDebugAndroidTest \
+    --rerun-tasks \
+    "-Pandroid.testInstrumentationRunnerArguments.class=io.ethan.pushgo.testing.QualityAccessibilityLocalizationJourneyInstrumentedTest"
+  claims+=("Android zh-CN large-font real message-detail and add-channel journey")
+}
+
 case "$lane" in
   focused)
-    [[ -n "${TEST_FILTER:-}" ]] || {
+    [[ -n "${TEST_FILTER:-}" || -n "${ANDROID_TEST_CLASS:-}" ]] || {
       echo "status=BLOCKED"
-      echo "reason=focused_lane_requires_TEST_FILTER"
+      echo "reason=focused_lane_requires_TEST_FILTER_or_ANDROID_TEST_CLASS"
       exit 2
     }
-    selected_claims+=("Android focused JVM behavior: $TEST_FILTER")
-    "$repo_root/scripts/quality_doctor.sh" --allow-no-device
-    "$repo_root/gradlew" testDebugUnitTest --tests "$TEST_FILTER"
-    claims+=("Android focused JVM behavior: $TEST_FILTER")
+    if [[ -n "${ANDROID_TEST_CLASS:-}" ]]; then
+      doctor_output="$("$repo_root/scripts/quality_doctor.sh")"
+      printf '%s\n' "$doctor_output"
+      device_serial="$(printf '%s\n' "$doctor_output" | awk -F= '$1 == "device_serial" { print $2; exit }')"
+      [[ -n "$device_serial" ]] || {
+        echo "status=BLOCKED"
+        echo "reason=quality_doctor_missing_device_serial"
+        exit 2
+      }
+      selected_claims+=("Android focused device behavior: $ANDROID_TEST_CLASS")
+      ANDROID_SERIAL="$device_serial" "$repo_root/gradlew" connectedDebugAndroidTest \
+        --rerun-tasks \
+        "-Pandroid.testInstrumentationRunnerArguments.class=$ANDROID_TEST_CLASS"
+      claims+=("Android focused device behavior: $ANDROID_TEST_CLASS")
+    else
+      selected_claims+=("Android focused JVM behavior: $TEST_FILTER")
+      "$repo_root/scripts/quality_doctor.sh" --allow-no-device
+      "$repo_root/gradlew" testDebugUnitTest --tests "$TEST_FILTER"
+      claims+=("Android focused JVM behavior: $TEST_FILTER")
+    fi
     ;;
   performance)
     run_performance
+    ;;
+  accessibility)
+    run_accessibility_localization
     ;;
   pr)
     run_jvm_and_compile_device_tests
@@ -218,11 +264,13 @@ case "$lane" in
     run_jvm_and_compile_device_tests
     run_quality_device_classes
     run_device_classes "$nightly_data_classes"
+    run_accessibility_localization
     ;;
   release)
     run_jvm_and_compile_device_tests
     run_quality_device_classes
     run_device_classes "$nightly_data_classes"
+    run_accessibility_localization
     "$repo_root/gradlew" assembleRelease
     ;;
   *)

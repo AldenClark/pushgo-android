@@ -1,6 +1,7 @@
 package io.ethan.pushgo.testing
 
 import androidx.compose.ui.test.*
+import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -23,6 +24,7 @@ class QualityChannelJourneyInstrumentedTest : QualityAppJourneyTestCase() {
         composeRule.onNodeWithTag("sheet.channels.entry").assertIsDisplayed()
 
         composeRule.onNodeWithTag("field.channels.create.password")
+            .assert(SemanticsMatcher.expectValue(SemanticsProperties.Password, Unit))
             .performTextInput("quality-channel-password")
         composeRule.onNodeWithTag("feedback.channels.entry").assertDoesNotExist()
         composeRule.onNodeWithTag("action.channels.entry.submit").performClick()
