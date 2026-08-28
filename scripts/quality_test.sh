@@ -13,6 +13,9 @@ not_run=(
   "real FCM/notification permission/Doze/reboot/install/physical accessibility evidence"
   "Macrobenchmark/physical-device performance evidence"
 )
+if [[ "$lane" != "performance" ]]; then
+  not_run+=("opt-in 100k production Room performance evidence")
+fi
 
 write_result() {
   local product_status="$1"
@@ -162,6 +165,29 @@ run_quality_device_classes() {
   claims+=("Android core App UI empty/content/pagination/read/search/delete/slow-load/slow-refresh/error-retry/navigation/Event/Thing/Channel/Settings journeys")
 }
 
+run_performance() {
+  local doctor_output
+  local device_serial
+  local device_log="$results_root/android-performance-device.log"
+
+  selected_claims+=("Android 100k real Room correctness and provisional selected-emulator search ceiling")
+  doctor_output="$("$repo_root/scripts/quality_doctor.sh")"
+  printf '%s\n' "$doctor_output"
+  device_serial="$(printf '%s\n' "$doctor_output" | awk -F= '$1 == "device_serial" { print $2; exit }')"
+  [[ -n "$device_serial" ]] || {
+    echo "status=BLOCKED"
+    echo "reason=quality_doctor_missing_device_serial"
+    exit 2
+  }
+  ANDROID_SERIAL="$device_serial" "$repo_root/gradlew" \
+    connectedDebugAndroidTest \
+    --rerun-tasks \
+    "-Pandroid.testInstrumentationRunnerArguments.class=io.ethan.pushgo.testing.RuntimeDataLayerInstrumentedTest#realRoomDaoSearchAndPaging_optIn100000" \
+    "-Pandroid.testInstrumentationRunnerArguments.pushgo.runtime.include100k=true" \
+    2>&1 | tee "$device_log"
+  claims+=("Android 100k real Room correctness and provisional selected-emulator search ceiling")
+}
+
 case "$lane" in
   focused)
     [[ -n "${TEST_FILTER:-}" ]] || {
@@ -173,6 +199,9 @@ case "$lane" in
     "$repo_root/scripts/quality_doctor.sh" --allow-no-device
     "$repo_root/gradlew" testDebugUnitTest --tests "$TEST_FILTER"
     claims+=("Android focused JVM behavior: $TEST_FILTER")
+    ;;
+  performance)
+    run_performance
     ;;
   pr)
     run_jvm_and_compile_device_tests

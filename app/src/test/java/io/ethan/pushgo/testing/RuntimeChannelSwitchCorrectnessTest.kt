@@ -3,6 +3,7 @@ package io.ethan.pushgo.testing
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
+import org.junit.Assume.assumeTrue
 import org.junit.Test
 import kotlin.system.measureNanoTime
 
@@ -76,10 +77,7 @@ class RuntimeChannelSwitchCorrectnessTest {
     fun channelSwitchPerformance_recordsHundredThousandWhenOptInEnabled() {
         val enabled = System.getenv("PUSHGO_ANDROID_RUNTIME_100K") == "true" ||
             System.getProperty("pushgo.android.runtime.100k") == "true"
-        if (!enabled) {
-            println("runtime-channel-switch-performance size=100000 skipped=true reason=set_PUSHGO_ANDROID_RUNTIME_100K_true")
-            return
-        }
+        assumeTrue("set PUSHGO_ANDROID_RUNTIME_100K=true to run 100k performance", enabled)
         val p100k = runSyntheticSwitchSequence(seed = 512L, size = 100_000)
         assertEquals(100_000, p100k.totalMessages)
         println(p100k.asLogLine())

@@ -5,8 +5,8 @@
 | 真实入口 | 用户目的 | 关键状态/分支 | 数据/系统终点 | 最低证据 | Lane/当前状态 | 主要 owner |
 | --- | --- | --- | --- | --- | --- | --- |
 | App launch | 进入可操作 App | Empty/Content/slow/fatal/migration | App-owned Room、session secure/settings stores、首屏、导航 | Room + UI + Macrobenchmark | P0；empty/content/slow/error 已有真实 App UI；quality Room、Keystore 密文偏好和 settings cache 均按 session 隔离；migration UI/Macrobenchmark 待补 | `MainActivity`、`AppContainer`、DB |
-| Messages list | 浏览/分页/刷新消息 | first/page/refresh/slow/error | summary query、列表集合 | DAO + VM + UI | P0；首次 slow/error/retry、准确集合、跨 50 条页界、慢刷新/旧快照、新结果持久化与失败后恢复已有；真实性能待补 | Message repository/VM/UI |
-| Message detail | 阅读准确内容 | missing/decrypt/media/read/delete | Room、read state、notification | unit + UI + relaunch | P0；准确字段/详情、唯一详情 owner 下的正文、单条/全部已读、未读筛选、activity relaunch 与删除撤销已有；合法 Key 的原消息恢复、准确明文和 relaunch 已有；media 及错 Key/坏密文待补 | Detail VM/UI/Repository |
+| Messages list | 浏览/分页/刷新消息 | first/page/refresh/slow/error | summary query、列表集合 | DAO + VM + UI | P0；首次 slow/error/retry、准确集合、跨 50 条页界、慢刷新/旧快照、新结果持久化与失败后恢复已有；真实 Room 100k provisional baseline 已有，UI/真机性能待补 | Message repository/VM/UI |
+| Message detail | 阅读准确内容 | missing/decrypt/media/read/delete | Room、read state、notification | unit + UI + relaunch | P0；准确字段/详情、唯一详情 owner 下的正文、单条/全部已读、未读筛选、activity relaunch 与删除撤销已有；合法 Key、错误 Key 纠正和坏密文安全失败均以原 canonical 消息及 relaunch 闭环；media 待补 | Detail VM/UI/Repository |
 | Search/filter | 找到且只找到目标集合 | latest query/unread/index rebuild/error | search index、结果集合 | property + Room + UI | P0；错误词排除、目标集合/准确详情与未读筛选往返 UI 已有；channel/tag 与 index error/rebuild 待补 | DAO/Search UI |
 | History cleanup | 按范围清理 | cutoff/DST/cancel/failure | messages/entities/index/stats | DAO boundary + UI | P1；UI 缺口 | Cleanup/Repositories |
 | Delete/Undo | 删除或恢复并持久化 | pending/claim/failure/death/reopen | Room、Worker、notification | integration + UI | P0；真实详情删除、行隐藏、Undo、activity relaunch 已有；process death/notification 待物理 lane | Pending deletion |
@@ -26,7 +26,7 @@
 | Update UI/install | 检查并安全安装更新 | stable/beta/later/skip/permission/death | feed、download、signature、installer | JVM + UI + physical | P0/P1 Release；部分脚本、UI 缺口 | Update subsystem |
 | Update distribution metadata | 用户获得签名、版本与文案一致的更新 | version/build/channel/signature/notes/URL | signed feed、版本化 notes | semantic contract + Release install | P0 Release；Feed 契约已进 PR，物理安装仍 NOT RUN | release feed/workflow |
 | Accessibility/localization | 用 TalkBack/大字体完成核心任务 | focus/actions/font/zh/en | semantics、OS accessibility | component + physical task | P1；component 有、physical NOT RUN | Shared UI/screens |
-| Performance | 在预算内得到正确结果 | cold/warm/10k/search/scroll/detail | TTID/TTFD/frame/trace + content | correctness + Macrobenchmark | P1；slow 状态 Oracle 已可证伪，物理设备 Macrobenchmark 模块待建 | App/benchmark module |
+| Performance | 在预算内得到正确结果 | cold/warm/10k/100k/search/scroll/detail | Room correctness、TTID/TTFD/frame/trace + content | correctness + Room regression ceiling + Macrobenchmark | P1；独立 `performance` Lane 已在选定 API 37 emulator 实跑真实 Room 100k 写入、分页、FTS、筛选、投影与重开，search 采用 provisional 2s ceiling；synthetic JVM OOM 不冒充产品失败/通过，物理设备 Macrobenchmark 仍 NOT RUN | Room/App/benchmark module |
 | Export candidate | 导出消息文件 | reachable/cancel/failure/large | JSON/URI consumer | product reachability review | 删除候选；不投入本轮预算 | Export helpers |
 
 ## 增量规则

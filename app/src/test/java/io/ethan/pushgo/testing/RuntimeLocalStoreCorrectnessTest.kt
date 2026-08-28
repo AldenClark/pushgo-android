@@ -5,6 +5,7 @@ import io.ethan.pushgo.data.db.ThingHeadEntity
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
+import org.junit.Assume.assumeTrue
 import org.junit.Test
 import org.json.JSONObject
 import java.time.Instant
@@ -432,10 +433,7 @@ class RuntimeLocalStoreCorrectnessTest {
     fun localStore_recordsHundredThousandScaleQueryPerformanceWhenEnabled() {
         val enabled = System.getenv("PUSHGO_ANDROID_RUNTIME_100K") == "true" ||
             System.getProperty("pushgo.android.runtime.100k") == "true"
-        if (!enabled) {
-            println("runtime-local-performance size=100000 skipped=true reason=set_PUSHGO_ANDROID_RUNTIME_100K_true")
-            return
-        }
+        assumeTrue("set PUSHGO_ANDROID_RUNTIME_100K=true to run 100k performance", enabled)
 
         val sample = capturePerformance(size = 100_000, seed = 39L)
 

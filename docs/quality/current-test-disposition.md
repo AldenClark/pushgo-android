@@ -78,7 +78,7 @@
 
 ## 当前首要缺口
 
-1. Messages、Event/Thing、Channel 本地 invalid 的 Sheet-owned 反馈与 accepted mutation、Settings 页面可见性、server 候选注册失败不提交→重试成功→数据换域/持久化、decryption key 生命周期和合法 Key 恢复原加密消息已按真实目的拆成 App-owned 纵向旅程；Channel remote rejection/compensation、Gateway 本地 commit/rollback 写失败、错 Key/坏密文与 transport 切换仍是当前 P0 缺口。
+1. Messages、Event/Thing、Channel 本地 invalid 的 Sheet-owned 反馈与 accepted mutation、Settings 页面可见性、server 候选注册/本地 commit 失败不提交→回滚→重试成功→数据换域/持久化、decryption lifecycle、受保护写失败补偿、错误 Key 纠正和坏密文安全失败均已按真实目的拆成 App-owned 纵向旅程；Channel remote rejection/compensation、rollback 存储本身再次失败的 UI 与 transport 切换仍是当前 P0 缺口。
 2. Compose “UI baseline” 多数直接构造 ViewModel/Repository，是 component/integration，不是真实 App UI。
 3. Runtime/Automation 仍交换内部状态和路径，容易把准备失败拖成 UI timeout。
 4. 强 Room/ACK/迁移测试很多，但没有映射到页面内容、系统入口和 Release 门禁。
@@ -96,3 +96,4 @@
 - `config/quality-impact.json`、`scripts/quality_impact.py` 与 `scripts/quality_changed.sh` 已把产品变更映射到具名能力和最低 Lane。PR 的 host/device 阶段共享同一计划：普通 JVM 变化不启动模拟器，Compose/Room/Service 等风险升级时才运行对应代表设备 Lane；修改 `androidTest` 最低升级到 `pr-ui`，避免只编译不执行；未映射产品路径直接 `BLOCKED`，文档变更写结构化 `NOT_RUN`。
 - 计划中的 `required_checks` 必须进入 selected/executed 收据：更新 Feed/notes 在快速 PR Lane 做签名与语义契约，不无差别启动设备；Gradle/native/release 边界则执行 JNI、schema 和发布静态契约并保持 Release Lane。最近 120 次历史变更回放已修复 Room schema export、update feed 与旧 Connection Diagnosis 漏选；无效计划直接 `BLOCKED`。
 - 路径计划只是不可低于的下限。AI/开发者仍需追 ViewModel、Room、错误分支、Service/Worker/Receiver 和 OS 消费者；Macrobenchmark/物理设备性能在结果中明确 `not_run`，不得由 slow-state UI 用例替代。
+- 两个 JVM 100k helper 原先打印 `skipped=true` 后直接返回，JUnit 会错误计为通过；现已改为 `Assume.assumeTrue`，常规测试报告明确为 skipped。首次把这些 synthetic helper 纳入性能 Lane 时，内存假 Store 在搜索阶段 OOM；这不代表生产 Room 的用户性能，故不靠增大测试堆制造绿色，也不再作为 Lane claim。`scripts/quality_test.sh performance` 只执行真实 Room 的 100k 写入、分页、FTS、筛选、投影和关闭重开，保存 logcat 指标并应用暂定 emulator 搜索上限；Macrobenchmark/真机启动与帧性能继续单列 `not_run`。
