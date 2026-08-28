@@ -29,9 +29,11 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.testTagsAsResourceId
 import androidx.compose.ui.res.stringResource
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import io.ethan.pushgo.BuildConfig
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -254,7 +256,15 @@ fun PushGoAppRoot(
     }
 
     Scaffold(
-        modifier = Modifier.fillMaxSize(),
+        modifier = Modifier
+            .fillMaxSize()
+            .then(
+                if (BuildConfig.QUALITY_SESSION_CONTROL_ENABLED) {
+                    Modifier.semantics { testTagsAsResourceId = true }
+                } else {
+                    Modifier
+                }
+            ),
         bottomBar = {
             val uiColors = PushGoThemeExtras.colors
             AnimatedVisibility(

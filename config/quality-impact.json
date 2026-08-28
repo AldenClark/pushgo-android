@@ -1,11 +1,13 @@
 {
   "schema_version": 1,
   "platform": "android",
-  "lane_order": ["not-run", "pr", "pr-ui", "device", "nightly", "release"],
+  "lane_order": ["not-run", "pr", "pr-ui", "device", "nightly", "performance", "release"],
   "product_paths": [
     "app/src/main/**",
     "app/src/debug/**",
+    "app/src/benchmark/**",
     "app/src/release/**",
+    "macrobenchmark/**",
     "app/schemas/**",
     "native/**",
     "release/update-feed-v1.json",
@@ -41,8 +43,17 @@
       "escalation_reasons": ["Instrumented-test changes require device execution; compilation alone cannot validate the Oracle."]
     },
     {
+      "id": "android-performance-system",
+      "paths": ["macrobenchmark/**", "app/src/benchmark/**", "app/src/release/generated/baselineProfiles/**", "app/src/main/java/io/ethan/pushgo/ui/screens/MessageListScreen.kt", "scripts/run_android_physical_macrobenchmark.sh", "scripts/regenerate_android_baseline_profile.sh", "scripts/validate_android_macrobenchmark.py", "scripts/verify_android_performance_contract.py"],
+      "capabilities": ["app-launch-performance", "message-detail-frame-performance", "baseline-profile", "quality-system-trustworthiness"],
+      "minimum_evidence": ["exact 1k-store startup/detail product Oracle on controlled emulator", "Macrobenchmark JSON contract and negative controls", "filtered Baseline/Startup Profile and Release APK isolation", "explicit physical-device budgets or truthful NOT RUN"],
+      "lane": "performance",
+      "known_evidence_gaps": ["Emulator timing never proves a user-device budget; physical startup/detail/frame evidence requires an explicitly selected non-personal device and owner-approved budgets."],
+      "escalation_reasons": ["Performance tests cross app-owned storage, packaged Release-like code, device compatibility, profiler output, and user-visible correctness."]
+    },
+    {
       "id": "quality-runtime-release-isolation",
-      "paths": ["app/src/main/java/io/ethan/pushgo/testing/**", "app/src/debug/**", "app/src/release/**", "app/src/main/java/io/ethan/pushgo/PushGoApp.kt", "app/src/main/java/io/ethan/pushgo/data/AppContainer.kt", "app/src/main/java/io/ethan/pushgo/data/AppAutomationController.kt"],
+      "paths": ["app/src/main/java/io/ethan/pushgo/testing/**", "app/src/debug/**", "app/src/release/java/io/ethan/pushgo/automation/**", "app/src/main/java/io/ethan/pushgo/PushGoApp.kt", "app/src/main/java/io/ethan/pushgo/data/AppContainer.kt", "app/src/main/java/io/ethan/pushgo/data/AppAutomationController.kt"],
       "capabilities": ["app-owned-quality-runtime", "release-runtime-isolation", "app-launch"],
       "minimum_evidence": ["QualityRuntime JVM tests", "App-owned Android UI journey", "Release build/runtime isolation"],
       "lane": "release",

@@ -19,3 +19,4 @@ dependencyResolutionManagement {
 
 rootProject.name = "pushgo-android"
 include(":app")
+include(":macrobenchmark")

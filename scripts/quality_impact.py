@@ -136,6 +136,9 @@ def build_plan(files: list[str], manifest: dict[str, Any], source: str) -> dict[
         key=lambda lane: lane_rank[lane],
         default="not-run",
     )
+    selected_lanes = {rule["lane"] for rule in selected}
+    if "performance" in selected_lanes and selected_lanes.intersection({"device", "nightly"}):
+        recommended_lane = "release"
     plan_status = "BLOCKED" if unmapped_product_paths else ("NOT_RUN" if not selected else "READY")
     return {
         "schema_version": 1,

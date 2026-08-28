@@ -12,10 +12,10 @@ claims=()
 selected_claims=()
 not_run=(
   "real FCM/notification permission/Doze/reboot/install/physical accessibility evidence"
-  "Macrobenchmark/physical-device performance evidence"
 )
-if [[ "$lane" != "performance" ]]; then
+if [[ "$lane" != "performance" && "$lane" != "release" ]]; then
   not_run+=("opt-in 100k production Room performance evidence")
+  not_run+=("Release-like Macrobenchmark mechanics and physical-device performance evidence")
 fi
 
 write_result() {
@@ -190,6 +190,11 @@ run_performance() {
     echo "reason=quality_doctor_missing_device_serial"
     exit 2
   }
+  [[ "$device_serial" == emulator-* ]] && [[ "$(adb -s "$device_serial" shell getprop ro.kernel.qemu | tr -d '\r')" == "1" ]] || {
+    echo "status=BLOCKED"
+    echo "reason=hosted_performance_lane_requires_controlled_emulator:$device_serial"
+    exit 2
+  }
   ANDROID_SERIAL="$device_serial" "$repo_root/gradlew" \
     connectedDebugAndroidTest \
     --rerun-tasks \
@@ -197,6 +202,39 @@ run_performance() {
     "-Pandroid.testInstrumentationRunnerArguments.pushgo.runtime.include100k=true" \
     2>&1 | tee "$device_log"
   claims+=("Android 100k real Room correctness and provisional selected-emulator search ceiling")
+
+  selected_claims+=("Release-like Macrobenchmark mechanics with exact 1k startup/detail product Oracle on controlled emulator")
+  ANDROID_SERIAL="$device_serial" "$repo_root/gradlew" \
+    :macrobenchmark:connectedBenchmarkBenchmarkAndroidTest \
+    --rerun-tasks \
+    --console=plain \
+    "-Pandroid.testInstrumentationRunnerArguments.class=io.ethan.pushgo.macrobenchmark.PushGoMacrobenchmark" \
+    "-Pandroid.testInstrumentationRunnerArguments.androidx.benchmark.dryRunMode.enable=true" \
+    "-Pandroid.testInstrumentationRunnerArguments.androidx.benchmark.suppressErrors=EMULATOR" \
+    "-Pandroid.testInstrumentationRunnerArguments.pushgo.maxStartupMs=20000" \
+    "-Pandroid.testInstrumentationRunnerArguments.pushgo.maxDetailMs=10000"
+  claims+=("Release-like Macrobenchmark mechanics with exact 1k startup/detail product Oracle on controlled emulator")
+
+  selected_claims+=("Filtered Baseline/Startup Profile and Release APK quality-control isolation")
+  "$repo_root/gradlew" :app:assembleRelease --console=plain
+  python3 "$repo_root/scripts/verify_android_performance_contract.py"
+  claims+=("Filtered Baseline/Startup Profile and Release APK quality-control isolation")
+
+  local physical_serial="${ANDROID_PERFORMANCE_DEVICE_SERIAL:-}"
+  local physical_startup="${PUSHGO_ANDROID_PHYSICAL_MAX_STARTUP_MS:-}"
+  local physical_detail="${PUSHGO_ANDROID_PHYSICAL_MAX_DETAIL_MS:-}"
+  local physical_frame="${PUSHGO_ANDROID_PHYSICAL_MAX_FRAME_MS:-}"
+  if [[ -z "$physical_serial$physical_startup$physical_detail$physical_frame" ]]; then
+    not_run+=("physical-device cold-start/detail/frame performance: no explicit non-personal device and owner-approved budgets")
+  elif [[ -z "$physical_serial" || -z "$physical_startup" || -z "$physical_detail" || -z "$physical_frame" ]]; then
+    echo "status=BLOCKED"
+    echo "reason=incomplete_physical_performance_contract"
+    exit 2
+  else
+    selected_claims+=("Physical-device cold-start/detail/frame performance within explicit budgets")
+    "$repo_root/scripts/run_android_physical_macrobenchmark.sh"
+    claims+=("Physical-device cold-start/detail/frame performance within explicit budgets")
+  fi
 }
 
 run_accessibility_localization() {
@@ -281,7 +319,7 @@ case "$lane" in
     run_quality_device_classes
     run_device_classes "$nightly_data_classes"
     run_accessibility_localization
-    "$repo_root/gradlew" assembleRelease
+    run_performance
     ;;
   *)
     echo "status=BLOCKED"

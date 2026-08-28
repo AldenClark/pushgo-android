@@ -7,6 +7,7 @@ import android.text.format.DateFormat
 import android.text.format.DateUtils
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.ReportDrawnWhen
 import androidx.core.content.ContextCompat
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.fadeIn
@@ -126,6 +127,9 @@ fun MessageListScreen(
     val uiColors = PushGoThemeExtras.colors
     val messages = viewModel.messages.collectAsLazyPagingItems()
     var isMessageLoadSlow by remember { mutableStateOf(false) }
+    var observedInitialMessageLoad by remember {
+        mutableStateOf(messages.loadState.refresh is LoadState.Loading)
+    }
     val filterState by viewModel.filterState.collectAsStateWithLifecycle()
     val currentScopeUnreadCount by viewModel.currentScopeUnreadCount.collectAsStateWithLifecycle()
     val facetChannelCounts by viewModel.facetChannelCounts.collectAsStateWithLifecycle()
@@ -147,6 +151,18 @@ fun MessageListScreen(
     var didPullRefreshFail by remember { mutableStateOf(false) }
     var isHistoryCleanupSheetVisible by rememberSaveable { mutableStateOf(false) }
     val messagesTabLabel = stringResource(R.string.tab_messages)
+
+    LaunchedEffect(messages.loadState.refresh) {
+        if (messages.loadState.refresh is LoadState.Loading) {
+            observedInitialMessageLoad = true
+        }
+    }
+    val initialMessageResultIsDrawn = when (messages.loadState.refresh) {
+        is LoadState.Error -> true
+        is LoadState.NotLoading -> observedInitialMessageLoad || messages.itemCount > 0
+        is LoadState.Loading -> false
+    }
+    ReportDrawnWhen { initialMessageResultIsDrawn }
 
     LaunchedEffect(messages.loadState.refresh) {
         isMessageLoadSlow = false

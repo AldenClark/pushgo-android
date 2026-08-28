@@ -99,6 +99,29 @@ class QualityImpactPlanTests(unittest.TestCase):
         self.assertEqual("device", plan["recommended_lane"])
         self.assertIn("transport-selector", plan["impacted_capabilities"])
 
+    def test_macrobenchmark_change_selects_performance_lane(self):
+        plan = self.plan(
+            "macrobenchmark/src/main/java/io/ethan/pushgo/macrobenchmark/PushGoMacrobenchmark.kt"
+        )
+
+        self.assertEqual("READY", plan["plan_status"])
+        self.assertEqual("performance", plan["recommended_lane"])
+        self.assertIn("message-detail-frame-performance", plan["impacted_capabilities"])
+
+    def test_generated_profile_change_selects_performance_lane(self):
+        plan = self.plan("app/src/release/generated/baselineProfiles/baseline-prof.txt")
+
+        self.assertEqual("performance", plan["recommended_lane"])
+        self.assertIn("baseline-profile", plan["impacted_capabilities"])
+
+    def test_behavior_and_performance_change_promotes_release(self):
+        plan = self.plan(
+            "app/src/main/java/io/ethan/pushgo/ui/viewmodel/MessageListViewModel.kt",
+            "macrobenchmark/src/main/java/io/ethan/pushgo/macrobenchmark/PushGoMacrobenchmark.kt",
+        )
+
+        self.assertEqual("release", plan["recommended_lane"])
+
 
 if __name__ == "__main__":
     unittest.main()

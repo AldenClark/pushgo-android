@@ -38,6 +38,7 @@ import androidx.core.content.ContextCompat
 import androidx.core.content.edit
 import io.ethan.pushgo.automation.PushGoAutomation
 import io.ethan.pushgo.notifications.NotificationHelper
+import io.ethan.pushgo.testing.QualityRuntime
 import io.ethan.pushgo.ui.PushGoAppRoot
 import io.ethan.pushgo.ui.screens.PushGoAlertDialog
 import io.ethan.pushgo.ui.theme.PushGoTheme
@@ -181,7 +182,10 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun evaluateStartupDeliveryGuards(requestNotificationRuntimePermission: Boolean) {
-        if (PushGoAutomation.isSessionConfigured()) {
+        if (
+            PushGoAutomation.isSessionConfigured() ||
+            QualityRuntime.isAppOwnedSessionConfigured()
+        ) {
             showNotificationPermissionDialog = false
             showDozeModeDialog = false
             return

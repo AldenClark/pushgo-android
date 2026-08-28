@@ -67,7 +67,10 @@ class PushGoApp : Application(), SingletonImageLoader.Factory {
 
     fun containerOrNull(): AppContainer? {
         initializedContainer?.let { return it }
-        if (!InstrumentationRuntime.isUnderInstrumentationTest()) return null
+        if (
+            !InstrumentationRuntime.isUnderInstrumentationTest() &&
+            !BuildConfig.QUALITY_SESSION_CONTROL_ENABLED
+        ) return null
         return synchronized(this) {
             initializedContainer ?: runCatching { createContainer() }
                 .onFailure { error ->
@@ -86,6 +89,15 @@ class PushGoApp : Application(), SingletonImageLoader.Factory {
      */
     fun releaseStorageForInstrumentationTest() {
         check(InstrumentationRuntime.isUnderInstrumentationTest())
+        releaseStorageForControlledRuntime()
+    }
+
+    fun releaseStorageForQualityControl() {
+        check(BuildConfig.QUALITY_SESSION_CONTROL_ENABLED)
+        releaseStorageForControlledRuntime()
+    }
+
+    private fun releaseStorageForControlledRuntime() {
         val (job, database) = synchronized(this) {
             val currentJob = containerJob
             val currentDatabase = initializedContainer?.database
@@ -118,6 +130,16 @@ class PushGoApp : Application(), SingletonImageLoader.Factory {
 
     override fun onCreate() {
         super.onCreate()
+        if (BuildConfig.QUALITY_SESSION_CONTROL_ENABLED) {
+            io.ethan.pushgo.testing.QualityRuntime.configureFromAppStorage(this)
+            if (!io.ethan.pushgo.testing.QualityRuntime.isAppOwnedSessionConfigured()) {
+                // Performance/profile variants remain inert until the fixture
+                // protocol has established an isolated app-owned session.
+                NotificationHelper.cleanupObsoleteChannels(this)
+                NotificationHelper.ensureManagedChannels(this)
+                return
+            }
+        }
         if (InstrumentationRuntime.isUnderInstrumentationTest()) {
             // Test fixtures own their database lifecycle. Opening the production
             // container here would race migration tests that replace pushgo.db.
@@ -139,6 +161,13 @@ class PushGoApp : Application(), SingletonImageLoader.Factory {
             .getOrNull()
         initializedContainer = container
         if (container == null) {
+            NotificationHelper.cleanupObsoleteChannels(this)
+            NotificationHelper.ensureManagedChannels(this)
+            return
+        }
+        if (io.ethan.pushgo.testing.QualityRuntime.isAppOwnedSessionConfigured()) {
+            // Preserve the real Room/UI composition root while excluding
+            // unrelated Firebase, Worker, service, and sync noise from the CUJ.
             NotificationHelper.cleanupObsoleteChannels(this)
             NotificationHelper.ensureManagedChannels(this)
             return
@@ -235,7 +264,8 @@ class PushGoApp : Application(), SingletonImageLoader.Factory {
                 context = this,
                 appScope = CoroutineScope(job + Dispatchers.IO),
                 pendingLocalDeletionDrainScheduler = if (
-                    InstrumentationRuntime.isUnderInstrumentationTest()
+                    InstrumentationRuntime.isUnderInstrumentationTest() ||
+                    io.ethan.pushgo.testing.QualityRuntime.isAppOwnedSessionConfigured()
                 ) {
                     PendingLocalDeletionDrainScheduler.None
                 } else {

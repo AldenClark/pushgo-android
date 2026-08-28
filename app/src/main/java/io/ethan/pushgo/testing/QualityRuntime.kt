@@ -117,6 +117,8 @@ sealed interface RuntimeProfile {
 
 object QualityRuntime {
     const val ARG_SESSION_BASE64 = "pushgoQualitySessionBase64"
+    private const val SESSION_CONTROL_PREFERENCES = "pushgo_quality_session_control"
+    private const val SESSION_CONTROL_KEY = "encoded_session"
     private const val SCHEMA_VERSION = 1
     private const val MAX_PAYLOAD_BYTES = 65_536
     private const val FIXTURE_INITIALIZATION_FILENAME = "fixture-initialization.json"
@@ -274,11 +276,42 @@ object QualityRuntime {
         return (configuredProfile as? RuntimeProfile.Quality)?.session
     }
 
+    fun isAppOwnedSessionConfigured(): Boolean =
+        BuildConfig.QUALITY_SESSION_CONTROL_ENABLED && currentSession() != null
+
     fun resolve(encodedSession: String?): RuntimeProfile {
-        if (!BuildConfig.DEBUG || encodedSession.isNullOrBlank()) {
+        if (!BuildConfig.QUALITY_RUNTIME_ENABLED || encodedSession.isNullOrBlank()) {
             return RuntimeProfile.Production
         }
         return RuntimeProfile.Quality(decode(encodedSession))
+    }
+
+    fun configureFromAppStorage(context: Context): RuntimeProfile {
+        check(BuildConfig.QUALITY_SESSION_CONTROL_ENABLED) {
+            "persistent quality-session control is unavailable in this build"
+        }
+        val encodedSession = context.getSharedPreferences(
+            SESSION_CONTROL_PREFERENCES,
+            Context.MODE_PRIVATE,
+        ).getString(SESSION_CONTROL_KEY, null)
+        return configure(encodedSession)
+    }
+
+    fun persistAppOwnedSession(context: Context, encodedSession: String?) {
+        check(BuildConfig.QUALITY_SESSION_CONTROL_ENABLED) {
+            "persistent quality-session control is unavailable in this build"
+        }
+        encodedSession?.let(::decode)
+        val preferences = context.getSharedPreferences(
+            SESSION_CONTROL_PREFERENCES,
+            Context.MODE_PRIVATE,
+        )
+        val committed = if (encodedSession.isNullOrBlank()) {
+            preferences.edit().remove(SESSION_CONTROL_KEY).commit()
+        } else {
+            preferences.edit().putString(SESSION_CONTROL_KEY, encodedSession).commit()
+        }
+        check(committed) { "quality-session control could not be persisted" }
     }
 
     fun decode(encodedSession: String): QualitySessionDescriptor {
@@ -416,6 +449,11 @@ object QualityRuntime {
     fun sessionRoot(context: Context): File? {
         return sessionRootFromFilesDir(context.filesDir)
     }
+
+    internal fun sessionRoot(
+        context: Context,
+        session: QualitySessionDescriptor,
+    ): File = sessionRootFromFilesDir(context.filesDir, session)
 
     fun fixtureInitializationWasRecorded(filesDir: File): Boolean {
         val session = currentSession() ?: return false

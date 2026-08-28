@@ -4,6 +4,7 @@ import org.gradle.api.tasks.Exec
 
 plugins {
     id("com.android.application")
+    id("androidx.baselineprofile")
     id("org.jetbrains.kotlin.plugin.compose")
     id("org.jetbrains.kotlin.plugin.serialization")
     id("com.google.devtools.ksp")
@@ -152,6 +153,7 @@ android {
         buildConfigField("String", "PRIVATE_CERT_PIN_SHA256", "\"$privateCertPinSha256\"")
         buildConfigField("String", "DEFAULT_UPDATE_FEED_URL", "\"$updateFeedUrl\"")
         buildConfigField("String", "UPDATE_FEED_ECDSA_P256_PUBLIC_KEY_B64", "\"$updateFeedEcdsaP256PublicKeyB64\"")
+        manifestPlaceholders["qualityFixtureProviderEnabled"] = "false"
 
         vectorDrawables {
             useSupportLibrary = true
@@ -161,15 +163,36 @@ android {
     buildTypes {
         debug {
             buildConfigField("String", "DEFAULT_SERVER_ADDRESS", "\"https://gateway.pushgo.cn\"")
+            buildConfigField("boolean", "QUALITY_RUNTIME_ENABLED", "true")
+            buildConfigField("boolean", "QUALITY_SESSION_CONTROL_ENABLED", "false")
         }
         release {
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
             buildConfigField("String", "DEFAULT_SERVER_ADDRESS", "\"https://gateway.pushgo.cn\"")
+            buildConfigField("boolean", "QUALITY_RUNTIME_ENABLED", "false")
+            buildConfigField("boolean", "QUALITY_SESSION_CONTROL_ENABLED", "false")
             if (releaseSigningConfig != null) {
                 signingConfig = releaseSigningConfig
             }
+        }
+        create("benchmark") {
+            initWith(getByName("release"))
+            applicationIdSuffix = ".benchmark"
+            signingConfig = signingConfigs.getByName("debug")
+            matchingFallbacks += listOf("release")
+            buildConfigField("boolean", "QUALITY_RUNTIME_ENABLED", "true")
+            buildConfigField("boolean", "QUALITY_SESSION_CONTROL_ENABLED", "true")
+            manifestPlaceholders["qualityFixtureProviderEnabled"] = "true"
+        }
+        create("nonMinifiedRelease") {
+            initWith(getByName("release"))
+            signingConfig = signingConfigs.getByName("debug")
+            matchingFallbacks += listOf("release")
+            buildConfigField("boolean", "QUALITY_RUNTIME_ENABLED", "true")
+            buildConfigField("boolean", "QUALITY_SESSION_CONTROL_ENABLED", "true")
+            manifestPlaceholders["qualityFixtureProviderEnabled"] = "true"
         }
     }
 
@@ -202,12 +225,23 @@ android {
         getByName("main") {
             jniLibs.directories.add(generatedRustJniDir.absolutePath)
         }
+        getByName("nonMinifiedRelease") {
+            kotlin.directories.add("src/benchmark/java/io/ethan/pushgo/testing")
+        }
     }
 }
 
 kotlin {
     compilerOptions {
         jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_21)
+    }
+}
+
+baselineProfile {
+    saveInSrc = true
+    automaticGenerationDuringBuild = false
+    filter {
+        include("io.ethan.pushgo.**")
     }
 }
 
@@ -262,6 +296,12 @@ val hasGoogleServices = listOf(
 
 if (hasGoogleServices) {
     apply(plugin = "com.google.gms.google-services")
+    tasks.matching { it.name == "processBenchmarkGoogleServices" }.configureEach {
+        // The isolated benchmark applicationId intentionally has no Firebase
+        // identity. Its app-owned fixture exercises Room/UI startup without
+        // copying production Google Services credentials into test artifacts.
+        enabled = false
+    }
 }
 
 dependencies {
@@ -295,6 +335,7 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.11.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.11.0")
     implementation("androidx.work:work-runtime-ktx:2.11.2")
+    implementation("androidx.profileinstaller:profileinstaller:1.4.1")
     implementation("io.coil-kt.coil3:coil-compose:3.5.0")
     implementation("io.coil-kt.coil3:coil-gif:3.5.0")
     implementation("io.noties.markwon:core:4.6.2")
@@ -319,5 +360,6 @@ dependencies {
     androidTestImplementation("androidx.compose.ui:ui-test-junit4")
     debugImplementation("androidx.compose.ui:ui-test-manifest")
     kspAndroidTest("androidx.room:room-compiler:2.8.4")
+    baselineProfile(project(":macrobenchmark"))
 
 }

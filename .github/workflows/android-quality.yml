@@ -204,5 +204,9 @@ jobs:
           path: |
             app/build/reports/androidTests/
             app/build/outputs/androidTest-results/
+            macrobenchmark/build/reports/androidTests/
+            macrobenchmark/build/outputs/androidTest-results/
+            macrobenchmark/build/outputs/connected_android_test_additional_output/
+            app/src/release/generated/baselineProfiles/
             build/quality-results/*.log
             build/quality-results/*.json

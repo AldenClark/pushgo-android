@@ -24,8 +24,11 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.testTagsAsResourceId
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import io.ethan.pushgo.BuildConfig
 import io.ethan.pushgo.ui.accessibility.pushGoPaneSemantics
 import io.ethan.pushgo.ui.theme.pushGoSheetContainerColor
 
@@ -71,7 +74,13 @@ internal fun PushGoModalBottomSheet(
         }
     }
     ModalBottomSheet(
-        modifier = modifier,
+        modifier = modifier.then(
+            if (BuildConfig.QUALITY_SESSION_CONTROL_ENABLED) {
+                Modifier.semantics { testTagsAsResourceId = true }
+            } else {
+                Modifier
+            }
+        ),
         onDismissRequest = onDismissRequest,
         sheetState = resolvedSheetState,
         containerColor = sheetContainerColor,

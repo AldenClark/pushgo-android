@@ -26,7 +26,7 @@
 | Update UI/install | 检查并安全安装更新 | stable/beta/later/skip/permission/death | feed、download、signature、installer | JVM + UI + physical | P0/P1 Release；部分脚本、UI 缺口 | Update subsystem |
 | Update distribution metadata | 用户获得签名、版本与文案一致的更新 | version/build/channel/signature/notes/URL | signed feed、版本化 notes | semantic contract + Release install | P0 Release；Feed 契约已进 PR，物理安装仍 NOT RUN | release feed/workflow |
 | Accessibility/localization | 用中文/大字体/辅助技术完成核心任务 | focus/actions/font/zh/en | 生产资源、实际 Activity 配置、semantics、Room/UI 终点、OS accessibility | 全资源合同 + component + 代表性 device + physical task | P1；zh-CN fontScale 1.5 已完成准确消息详情和频道创建，zh-CN/zh-TW 全 key/placeholder 合同进入 PR；physical TalkBack 与其他风险代表设备/语言 NOT RUN | Shared UI/screens |
-| Performance | 在预算内得到正确结果 | cold/warm/10k/100k/search/scroll/detail | Room correctness、TTID/TTFD/frame/trace + content | correctness + Room regression ceiling + Macrobenchmark | P1；独立 `performance` Lane 已在选定 API 37 emulator 实跑真实 Room 100k 写入、分页、FTS、筛选、投影与重开，search 采用 provisional 2s ceiling；synthetic JVM OOM 不冒充产品失败/通过，物理设备 Macrobenchmark 仍 NOT RUN | Room/App/benchmark module |
+| Performance | 在预算内得到正确结果 | cold/warm/10k/100k/search/scroll/detail | Room correctness、TTID/TTFD/frame/trace + exact content | correctness + Room regression ceiling + Macrobenchmark + Baseline Profile | P1；`performance` Lane 已覆盖真实 Room 100k、Release-like `.benchmark` App 的精确 1k 启动/详情目的 dry-run、过滤后的 Startup/Baseline Profile 与 Release 隔离；API 37 Perfetto 帧解析和 API 28 旧 AVD fixture 兼容性分别 BLOCKED，物理设备预算证据 NOT RUN，模拟器数值不冒充真机结论 | Room/App/`macrobenchmark`/physical runner |
 | Export candidate | 导出消息文件 | reachable/cancel/failure/large | JSON/URI consumer | product reachability review | 删除候选；不投入本轮预算 | Export helpers |
 
 ## 增量规则
