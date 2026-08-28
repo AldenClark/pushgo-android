@@ -67,6 +67,31 @@ class QualityImpactPlanTests(unittest.TestCase):
         self.assertEqual("pr-ui", plan["recommended_lane"])
         self.assertIn("Android core App UI representative lane", plan["minimum_evidence"])
 
+    def test_system_notification_journey_change_runs_its_nightly_system_surface(self):
+        plan = self.plan(
+            "app/src/androidTest/java/io/ethan/pushgo/testing/QualitySystemNotificationJourneyInstrumentedTest.kt"
+        )
+
+        self.assertEqual("READY", plan["plan_status"])
+        self.assertEqual("nightly", plan["recommended_lane"])
+        self.assertIn("notification-system-route", plan["impacted_capabilities"])
+        self.assertIn(
+            "focused durable inbound to system notification/PendingIntent journey",
+            plan["minimum_evidence"],
+        )
+
+    def test_notification_product_change_requires_system_route_evidence(self):
+        plan = self.plan(
+            "app/src/main/java/io/ethan/pushgo/notifications/NotificationHelper.kt"
+        )
+
+        self.assertEqual("nightly", plan["recommended_lane"])
+        self.assertIn("notification-system-route", plan["impacted_capabilities"])
+        self.assertIn(
+            "durable direct ingress to real system notification/PendingIntent and exact detail/read/dedupe/relaunch journey",
+            plan["minimum_evidence"],
+        )
+
     def test_room_schema_export_requires_device_migration_evidence(self):
         plan = self.plan("app/schemas/io.ethan.pushgo.data.db.PushGoDatabase/31.json")
 

@@ -30,6 +30,17 @@ class AndroidTestFailureClassificationTests(unittest.TestCase):
 
             self.assertTrue(has_known_test_system_failure(root, started_at))
 
+    def test_current_quality_precondition_failure_is_test_system_failure(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            started_at = time.time() - 1
+            (root / "result.xml").write_text(
+                "<testsuite><testcase><failure>QUALITY_PRECONDITION app notifications are disabled</failure></testcase></testsuite>",
+                encoding="utf-8",
+            )
+
+            self.assertTrue(has_known_test_system_failure(root, started_at))
+
     def test_stale_or_product_assertion_reports_do_not_match(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -53,6 +64,19 @@ class AndroidTestFailureClassificationTests(unittest.TestCase):
                 "<testsuite>"
                 "<testcase><failure>Detected multithreaded access to SnapshotStateObserver</failure></testcase>"
                 "<testcase><failure>Expected accurate channel row to exist</failure></testcase>"
+                "</testsuite>",
+                encoding="utf-8",
+            )
+
+            self.assertFalse(has_known_test_system_failure(root, time.time() - 1))
+
+    def test_mixed_precondition_and_product_failure_does_not_hide_product_failure(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "mixed.xml").write_text(
+                "<testsuite>"
+                "<testcase><failure>QUALITY_PRECONDITION notification permission unavailable</failure></testcase>"
+                "<testcase><failure>Expected exact notification body</failure></testcase>"
                 "</testsuite>",
                 encoding="utf-8",
             )

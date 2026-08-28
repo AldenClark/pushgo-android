@@ -1,22 +1,20 @@
 package io.ethan.pushgo.data
 
-import android.Manifest
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.content.Context
-import android.os.Build
 import android.os.SystemClock
 import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
-import androidx.test.platform.app.InstrumentationRegistry
 import io.ethan.pushgo.R
 import io.ethan.pushgo.data.db.PendingLocalDeletionDao
 import io.ethan.pushgo.data.db.PendingLocalDeletionEntity
 import io.ethan.pushgo.notifications.NotificationHelper
+import io.ethan.pushgo.testing.NotificationPermissionTestSupport
 import io.ethan.pushgo.ui.PendingLocalDeletionCoordinator
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -294,10 +292,7 @@ class PendingLocalDeletionRoomDeviceTest {
     ).build()
 
     private fun grantNotificationPermissionIfNeeded() {
-        if (Build.VERSION.SDK_INT < 33) return
-        InstrumentationRegistry.getInstrumentation().uiAutomation
-            .executeShellCommand("pm grant ${context.packageName} ${Manifest.permission.POST_NOTIFICATIONS}")
-            .close()
+        NotificationPermissionTestSupport.grantAndVerify(context)
     }
 
     private fun postChannelNotifications() {

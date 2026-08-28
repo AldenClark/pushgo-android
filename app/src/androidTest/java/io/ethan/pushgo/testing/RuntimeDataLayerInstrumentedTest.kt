@@ -1,6 +1,5 @@
 package io.ethan.pushgo.testing
 
-import android.Manifest
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -1368,10 +1367,7 @@ class RuntimeDataLayerInstrumentedTest {
     }
 
     private fun grantNotificationPermissionIfNeeded() {
-        if (Build.VERSION.SDK_INT < 33) return
-        InstrumentationRegistry.getInstrumentation().uiAutomation
-            .executeShellCommand("pm grant ${context.packageName} ${Manifest.permission.POST_NOTIFICATIONS}")
-            .close()
+        NotificationPermissionTestSupport.grantAndVerify(context)
     }
 
     private suspend fun awaitNotificationState(

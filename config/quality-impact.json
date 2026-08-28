@@ -43,6 +43,15 @@
       "escalation_reasons": ["Instrumented-test changes require device execution; compilation alone cannot validate the Oracle."]
     },
     {
+      "id": "quality-system-notification-journey",
+      "paths": ["app/src/androidTest/java/io/ethan/pushgo/testing/QualitySystemNotificationJourneyInstrumentedTest.kt", "app/src/androidTest/java/io/ethan/pushgo/testing/NotificationPermissionTestSupport.kt"],
+      "capabilities": ["notification-system-route", "quality-system-trustworthiness"],
+      "minimum_evidence": ["focused durable inbound to system notification/PendingIntent journey", "permission-precondition attribution negative controls"],
+      "lane": "nightly",
+      "known_evidence_gaps": ["Simulator/emulator system routing does not prove real external FCM delivery, user permission decisions, Doze, reboot, OEM behavior, or process-death cold start."],
+      "escalation_reasons": ["A changed system-route test must execute its own system surface; the routine PR UI subset cannot validate it."]
+    },
+    {
       "id": "android-performance-system",
       "paths": ["macrobenchmark/**", "app/src/benchmark/**", "app/src/release/generated/baselineProfiles/**", "app/src/main/java/io/ethan/pushgo/ui/screens/MessageListScreen.kt", "scripts/run_android_physical_macrobenchmark.sh", "scripts/regenerate_android_baseline_profile.sh", "scripts/validate_android_macrobenchmark.py", "scripts/verify_android_performance_contract.py"],
       "capabilities": ["app-launch-performance", "message-detail-frame-performance", "baseline-profile", "quality-system-trustworthiness"],
@@ -97,10 +106,10 @@
     {
       "id": "ingress-notifications-services-workers",
       "paths": ["app/src/main/java/io/ethan/pushgo/notifications/**", "app/src/main/java/io/ethan/pushgo/data/Inbound*.kt", "app/src/main/java/io/ethan/pushgo/data/Operation*.kt", "app/src/main/java/io/ethan/pushgo/data/PushTokenProvider.kt", "app/src/main/java/io/ethan/pushgo/util/FcmSupport.kt", "app/src/main/java/io/ethan/pushgo/util/JsonCompat.kt", "app/src/main/java/io/ethan/pushgo/util/PayloadTimeNormalizer.kt", "app/src/main/java/io/ethan/pushgo/util/ReminderSnoozeStore.kt", "app/src/main/AndroidManifest.xml"],
-      "capabilities": ["ingress-ack", "notification-permission-doze", "private-foreground-service", "alert-playback", "background-workers"],
-      "minimum_evidence": ["idempotency/ACK/retry/service policy JVM tests", "device process/lifecycle boundaries", "final Room and UI state"],
+      "capabilities": ["ingress-ack", "notification-system-route", "notification-permission-doze", "private-foreground-service", "alert-playback", "background-workers"],
+      "minimum_evidence": ["idempotency/ACK/retry/service policy JVM tests", "device process/lifecycle boundaries", "durable direct ingress to real system notification/PendingIntent and exact detail/read/dedupe/relaunch journey", "final Room and UI state"],
       "lane": "nightly",
-      "known_evidence_gaps": ["real FCM/private transport, notification permission, Doze, reboot, and physical audio remain NOT RUN."],
+      "known_evidence_gaps": ["real FCM/private transport, user permission denial/upgrade decisions, Doze, reboot, OEM behavior, process-death cold start, and physical audio remain NOT RUN."],
       "escalation_reasons": ["Ingress and services cross process, durable work, notification, and UI consumers."]
     },
     {

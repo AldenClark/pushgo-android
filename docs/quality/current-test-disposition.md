@@ -85,8 +85,8 @@
 1. Messages、Event/Thing、Channel 本地 invalid/远端密码拒绝的 Sheet-owned 反馈、accepted mutation 与创建本地 commit 失败→本地回滚+远端补偿→正式重载无脏行→重试/relaunch、Settings 页面可见性、server 候选注册/本地 commit 失败不提交→回滚→重试成功→数据换域/持久化、decryption lifecycle、受保护写失败补偿、错误 Key 纠正和坏密文安全失败均已按真实目的拆成 App-owned 纵向旅程；FCM/Private selector 也已覆盖双向远端拒绝保持旧 route、Private 本地 mode/secret 提交中点失败后的远端补偿与本地回滚、同入口重试后提交与 relaunch。Channel 订阅既有频道及其安全补偿协议、rollback 自身再次失败的 UI、真实外部 FCM/Private delivery 仍是当前缺口。
 2. Compose “UI baseline” 多数直接构造 ViewModel/Repository，是 component/integration，不是真实 App UI。
 3. Runtime/Automation 仍交换内部状态和路径，容易把准备失败拖成 UI timeout。
-4. 强 Room/ACK/迁移测试很多，但没有映射到页面内容、系统入口和 Release 门禁。
-5. 真实 FCM、权限、Doze、通知动作、安装流程和性能设备证据仍需独立 Lane。
+4. 强 Room/ACK/迁移测试很多；消息系统通知的代表性纵向链路已映射到准确页面/数据终点与 Nightly/Release，Event/Thing 动作、系统 mark-read/delete/copy 仍需同样迁移。
+5. 真实 FCM、用户权限拒绝/再次授权、Doze、进程死亡冷启动、OEM/真机、安装流程和性能设备证据仍需独立 Lane。
 
 ## 本轮新增与 Lane 调整
 
@@ -94,10 +94,12 @@
 - `QualityEntityJourneyInstrumentedTest`：复用同一个 App-owned session 生命周期，但按 Entity 能力独立覆盖 Event 摄入→投影→准确详情→确认关闭→正式解析/持久化→仅进行中筛选排除→activity relaunch 后 closed 保留，以及 Thing 准确概览、Events/Messages/Updates 三个真实页签、三类准确关联详情、返回原 Thing/页签和 activity relaunch 后关系仍可达；不再把 Entity 覆盖塞进聚合 Message 类，也不以 Room 行数、Sheet 壳或 test tag 存在作为最终 Oracle。该旅程还要求真实系统 Back 只关闭顶层关系详情，并通过生产标题/正文语义判断内容。
 - `QualitySettingsJourneyInstrumentedTest`：覆盖 Server、visibility、decryption lifecycle、真实密文结果与通知 transport selector。Server 同时覆盖候选拒绝，以及候选远端成功后 Room address 已写的 commit 中点失败；后者必须 rollback、activity 重启仍旧值且重试才提交。Decryption 从正式 ingress 证明错误 Key/坏密文结果，并覆盖受保护 secret 写后、Room metadata 前失败的补偿、重启未配置与重试配置。Transport 从真实 segmented control 证明 Private/FCM 双向准备失败时旧选择、token/service 后续动作和提示归属不变，并覆盖 Private 远端成功后本地 mode 已写、secure token 未清的提交中点失败→重新准备 FCM→本地回滚→activity 重启仍为 FCM→重试才提交；只有 token/网关 transport 边界为 typed quality replacement，不直接写 preferences/Room，也不冒充真实公网 delivery。
 - `QualityChannelJourneyInstrumentedTest`：本地 invalid 证明错误只在 entry Sheet 且 validator 先于 token/远端动作；远端 `password_mismatch` 证明输入保留与同入口恢复；创建远端成功后在安全凭据已写/Room 未写中点失败，要求凭据回滚、远端 unsubscribe、关闭 Sheet 后正式重载无脏行、重试与 relaunch。正常旅程还要求密码控件具备真实 Password semantics，并继续创建、改名、双退订与 relaunch。只有外部 Gateway mutation 使用 typed boundary，Compose、Repository、Room、延迟删除事务与重启均走生产路径。
+- `QualitySystemNotificationJourneyInstrumentedTest`：替换 legacy `EXTRA_MESSAGE_ID` 直塞 Activity 的形式覆盖，从两个独立 `InboundMessageWorker` delivery 进入正式 parser/persistence，证明相同业务 message 去重为一个 canonical row 和一条系统通知；通过 UIAutomator 的真实 notification shade 点击生产 PendingIntent，核对详情 owner 内精确 title/body、自动已读、通知消失以及无 shortcut 的 activity relaunch 后同一 row 仍只存在一次并保持已读。该用例进入 Nightly/Release，不进入日常 PR；它明确不声称真实 FCM、进程死亡冷启动、OEM 或真机通过。
+- 通知权限准备不再使用 `executeShellCommand(...).close()` 的竞态写法；共享 helper 通过 `UiAutomation.grantRuntimePermission` 同步授予并轮询验证。失败使用 `QUALITY_PRECONDITION` 归因到 test-system，混有任何产品断言失败时分类器不会遮蔽产品失败。正文故意偏移负控已证明目的 Oracle 会失败，恢复后 API 37 系统纵向旅程通过。
 - Quality device 进程显式建立唯一 `pushgo-quality-<session>.db`、session 专属 Keystore-encrypted preference 与 settings cache；结束时先释放 Container/Room，再准确删除 DB、两类 preferences 与 session artifacts。Production 数据/受保护偏好不读不写，避免迁移测试、Key 或 Gateway 状态跨用例污染。
-- `device` lane 仅执行上述纵向旅程及迁移、删除、ACK 三类高风险数据边界；`nightly` 增加 data/transport/work 边界；`release` 复用显式高价值 UI 与 Nightly 风险边界并构建 Release，不再默认执行全部遗留 androidTest。诊断、极端规模和低后果组合不进入常规反馈链。
+- `device` lane 仅执行上述日常纵向旅程及迁移、删除、ACK 三类高风险数据边界；`nightly` 增加 data/transport/work 边界和真实系统通知/PendingIntent 旅程；`release` 复用这些显式高价值 UI 与 Nightly 风险边界并构建 Release，不再默认执行全部遗留 androidTest。诊断、极端规模和低后果组合不进入常规反馈链。
 - 设备选择是 Lane 合同的一部分：未显式指定时 doctor 稳定优先 emulator；需要真机时必须传 `ANDROID_SERIAL`。每次 device invocation 都把 doctor 选出的唯一 serial 交给 Gradle，禁止已连接个人设备静默扩大执行范围。双设备在线负控已证明最小测试与最终 Release 都只运行在 API 37 emulator；物理系统证据继续由显式 Lane 触发。
-- `config/quality-impact.json`、`scripts/quality_impact.py` 与 `scripts/quality_changed.sh` 已把产品变更映射到具名能力和最低 Lane。PR 的 host/device 阶段共享同一计划：普通 JVM 变化不启动模拟器，Compose/Room/Service 等风险升级时才运行对应代表设备 Lane；修改 `androidTest` 最低升级到 `pr-ui`，避免只编译不执行；未映射产品路径直接 `BLOCKED`，文档变更写结构化 `NOT_RUN`。
+- `config/quality-impact.json`、`scripts/quality_impact.py` 与 `scripts/quality_changed.sh` 已把产品变更映射到具名能力和最低 Lane。PR 的 host/device 阶段共享同一计划：普通 JVM 变化不启动模拟器，Compose/Room/Service 等风险升级时才运行对应代表设备 Lane；普通 `androidTest` 修改最低升级到 `pr-ui`，系统通知纵向测试/helper 的修改则专门升级到会执行自身系统面的 `nightly`；未映射产品路径直接 `BLOCKED`，文档变更写结构化 `NOT_RUN`。
 - 计划中的 `required_checks` 必须进入 selected/executed 收据：更新 Feed/notes 在快速 PR Lane 做签名与语义契约，不无差别启动设备；Gradle/native/release 边界则执行 JNI、schema 和发布静态契约并保持 Release Lane。最近 120 次历史变更回放已修复 Room schema export、update feed 与旧 Connection Diagnosis 漏选；无效计划直接 `BLOCKED`。
 - 路径计划只是不可低于的下限。AI/开发者仍需追 ViewModel、Room、错误分支、Service/Worker/Receiver 和 OS 消费者；Macrobenchmark 已建立精确 1k 数据与启动/详情目的 Oracle、Profile 和 Release 隔离契约，模拟器仅证明机制；物理设备性能在未显式提供设备/预算时明确 `not_run`，不得由 slow-state UI 或模拟器数字替代。
 - 两个 JVM 100k helper 原先打印 `skipped=true` 后直接返回，JUnit 会错误计为通过；现已改为 `Assume.assumeTrue`，常规测试报告明确为 skipped。首次把这些 synthetic helper 纳入性能 Lane 时，内存假 Store 在搜索阶段 OOM；这不代表生产 Room 的用户性能，故不靠增大测试堆制造绿色，也不再作为 Lane claim。`scripts/quality_test.sh performance` 执行真实 Room 100k、受控 emulator 的 Macrobenchmark 目的 dry-run、Release/Profile 隔离；真机启动/详情/frame P95 只有显式非个人设备和 owner 预算齐全时才运行，否则单列 `not_run`。详见 `docs/quality/android-performance-runbook.md`。

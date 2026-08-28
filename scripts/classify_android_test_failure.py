@@ -10,6 +10,7 @@ from xml.etree import ElementTree
 
 KNOWN_TEST_SYSTEM_SIGNATURES = (
     "Detected multithreaded access to SnapshotStateObserver",
+    "QUALITY_PRECONDITION",
 )
 
 

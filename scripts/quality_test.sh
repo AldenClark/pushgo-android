@@ -11,7 +11,7 @@ mkdir -p "$results_root"
 claims=()
 selected_claims=()
 not_run=(
-  "real FCM/notification permission/Doze/reboot/install/physical accessibility evidence"
+  "real FCM, user permission-decision UI, Doze/reboot/install, and physical accessibility evidence"
 )
 if [[ "$lane" != "performance" && "$lane" != "release" ]]; then
   not_run+=("opt-in 100k production Room performance evidence")
@@ -37,7 +37,7 @@ write_result() {
   python3 "$repo_root/scripts/quality_result.py" "${args[@]}"
 }
 
-has_current_compose_test_system_failure() {
+has_current_test_system_failure() {
   local report_root="$repo_root/app/build/outputs/androidTest-results/connected"
   python3 "$repo_root/scripts/classify_android_test_failure.py" \
     --report-root "$report_root" \
@@ -50,8 +50,8 @@ on_exit() {
     write_result PASSED PASSED
   elif [[ $status -eq 2 ]]; then
     write_result NOT_RUN BLOCKED "lane preparation was blocked before product evidence completed"
-  elif has_current_compose_test_system_failure; then
-    write_result NOT_RUN FAILED "Compose test runtime accessed SnapshotStateObserver from multiple threads; product claim remains incomplete"
+  elif has_current_test_system_failure; then
+    write_result NOT_RUN FAILED "a recognized test-runtime/precondition failure prevented product evidence; inspect current device XML"
   else
     write_result FAILED PASSED "an executed product oracle failed; inspect Gradle/device reports for the first failure"
   fi
@@ -136,6 +136,7 @@ run_jvm_and_compile_device_tests() {
 quality_device_classes="io.ethan.pushgo.testing.QualityMessageJourneyInstrumentedTest,io.ethan.pushgo.testing.QualityEntityJourneyInstrumentedTest,io.ethan.pushgo.testing.QualityChannelJourneyInstrumentedTest,io.ethan.pushgo.testing.QualitySettingsJourneyInstrumentedTest"
 core_data_classes="io.ethan.pushgo.data.db.PushGoDatabaseMigrationDeviceTest,io.ethan.pushgo.data.PendingLocalDeletionRoomDeviceTest,io.ethan.pushgo.data.ProviderAckScopeDeviceTest"
 nightly_data_classes="$core_data_classes,io.ethan.pushgo.testing.RuntimeDataLayerInstrumentedTest,io.ethan.pushgo.testing.RuntimeChannelSwitchInstrumentedTest,io.ethan.pushgo.testing.RuntimePrivateChannelStateFlowInstrumentedTest,io.ethan.pushgo.ui.PendingLocalDeletionWorkBoundaryDeviceTest"
+system_notification_class="io.ethan.pushgo.testing.QualitySystemNotificationJourneyInstrumentedTest"
 
 run_device_classes() {
   local classes="$1"
@@ -174,6 +175,24 @@ run_quality_device_classes() {
     "-Pandroid.testInstrumentationRunnerArguments.class=$quality_device_classes" \
     "-Pandroid.testInstrumentationRunnerArguments.pushgoQualitySessionBase64=$payload"
   claims+=("Android core App UI empty/content/pagination/read/search/delete/slow-load/slow-refresh/error-retry/navigation/Event/Thing/Channel/Settings journeys")
+}
+
+run_system_notification_journey() {
+  local doctor_output
+  local device_serial
+  selected_claims+=("Android durable inbound to real system notification/PendingIntent and accurate detail/read/dedupe/relaunch journey")
+  doctor_output="$("$repo_root/scripts/quality_doctor.sh")"
+  printf '%s\n' "$doctor_output"
+  device_serial="$(printf '%s\n' "$doctor_output" | awk -F= '$1 == "device_serial" { print $2; exit }')"
+  [[ -n "$device_serial" ]] || {
+    echo "status=BLOCKED"
+    echo "reason=quality_doctor_missing_device_serial"
+    exit 2
+  }
+  ANDROID_SERIAL="$device_serial" "$repo_root/gradlew" connectedDebugAndroidTest \
+    --rerun-tasks \
+    "-Pandroid.testInstrumentationRunnerArguments.class=$system_notification_class"
+  claims+=("Android durable inbound to real system notification/PendingIntent and accurate detail/read/dedupe/relaunch journey")
 }
 
 run_performance() {
@@ -312,12 +331,14 @@ case "$lane" in
     run_jvm_and_compile_device_tests
     run_quality_device_classes
     run_device_classes "$nightly_data_classes"
+    run_system_notification_journey
     run_accessibility_localization
     ;;
   release)
     run_jvm_and_compile_device_tests
     run_quality_device_classes
     run_device_classes "$nightly_data_classes"
+    run_system_notification_journey
     run_accessibility_localization
     run_performance
     ;;
