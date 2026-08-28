@@ -170,6 +170,62 @@ class QualityMessageJourneyInstrumentedTest : QualityAppJourneyTestCase() {
     }
 
     @Test
+    fun deleteWithoutUndoPermanentlyRemovesOnlyTargetAcrossStorageRecreation() {
+        configureAndLaunch(fixture = QualityFixture.CHANNELS_STANDARD)
+
+        composeRule.onNodeWithText("Quality Delete History Message")
+            .assertIsDisplayed()
+            .performClick()
+        composeRule.onNodeWithTag("sheet.message.detail").assertIsDisplayed()
+        composeRule.onNodeWithTag("field.message.detail.body")
+            .assertTextContains("Deterministic history owned by 01H00000000000000000000002.")
+        composeRule.onNodeWithTag("action.message.delete").assertIsDisplayed().performClick()
+        composeRule.waitUntil(timeoutMillis = 5_000) {
+            composeRule.onAllNodes(hasTestTag("state.pending_deletion"))
+                .fetchSemanticsNodes().isNotEmpty()
+        }
+        composeRule.onNodeWithTag("message.row.quality-channel-delete-message")
+            .assertDoesNotExist()
+        composeRule.onNodeWithTag("action.pending_deletion.undo").assertIsDisplayed()
+        composeRule.waitUntil(timeoutMillis = 15_000) {
+            composeRule.onAllNodes(hasTestTag("state.pending_deletion"))
+                .fetchSemanticsNodes().isEmpty()
+        }
+
+        composeRule.onNodeWithText("Quality Delete History Message").assertDoesNotExist()
+        composeRule.onNodeWithText("Quality Keep History Message")
+            .assertIsDisplayed()
+            .performClick()
+        composeRule.onNodeWithTag("field.message.detail.body")
+            .assertTextContains("Deterministic history owned by 01H00000000000000000000001.")
+        pressBack()
+        composeRule.waitUntil(timeoutMillis = 5_000) {
+            composeRule.onAllNodes(hasTestTag("sheet.message.detail"))
+                .fetchSemanticsNodes().isEmpty()
+        }
+
+        scenario?.close()
+        app.releaseStorageForInstrumentationTest()
+        scenario = launchMainActivity()
+        composeRule.waitUntil(timeoutMillis = 8_000) {
+            composeRule.onAllNodes(hasTestTag("screen.messages.list"))
+                .fetchSemanticsNodes().isNotEmpty()
+        }
+        composeRule.waitUntil(timeoutMillis = 8_000) {
+            composeRule.onAllNodes(hasText("Quality Keep History Message"))
+                .fetchSemanticsNodes().isNotEmpty()
+        }
+        composeRule.onNodeWithTag("message.row.quality-channel-delete-message")
+            .assertDoesNotExist()
+        composeRule.onNodeWithText("Quality Delete History Message").assertDoesNotExist()
+        composeRule.onNodeWithText("Quality Keep History Message")
+            .assertIsDisplayed()
+            .performClick()
+        composeRule.onNodeWithTag("field.message.detail.body")
+            .assertTextContains("Deterministic history owned by 01H00000000000000000000001.")
+    }
+
+    @Test
     fun slowLoadBecomesVisibleBeforeTheRealEmptyResult() {
         configureAndLaunch(
             fixture = QualityFixture.EMPTY_CLEAN,
