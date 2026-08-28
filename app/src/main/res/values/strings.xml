@@ -113,6 +113,10 @@
     <string name="label_notification_transport_private_only_hint">This device does not support FCM. Pushes will use the private channel.</string>
     <string name="label_notification_transport_gateway_private_disabled_hint">Gateway private channel is disabled. Android can only use FCM on this gateway.</string>
     <string name="label_notification_transport_unavailable_hint">Gateway private channel is disabled and this device does not support FCM. Push delivery is unavailable.</string>
+    <string name="error_notification_transport_switch_failed">Unable to switch to the private transport. FCM remains active. Please try again.</string>
+    <string name="error_notification_transport_private_compensation_failed">Unable to switch to the private transport, and cleanup could not be completed. FCM remains selected, but push delivery may be interrupted. Please reopen Settings and try again.</string>
+    <string name="error_notification_transport_fcm_switch_failed">Unable to switch to FCM. The private transport remains active. Please try again.</string>
+    <string name="error_notification_transport_fcm_compensation_failed">Unable to switch to FCM, and cleanup could not be completed. The private transport remains selected, but push delivery may be duplicated. Please reopen Settings and try again.</string>
     <string name="label_notification_settings">Notification settings</string>
     <string name="label_notification_settings_hint">Open system notification settings for PushGo.</string>
     <string name="label_transport_fcm">FCM</string>

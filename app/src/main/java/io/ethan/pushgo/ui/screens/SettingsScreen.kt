@@ -97,7 +97,6 @@ import io.ethan.pushgo.BuildConfig
 import io.ethan.pushgo.data.AppConstants
 import io.ethan.pushgo.update.UpdateCandidate
 import io.ethan.pushgo.update.UpdateInstallIntentLauncher
-import io.ethan.pushgo.util.FcmSupport
 import io.ethan.pushgo.util.isDozeReminderSnoozed
 import io.ethan.pushgo.util.isAppSubjectToBatteryOptimization
 import io.ethan.pushgo.util.openAppNotificationSettings
@@ -118,7 +117,7 @@ fun SettingsScreen(
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val uiColors = PushGoThemeExtras.colors
-    val fcmSupported = remember(context) { isFcmSupported(context) }
+    val fcmSupported = uiState.isFcmSupported
     var notificationsEnabled by remember { mutableStateOf(false) }
     var batteryOptimizationEnabled by remember { mutableStateOf(false) }
     var dozeReminderSnoozed by remember { mutableStateOf(false) }
@@ -292,6 +291,8 @@ fun SettingsScreen(
                             || uiState.gatewayPrivateChannelEnabled == false,
                         isFcmSupported = fcmSupported,
                         isPrivateSupported = uiState.gatewayPrivateChannelEnabled != false,
+                        isSwitching = uiState.isSwitchingTransport,
+                        errorMessage = uiState.transportErrorMessage?.resolve(context),
                         onSelectUseFcm = { useFcm -> viewModel.updateUseFcmChannel(context, useFcm) },
                     )
                 }
@@ -527,9 +528,17 @@ fun SettingsScreen(
             onDismissRequest = viewModel::consumePrivateChannelWhitelistDialog,
             paneTitle = stringResource(R.string.dialog_private_channel_whitelist_title),
             title = { Text(text = stringResource(R.string.dialog_private_channel_whitelist_title)) },
-            text = { Text(text = stringResource(R.string.dialog_private_channel_whitelist_body)) },
+            text = {
+                Text(
+                    text = stringResource(R.string.dialog_private_channel_whitelist_body),
+                    modifier = Modifier.testTag("dialog.settings.private_transport_whitelist"),
+                )
+            },
             confirmButton = {
-                TextButton(onClick = viewModel::consumePrivateChannelWhitelistDialog) {
+                TextButton(
+                    onClick = viewModel::consumePrivateChannelWhitelistDialog,
+                    modifier = Modifier.testTag("action.settings.private_transport_whitelist.dismiss"),
+                ) {
                     Text(text = stringResource(R.string.label_got_it))
                 }
             },
@@ -996,72 +1005,94 @@ private fun TransportSelectorRow(
     selectedUseFcm: Boolean,
     isFcmSupported: Boolean,
     isPrivateSupported: Boolean,
+    isSwitching: Boolean,
+    errorMessage: String?,
     onSelectUseFcm: (Boolean) -> Unit,
 ) {
     val uiColors = PushGoThemeExtras.colors
     SettingsItemContainer {
-        ListItem(
-            modifier = Modifier
-                .fillMaxWidth()
-                .then(if (rowTestTag != null) Modifier.testTag(rowTestTag) else Modifier),
-            headlineContent = { Text(title) },
-            supportingContent = {
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    if (!subtitle.isNullOrBlank()) {
-                        Text(subtitle)
-                    }
-                    SingleChoiceSegmentedButtonRow(
-                        modifier = Modifier.testTag("segmented.settings.notification_transport"),
-                    ) {
-                        SegmentedButton(
-                            selected = selectedUseFcm,
-                            onClick = {
-                                if (!selectedUseFcm) {
-                                    onSelectUseFcm(true)
-                                }
-                            },
-                            enabled = isFcmSupported,
-                            shape = SegmentedButtonDefaults.itemShape(index = 0, count = 2),
-                            modifier = Modifier.testTag("option.settings.notification_transport.fcm"),
-                            icon = {},
-                            colors = pushGoSegmentedButtonColors(),
-                        ) {
-                            Text(
-                                text = stringResource(R.string.label_transport_fcm),
-                                style = MaterialTheme.typography.labelMedium.copy(fontSize = 13.sp),
-                                modifier = Modifier.padding(vertical = 1.dp),
-                            )
+        Column {
+            ListItem(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .then(if (rowTestTag != null) Modifier.testTag(rowTestTag) else Modifier),
+                headlineContent = { Text(title) },
+                supportingContent = {
+                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        if (!subtitle.isNullOrBlank()) {
+                            Text(subtitle)
                         }
-                        SegmentedButton(
-                            selected = !selectedUseFcm,
-                            onClick = {
-                                if (selectedUseFcm) {
-                                    onSelectUseFcm(false)
-                                }
-                            },
-                            enabled = isPrivateSupported,
-                            shape = SegmentedButtonDefaults.itemShape(index = 1, count = 2),
-                            modifier = Modifier.testTag("option.settings.notification_transport.private"),
-                            icon = {},
-                            colors = pushGoSegmentedButtonColors(),
+                        SingleChoiceSegmentedButtonRow(
+                            modifier = Modifier.testTag("segmented.settings.notification_transport"),
                         ) {
-                            Text(
-                                text = stringResource(R.string.label_transport_private),
-                                style = MaterialTheme.typography.labelMedium.copy(fontSize = 13.sp),
-                                modifier = Modifier.padding(vertical = 1.dp),
-                            )
+                            SegmentedButton(
+                                selected = selectedUseFcm,
+                                onClick = {
+                                    if (!selectedUseFcm) {
+                                        onSelectUseFcm(true)
+                                    }
+                                },
+                                enabled = isFcmSupported && !isSwitching,
+                                shape = SegmentedButtonDefaults.itemShape(index = 0, count = 2),
+                                modifier = Modifier.testTag(
+                                    "option.settings.notification_transport.fcm"
+                                ),
+                                icon = {},
+                                colors = pushGoSegmentedButtonColors(),
+                            ) {
+                                Text(
+                                    text = stringResource(R.string.label_transport_fcm),
+                                    style = MaterialTheme.typography.labelMedium.copy(
+                                        fontSize = 13.sp
+                                    ),
+                                    modifier = Modifier.padding(vertical = 1.dp),
+                                )
+                            }
+                            SegmentedButton(
+                                selected = !selectedUseFcm,
+                                onClick = {
+                                    if (selectedUseFcm) {
+                                        onSelectUseFcm(false)
+                                    }
+                                },
+                                enabled = isPrivateSupported && !isSwitching,
+                                shape = SegmentedButtonDefaults.itemShape(index = 1, count = 2),
+                                modifier = Modifier.testTag(
+                                    "option.settings.notification_transport.private"
+                                ),
+                                icon = {},
+                                colors = pushGoSegmentedButtonColors(),
+                            ) {
+                                Text(
+                                    text = stringResource(R.string.label_transport_private),
+                                    style = MaterialTheme.typography.labelMedium.copy(
+                                        fontSize = 13.sp
+                                    ),
+                                    modifier = Modifier.padding(vertical = 1.dp),
+                                )
+                            }
                         }
                     }
-                }
-            },
-            leadingContent = {
-                Icon(
-                    imageVector = icon,
-                    contentDescription = null,
-                    tint = uiColors.textSecondary,
+                },
+                leadingContent = {
+                    Icon(
+                        imageVector = icon,
+                        contentDescription = null,
+                        tint = uiColors.textSecondary,
+                    )
+                },
+            )
+            if (!errorMessage.isNullOrBlank()) {
+                Text(
+                    text = errorMessage,
+                    color = MaterialTheme.colorScheme.error,
+                    style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier
+                        .testTag("feedback.settings.notification_transport")
+                        .padding(start = 56.dp, end = 16.dp, bottom = 16.dp),
                 )
-            },
-        )
+            }
+        }
     }
 }
 
@@ -1303,10 +1334,6 @@ private fun startActivityOrFallback(
     val launchIntent = intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
     runCatching { context.startActivity(launchIntent) }
         .onFailure { fallback?.invoke() }
-}
-
-private fun isFcmSupported(context: Context): Boolean {
-    return FcmSupport.isAvailable(context)
 }
 
 @Composable

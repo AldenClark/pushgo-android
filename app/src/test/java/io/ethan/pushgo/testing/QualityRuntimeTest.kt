@@ -34,10 +34,12 @@ class QualityRuntimeTest {
                 failGatewaySwitchCommitOnce = true,
                 failNotificationKeyPersistenceOnce = true,
                 failChannelSubscriptionPersistenceOnce = true,
+                failTransportSelectionPersistenceOnce = true,
             ),
             messageRefreshScenario = QualityMessageRefreshScenario.FAIL_ONCE_THEN_NEW_MESSAGE,
             eventCloseScenario = QualityEventCloseScenario.ACCEPTED_AND_DELIVERED,
             channelMutationScenario = QualityChannelMutationScenario.ACCEPTED,
+            transportSwitchScenario = QualityTransportSwitchScenario.REJECT_ONCE_THEN_ACCEPTED,
         )
 
         val decoded = QualityRuntime.decode(QualityRuntime.encode(session))
@@ -51,6 +53,10 @@ class QualityRuntimeTest {
         assertTrue(decoded.securePreferencesName != decoded.settingsCachePreferencesName)
         assertEquals(QualityEventCloseScenario.ACCEPTED_AND_DELIVERED, decoded.eventCloseScenario)
         assertEquals(QualityChannelMutationScenario.ACCEPTED, decoded.channelMutationScenario)
+        assertEquals(
+            QualityTransportSwitchScenario.REJECT_ONCE_THEN_ACCEPTED,
+            decoded.transportSwitchScenario,
+        )
     }
 
     @Test
@@ -71,6 +77,43 @@ class QualityRuntimeTest {
                     QualityRuntime.decode(QualityRuntime.encode(session)).channelMutationScenario,
                 )
             }
+    }
+
+    @Test
+    fun transportFailureScenariosRoundTripThroughTheTypedSession() {
+        QualityTransportSwitchScenario.entries
+            .filterNot { it == QualityTransportSwitchScenario.NONE }
+            .forEachIndexed { index, transportScenario ->
+                val session = QualitySessionDescriptor(
+                    schemaVersion = 1,
+                    sessionId = "transport-failure-$index",
+                    fixture = QualityFixture.MESSAGES_STANDARD,
+                    faults = QualityFaults(),
+                    transportSwitchScenario = transportScenario,
+                )
+
+                assertEquals(
+                    transportScenario,
+                    QualityRuntime.decode(QualityRuntime.encode(session)).transportSwitchScenario,
+                )
+            }
+    }
+
+    @Test
+    fun transportSelectionPersistenceFaultFailsOnceThenAllowsRetry() {
+        val session = QualitySessionDescriptor(
+            schemaVersion = 1,
+            sessionId = "transport-persistence-retry",
+            fixture = QualityFixture.CHANNELS_STANDARD,
+            faults = QualityFaults(failTransportSelectionPersistenceOnce = true),
+            transportSwitchScenario = QualityTransportSwitchScenario.ACCEPTED,
+        )
+        QualityRuntime.configure(QualityRuntime.encode(session))
+
+        assertThrows(QualityTransportSelectionPersistenceException::class.java) {
+            QualityRuntime.afterTransportSelectionPersistence()
+        }
+        QualityRuntime.afterTransportSelectionPersistence()
     }
 
     @Test

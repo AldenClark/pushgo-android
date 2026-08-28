@@ -4,6 +4,8 @@ import androidx.compose.ui.test.*
 import androidx.test.espresso.Espresso.pressBack
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import java.util.Base64
+import kotlinx.coroutines.runBlocking
+import org.junit.Assert.assertEquals
 import org.junit.Test
 import org.junit.runner.RunWith
 
@@ -333,6 +335,173 @@ class QualitySettingsJourneyInstrumentedTest : QualityAppJourneyTestCase() {
         scrollTo("row.settings.decryption")
         composeRule.onNodeWithTag("row.settings.decryption")
             .assertTextContains(app.getString(io.ethan.pushgo.R.string.label_decryption_configured))
+    }
+
+    @Test
+    fun transportRejectionsPreserveActiveRouteUntilRetryAndPersistAfterRelaunch() {
+        configureAndLaunch(
+            fixture = QualityFixture.MESSAGES_STANDARD,
+            transportSwitchScenario =
+                QualityTransportSwitchScenario.REJECT_ONCE_THEN_ACCEPTED,
+        )
+        openSettings()
+        scrollTo("row.settings.notification_transport")
+
+        val fcmOption = composeRule.onNodeWithTag("option.settings.notification_transport.fcm")
+        val privateOption =
+            composeRule.onNodeWithTag("option.settings.notification_transport.private")
+        fcmOption.assertIsSelected()
+        privateOption.assertIsNotSelected().performClick()
+
+        waitForTag("feedback.settings.notification_transport")
+        composeRule.onNodeWithTag("feedback.settings.notification_transport")
+            .assertTextEquals(
+                app.getString(io.ethan.pushgo.R.string.error_notification_transport_switch_failed)
+            )
+        fcmOption.assertIsSelected()
+        privateOption.assertIsNotSelected().assertIsEnabled()
+        composeRule.onNodeWithTag("dialog.settings.private_transport_whitelist")
+            .assertDoesNotExist()
+
+        privateOption.performClick()
+        composeRule.waitUntil(timeoutMillis = 8_000) {
+            composeRule.onAllNodes(
+                hasTestTag("option.settings.notification_transport.private") and isSelected()
+            ).fetchSemanticsNodes().isNotEmpty()
+        }
+        privateOption.assertIsSelected()
+        fcmOption.assertIsNotSelected()
+        composeRule.onNodeWithTag("feedback.settings.notification_transport")
+            .assertDoesNotExist()
+        waitForTag("dialog.settings.private_transport_whitelist")
+        composeRule.onNodeWithTag("action.settings.private_transport_whitelist.dismiss")
+            .performClick()
+        waitForTagToDisappear("dialog.settings.private_transport_whitelist")
+        scrollTo("row.settings.private_transport")
+
+        scenario?.close()
+        scenario = launchMainActivity()
+        openSettings()
+        scrollTo("row.settings.notification_transport")
+        composeRule.onNodeWithTag("option.settings.notification_transport.private")
+            .assertIsSelected()
+        composeRule.onNodeWithTag("option.settings.notification_transport.fcm")
+            .assertIsNotSelected()
+        scrollTo("row.settings.private_transport")
+
+        scrollTo("row.settings.notification_transport")
+        val relaunchedFcmOption =
+            composeRule.onNodeWithTag("option.settings.notification_transport.fcm")
+        val relaunchedPrivateOption =
+            composeRule.onNodeWithTag("option.settings.notification_transport.private")
+        val privateModeTokenBeforeFcmAttempt = runBlocking {
+            app.container.settingsRepository.getFcmToken()
+        }
+        val privateModeDeviceKeyBeforeFcmAttempt = runBlocking {
+            app.container.settingsRepository.getDeviceKey()
+        }
+        relaunchedFcmOption.performClick()
+        waitForTag("feedback.settings.notification_transport")
+        composeRule.onNodeWithTag("feedback.settings.notification_transport")
+            .assertTextEquals(
+                app.getString(
+                    io.ethan.pushgo.R.string.error_notification_transport_fcm_switch_failed
+                )
+        )
+        relaunchedPrivateOption.assertIsSelected()
+        relaunchedFcmOption.assertIsNotSelected().assertIsEnabled()
+        assertEquals(
+            privateModeTokenBeforeFcmAttempt,
+            runBlocking { app.container.settingsRepository.getFcmToken() },
+        )
+        assertEquals(
+            privateModeDeviceKeyBeforeFcmAttempt,
+            runBlocking { app.container.settingsRepository.getDeviceKey() },
+        )
+        relaunchedFcmOption.performClick()
+        composeRule.waitUntil(timeoutMillis = 8_000) {
+            composeRule.onAllNodes(
+                hasTestTag("option.settings.notification_transport.fcm") and isSelected()
+            ).fetchSemanticsNodes().isNotEmpty()
+        }
+        relaunchedFcmOption.assertIsSelected()
+        relaunchedPrivateOption.assertIsNotSelected()
+        composeRule.onNodeWithTag("feedback.settings.notification_transport")
+            .assertDoesNotExist()
+        composeRule.onNodeWithTag("row.settings.private_transport").assertDoesNotExist()
+
+        scenario?.close()
+        scenario = launchMainActivity()
+        openSettings()
+        scrollTo("row.settings.notification_transport")
+        composeRule.onNodeWithTag("option.settings.notification_transport.fcm")
+            .assertIsSelected()
+        composeRule.onNodeWithTag("option.settings.notification_transport.private")
+            .assertIsNotSelected()
+        composeRule.onNodeWithTag("row.settings.private_transport").assertDoesNotExist()
+    }
+
+    @Test
+    fun privateTransportLocalCommitFailureRollsBackBeforeRetryCommits() {
+        configureAndLaunch(
+            fixture = QualityFixture.CHANNELS_STANDARD,
+            faults = QualityFaults(failTransportSelectionPersistenceOnce = true),
+            transportSwitchScenario = QualityTransportSwitchScenario.ACCEPTED,
+        )
+        openSettings()
+        scrollTo("row.settings.notification_transport")
+        val originalToken = runBlocking {
+            app.container.settingsRepository.getFcmToken()
+        }
+        composeRule.onNodeWithTag("option.settings.notification_transport.fcm")
+            .assertIsSelected()
+        composeRule.onNodeWithTag("option.settings.notification_transport.private")
+            .assertIsNotSelected()
+            .performClick()
+
+        waitForTag("feedback.settings.notification_transport")
+        composeRule.onNodeWithTag("feedback.settings.notification_transport")
+            .assertTextEquals(
+                app.getString(io.ethan.pushgo.R.string.error_notification_transport_switch_failed)
+            )
+        composeRule.onNodeWithTag("option.settings.notification_transport.fcm")
+            .assertIsSelected()
+        composeRule.onNodeWithTag("option.settings.notification_transport.private")
+            .assertIsNotSelected()
+        composeRule.onNodeWithTag("dialog.settings.private_transport_whitelist")
+            .assertDoesNotExist()
+        assertEquals(
+            originalToken,
+            runBlocking { app.container.settingsRepository.getFcmToken() },
+        )
+
+        relaunchCurrentQualitySessionWithFaults()
+        openSettings()
+        scrollTo("row.settings.notification_transport")
+        composeRule.onNodeWithTag("option.settings.notification_transport.fcm")
+            .assertIsSelected()
+        composeRule.onNodeWithTag("option.settings.notification_transport.private")
+            .assertIsNotSelected()
+            .performClick()
+        composeRule.waitUntil(timeoutMillis = 8_000) {
+            composeRule.onAllNodes(
+                hasTestTag("option.settings.notification_transport.private") and isSelected()
+            ).fetchSemanticsNodes().isNotEmpty()
+        }
+        composeRule.onNodeWithTag("option.settings.notification_transport.private")
+            .assertIsSelected()
+        waitForTag("dialog.settings.private_transport_whitelist")
+        composeRule.onNodeWithTag("action.settings.private_transport_whitelist.dismiss")
+            .performClick()
+
+        scenario?.close()
+        scenario = launchMainActivity()
+        openSettings()
+        scrollTo("row.settings.notification_transport")
+        composeRule.onNodeWithTag("option.settings.notification_transport.private")
+            .assertIsSelected()
+        composeRule.onNodeWithTag("option.settings.notification_transport.fcm")
+            .assertIsNotSelected()
     }
 
     private fun openPageVisibilitySettings() {

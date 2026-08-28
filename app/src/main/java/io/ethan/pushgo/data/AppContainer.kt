@@ -15,16 +15,21 @@ import io.ethan.pushgo.testing.QualityFixture
 import io.ethan.pushgo.testing.QualityChannelMutationScenario
 import io.ethan.pushgo.testing.QualityEventCloseScenario
 import io.ethan.pushgo.testing.QualityRuntime
+import io.ethan.pushgo.testing.QualityTransportSwitchException
+import io.ethan.pushgo.testing.QualityTransportSwitchScenario
 import io.ethan.pushgo.ui.PendingLocalDeletionDrainScheduler
 import io.ethan.pushgo.ui.PendingLocalDeletionCoordinator
 import io.ethan.pushgo.ui.WorkManagerPendingLocalDeletionDrainScheduler
 import io.ethan.pushgo.update.UpdateManager
 import io.ethan.pushgo.util.UrlValidators
+import io.ethan.pushgo.util.FcmSupport
 import kotlinx.coroutines.CoroutineScope
 import org.json.JSONArray
 import org.json.JSONObject
 import java.time.Instant
 import java.util.Base64
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicInteger
 import javax.crypto.Cipher
 import javax.crypto.spec.GCMParameterSpec
 import javax.crypto.spec.SecretKeySpec
@@ -42,8 +47,18 @@ class AppContainer(
 ) {
     val appContext = context.applicationContext
     private val qualitySession = QualityRuntime.currentSession()
+    private val qualityTransportScenario =
+        qualitySession?.transportSwitchScenario ?: QualityTransportSwitchScenario.NONE
     val coroutineDispatchers = AppCoroutineDispatchers()
-    val pushTokenProvider: PushTokenProvider = FirebasePushTokenProvider()
+    val pushTokenProvider: PushTokenProvider =
+        if (qualityTransportScenario != QualityTransportSwitchScenario.NONE) {
+            object : PushTokenProvider {
+                override suspend fun fetchToken(timeoutMs: Long): String =
+                    "quality-transport-fcm-token"
+            }
+        } else {
+            FirebasePushTokenProvider()
+        }
     internal val database = qualitySession?.let { session ->
             PushGoDatabase.buildForTest(appContext, session.databaseName)
         }
@@ -223,6 +238,72 @@ class AppContainer(
         entityRepository = entityRepository,
         settingsRepository = settingsRepository,
     )
+    private val qualityTransportSwitchAttempts = AtomicInteger(0)
+    private val qualityFcmTransportPreparationAttempts = AtomicInteger(0)
+    private val qualityFcmCandidateActive = AtomicBoolean(false)
+    val fcmSupportChecker: (Context) -> Boolean =
+        if (qualityTransportScenario != QualityTransportSwitchScenario.NONE) {
+            { true }
+        } else {
+            FcmSupport::isAvailable
+        }
+    val gatewayPrivateChannelEnabledFetcher: suspend () -> Boolean? =
+        if (qualityTransportScenario != QualityTransportSwitchScenario.NONE) {
+            { true }
+        } else {
+            { privateChannelClient.gatewayPrivateChannelEnabled() }
+        }
+    val switchToPrivateAndRetireProvider: suspend (String, String?) -> Unit =
+        when (qualityTransportScenario) {
+            QualityTransportSwitchScenario.REJECT_ONCE_THEN_ACCEPTED -> {
+                { _, _ ->
+                    if (qualityTransportSwitchAttempts.incrementAndGet() == 1) {
+                        throw QualityTransportSwitchException()
+                    }
+                    qualityFcmCandidateActive.set(false)
+                }
+            }
+            QualityTransportSwitchScenario.ACCEPTED -> {
+                { _, _ -> qualityFcmCandidateActive.set(false) }
+            }
+            QualityTransportSwitchScenario.NONE -> {
+                { providerType, providerToken ->
+                    privateChannelClient.switchToPrivateAndRetireProvider(
+                        providerType,
+                        providerToken,
+                    )
+                }
+            }
+        }
+    val prepareFcmTransport: suspend (String) -> Unit =
+        when (qualityTransportScenario) {
+            QualityTransportSwitchScenario.REJECT_ONCE_THEN_ACCEPTED -> {
+                { _ ->
+                    if (qualityFcmTransportPreparationAttempts.incrementAndGet() == 1) {
+                        settingsRepository.setFcmToken("quality-uncommitted-fcm-token")
+                        settingsRepository.setDeviceKey("quality-uncommitted-device-key")
+                        qualityFcmCandidateActive.set(true)
+                        throw QualityTransportSwitchException()
+                    }
+                    check(!qualityFcmCandidateActive.get()) {
+                        "The failed FCM candidate was not compensated before retry."
+                    }
+                }
+            }
+            QualityTransportSwitchScenario.ACCEPTED -> {
+                { _ ->
+                    check(!qualityFcmCandidateActive.get()) {
+                        "The failed FCM candidate was not compensated before retry."
+                    }
+                }
+            }
+            QualityTransportSwitchScenario.NONE -> {
+                { providerToken ->
+                    privateChannelClient.switchToProviderChannel("fcm", providerToken)
+                    channelRepository.syncSubscriptionsIfNeeded(providerToken)
+                }
+            }
+        }
     private val pendingLocalDeletionRepository = RoomPendingLocalDeletionRepository(
         database = database,
         dao = database.pendingLocalDeletionDao(),

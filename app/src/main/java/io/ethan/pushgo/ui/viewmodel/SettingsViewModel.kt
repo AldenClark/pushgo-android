@@ -74,8 +74,15 @@ class SettingsViewModel(
     private val privateChannelClient: PrivateChannelClient,
     private val updateManager: UpdateManager,
     private val pushTokenProvider: PushTokenProvider,
+    private val fcmSupportChecker: (Context) -> Boolean = FcmSupport::isAvailable,
     private val gatewayPrivateChannelEnabledFetcher: suspend () -> Boolean? = {
         privateChannelClient.gatewayPrivateChannelEnabled()
+    },
+    private val switchToPrivateAndRetireProvider: suspend (String, String?) -> Unit =
+        privateChannelClient::switchToPrivateAndRetireProvider,
+    private val prepareFcmTransport: suspend (String) -> Unit = { providerToken ->
+        privateChannelClient.switchToProviderChannel("fcm", providerToken)
+        channelRepository.syncSubscriptionsIfNeeded(providerToken)
     },
 ) : ViewModel() {
     companion object {
@@ -106,6 +113,10 @@ class SettingsViewModel(
     var isChannelModeLoaded by mutableStateOf(false)
         private set
     var privateTransportStatus by mutableStateOf("未连接")
+        private set
+    var isSwitchingTransport by mutableStateOf(false)
+        private set
+    var transportErrorMessage by mutableStateOf<UiMessage?>(null)
         private set
 
     var decryptionKeyInput by mutableStateOf("")
@@ -461,53 +472,227 @@ class SettingsViewModel(
 
     fun updateUseFcmChannel(context: Context, enabled: Boolean) {
         viewModelScope.launch {
-            val previousUseFcmChannel = useFcmChannel
-            isFcmSupported = isFcmSupported(context)
-            if (!enabled) {
-                val privateEnabled = gatewayPrivateChannelEnabledFetcher()
-                gatewayPrivateChannelEnabled = privateEnabled
-                if (privateEnabled == false) {
-                    if (isFcmSupported) {
-                        errorMessage = ResMessage(R.string.error_gateway_private_disabled_use_fcm)
-                    } else {
-                        errorMessage = ResMessage(R.string.error_private_disabled_and_fcm_unavailable)
+            if (isSwitchingTransport) return@launch
+            isSwitchingTransport = true
+            transportErrorMessage = null
+            try {
+                val previousUseFcmChannel = useFcmChannel
+                isFcmSupported = isFcmSupported(context)
+                if (!enabled) {
+                    val privateEnabledResult = runCatching {
+                        gatewayPrivateChannelEnabledFetcher()
                     }
-                    settingsRepository.setUseFcmChannel(true)
+                    if (privateEnabledResult.isFailure) {
+                        val failure = checkNotNull(privateEnabledResult.exceptionOrNull())
+                        io.ethan.pushgo.util.SilentSink.w(
+                            TAG,
+                            "gatewayPrivateChannelEnabledFetcher failed before switch: " +
+                                failure.message,
+                            failure,
+                        )
+                        transportErrorMessage =
+                            ResMessage(R.string.error_notification_transport_switch_failed)
+                        return@launch
+                    }
+                    val privateEnabled = privateEnabledResult.getOrNull()
+                    gatewayPrivateChannelEnabled = privateEnabled
+                    if (privateEnabled == false) {
+                        transportErrorMessage = if (isFcmSupported) {
+                            ResMessage(R.string.error_gateway_private_disabled_use_fcm)
+                        } else {
+                            ResMessage(R.string.error_private_disabled_and_fcm_unavailable)
+                        }
+                        return@launch
+                    }
+                }
+                if (enabled == useFcmChannel) {
+                    if (!enabled || isFcmSupported) {
+                        return@launch
+                    }
+                }
+                if (enabled) {
+                    if (!isFcmSupported) {
+                        settingsRepository.setUseFcmChannel(false)
+                        privateChannelClient.setRuntime(fcmAvailable = false, systemToken = null)
+                        PrivateChannelServiceManager.refreshForMode(context, false)
+                        transportErrorMessage = ResMessage(R.string.error_fcm_not_supported)
+                        return@launch
+                    }
+                    val token = requireFcmToken(context) { message ->
+                        transportErrorMessage = message
+                    } ?: return@launch
+                    val previousToken = settingsRepository.getFcmToken()
+                    val previousDeviceKey = settingsRepository.getDeviceKey()
+                    val preparationResult = runCatching {
+                        prepareFcmTransport(token)
+                    }
+                    if (preparationResult.isFailure) {
+                        val failure = checkNotNull(preparationResult.exceptionOrNull())
+                        io.ethan.pushgo.util.SilentSink.w(
+                            TAG,
+                            "prepareFcmTransport failed: ${failure.message}",
+                            failure,
+                        )
+                        val compensationFailures = listOfNotNull(
+                            runCatching {
+                                switchToPrivateAndRetireProvider("fcm", token)
+                            }.exceptionOrNull(),
+                            runCatching {
+                                settingsRepository.setFcmToken(previousToken)
+                            }.exceptionOrNull(),
+                            runCatching {
+                                settingsRepository.setDeviceKey(previousDeviceKey)
+                            }.exceptionOrNull(),
+                        )
+                        compensationFailures.forEach { compensationFailure ->
+                            io.ethan.pushgo.util.SilentSink.e(
+                                TAG,
+                                "FCM transport compensation failed: " +
+                                    compensationFailure.message,
+                                compensationFailure,
+                            )
+                        }
+                        transportErrorMessage = if (compensationFailures.isEmpty()) {
+                            ResMessage(R.string.error_notification_transport_fcm_switch_failed)
+                        } else {
+                            ResMessage(
+                                R.string.error_notification_transport_fcm_compensation_failed
+                            )
+                        }
+                        return@launch
+                    }
+                    val commitResult = runCatching {
+                        settingsRepository.setFcmToken(token)
+                        settingsRepository.setUseFcmChannel(true)
+                        QualityRuntime.afterTransportSelectionPersistence()
+                    }
+                    if (commitResult.isFailure) {
+                        val failure = checkNotNull(commitResult.exceptionOrNull())
+                        io.ethan.pushgo.util.SilentSink.w(
+                            TAG,
+                            "FCM transport local commit failed: ${failure.message}",
+                            failure,
+                        )
+                        val compensationFailures = listOfNotNull(
+                            runCatching {
+                                switchToPrivateAndRetireProvider("fcm", token)
+                            }.exceptionOrNull(),
+                            runCatching {
+                                settingsRepository.setFcmToken(previousToken)
+                            }.exceptionOrNull(),
+                            runCatching {
+                                settingsRepository.setDeviceKey(previousDeviceKey)
+                            }.exceptionOrNull(),
+                            runCatching {
+                                settingsRepository.setUseFcmChannel(previousUseFcmChannel)
+                            }.exceptionOrNull(),
+                        )
+                        privateChannelClient.setRuntime(
+                            fcmAvailable = previousUseFcmChannel,
+                            systemToken = previousToken,
+                        )
+                        PrivateChannelServiceManager.refreshForMode(
+                            context,
+                            previousUseFcmChannel,
+                        )
+                        compensationFailures.forEach { compensationFailure ->
+                            io.ethan.pushgo.util.SilentSink.e(
+                                TAG,
+                                "FCM local commit compensation failed: " +
+                                    compensationFailure.message,
+                                compensationFailure,
+                            )
+                        }
+                        transportErrorMessage = if (compensationFailures.isEmpty()) {
+                            ResMessage(R.string.error_notification_transport_fcm_switch_failed)
+                        } else {
+                            ResMessage(
+                                R.string.error_notification_transport_fcm_compensation_failed
+                            )
+                        }
+                        return@launch
+                    }
                     useFcmChannel = true
-                    enableFcmProvider(context, keepEnabledWhenTokenMissing = true)
+                    privateChannelClient.setRuntime(fcmAvailable = true, systemToken = token)
                     PrivateChannelServiceManager.refreshForMode(context, true)
-                    return@launch
-                }
-            }
-            if (enabled == useFcmChannel) {
-                if (!enabled || isFcmSupported) {
-                    return@launch
-                }
-            }
-            if (enabled) {
-                if (!isFcmSupported) {
-                    settingsRepository.setUseFcmChannel(false)
+                } else {
+                    val oldToken = settingsRepository.getFcmToken()
+                    val oldDeviceKey = settingsRepository.getDeviceKey()
+                    val switchResult = runCatching {
+                        switchToPrivateAndRetireProvider("fcm", oldToken)
+                    }
+                    if (switchResult.isFailure) {
+                        val failure = checkNotNull(switchResult.exceptionOrNull())
+                        io.ethan.pushgo.util.SilentSink.w(
+                            TAG,
+                            "switchToPrivateAndRetireProvider failed: ${failure.message}",
+                            failure,
+                        )
+                        transportErrorMessage =
+                            ResMessage(R.string.error_notification_transport_switch_failed)
+                        return@launch
+                    }
+                    val commitResult = runCatching {
+                        settingsRepository.setUseFcmChannel(false)
+                        QualityRuntime.afterTransportSelectionPersistence()
+                        settingsRepository.setFcmToken(null)
+                    }
+                    if (commitResult.isFailure) {
+                        val failure = checkNotNull(commitResult.exceptionOrNull())
+                        io.ethan.pushgo.util.SilentSink.w(
+                            TAG,
+                            "private transport local commit failed: ${failure.message}",
+                            failure,
+                        )
+                        val compensationFailures = buildList {
+                            if (!oldToken.isNullOrBlank()) {
+                                runCatching {
+                                    prepareFcmTransport(oldToken)
+                                }.exceptionOrNull()?.let(::add)
+                            }
+                            runCatching {
+                                settingsRepository.setFcmToken(oldToken)
+                            }.exceptionOrNull()?.let(::add)
+                            runCatching {
+                                settingsRepository.setDeviceKey(oldDeviceKey)
+                            }.exceptionOrNull()?.let(::add)
+                            runCatching {
+                                settingsRepository.setUseFcmChannel(previousUseFcmChannel)
+                            }.exceptionOrNull()?.let(::add)
+                        }
+                        privateChannelClient.setRuntime(
+                            fcmAvailable = previousUseFcmChannel,
+                            systemToken = oldToken,
+                        )
+                        PrivateChannelServiceManager.refreshForMode(
+                            context,
+                            previousUseFcmChannel,
+                        )
+                        compensationFailures.forEach { compensationFailure ->
+                            io.ethan.pushgo.util.SilentSink.e(
+                                TAG,
+                                "private local commit compensation failed: " +
+                                    compensationFailure.message,
+                                compensationFailure,
+                            )
+                        }
+                        transportErrorMessage = if (compensationFailures.isEmpty()) {
+                            ResMessage(R.string.error_notification_transport_switch_failed)
+                        } else {
+                            ResMessage(
+                                R.string.error_notification_transport_private_compensation_failed
+                            )
+                        }
+                        return@launch
+                    }
                     privateChannelClient.setRuntime(fcmAvailable = false, systemToken = null)
                     PrivateChannelServiceManager.refreshForMode(context, false)
-                    errorMessage = ResMessage(R.string.error_fcm_not_supported)
-                    return@launch
+                    if (previousUseFcmChannel) {
+                        shouldShowPrivateChannelWhitelistDialog = true
+                    }
                 }
-                enableFcmProvider(context, keepEnabledWhenTokenMissing = true)
-                PrivateChannelServiceManager.refreshForMode(context, true)
-            } else {
-                val oldToken = settingsRepository.getFcmToken()
-                runCatching {
-                    privateChannelClient.switchToPrivateAndRetireProvider("fcm", oldToken)
-                }.onFailure {
-                    io.ethan.pushgo.util.SilentSink.w(TAG, "switchToPrivateAndRetireProvider failed: ${it.message}", it)
-                }
-                settingsRepository.setUseFcmChannel(false)
-                settingsRepository.setFcmToken(null)
-                privateChannelClient.setRuntime(fcmAvailable = false, systemToken = null)
-                PrivateChannelServiceManager.refreshForMode(context, false)
-                if (previousUseFcmChannel) {
-                    shouldShowPrivateChannelWhitelistDialog = true
-                }
+            } finally {
+                isSwitchingTransport = false
             }
         }
     }
@@ -535,7 +720,7 @@ class SettingsViewModel(
     }
 
     private fun isFcmSupported(context: Context): Boolean {
-        return FcmSupport.isAvailable(context)
+        return fcmSupportChecker(context)
     }
 
     private fun shouldUseFcm(context: Context): Boolean {
@@ -644,6 +829,8 @@ class SettingsViewModel(
             gatewayPrivateChannelEnabled = gatewayPrivateChannelEnabled,
             isChannelModeLoaded = isChannelModeLoaded,
             privateTransportStatus = privateTransportStatus,
+            isSwitchingTransport = isSwitchingTransport,
+            transportErrorMessage = transportErrorMessage,
             decryptionKeyInput = decryptionKeyInput,
             keyEncoding = keyEncoding,
             decryptionUpdatedAt = decryptionUpdatedAt,

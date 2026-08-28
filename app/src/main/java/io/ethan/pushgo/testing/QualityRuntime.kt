@@ -67,6 +67,18 @@ enum class QualityChannelMutationScenario(val wireValue: String) {
     }
 }
 
+enum class QualityTransportSwitchScenario(val wireValue: String) {
+    NONE("none"),
+    ACCEPTED("accepted"),
+    REJECT_ONCE_THEN_ACCEPTED("reject_once_then_accepted");
+
+    companion object {
+        fun fromWireValue(value: String): QualityTransportSwitchScenario? = entries.firstOrNull {
+            it.wireValue == value
+        }
+    }
+}
+
 data class QualityFaults(
     val messageLoadDelayMs: Int? = null,
     val messageRefreshDelayMs: Int? = null,
@@ -75,6 +87,7 @@ data class QualityFaults(
     val failGatewaySwitchCommitOnce: Boolean = false,
     val failNotificationKeyPersistenceOnce: Boolean = false,
     val failChannelSubscriptionPersistenceOnce: Boolean = false,
+    val failTransportSelectionPersistenceOnce: Boolean = false,
 )
 
 data class QualitySessionDescriptor(
@@ -85,6 +98,7 @@ data class QualitySessionDescriptor(
     val messageRefreshScenario: QualityMessageRefreshScenario = QualityMessageRefreshScenario.NONE,
     val eventCloseScenario: QualityEventCloseScenario = QualityEventCloseScenario.NONE,
     val channelMutationScenario: QualityChannelMutationScenario = QualityChannelMutationScenario.NONE,
+    val transportSwitchScenario: QualityTransportSwitchScenario = QualityTransportSwitchScenario.NONE,
 ) {
     val databaseName: String
         get() = "pushgo-quality-$sessionId.db"
@@ -119,6 +133,7 @@ object QualityRuntime {
     private val remainingNotificationKeyPersistenceFailures = AtomicInteger(0)
     private val pendingChannelSubscriptionPersistenceFailure = AtomicBoolean(false)
     private val remainingChannelSubscriptionPersistenceFailures = AtomicInteger(0)
+    private val remainingTransportSelectionPersistenceFailures = AtomicInteger(0)
     private val messageRefreshScenarioAttempts = AtomicInteger(0)
 
     fun configure(encodedSession: String?): RuntimeProfile {
@@ -140,6 +155,9 @@ object QualityRuntime {
             faults?.failChannelSubscriptionPersistenceOnce == true
         )
         remainingChannelSubscriptionPersistenceFailures.set(0)
+        remainingTransportSelectionPersistenceFailures.set(
+            if (faults?.failTransportSelectionPersistenceOnce == true) 1 else 0
+        )
         messageRefreshScenarioAttempts.set(0)
         return configuredProfile
     }
@@ -200,6 +218,15 @@ object QualityRuntime {
             } > 0
         ) {
             throw QualityChannelSubscriptionPersistenceException()
+        }
+    }
+
+    fun afterTransportSelectionPersistence() {
+        if (remainingTransportSelectionPersistenceFailures.getAndUpdate { value ->
+                (value - 1).coerceAtLeast(0)
+            } > 0
+        ) {
+            throw QualityTransportSelectionPersistenceException()
         }
     }
 
@@ -292,6 +319,12 @@ object QualityRuntime {
         ) {
             "unsupported channel mutation scenario: $channelMutationScenarioValue"
         }
+        val transportSwitchScenarioValue = payload.optString("transport_switch_scenario", "none").trim()
+        val transportSwitchScenario = requireNotNull(
+            QualityTransportSwitchScenario.fromWireValue(transportSwitchScenarioValue)
+        ) {
+            "unsupported transport switch scenario: $transportSwitchScenarioValue"
+        }
         val faultsJson = payload.optJSONObject("faults")
         val delay = faultsJson?.takeIf { it.has("message_load_delay_ms") }
             ?.getInt("message_load_delay_ms")
@@ -327,10 +360,15 @@ object QualityRuntime {
                     "fail_channel_subscription_persistence_once",
                     false,
                 ) ?: false,
+                failTransportSelectionPersistenceOnce = faultsJson?.optBoolean(
+                    "fail_transport_selection_persistence_once",
+                    false,
+                ) ?: false,
             ),
             messageRefreshScenario = refreshScenario,
             eventCloseScenario = eventCloseScenario,
             channelMutationScenario = channelMutationScenario,
+            transportSwitchScenario = transportSwitchScenario,
         )
     }
 
@@ -353,6 +391,10 @@ object QualityRuntime {
                 "fail_channel_subscription_persistence_once",
                 session.faults.failChannelSubscriptionPersistenceOnce,
             )
+            .put(
+                "fail_transport_selection_persistence_once",
+                session.faults.failTransportSelectionPersistenceOnce,
+            )
         session.faults.messageLoadDelayMs?.let {
             faults.put("message_load_delay_ms", it)
         }
@@ -366,6 +408,7 @@ object QualityRuntime {
             .put("message_refresh_scenario", session.messageRefreshScenario.wireValue)
             .put("event_close_scenario", session.eventCloseScenario.wireValue)
             .put("channel_mutation_scenario", session.channelMutationScenario.wireValue)
+            .put("transport_switch_scenario", session.transportSwitchScenario.wireValue)
             .put("faults", faults)
         return Base64.getEncoder().encodeToString(payload.toString().toByteArray())
     }
@@ -467,6 +510,7 @@ object QualityRuntime {
         remainingNotificationKeyPersistenceFailures.set(0)
         pendingChannelSubscriptionPersistenceFailure.set(false)
         remainingChannelSubscriptionPersistenceFailures.set(0)
+        remainingTransportSelectionPersistenceFailures.set(0)
         messageRefreshScenarioAttempts.set(0)
     }
 }
@@ -486,3 +530,9 @@ class QualityNotificationKeyPersistenceException :
 
 class QualityChannelSubscriptionPersistenceException :
     IllegalStateException("Injected channel subscription persistence failure")
+
+class QualityTransportSwitchException :
+    IllegalStateException("Injected notification transport registration failure")
+
+class QualityTransportSelectionPersistenceException :
+    IllegalStateException("Injected notification transport selection persistence failure")

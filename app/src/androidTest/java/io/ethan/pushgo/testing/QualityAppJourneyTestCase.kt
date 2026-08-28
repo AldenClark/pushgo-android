@@ -43,6 +43,7 @@ abstract class QualityAppJourneyTestCase {
         messageRefreshScenario: QualityMessageRefreshScenario = QualityMessageRefreshScenario.NONE,
         eventCloseScenario: QualityEventCloseScenario = QualityEventCloseScenario.NONE,
         channelMutationScenario: QualityChannelMutationScenario = QualityChannelMutationScenario.NONE,
+        transportSwitchScenario: QualityTransportSwitchScenario = QualityTransportSwitchScenario.NONE,
     ) {
         val current = QualitySessionDescriptor(
             schemaVersion = 1,
@@ -52,6 +53,7 @@ abstract class QualityAppJourneyTestCase {
             messageRefreshScenario = messageRefreshScenario,
             eventCloseScenario = eventCloseScenario,
             channelMutationScenario = channelMutationScenario,
+            transportSwitchScenario = transportSwitchScenario,
         )
         app.releaseStorageForInstrumentationTest()
         assertTrue(app.deleteDatabase(current.databaseName) || !app.getDatabasePath(current.databaseName).exists())
