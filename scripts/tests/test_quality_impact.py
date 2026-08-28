@@ -80,6 +80,22 @@ class QualityImpactPlanTests(unittest.TestCase):
             plan["minimum_evidence"],
         )
 
+    def test_settings_journey_change_keeps_transaction_and_ingress_semantics(self):
+        plan = self.plan(
+            "app/src/androidTest/java/io/ethan/pushgo/testing/QualitySettingsJourneyInstrumentedTest.kt"
+        )
+
+        self.assertEqual("device", plan["recommended_lane"])
+        self.assertTrue(
+            {
+                "gateway-settings",
+                "decryption-settings",
+                "transport-selector",
+                "messages",
+                "ingress-ack",
+            }.issubset(plan["impacted_capabilities"])
+        )
+
     def test_notification_product_change_requires_system_route_evidence(self):
         plan = self.plan(
             "app/src/main/java/io/ethan/pushgo/notifications/NotificationHelper.kt"

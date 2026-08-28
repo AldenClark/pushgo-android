@@ -27,7 +27,7 @@
   "rules": [
     {
       "id": "quality-system",
-      "paths": ["AGENTS.md", "app/src/test/**", "scripts/tests/**", "scripts/quality_*.py", "scripts/quality_*.sh", ".github/workflows/android-quality.yml", "config/quality-impact.json"],
+      "paths": ["AGENTS.md", "app/src/test/**", "scripts/tests/**", "scripts/quality_*.py", "scripts/quality_*.sh", ".github/workflows/android-quality.yml", "config/quality-impact.json", "config/quality-ai-task-history.json"],
       "capabilities": ["quality-system-trustworthiness"],
       "minimum_evidence": ["quality selector unit/negative controls", "Android JVM suite and androidTest compilation"],
       "lane": "pr",
@@ -50,6 +50,15 @@
       "lane": "nightly",
       "known_evidence_gaps": ["Simulator/emulator system routing does not prove real external FCM delivery, user permission decisions, Doze, reboot, OEM behavior, or process-death cold start."],
       "escalation_reasons": ["A changed system-route test must execute its own system surface; the routine PR UI subset cannot validate it."]
+    },
+    {
+      "id": "quality-settings-semantic-journeys",
+      "paths": ["app/src/androidTest/java/io/ethan/pushgo/testing/QualitySettingsJourneyInstrumentedTest.kt"],
+      "capabilities": ["channels", "gateway-settings", "decryption-settings", "page-visibility", "transport-selector", "messages", "ingress-ack"],
+      "minimum_evidence": ["focused settings transaction/error/recovery/decryption device journeys with final UI and durable state"],
+      "lane": "device",
+      "known_evidence_gaps": ["Device journeys use controlled transport and ingress boundaries; real external FCM/private delivery and physical KeyStore implementations remain NOT RUN."],
+      "escalation_reasons": ["A changed settings journey must execute itself and retain exact failure, no-commit, recovery, message, and ACK outcomes."]
     },
     {
       "id": "android-performance-system",
