@@ -1,6 +1,6 @@
 # Android 当前 device 测试处置清单
 
-基线日期：2026-08-27。当前 `androidTest` 共 75 个 `@Test`。此文件是 WP0 迁移清单，不是产品通过 Manifest。
+基线日期：2026-08-27；2026-08-28 退役后当前 `androidTest` 共 98 个 `@Test`。此文件是 WP0 迁移清单，不是产品通过 Manifest。
 
 ## 按文件逐测试处置
 
@@ -36,16 +36,17 @@
 
 保留：`defaultStart_isFcmActive_andPersistenceAndTransportAreConsistent`、`switchFcmPrivateFcm_andRestart_keepsStateStorageAndTransportConsistent`、`failedSwitchRequest_doesNotChangeActiveChannel`、`inboundAcrossSwitch_keepsCanonicalSingleMessage_andLateOldDoesNotOverride`、`fakeEventStateMachine_coversSessionResumeReconnectAckAndPerformance`。最后一项的 performance 仅作受控 transport 指标，不作为 UI 性能结论。
 
-### `RuntimeComposeUiAutomatorInstrumentedTest` — rewrite
+### `RuntimeComposeUiAutomatorInstrumentedTest` — deleted after replacement
 
-`composeRuntime_uiAutomatorBaseline_messageListDetailAndSettings` 保留真实启动/点击的部分，拆成 Message List/Detail/Settings 旅程；删除 Automation State/路径最终 Oracle，改查可见对象、动作和重启终点。
+原用例虽部分启动/点击真实 UI，最终却读取 automation state、直接查询 Repository，并把搜索、筛选、transport 和性能混成一个基线。上述目的已分别由 `QualityMessageJourneyInstrumentedTest`、`QualitySettingsJourneyInstrumentedTest`、真实 Room Performance/Macrobenchmark 接管，文件已删除，不再参与发现或汇总。
 
-### `RuntimeComposeUiBaselineInstrumentedTest` — move / diagnostic
+### `RuntimeComposeUiBaselineInstrumentedTest` — deleted after replacement
 
-- `composeRuntime_environmentProbe_reports_inputManagerReflectionGap`：`diagnostic`，只报告测试环境能力；
-- `composeRuntime_messageListBaseline_proxyThroughViewModelAndRepository`：`move` 到 component/integration，不能称 UI；
-- `composeRuntime_detailAndSettingsBaseline_proxyThroughViewModelState`：`move` 到 component；
-- `composeRuntime_settingsPrivateStagesAndTokenRecovery_matchViewModelUiState`：`move` 到 transport/ViewModel integration。
+环境反射探针没有产品目的，其余用例直接构造 ViewModel/Repository 并打印 timing/state，不能称为 UI。被真实 App-owned UI 与 transport integration 覆盖的部分已接管，文件已删除；未被接管的环境诊断不进入阻断 Lane。
+
+### Synthetic JVM Runtime Store/transport cluster — deleted after replacement
+
+`RuntimeFixtureGenerator*`、`RuntimeLocalStore*` 与 `RuntimeChannelSwitchCorrectnessTest` 复制了消息 Store、去重、投影与 transport 状态机，并用内存实现/自生成 snapshot 给自身判定。生产 Room/ACK/transport integration、真实 device journeys 和 Performance Lane 已提供更强终点，因此五个孤立文件整体删除；不以扩大 JVM 堆或保留 synthetic 100k 输出维持绿色。
 
 ### `RuntimeDataLayerInstrumentedTest` — keep / move to Store lane
 
@@ -83,8 +84,8 @@
 ## 当前首要缺口
 
 1. Messages、Event/Thing、Channel 本地 invalid/远端密码拒绝的 Sheet-owned 反馈、accepted mutation 与创建本地 commit 失败→本地回滚+远端补偿→正式重载无脏行→重试/relaunch、Settings 页面可见性、server 候选注册/本地 commit 失败不提交→回滚→重试成功→数据换域/持久化、decryption lifecycle、受保护写失败补偿、错误 Key 纠正和坏密文安全失败均已按真实目的拆成 App-owned 纵向旅程；FCM/Private selector 也已覆盖双向远端拒绝保持旧 route、Private 本地 mode/secret 提交中点失败后的远端补偿与本地回滚、同入口重试后提交与 relaunch。Channel 订阅既有频道及其安全补偿协议、rollback 自身再次失败的 UI、真实外部 FCM/Private delivery 仍是当前缺口。
-2. Compose “UI baseline” 多数直接构造 ViewModel/Repository，是 component/integration，不是真实 App UI。
-3. Runtime/Automation 仍交换内部状态和路径，容易把准备失败拖成 UI timeout。
+2. 已删除的 Compose “UI baseline” 与 synthetic JVM Store 不再计入任何 Lane；剩余 `Runtime*` 名称文件只按真实 Room/ACK/transport 边界归属，不得从命名外推 UI 覆盖。
+3. App-owned `QualityRuntime` 仍是 DEBUG 测试接入点，但只负责 typed session、fixture/fault/readiness；其状态或 artifact 不得作为产品终点。
 4. 强 Room/ACK/迁移测试很多；消息系统通知的代表性纵向链路已映射到准确页面/数据终点与 Nightly/Release，Event/Thing 动作、系统 mark-read/delete/copy 仍需同样迁移。
 5. 真实 FCM、用户权限拒绝/再次授权、Doze、进程死亡冷启动、OEM/真机、安装流程和性能设备证据仍需独立 Lane。
 

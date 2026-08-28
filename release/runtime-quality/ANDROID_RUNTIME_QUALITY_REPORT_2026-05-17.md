@@ -1,5 +1,7 @@
 # PushGo Android Runtime Quality Report (2026-05-17)
 
+> Historical evidence only. On 2026-08-28 the two `RuntimeComposeUi*` classes and the synthetic JVM Store/transport cluster were retired after their high-value purposes moved to App-owned UI journeys, real Room/transport integration, and the Performance Lane. Commands below that name deleted classes are not current test instructions and their earlier green output is not current UI coverage.
+
 ## 1. 结论摘要
 - 当前阶段已完成：A1（sandbox E2E 入口/开关）、B（通道切换压力与时序主线）、C（AVD 上可执行基线与性能采样）、D（本报告）。
 - 当前阶段未完成：A2 已推进到 provider route/switch + private resume/ACK 客户端证据层，且已探测到 `/messages/pull` 对账路由可用；Compose 真正 UI rule 交互基线被 Pixel_10(Android 17) 环境兼容问题阻断。
