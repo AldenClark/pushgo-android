@@ -22,11 +22,16 @@ abstract class QualityAppJourneyTestCase {
     fun tearDownQualitySession() {
         scenario?.close()
         scenario = null
-        val databaseName = QualityRuntime.currentSession()?.databaseName
+        val session = QualityRuntime.currentSession()
+        val databaseName = session?.databaseName
         val sessionRoot = QualityRuntime.sessionRoot(app)
         app.releaseStorageForInstrumentationTest()
         if (databaseName != null) {
             app.deleteDatabase(databaseName)
+        }
+        session?.let {
+            app.deleteSharedPreferences(it.securePreferencesName)
+            app.deleteSharedPreferences(it.settingsCachePreferencesName)
         }
         sessionRoot?.deleteRecursively()
         QualityRuntime.configure(null)

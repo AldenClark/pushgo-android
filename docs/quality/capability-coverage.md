@@ -4,9 +4,9 @@
 
 | 真实入口 | 用户目的 | 关键状态/分支 | 数据/系统终点 | 最低证据 | Lane/当前状态 | 主要 owner |
 | --- | --- | --- | --- | --- | --- | --- |
-| App launch | 进入可操作 App | Empty/Content/slow/fatal/migration | App-owned Room、首屏、导航 | Room + UI + Macrobenchmark | P0；empty/content/slow/error 已有真实 App UI，migration UI/Macrobenchmark 待补 | `MainActivity`、`AppContainer`、DB |
+| App launch | 进入可操作 App | Empty/Content/slow/fatal/migration | App-owned Room、session secure/settings stores、首屏、导航 | Room + UI + Macrobenchmark | P0；empty/content/slow/error 已有真实 App UI；quality Room、Keystore 密文偏好和 settings cache 均按 session 隔离；migration UI/Macrobenchmark 待补 | `MainActivity`、`AppContainer`、DB |
 | Messages list | 浏览/分页/刷新消息 | first/page/refresh/slow/error | summary query、列表集合 | DAO + VM + UI | P0；首次 slow/error/retry、准确集合、跨 50 条页界、慢刷新/旧快照、新结果持久化与失败后恢复已有；真实性能待补 | Message repository/VM/UI |
-| Message detail | 阅读准确内容 | missing/decrypt/media/read/delete | Room、read state、notification | unit + UI + relaunch | P0；准确字段/详情、唯一详情 owner 下的正文、单条/全部已读、未读筛选、activity relaunch 与删除撤销已有；media 待补 | Detail VM/UI/Repository |
+| Message detail | 阅读准确内容 | missing/decrypt/media/read/delete | Room、read state、notification | unit + UI + relaunch | P0；准确字段/详情、唯一详情 owner 下的正文、单条/全部已读、未读筛选、activity relaunch 与删除撤销已有；合法 Key 的原消息恢复、准确明文和 relaunch 已有；media 及错 Key/坏密文待补 | Detail VM/UI/Repository |
 | Search/filter | 找到且只找到目标集合 | latest query/unread/index rebuild/error | search index、结果集合 | property + Room + UI | P0；错误词排除、目标集合/准确详情与未读筛选往返 UI 已有；channel/tag 与 index error/rebuild 待补 | DAO/Search UI |
 | History cleanup | 按范围清理 | cutoff/DST/cancel/failure | messages/entities/index/stats | DAO boundary + UI | P1；UI 缺口 | Cleanup/Repositories |
 | Delete/Undo | 删除或恢复并持久化 | pending/claim/failure/death/reopen | Room、Worker、notification | integration + UI | P0；真实详情删除、行隐藏、Undo、activity relaunch 已有；process death/notification 待物理 lane | Pending deletion |
@@ -14,7 +14,7 @@
 | Things | 浏览对象和三个页签 | active/filter/missing/deep link | head、Events/Messages/Updates | Room + router + UI | P0；App-owned 摄入→投影→准确概览、Events/Messages/Updates 三页签、准确关联详情、返回原 Thing/页签与 relaunch 已实现；筛选/深链/删除待补 | Thing UI/Repository |
 | Channels | 创建、订阅、改名、两类退订 | invalid/auth/failure/keep/delete/undo | remote、credentials、history | contract + Room + UI | P0；创建→改名→activity relaunch、保留历史退订与删除历史提交→relaunch 已实现；远端拒绝/补偿 UI 与订阅既有频道待补 | Channel repository/UI |
 | Gateway settings | 修改真实服务器 | invalid/cancel/failure | Room address、Keystore token、gateway-scoped data | unit + contract + UI + relaunch | P0；真实入口已覆盖 invalid、标准化保存、频道数据立即换域及 activity relaunch；保存/同步故障注入待补 | Settings VM/UI |
-| Decryption settings | 配置 Key 并恢复消息 | encoding/invalid/missing/wrong/clear | 受保护材料、Room timestamp、plaintext | unit + protected Store + UI + relaunch | P0；真实入口已覆盖 invalid、成功状态、不回显、清除及两种 activity relaunch；真实加密消息恢复和存储故障注入待补 | Settings/Decryptor |
+| Decryption settings | 配置 Key 并恢复消息 | encoding/invalid/missing/wrong/clear | session-isolated Keystore 密文、Room timestamp、原 ciphertext、同一 canonical message、plaintext | unit + protected Store + Room + UI + relaunch | P0；真实入口已覆盖 invalid、成功状态、不回显、清除及两种 activity relaunch；`messages.encrypted.valid` 已证明 missing-key→详情真实入口→合法 Key→同一消息准确明文→activity relaunch，并保留身份/已读/时间/原密文；错 Key/坏密文 UI 和存储故障注入待补 | Settings/Decryptor |
 | Page visibility | 控制主导航入口 | hide/show/relaunch | preferences、Tabs | VM + UI + relaunch | P0；真实 Settings 控件关闭/恢复 Event 入口并分别 activity relaunch 核对已实现 | Settings/Main UI |
 | Transport selector | 在 FCM/Private 间真实切换 | unavailable/failure/restart/late old | service、token、connection、Room | integration + UI | P0；integration 强、UI 缺口 | Settings VM/Service manager |
 | Notification permission/Doze | 恢复可靠通知条件 | denied/allowed/return/snooze expiry | OS settings、UI card | unit + physical UI | P0/P1；NOT RUN | Settings/system adapters |

@@ -12,11 +12,14 @@ import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
 
-class AndroidKeystoreSecretStore(context: Context) : SecureSecretStore {
+class AndroidKeystoreSecretStore(
+    context: Context,
+    preferenceFileName: String = PRODUCTION_PREFERENCE_FILE,
+) : SecureSecretStore {
     companion object {
         private const val KEYSTORE_PROVIDER = "AndroidKeyStore"
         private const val KEY_ALIAS = "pushgo.secure.secrets.v1"
-        private const val PREF_FILE = "pushgo_secure_secrets_v1"
+        internal const val PRODUCTION_PREFERENCE_FILE = "pushgo_secure_secrets_v1"
         private const val GCM_TAG_LENGTH_BITS = 128
         private const val GCM_MIN_PAYLOAD_SIZE = 13
         private const val SECRET_GATEWAY_TOKEN = "gateway_token"
@@ -26,7 +29,7 @@ class AndroidKeystoreSecretStore(context: Context) : SecureSecretStore {
     }
 
     private val prefs = context.applicationContext
-        .getSharedPreferences(PREF_FILE, Context.MODE_PRIVATE)
+        .getSharedPreferences(preferenceFileName, Context.MODE_PRIVATE)
 
     override fun gatewayToken(): String? {
         return getString(SECRET_GATEWAY_TOKEN)?.trim()?.ifEmpty { null }

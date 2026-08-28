@@ -27,7 +27,8 @@ class PushGoAndroidJUnitRunner : AndroidJUnitRunner() {
     }
 
     override fun finish(resultCode: Int, results: Bundle?) {
-        val databaseName = QualityRuntime.currentSession()?.databaseName
+        val session = QualityRuntime.currentSession()
+        val databaseName = session?.databaseName
         val sessionRoot = QualityRuntime.sessionRoot(targetContext)
         runCatching {
             (targetContext.applicationContext as? PushGoApp)
@@ -35,6 +36,10 @@ class PushGoAndroidJUnitRunner : AndroidJUnitRunner() {
         }
         if (databaseName != null) {
             targetContext.deleteDatabase(databaseName)
+        }
+        session?.let {
+            targetContext.deleteSharedPreferences(it.securePreferencesName)
+            targetContext.deleteSharedPreferences(it.settingsCachePreferencesName)
         }
         runCatching { sessionRoot?.deleteRecursively() }
         QualityRuntime.resetForTesting()

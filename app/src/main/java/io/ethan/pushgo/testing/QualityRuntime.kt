@@ -16,6 +16,7 @@ import org.json.JSONObject
 enum class QualityFixture(val wireValue: String) {
     EMPTY_CLEAN("empty.clean"),
     MESSAGES_STANDARD("messages.standard"),
+    MESSAGES_ENCRYPTED_VALID("messages.encrypted.valid"),
     MESSAGES_WORKFLOW("messages.workflow"),
     MESSAGES_LARGE("messages.large"),
     EVENT_STANDARD("event.standard"),
@@ -80,6 +81,12 @@ data class QualitySessionDescriptor(
 ) {
     val databaseName: String
         get() = "pushgo-quality-$sessionId.db"
+
+    val securePreferencesName: String
+        get() = "pushgo-quality-$sessionId-secure-secrets"
+
+    val settingsCachePreferencesName: String
+        get() = "pushgo-quality-$sessionId-settings-cache"
 }
 
 sealed interface RuntimeProfile {

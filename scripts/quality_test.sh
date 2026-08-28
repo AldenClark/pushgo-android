@@ -125,9 +125,18 @@ nightly_data_classes="$core_data_classes,io.ethan.pushgo.testing.RuntimeDataLaye
 
 run_device_classes() {
   local classes="$1"
+  local doctor_output
+  local device_serial
   selected_claims+=("Android migration/deletion/ACK/transport data boundaries: $classes")
-  "$repo_root/scripts/quality_doctor.sh"
-  "$repo_root/gradlew" connectedDebugAndroidTest \
+  doctor_output="$("$repo_root/scripts/quality_doctor.sh")"
+  printf '%s\n' "$doctor_output"
+  device_serial="$(printf '%s\n' "$doctor_output" | awk -F= '$1 == "device_serial" { print $2; exit }')"
+  [[ -n "$device_serial" ]] || {
+    echo "status=BLOCKED"
+    echo "reason=quality_doctor_missing_device_serial"
+    exit 2
+  }
+  ANDROID_SERIAL="$device_serial" "$repo_root/gradlew" connectedDebugAndroidTest \
     "-Pandroid.testInstrumentationRunnerArguments.class=$classes"
   claims+=("Android migration/deletion/ACK/transport data boundaries: $classes")
 }
@@ -135,10 +144,19 @@ run_device_classes() {
 run_quality_device_classes() {
   local session_id="android-lane-$(date +%s)"
   local payload
+  local doctor_output
+  local device_serial
   payload="$(printf '{"schema_version":1,"session_id":"%s","fixture":"empty.clean","faults":{}}' "$session_id" | base64 | tr -d '\n')"
   selected_claims+=("Android core App UI empty/content/pagination/read/search/delete/slow-load/slow-refresh/error-retry/navigation/Event/Thing/Channel/Settings journeys")
-  "$repo_root/scripts/quality_doctor.sh"
-  "$repo_root/gradlew" connectedDebugAndroidTest \
+  doctor_output="$("$repo_root/scripts/quality_doctor.sh")"
+  printf '%s\n' "$doctor_output"
+  device_serial="$(printf '%s\n' "$doctor_output" | awk -F= '$1 == "device_serial" { print $2; exit }')"
+  [[ -n "$device_serial" ]] || {
+    echo "status=BLOCKED"
+    echo "reason=quality_doctor_missing_device_serial"
+    exit 2
+  }
+  ANDROID_SERIAL="$device_serial" "$repo_root/gradlew" connectedDebugAndroidTest \
     "-Pandroid.testInstrumentationRunnerArguments.class=$quality_device_classes" \
     "-Pandroid.testInstrumentationRunnerArguments.pushgoQualitySessionBase64=$payload"
   claims+=("Android core App UI empty/content/pagination/read/search/delete/slow-load/slow-refresh/error-retry/navigation/Event/Thing/Channel/Settings journeys")

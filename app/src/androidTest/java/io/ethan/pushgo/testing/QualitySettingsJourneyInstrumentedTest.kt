@@ -9,6 +9,57 @@ import org.junit.runner.RunWith
 @RunWith(AndroidJUnit4::class)
 class QualitySettingsJourneyInstrumentedTest : QualityAppJourneyTestCase() {
     @Test
+    fun encryptedMessageRecoversThroughRealSettingsEntryAndSurvivesRelaunch() {
+        configureAndLaunch(fixture = QualityFixture.MESSAGES_ENCRYPTED_VALID)
+
+        composeRule.onNodeWithText("Encrypted Quality Message")
+            .assertIsDisplayed()
+            .performClick()
+        composeRule.onNodeWithTag("field.message.detail.body")
+            .assertTextEquals("Configure decryption to read this message.")
+        composeRule.onNodeWithTag("status.message.decryption.not_configured")
+            .assertIsDisplayed()
+        composeRule.onNodeWithTag("action.message.configure_decryption")
+            .assertIsDisplayed()
+            .performClick()
+
+        composeRule.onNodeWithTag("screen.settings.decryption").assertIsDisplayed()
+        val validKey = Base64.getEncoder()
+            .encodeToString("QualityKey123456".toByteArray(Charsets.UTF_8))
+        composeRule.onNodeWithTag("field.settings.decryption.key")
+            .performTextInput(validKey)
+        composeRule.onNodeWithTag("action.settings.decryption.save")
+            .assertIsDisplayed()
+            .performClick()
+        waitForTagToDisappear("screen.settings.decryption")
+        composeRule.waitUntil(timeoutMillis = 8_000) {
+            composeRule.onAllNodes(hasText("Recovered Quality Message"))
+                .fetchSemanticsNodes().isNotEmpty()
+        }
+        composeRule.onNodeWithText("Recovered Quality Message")
+            .assertIsDisplayed()
+            .performClick()
+        composeRule.onNodeWithTag("field.message.detail.body")
+            .assertTextEquals("Recovered from the original encrypted payload.")
+        composeRule.onNodeWithTag("status.message.decryption.decrypt_ok")
+            .assertIsDisplayed()
+
+        scenario?.close()
+        scenario = launchMainActivity()
+        composeRule.waitUntil(timeoutMillis = 8_000) {
+            composeRule.onAllNodes(hasText("Recovered Quality Message"))
+                .fetchSemanticsNodes().isNotEmpty()
+        }
+        composeRule.onNodeWithText("Recovered Quality Message")
+            .assertIsDisplayed()
+            .performClick()
+        composeRule.onNodeWithTag("field.message.detail.body")
+            .assertTextEquals("Recovered from the original encrypted payload.")
+        composeRule.onNodeWithTag("status.message.decryption.decrypt_ok")
+            .assertIsDisplayed()
+    }
+
+    @Test
     fun eventPageVisibilityUsesRealControlsAndPersistsAcrossRelaunch() {
         configureAndLaunch(fixture = QualityFixture.MESSAGES_STANDARD)
 

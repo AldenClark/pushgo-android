@@ -18,13 +18,21 @@ import io.ethan.pushgo.data.db.MessageEntity
 import io.ethan.pushgo.data.db.MessageListRow
 import io.ethan.pushgo.data.db.PushGoDatabase
 import io.ethan.pushgo.data.model.MessageFilter
+import io.ethan.pushgo.data.model.DecryptionState
 import io.ethan.pushgo.data.model.MessageStatus
 import io.ethan.pushgo.data.model.PushMessage
 import io.ethan.pushgo.R
 import io.ethan.pushgo.notifications.MessageStateCoordinator
+import io.ethan.pushgo.notifications.EncryptedMessageRecoveryService
+import io.ethan.pushgo.notifications.InboundPersistenceRequest
+import io.ethan.pushgo.notifications.NotificationIngressParser
 import io.ethan.pushgo.ui.screens.buildThingCardsInternal
 import io.ethan.pushgo.ui.screens.thingMatchesSearch
 import java.time.Instant
+import java.util.Base64
+import javax.crypto.Cipher
+import javax.crypto.spec.GCMParameterSpec
+import javax.crypto.spec.SecretKeySpec
 import kotlin.math.min
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
@@ -61,6 +69,67 @@ class RuntimeDataLayerInstrumentedTest {
         database?.close()
         database = null
         cleanupDatabase()
+    }
+
+    @Test
+    fun encryptedRecoveryReparsesOriginalPayloadAndPreservesCanonicalIdentity() = runBlocking {
+        val db = openFreshDatabase().database
+        val messages = messageRepository(db)
+        val keyBytes = "QualityKey123456".toByteArray(Charsets.UTF_8)
+        val iv = ByteArray(12) { index -> index.toByte() }
+        val plaintext = JSONObject()
+            .put("title", "Recovered Quality Message")
+            .put("body", "Recovered from the original encrypted payload.")
+            .toString()
+        val cipher = Cipher.getInstance("AES/GCM/NoPadding")
+        cipher.init(
+            Cipher.ENCRYPT_MODE,
+            SecretKeySpec(keyBytes, "AES"),
+            GCMParameterSpec(128, iv),
+        )
+        val ciphertextAndTag = cipher.doFinal(plaintext.toByteArray(Charsets.UTF_8))
+        val envelope = ByteArray(ciphertextAndTag.size + iv.size)
+        System.arraycopy(ciphertextAndTag, 0, envelope, 0, ciphertextAndTag.size)
+        System.arraycopy(iv, 0, envelope, ciphertextAndTag.size, iv.size)
+        val encodedCiphertext = Base64.getEncoder().encodeToString(envelope)
+        val parsed = checkNotNull(
+            NotificationIngressParser.parse(
+                data = mapOf(
+                    "entity_type" to "message",
+                    "message_id" to "encrypted-recovery-core",
+                    "delivery_id" to "encrypted-recovery-core-delivery",
+                    "title" to "Encrypted Quality Message",
+                    "body" to "Configure decryption to read this message.",
+                    "ciphertext" to encodedCiphertext,
+                    "sent_at" to "2026-01-15T08:00:00Z",
+                ),
+                transportMessageId = "encrypted-recovery-core-notification",
+                keyBytes = null,
+            ) as? InboundPersistenceRequest.Message
+        )
+        val original = parsed.message.copy(
+            id = "encrypted-recovery-local-id",
+            isRead = true,
+        )
+        assertTrue(messages.insertIncoming(original))
+        val persistedBeforeRecovery = checkNotNull(messages.getById(original.id))
+        assertEquals(DecryptionState.NOT_CONFIGURED, persistedBeforeRecovery.decryptionState)
+
+        val report = EncryptedMessageRecoveryService(messages).recover(keyBytes)
+        val recovered = checkNotNull(messages.getById(original.id))
+
+        assertEquals(1, report.examinedCount)
+        assertEquals(1, report.updatedCount)
+        assertEquals(1, report.decryptedCount)
+        assertEquals(original.id, recovered.id)
+        assertEquals(original.messageId, recovered.messageId)
+        assertTrue(recovered.isRead)
+        assertEquals(persistedBeforeRecovery.receivedAt, recovered.receivedAt)
+        assertEquals(original.notificationId, recovered.notificationId)
+        assertEquals("Recovered Quality Message", recovered.title)
+        assertEquals("Recovered from the original encrypted payload.", recovered.body)
+        assertEquals(DecryptionState.DECRYPT_OK, recovered.decryptionState)
+        assertEquals(encodedCiphertext, JSONObject(recovered.rawPayloadJson).getString("ciphertext"))
     }
 
     @Test

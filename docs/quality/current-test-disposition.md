@@ -49,7 +49,7 @@
 
 ### `RuntimeDataLayerInstrumentedTest` — keep / move to Store lane
 
-保留全部 18 项：`realRoomDaoSearchAndPaging_defaultScaleMatrixThrough10000`、`durableMessageDeleteReplayCancelsNotificationWhenRoomRowIsAlreadyGone`、`realRepositories_coverInboundDedupOrderingInvalidEntityAndTaskQueries`、`messageSearchMatchesNormalizedLiteralSubstringsAndComposesTagsUnreadAndExclusions`、`messageSearchBoundsTokensTagsAndMixedExclusionsWithoutRoomBindOverflow`、`textSearchWaitsForNormalizedLegacyBackfillAndBlankMessagesReachReadySentinel`、`completeSearchIndexRepairsStaleSentinelWithoutRewritingMessages`、`oneMissingSearchRowRepairsOnlyThatMessage`、`legitimatelyEmptySummaryProjectionUsesExplicitCompletionMarker`、`thingProjectionPageBatchesAssociatedMessagesIntoRealRepositorySearchModel`、`entityProjectionPagesReadFinalHeadsOnlyWhileKeepingChangeLogs`、`entityHeadsRejectLateOlderOperationsWhileRetainingChangeLogs`、`thingSubMessageCanBeLoadedAndDeletedByNotificationLocalId`、`facetFilteringUsesCompleteIndexWhileListPayloadRemainsBounded`、`listProjectionNeverFallsBackToUnboundedRawPayloadWithoutMarker`、`thingProjectionPageHydratesChildHistoryWithPerThingAndTotalBounds`、`eventRefreshAndChannelCleanupIncludeThingSubEvents`、`realRoomDaoSearchAndPaging_optIn100000`。100k 保持显式 opt-in/性能 Lane；这些测试不声称 UI 正确。
+保留 Store 风险边界，包括新增的 `encryptedRecoveryReparsesOriginalPayloadAndPreservesCanonicalIdentity`，它用正式 parser 建立 missing-key canonical row，再经生产 recovery service 验证准确明文以及 local/stable identity、已读、接收时间、通知 identity 和原密文不变。其余既有 18 项继续覆盖搜索/分页/去重/顺序/投影/删除/规模；100k 保持显式 opt-in/性能 Lane。Store 测试不单独声称 UI 正确，解密目的由 `QualitySettingsJourneyInstrumentedTest` 的真实入口旅程闭环。
 
 ### `RuntimePrivateChannelStateFlowInstrumentedTest` — keep / move to integration
 
@@ -78,7 +78,7 @@
 
 ## 当前首要缺口
 
-1. Messages、Event/Thing、Channel accepted mutation、Settings 页面可见性、server 数据换域/持久化和 decryption key 安全持久化已按真实目的拆成 App-owned 纵向旅程；Channel remote rejection/compensation、实际加密消息恢复、保存故障注入与 transport 切换仍是当前 P0 缺口。
+1. Messages、Event/Thing、Channel accepted mutation、Settings 页面可见性、server 数据换域/持久化、decryption key 生命周期和合法 Key 恢复原加密消息已按真实目的拆成 App-owned 纵向旅程；Channel remote rejection/compensation、错 Key/坏密文、保存故障注入与 transport 切换仍是当前 P0 缺口。
 2. Compose “UI baseline” 多数直接构造 ViewModel/Repository，是 component/integration，不是真实 App UI。
 3. Runtime/Automation 仍交换内部状态和路径，容易把准备失败拖成 UI timeout。
 4. 强 Room/ACK/迁移测试很多，但没有映射到页面内容、系统入口和 Release 门禁。
@@ -88,10 +88,11 @@
 
 - `QualityMessageJourneyInstrumentedTest`：真实启动 App，覆盖 App-owned 纯空态、准确列表/详情/activity relaunch、52 条数据跨 page size 50、单条/全部已读与未读筛选往返、搜索排除/目标集合/详情、删除→隐藏→Undo→relaunch、首次 slow→真实空态、错误→点击 Retry→真实空态、慢刷新旧快照、新 Provider 拉取页经解析/持久化进入列表和详情、首次刷新失败保留旧快照并由 Retry 恢复，以及真实底部导航。详情正文 Oracle 限定在真实详情字段 owner 内核对准确内容，避免列表行与详情同文案造成双节点误归因；仍不以任意可见同文案、直接修改 Compose 集合或 DB 文件存在作为 Oracle。
 - `QualityEntityJourneyInstrumentedTest`：复用同一个 App-owned session 生命周期，但按 Entity 能力独立覆盖 Event 摄入→投影→准确详情→确认关闭→正式解析/持久化→仅进行中筛选排除→activity relaunch 后 closed 保留，以及 Thing 准确概览、Events/Messages/Updates 三个真实页签、三类准确关联详情、返回原 Thing/页签和 activity relaunch 后关系仍可达；不再把 Entity 覆盖塞进聚合 Message 类，也不以 Room 行数、Sheet 壳或 test tag 存在作为最终 Oracle。该旅程还要求真实系统 Back 只关闭顶层关系详情，并通过生产标题/正文语义判断内容。
-- `QualitySettingsJourneyInstrumentedTest`：从真实 Channels→Settings 入口覆盖三个独立目的：页面开关关闭/恢复后入口变化和双向 activity relaunch；server invalid 留在编辑器、标准化保存、频道数据立即换域及 relaunch 后准确地址；decryption invalid 留在编辑器、成功状态、不回显、真实 Delete 清除及两种 relaunch。测试不直接写 preferences/Room/受保护存储，也不把开关 selected、sheet dismiss、test tag 或 configured 标记单独当最终结果；实际加密消息恢复仍单列缺口。
+- `QualitySettingsJourneyInstrumentedTest`：覆盖四个独立目的。前三项仍是页面开关双向 relaunch、server invalid/标准化保存/频道数据换域、decryption invalid/不回显/Delete/双向 relaunch；新增加密消息旅程从准确占位消息详情进入真实 Decryption route，保存匹配 Base64 编码的合法 Key 后，核对列表和详情的精确明文及 activity relaunch。测试不直接写 preferences/Room/受保护存储，也不把开关 selected、sheet dismiss、test tag 或 configured 标记单独当最终结果。首轮真实暴露“Room 已恢复而详情 15 秒缓存仍显示占位”并修复为打开详情时校验 canonical Room 行。
 - `QualityChannelJourneyInstrumentedTest`：从真实 Channels 页面创建频道、滑动改名并 activity relaunch 核对；随后分别执行“退订并保留历史”和“退订并删除历史”，以频道行、准确消息内容和再次 relaunch 后状态作为终点，最终一次重启会释放并重建 AppContainer/Room 连接。仅外部 Gateway mutation 使用 typed accepted boundary，Compose、Repository、Room、延迟删除事务与重启均走生产路径；不把 accepted 场景冒充远端拒绝/补偿证据。fixture 初始化使用会话级完成记录，容器重建不重新播种已合法删除的数据；该记录只判定准备状态，不能替代 UI/Room 产品 Oracle。
-- Quality device 进程显式建立唯一 `pushgo-quality-<session>.db`，结束时释放 Room、删除 DB 与 session artifacts；Production 数据进程不激活 Quality Profile，避免迁移测试被测试 DB 污染。
+- Quality device 进程显式建立唯一 `pushgo-quality-<session>.db`、session 专属 Keystore-encrypted preference 与 settings cache；结束时先释放 Container/Room，再准确删除 DB、两类 preferences 与 session artifacts。Production 数据/受保护偏好不读不写，避免迁移测试、Key 或 Gateway 状态跨用例污染。
 - `device` lane 仅执行上述纵向旅程及迁移、删除、ACK 三类高风险数据边界；`nightly` 增加 data/transport/work 边界；`release` 复用显式高价值 UI 与 Nightly 风险边界并构建 Release，不再默认执行全部遗留 androidTest。诊断、极端规模和低后果组合不进入常规反馈链。
+- 设备选择是 Lane 合同的一部分：未显式指定时 doctor 稳定优先 emulator；需要真机时必须传 `ANDROID_SERIAL`。每次 device invocation 都把 doctor 选出的唯一 serial 交给 Gradle，禁止已连接个人设备静默扩大执行范围。双设备在线负控已证明最小测试与最终 Release 都只运行在 API 37 emulator；物理系统证据继续由显式 Lane 触发。
 - `config/quality-impact.json`、`scripts/quality_impact.py` 与 `scripts/quality_changed.sh` 已把产品变更映射到具名能力和最低 Lane。PR 的 host/device 阶段共享同一计划：普通 JVM 变化不启动模拟器，Compose/Room/Service 等风险升级时才运行对应代表设备 Lane；修改 `androidTest` 最低升级到 `pr-ui`，避免只编译不执行；未映射产品路径直接 `BLOCKED`，文档变更写结构化 `NOT_RUN`。
 - 计划中的 `required_checks` 必须进入 selected/executed 收据：更新 Feed/notes 在快速 PR Lane 做签名与语义契约，不无差别启动设备；Gradle/native/release 边界则执行 JNI、schema 和发布静态契约并保持 Release Lane。最近 120 次历史变更回放已修复 Room schema export、update feed 与旧 Connection Diagnosis 漏选；无效计划直接 `BLOCKED`。
 - 路径计划只是不可低于的下限。AI/开发者仍需追 ViewModel、Room、错误分支、Service/Worker/Receiver 和 OS 消费者；Macrobenchmark/物理设备性能在结果中明确 `not_run`，不得由 slow-state UI 用例替代。

@@ -25,6 +25,7 @@ import io.ethan.pushgo.data.SettingsRepository
 import io.ethan.pushgo.data.model.ChannelSubscription
 import io.ethan.pushgo.data.model.KeyEncoding
 import io.ethan.pushgo.notifications.MessageStateCoordinator
+import io.ethan.pushgo.notifications.EncryptedMessageRecoveryService
 import io.ethan.pushgo.notifications.PrivateChannelClient
 import io.ethan.pushgo.notifications.PrivateChannelServiceManager
 import io.ethan.pushgo.testing.QualityChannelMutationScenario
@@ -1206,6 +1207,7 @@ class SettingsViewModel(
                 )
                 settingsRepository.setNotificationKeyBytes(normalized)
                 settingsRepository.setKeyEncoding(keyEncoding)
+                EncryptedMessageRecoveryService(messageRepository).recover(normalized)
                 decryptionUpdatedAt = settingsRepository.getNotificationKeyUpdatedAt() ?: Instant.now()
                 isDecryptionConfigured = true
                 decryptionKeyInput = ""

@@ -79,6 +79,7 @@ import io.ethan.pushgo.data.MessageImageStore
 import io.ethan.pushgo.data.MessageRepository
 import io.ethan.pushgo.data.PendingLocalDeletionOperation
 import io.ethan.pushgo.data.model.PushMessage
+import io.ethan.pushgo.data.model.DecryptionState
 import io.ethan.pushgo.data.model.MessageSeverity
 import io.ethan.pushgo.markdown.MessageBodyResolver
 import io.ethan.pushgo.notifications.MessageStateCoordinator
@@ -119,6 +120,7 @@ fun MessageDetailScreen(
     channelRepository: ChannelSubscriptionRepository,
     imageStore: MessageImageStore,
     onDismiss: () -> Unit,
+    onConfigureDecryption: (() -> Unit)? = null,
 ) {
     val uiColors = PushGoThemeExtras.colors
     val initialRenderStartedAtMs = remember(messageId) { SystemClock.elapsedRealtime() }
@@ -223,6 +225,7 @@ fun MessageDetailScreen(
                     channelDisplayName = channelDisplayName,
                     resolvedBodyText = resolvedBodyText,
                     bottomGestureInset = bottomGestureInset,
+                    onConfigureDecryption = onConfigureDecryption,
                     onDelete = {
                         val targetMessage = current
                         scope.launch {
@@ -360,6 +363,7 @@ internal fun MessageDetailCoreContent(
     channelDisplayName: String?,
     resolvedBodyText: String,
     bottomGestureInset: Dp,
+    onConfigureDecryption: (() -> Unit)? = null,
     onDelete: (() -> Unit)?,
     onCopyText: (String) -> Unit,
     onOpenImage: (Any) -> Unit,
@@ -450,7 +454,13 @@ internal fun MessageDetailCoreContent(
                                 PushGoChannelMetaChip(channelDisplayName = displayName)
                             }
                             message.decryptionState?.let { state ->
-                                PushGoDecryptionMetaChip(decryptionState = state)
+                                Box(
+                                    modifier = Modifier.testTag(
+                                        "status.message.decryption.${state.name.lowercase()}"
+                                    )
+                                ) {
+                                    PushGoDecryptionMetaChip(decryptionState = state)
+                                }
                             }
                         }
                     }
@@ -546,6 +556,25 @@ internal fun MessageDetailCoreContent(
 
         if (message.severity == MessageSeverity.CRITICAL) {
             CriticalSeverityHintCard()
+        }
+
+        if (message.decryptionState != null &&
+            message.decryptionState != DecryptionState.DECRYPT_OK &&
+            onConfigureDecryption != null
+        ) {
+            Button(
+                onClick = onConfigureDecryption,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(48.dp)
+                    .testTag("action.message.configure_decryption"),
+                shape = RoundedCornerShape(12.dp),
+            ) {
+                Text(
+                    text = stringResource(R.string.section_decryption),
+                    style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold),
+                )
+            }
         }
 
         FullMarkdownRenderer(

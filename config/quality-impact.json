@@ -80,7 +80,7 @@
       "capabilities": ["channels", "gateway-settings", "decryption-settings", "page-visibility", "transport-selector"],
       "minimum_evidence": ["validation/service/transport integration tests", "real Channel create/rename/keep-history/delete-history/relaunch journey", "real Settings page-visibility action/destination and relaunch journey", "real server invalid/normalize/data-scope/relaunch journey", "real decryption invalid/status/no-echo/clear/relaunch journey"],
       "lane": "device",
-      "known_evidence_gaps": ["Channel accepted-mutation, page visibility, server persistence/data scoping, and decryption-key persistence now have real-control relaunch journeys; remote rejection/compensation, save/sync fault injection, actual encrypted-message recovery, and transport switching remain missing."],
+      "known_evidence_gaps": ["Channel accepted-mutation, page visibility, server persistence/data scoping, decryption-key lifecycle, and valid-key recovery of the original encrypted message now have real-control relaunch journeys; remote rejection/compensation, save/sync fault injection, wrong-key/corrupt-ciphertext UI recovery, and transport switching remain missing."],
       "escalation_reasons": ["Credentials and remote/local reconciliation require failure and recovery evidence."]
     },
     {

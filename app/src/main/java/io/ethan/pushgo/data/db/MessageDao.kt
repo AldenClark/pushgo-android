@@ -288,6 +288,15 @@ interface MessageDao {
 
     @Query(
         """
+        SELECT * FROM messages
+        WHERE decryption_state IN ('NOT_CONFIGURED', 'ALG_MISMATCH', 'DECRYPT_FAILED')
+        ORDER BY received_at DESC, id DESC
+        """
+    )
+    suspend fun loadEncryptedRecoveryCandidates(): List<MessageEntity>
+
+    @Query(
+        """
         SELECT * FROM messages m
         WHERE (
             m.received_at < :beforeReceivedAt

@@ -25,6 +25,7 @@ import io.ethan.pushgo.data.db.ThingSubMessageEntity
 import io.ethan.pushgo.data.model.MessageChannelCount
 import io.ethan.pushgo.data.model.MessageFacetOptionCount
 import io.ethan.pushgo.data.model.MessageFilter
+import io.ethan.pushgo.data.model.DecryptionState
 import io.ethan.pushgo.data.model.MessageListItem
 import io.ethan.pushgo.data.model.PushMessage
 import io.ethan.pushgo.testing.QualityRuntime
@@ -318,6 +319,53 @@ class MessageRepository(
     }
 
     suspend fun loadAllForExport(): List<PushMessage> = dao.loadAllForExport().map(MessageEntity::asModel)
+
+    suspend fun loadEncryptedRecoveryCandidates(): List<PushMessage> =
+        dao.loadEncryptedRecoveryCandidates().map(MessageEntity::asModel)
+
+    suspend fun replaceEncryptedRecoveryCandidate(
+        existingId: String,
+        reparsed: PushMessage,
+    ): Boolean = database.withTransaction {
+        val existingEntity = dao.getById(existingId) ?: return@withTransaction false
+        if (existingEntity.decryptionState == DecryptionState.DECRYPT_OK.name) {
+            return@withTransaction false
+        }
+        val existing = existingEntity.asModel()
+        val stableMessageId = existing.messageId?.trim()?.takeIf(String::isNotEmpty)
+        if (stableMessageId == null || reparsed.messageId?.trim() != stableMessageId) {
+            return@withTransaction false
+        }
+        val replacement = reparsed.copy(
+            id = existing.id,
+            messageId = existing.messageId,
+            isRead = existing.isRead,
+            receivedAt = existing.receivedAt,
+            status = existing.status,
+            notificationId = existing.notificationId,
+            serverId = existing.serverId,
+        )
+        val replacementEntity = MessageEntity.fromModel(replacement)
+        val changed = existingEntity.title != replacementEntity.title ||
+            existingEntity.body != replacementEntity.body ||
+            existingEntity.channel != replacementEntity.channel ||
+            existingEntity.url != replacementEntity.url ||
+            existingEntity.rawPayloadJson != replacementEntity.rawPayloadJson ||
+            existingEntity.decryptionState != replacementEntity.decryptionState ||
+            existingEntity.bodyPreview != replacementEntity.bodyPreview
+        if (!changed) {
+            return@withTransaction false
+        }
+        if (dao.update(replacementEntity) != 1) {
+            return@withTransaction false
+        }
+        upsertRealtimeDerivedDataSafely(
+            messageId = existing.id,
+            message = replacement,
+            updateListPayload = true,
+        )
+        true
+    }
 
     suspend fun getIdsBefore(readState: Boolean?, cutoff: Long): List<String> {
         return dao.getIdsBefore(readState, cutoff)

@@ -395,7 +395,13 @@ fun PushGoAppRoot(
                     channelRepository = container.channelRepository,
                     imageStore = container.messageImageStore, onDismiss = {
                         selectedMessageId = null
-                    }
+                    },
+                    onConfigureDecryption = {
+                        selectedMessageId = null
+                        navController.navigate(DecryptionRoute) {
+                            launchSingleTop = true
+                        }
+                    },
                 )
             }
             PendingLocalDeletionBar(

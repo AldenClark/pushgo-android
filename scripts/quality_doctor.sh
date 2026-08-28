@@ -18,7 +18,21 @@ command -v adb >/dev/null 2>&1 || fail "adb_not_found"
 [[ -f "$repo_root/app/src/main/java/io/ethan/pushgo/testing/QualityRuntime.kt" ]] \
   || fail "quality_runtime_missing"
 
-device_line="$(adb devices -l | awk 'NR > 1 && $2 == "device" { print; exit }')"
+if [[ -n "${ANDROID_SERIAL:-}" ]]; then
+  device_line="$(
+    adb devices -l | awk -v target="$ANDROID_SERIAL" \
+      'NR > 1 && $1 == target && $2 == "device" { print; exit }'
+  )"
+  [[ -n "$device_line" ]] || fail "requested_android_device_unavailable:$ANDROID_SERIAL"
+else
+  # Routine automation is emulator-first so connecting a personal phone cannot
+  # silently widen the lane, alter its API level, or double its execution cost.
+  device_line="$(
+    adb devices -l | awk \
+      'NR > 1 && $2 == "device" && $1 ~ /^emulator-/ { print; found = 1; exit }
+       END { if (!found) exit 1 }'
+  )" || device_line="$(adb devices -l | awk 'NR > 1 && $2 == "device" { print; exit }')"
+fi
 if [[ -z "$device_line" ]]; then
   if [[ "$allow_no_device" == true ]]; then
     printf 'status=READY\n'

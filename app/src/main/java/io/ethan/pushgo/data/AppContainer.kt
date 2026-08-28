@@ -24,6 +24,10 @@ import kotlinx.coroutines.CoroutineScope
 import org.json.JSONArray
 import org.json.JSONObject
 import java.time.Instant
+import java.util.Base64
+import javax.crypto.Cipher
+import javax.crypto.spec.GCMParameterSpec
+import javax.crypto.spec.SecretKeySpec
 
 class AppContainer(
     context: Context,
@@ -37,19 +41,27 @@ class AppContainer(
     },
 ) {
     val appContext = context.applicationContext
+    private val qualitySession = QualityRuntime.currentSession()
     val coroutineDispatchers = AppCoroutineDispatchers()
     val pushTokenProvider: PushTokenProvider = FirebasePushTokenProvider()
-    internal val database = QualityRuntime.currentSession()?.let { session ->
+    internal val database = qualitySession?.let { session ->
             PushGoDatabase.buildForTest(appContext, session.databaseName)
         }
         ?: PushGoDatabase.build(appContext)
-    internal val secureSecretStore: SecureSecretStore = AndroidKeystoreSecretStore(appContext)
+    internal val secureSecretStore: SecureSecretStore = AndroidKeystoreSecretStore(
+        context = appContext,
+        preferenceFileName = qualitySession?.securePreferencesName
+            ?: AndroidKeystoreSecretStore.PRODUCTION_PREFERENCE_FILE,
+    )
 
     val messageImageStore = MessageImageStore(appContext)
     val settingsRepository = SettingsRepository(
         appSettingsDao = database.appSettingsDao(),
         secretStore = secureSecretStore,
-        settingsCache = appContext.getSharedPreferences("pushgo_settings_cache", Context.MODE_PRIVATE),
+        settingsCache = appContext.getSharedPreferences(
+            qualitySession?.settingsCachePreferencesName ?: "pushgo_settings_cache",
+            Context.MODE_PRIVATE,
+        ),
     )
     val inboundDeliveryLedgerRepository = InboundDeliveryLedgerRepository(
         database = database,
@@ -232,6 +244,7 @@ class AppContainer(
         val messages = when (session.fixture) {
             QualityFixture.EMPTY_CLEAN -> emptyList()
             QualityFixture.MESSAGES_STANDARD -> listOf(qualityMessage(index = 0))
+            QualityFixture.MESSAGES_ENCRYPTED_VALID -> emptyList()
             QualityFixture.MESSAGES_WORKFLOW -> (0 until 52).map(::qualityWorkflowMessage)
             QualityFixture.MESSAGES_LARGE -> (0 until 1_000).map(::qualityMessage)
             QualityFixture.CHANNELS_STANDARD -> listOf(
@@ -251,6 +264,24 @@ class AppContainer(
         }
         messageRepository.insertAll(messages)
         when (session.fixture) {
+            QualityFixture.MESSAGES_ENCRYPTED_VALID -> {
+                val parsed = checkNotNull(
+                    NotificationIngressParser.parse(
+                        data = qualityEncryptedMessagePayload(),
+                        transportMessageId = "quality-encrypted-delivery",
+                        keyBytes = null,
+                        textLocalizer = NotificationIngressParser.NotificationTextLocalizer.fromContext(appContext),
+                    ) as? InboundPersistenceRequest.Message
+                ) { "messages.encrypted.valid did not parse as a message" }
+                check(messageRepository.insertIncoming(parsed.message)) {
+                    "messages.encrypted.valid did not reach the canonical store"
+                }
+                val stored = checkNotNull(
+                    messageRepository.getByMessageId("quality-encrypted-message")
+                ) { "messages.encrypted.valid canonical message is missing" }
+                check(stored.decryptionState == io.ethan.pushgo.data.model.DecryptionState.NOT_CONFIGURED)
+                check(stored.body == "Configure decryption to read this message.")
+            }
             QualityFixture.EVENT_STANDARD -> {
                 val rawGateway = settingsRepository.getServerAddress()
                     ?.trim()
@@ -312,6 +343,34 @@ class AppContainer(
         // Record completion only after every store mutation and canonical-projection
         // check succeeds. Live row counts may legitimately change during the journey.
         QualityRuntime.recordFixtureInitialization(appContext.filesDir)
+    }
+
+    private fun qualityEncryptedMessagePayload(): Map<String, String> {
+        val keyBytes = "QualityKey123456".toByteArray(Charsets.UTF_8)
+        val iv = ByteArray(12) { index -> index.toByte() }
+        val plaintext = JSONObject()
+            .put("title", "Recovered Quality Message")
+            .put("body", "Recovered from the original encrypted payload.")
+            .toString()
+        val cipher = Cipher.getInstance("AES/GCM/NoPadding")
+        cipher.init(
+            Cipher.ENCRYPT_MODE,
+            SecretKeySpec(keyBytes, "AES"),
+            GCMParameterSpec(128, iv),
+        )
+        val ciphertextAndTag = cipher.doFinal(plaintext.toByteArray(Charsets.UTF_8))
+        val envelope = ByteArray(ciphertextAndTag.size + iv.size)
+        System.arraycopy(ciphertextAndTag, 0, envelope, 0, ciphertextAndTag.size)
+        System.arraycopy(iv, 0, envelope, ciphertextAndTag.size, iv.size)
+        return mapOf(
+            "entity_type" to "message",
+            "message_id" to "quality-encrypted-message",
+            "delivery_id" to "quality-encrypted-delivery",
+            "title" to "Encrypted Quality Message",
+            "body" to "Configure decryption to read this message.",
+            "ciphertext" to Base64.getEncoder().encodeToString(envelope),
+            "sent_at" to "2026-01-15T08:00:00Z",
+        )
     }
 
     suspend fun handlePushTokenUpdate(deviceToken: String) {

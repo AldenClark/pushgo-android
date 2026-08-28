@@ -46,6 +46,7 @@ class MessageDetailViewModel(
 
         private suspend fun getCachedOrLoad(
             id: String,
+            allowCachedResult: Boolean = true,
             loader: suspend () -> PushMessage?,
         ): CachedLoadResult {
             val now = SystemClock.elapsedRealtime()
@@ -53,7 +54,7 @@ class MessageDetailViewModel(
             val deferred: CompletableDeferred<Result<PushMessage?>>
             cacheMutex.withLock {
                 val cached = detailCache[id]
-                if (cached != null && now - cached.cachedAtMs <= DETAIL_CACHE_TTL_MS) {
+                if (allowCachedResult && cached != null && now - cached.cachedAtMs <= DETAIL_CACHE_TTL_MS) {
                     return CachedLoadResult(
                         message = cached.message,
                         source = "cache",
@@ -136,7 +137,11 @@ class MessageDetailViewModel(
             _isLoading.value = true
             _loadError.value = null
             val startedAtMs = SystemClock.elapsedRealtime()
-            val loadResult = getCachedOrLoad(messageId) {
+            // Detail can be reopened immediately after another screen mutates the
+            // canonical row (for example, encrypted-message recovery). Always
+            // validate an opening against Room; a short-lived stale body is still
+            // user-visible incorrect data.
+            val loadResult = getCachedOrLoad(messageId, allowCachedResult = false) {
                 repository.getById(messageId)
             }
             val loadedAtMs = SystemClock.elapsedRealtime()

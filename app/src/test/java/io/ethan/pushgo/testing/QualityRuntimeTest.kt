@@ -1,5 +1,6 @@
 package io.ethan.pushgo.testing
 
+import io.ethan.pushgo.data.AndroidKeystoreSecretStore
 import java.io.File
 import org.json.JSONObject
 import org.junit.After
@@ -40,6 +41,10 @@ class QualityRuntimeTest {
         assertEquals(session, decoded)
         assertTrue(decoded.databaseName.startsWith("pushgo-quality-"))
         assertTrue(decoded.databaseName != "pushgo.db")
+        assertTrue(decoded.securePreferencesName.startsWith("pushgo-quality-"))
+        assertTrue(decoded.securePreferencesName != AndroidKeystoreSecretStore.PRODUCTION_PREFERENCE_FILE)
+        assertTrue(decoded.settingsCachePreferencesName.startsWith("pushgo-quality-"))
+        assertTrue(decoded.securePreferencesName != decoded.settingsCachePreferencesName)
         assertEquals(QualityEventCloseScenario.ACCEPTED_AND_DELIVERED, decoded.eventCloseScenario)
         assertEquals(QualityChannelMutationScenario.ACCEPTED, decoded.channelMutationScenario)
     }
