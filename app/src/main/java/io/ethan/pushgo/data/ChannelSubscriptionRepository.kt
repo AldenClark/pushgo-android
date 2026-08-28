@@ -729,7 +729,11 @@ class ChannelSubscriptionRepository(
                     category = GatewayErrorCategory.INTERNAL,
                 )
             }
-            store.upsertSubscription(
+            commitRemoteSubscriptionLocally(
+                requestedChannelId = channelId,
+                providerToken = token,
+                config = config,
+                result = result,
                 gatewayUrl = config.address,
                 channelId = result.channelId,
                 displayName = result.channelName,
@@ -771,7 +775,11 @@ class ChannelSubscriptionRepository(
             )
         }
         val now = System.currentTimeMillis()
-        store.upsertSubscription(
+        commitRemoteSubscriptionLocally(
+            requestedChannelId = channelId,
+            providerToken = token,
+            config = config,
+            result = result,
             gatewayUrl = config.address,
             channelId = result.channelId,
             displayName = result.channelName,
@@ -779,6 +787,46 @@ class ChannelSubscriptionRepository(
             lastSyncedAt = now,
         )
         return result
+    }
+
+    private suspend fun commitRemoteSubscriptionLocally(
+        requestedChannelId: String?,
+        providerToken: String,
+        config: ServerConfig,
+        result: ChannelSubscribeResult,
+        gatewayUrl: String,
+        channelId: String,
+        displayName: String,
+        password: String,
+        lastSyncedAt: Long,
+    ) {
+        try {
+            QualityRuntime.armChannelSubscriptionPersistenceFailure()
+            store.upsertSubscription(
+                gatewayUrl = gatewayUrl,
+                channelId = channelId,
+                displayName = displayName,
+                password = password,
+                lastSyncedAt = lastSyncedAt,
+            )
+        } catch (localError: Exception) {
+            // A create attempt owns its new remote route. Existing-channel subscribe does not
+            // reveal whether the route already existed, so blindly unsubscribing that path could
+            // destroy a valid subscription.
+            if (requestedChannelId == null && result.created) {
+                try {
+                    unsubscribeProviderRemote(result.channelId, providerToken, config)
+                } catch (compensationError: Exception) {
+                    throw ChannelSubscriptionException(
+                        message = "Channel creation local commit and remote compensation failed",
+                        code = "channel_create_compensation_failed",
+                        category = GatewayErrorCategory.LOCAL,
+                        detail = "local=${localError.message}; compensation=${compensationError.message}",
+                    )
+                }
+            }
+            throw localError
+        }
     }
 
     private fun isDeviceKeyMissingError(error: ChannelSubscriptionException): Boolean {

@@ -5,6 +5,7 @@ repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 lane="${1:-pr}"
 results_root="$repo_root/build/quality-results"
 result_file="$results_root/android-$lane-summary.json"
+lane_started_at_epoch="$(python3 -c 'import time; print(time.time())')"
 mkdir -p "$results_root"
 
 claims=()
@@ -36,12 +37,21 @@ write_result() {
   python3 "$repo_root/scripts/quality_result.py" "${args[@]}"
 }
 
+has_current_compose_test_system_failure() {
+  local report_root="$repo_root/app/build/outputs/androidTest-results/connected"
+  python3 "$repo_root/scripts/classify_android_test_failure.py" \
+    --report-root "$report_root" \
+    --started-at-epoch "$lane_started_at_epoch"
+}
+
 on_exit() {
   local status=$?
   if [[ $status -eq 0 ]]; then
     write_result PASSED PASSED
   elif [[ $status -eq 2 ]]; then
     write_result NOT_RUN BLOCKED "lane preparation was blocked before product evidence completed"
+  elif has_current_compose_test_system_failure; then
+    write_result NOT_RUN FAILED "Compose test runtime accessed SnapshotStateObserver from multiple threads; product claim remains incomplete"
   else
     write_result FAILED PASSED "an executed product oracle failed; inspect Gradle/device reports for the first failure"
   fi

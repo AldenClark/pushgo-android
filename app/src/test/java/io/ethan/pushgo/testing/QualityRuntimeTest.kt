@@ -33,6 +33,7 @@ class QualityRuntimeTest {
                 failGatewaySwitchValidationOnce = true,
                 failGatewaySwitchCommitOnce = true,
                 failNotificationKeyPersistenceOnce = true,
+                failChannelSubscriptionPersistenceOnce = true,
             ),
             messageRefreshScenario = QualityMessageRefreshScenario.FAIL_ONCE_THEN_NEW_MESSAGE,
             eventCloseScenario = QualityEventCloseScenario.ACCEPTED_AND_DELIVERED,
@@ -50,6 +51,26 @@ class QualityRuntimeTest {
         assertTrue(decoded.securePreferencesName != decoded.settingsCachePreferencesName)
         assertEquals(QualityEventCloseScenario.ACCEPTED_AND_DELIVERED, decoded.eventCloseScenario)
         assertEquals(QualityChannelMutationScenario.ACCEPTED, decoded.channelMutationScenario)
+    }
+
+    @Test
+    fun channelFailureScenariosRoundTripThroughTheTypedSession() {
+        QualityChannelMutationScenario.entries
+            .filterNot { it == QualityChannelMutationScenario.NONE }
+            .forEachIndexed { index, channelScenario ->
+                val session = QualitySessionDescriptor(
+                    schemaVersion = 1,
+                    sessionId = "channel-failure-$index",
+                    fixture = QualityFixture.CHANNELS_STANDARD,
+                    faults = QualityFaults(),
+                    channelMutationScenario = channelScenario,
+                )
+
+                assertEquals(
+                    channelScenario,
+                    QualityRuntime.decode(QualityRuntime.encode(session)).channelMutationScenario,
+                )
+            }
     }
 
     @Test

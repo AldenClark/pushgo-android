@@ -9,6 +9,24 @@ import org.junit.runner.RunWith
 @RunWith(AndroidJUnit4::class)
 class QualityChannelJourneyInstrumentedTest : QualityAppJourneyTestCase() {
     @Test
+    fun remoteRejectionStaysInSheetAndRetryPersists() {
+        assertCreateFailureThenRetry(
+            scenario = QualityChannelMutationScenario.REJECT_ONCE_THEN_ACCEPTED,
+            faults = QualityFaults(),
+            expectedFailureText = "Channel password is incorrect. Check the password and try again.",
+        )
+    }
+
+    @Test
+    fun localPersistenceFailureCompensatesRemoteBeforeRetry() {
+        assertCreateFailureThenRetry(
+            scenario = QualityChannelMutationScenario.REQUIRE_CREATE_COMPENSATION,
+            faults = QualityFaults(failChannelSubscriptionPersistenceOnce = true),
+            expectedFailureText = null,
+        )
+    }
+
+    @Test
     fun createRenameAndBothUnsubscribeOutcomesReachAccuratePersistentUserResults() {
         configureAndLaunch(
             fixture = QualityFixture.CHANNELS_STANDARD,
@@ -78,6 +96,59 @@ class QualityChannelJourneyInstrumentedTest : QualityAppJourneyTestCase() {
         openMessages()
         composeRule.onNodeWithText("Quality Keep History Message").assertIsDisplayed()
         composeRule.onNodeWithText("Quality Delete History Message").assertDoesNotExist()
+    }
+
+    private fun assertCreateFailureThenRetry(
+        scenario: QualityChannelMutationScenario,
+        faults: QualityFaults,
+        expectedFailureText: String?,
+    ) {
+        configureAndLaunch(
+            fixture = QualityFixture.CHANNELS_STANDARD,
+            faults = faults,
+            channelMutationScenario = scenario,
+        )
+
+        openChannels()
+        composeRule.onNodeWithTag("action.channels.add").performClick()
+        composeRule.onNodeWithTag("sheet.channels.entry").assertIsDisplayed()
+        composeRule.onNodeWithTag("field.channels.create.name")
+            .performTextInput("Quality Retry Channel")
+        composeRule.onNodeWithTag("field.channels.create.password")
+            .performTextInput("q".repeat(8))
+        composeRule.onNodeWithTag("action.channels.entry.submit").performClick()
+
+        waitForNode("feedback.channels.entry")
+        composeRule.onAllNodesWithTag("feedback.channels.entry").assertCountEquals(1)
+        composeRule.onNodeWithTag("sheet.channels.entry").assertIsDisplayed()
+        composeRule.onNodeWithTag("field.channels.create.name")
+            .assertTextContains("Quality Retry Channel")
+        composeRule.onNodeWithTag("field.channels.create.password")
+            .assertTextContains("q".repeat(8))
+        composeRule.onNodeWithTag("action.channels.entry.submit").assertIsEnabled()
+        composeRule.onNodeWithTag("channel.row.01H00000000000000000000003").assertDoesNotExist()
+        expectedFailureText?.let { expected ->
+            composeRule.onNodeWithTag("feedback.channels.entry").assertTextEquals(expected)
+        }
+
+        composeRule.onNodeWithText("Cancel").performClick()
+        openMessages()
+        openChannels()
+        composeRule.onNodeWithTag("channel.row.01H00000000000000000000003").assertDoesNotExist()
+        composeRule.onNodeWithTag("action.channels.add").performClick()
+        composeRule.onNodeWithTag("field.channels.create.name")
+            .performTextInput("Quality Retry Channel")
+        composeRule.onNodeWithTag("field.channels.create.password")
+            .performTextInput("q".repeat(8))
+        composeRule.onNodeWithTag("action.channels.entry.submit").performClick()
+        waitForNode("channel.row.01H00000000000000000000003")
+        composeRule.onNodeWithTag("channel.row.01H00000000000000000000003")
+            .assertTextContains("Quality Retry Channel")
+
+        relaunchAndOpenChannels(recreateAppContainer = true)
+        composeRule.onNodeWithTag("channel.row.01H00000000000000000000003")
+            .assertIsDisplayed()
+            .assertTextContains("Quality Retry Channel")
     }
 
     private fun openChannels() {

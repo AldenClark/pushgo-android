@@ -56,7 +56,9 @@ enum class QualityEventCloseScenario(val wireValue: String) {
 
 enum class QualityChannelMutationScenario(val wireValue: String) {
     NONE("none"),
-    ACCEPTED("accepted");
+    ACCEPTED("accepted"),
+    REJECT_ONCE_THEN_ACCEPTED("reject_once_then_accepted"),
+    REQUIRE_CREATE_COMPENSATION("require_create_compensation");
 
     companion object {
         fun fromWireValue(value: String): QualityChannelMutationScenario? = entries.firstOrNull {
@@ -72,6 +74,7 @@ data class QualityFaults(
     val failGatewaySwitchValidationOnce: Boolean = false,
     val failGatewaySwitchCommitOnce: Boolean = false,
     val failNotificationKeyPersistenceOnce: Boolean = false,
+    val failChannelSubscriptionPersistenceOnce: Boolean = false,
 )
 
 data class QualitySessionDescriptor(
@@ -114,6 +117,8 @@ object QualityRuntime {
     private val remainingGatewaySwitchValidationFailures = AtomicInteger(0)
     private val remainingGatewaySwitchCommitFailures = AtomicInteger(0)
     private val remainingNotificationKeyPersistenceFailures = AtomicInteger(0)
+    private val pendingChannelSubscriptionPersistenceFailure = AtomicBoolean(false)
+    private val remainingChannelSubscriptionPersistenceFailures = AtomicInteger(0)
     private val messageRefreshScenarioAttempts = AtomicInteger(0)
 
     fun configure(encodedSession: String?): RuntimeProfile {
@@ -131,6 +136,10 @@ object QualityRuntime {
         remainingNotificationKeyPersistenceFailures.set(
             if (faults?.failNotificationKeyPersistenceOnce == true) 1 else 0
         )
+        pendingChannelSubscriptionPersistenceFailure.set(
+            faults?.failChannelSubscriptionPersistenceOnce == true
+        )
+        remainingChannelSubscriptionPersistenceFailures.set(0)
         messageRefreshScenarioAttempts.set(0)
         return configuredProfile
     }
@@ -176,6 +185,21 @@ object QualityRuntime {
             } > 0
         ) {
             throw QualityNotificationKeyPersistenceException()
+        }
+    }
+
+    fun armChannelSubscriptionPersistenceFailure() {
+        if (pendingChannelSubscriptionPersistenceFailure.compareAndSet(true, false)) {
+            remainingChannelSubscriptionPersistenceFailures.set(1)
+        }
+    }
+
+    fun afterChannelSubscriptionSecretPersistence() {
+        if (remainingChannelSubscriptionPersistenceFailures.getAndUpdate { value ->
+                (value - 1).coerceAtLeast(0)
+            } > 0
+        ) {
+            throw QualityChannelSubscriptionPersistenceException()
         }
     }
 
@@ -299,6 +323,10 @@ object QualityRuntime {
                     "fail_notification_key_persistence_once",
                     false,
                 ) ?: false,
+                failChannelSubscriptionPersistenceOnce = faultsJson?.optBoolean(
+                    "fail_channel_subscription_persistence_once",
+                    false,
+                ) ?: false,
             ),
             messageRefreshScenario = refreshScenario,
             eventCloseScenario = eventCloseScenario,
@@ -320,6 +348,10 @@ object QualityRuntime {
             .put(
                 "fail_notification_key_persistence_once",
                 session.faults.failNotificationKeyPersistenceOnce,
+            )
+            .put(
+                "fail_channel_subscription_persistence_once",
+                session.faults.failChannelSubscriptionPersistenceOnce,
             )
         session.faults.messageLoadDelayMs?.let {
             faults.put("message_load_delay_ms", it)
@@ -433,6 +465,8 @@ object QualityRuntime {
         remainingGatewaySwitchValidationFailures.set(0)
         remainingGatewaySwitchCommitFailures.set(0)
         remainingNotificationKeyPersistenceFailures.set(0)
+        pendingChannelSubscriptionPersistenceFailure.set(false)
+        remainingChannelSubscriptionPersistenceFailures.set(0)
         messageRefreshScenarioAttempts.set(0)
     }
 }
@@ -449,3 +483,6 @@ class QualityGatewaySwitchCommitException :
 
 class QualityNotificationKeyPersistenceException :
     IllegalStateException("Injected protected notification key persistence failure")
+
+class QualityChannelSubscriptionPersistenceException :
+    IllegalStateException("Injected channel subscription persistence failure")

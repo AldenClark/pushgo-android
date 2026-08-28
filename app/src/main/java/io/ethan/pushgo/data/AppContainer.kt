@@ -147,10 +147,13 @@ class AppContainer(
         } else {
             null
         },
-        channelMutationRoundTrip = if (
-            QualityRuntime.currentSession()?.channelMutationScenario == QualityChannelMutationScenario.ACCEPTED
-        ) {
+        channelMutationRoundTrip = QualityRuntime.currentSession()?.channelMutationScenario
+            ?.takeUnless { it == QualityChannelMutationScenario.NONE }
+            ?.let { scenario ->
             object : ChannelMutationRoundTrip {
+                private var subscribeAttempts = 0
+                private val activeCreatedChannelIds = mutableSetOf<String>()
+
                 override suspend fun ensureProviderRoute(providerToken: String): String {
                     check(providerToken.isNotBlank()) { "quality channel route requires a provider token" }
                     return "quality-channel-device"
@@ -162,7 +165,32 @@ class AppContainer(
                     password: String,
                 ): ChannelSubscribeResult {
                     check(password.isNotBlank()) { "quality channel subscribe requires a password" }
+                    subscribeAttempts += 1
+                    if (
+                        scenario == QualityChannelMutationScenario.REJECT_ONCE_THEN_ACCEPTED &&
+                        subscribeAttempts == 1
+                    ) {
+                        throw ChannelSubscriptionException.local(
+                            message = "Channel password is incorrect. Check the password and try again.",
+                            code = "password_mismatch",
+                            category = GatewayErrorCategory.CONFLICT,
+                        )
+                    }
                     val resolvedId = channelId ?: "01H00000000000000000000003"
+                    if (
+                        scenario == QualityChannelMutationScenario.REQUIRE_CREATE_COMPENSATION &&
+                        channelId == null &&
+                        resolvedId in activeCreatedChannelIds
+                    ) {
+                        throw ChannelSubscriptionException.local(
+                            message = "The previous channel creation was not compensated.",
+                            code = "channel_compensation_missing",
+                            category = GatewayErrorCategory.CONFLICT,
+                        )
+                    }
+                    if (channelId == null) {
+                        activeCreatedChannelIds += resolvedId
+                    }
                     return ChannelSubscribeResult(
                         channelId = resolvedId,
                         channelName = channelName?.trim()?.ifEmpty { null } ?: resolvedId,
@@ -182,10 +210,9 @@ class AppContainer(
 
                 override suspend fun unsubscribe(channelId: String) {
                     check(channelId.isNotBlank()) { "quality channel unsubscribe requires an id" }
+                    activeCreatedChannelIds -= channelId
                 }
             }
-        } else {
-            null
         },
     )
     val privateChannelClient = PrivateChannelClient(
