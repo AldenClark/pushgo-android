@@ -98,6 +98,18 @@ class QualityResultTests(unittest.TestCase):
         self.assertIsNone(receipt)
         self.assertIn("unknown or inactive", process.stdout)
 
+    def test_precondition_issue_cannot_be_used_for_flaky_receipt(self):
+        process, receipt = self.run_result(
+            "--test-system-status",
+            "FLAKY",
+            "--test-system-issue-id",
+            "android-quality-precondition",
+        )
+
+        self.assertNotEqual(0, process.returncode)
+        self.assertIsNone(receipt)
+        self.assertIn("requires active flake", process.stdout)
+
 
 if __name__ == "__main__":
     unittest.main()

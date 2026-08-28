@@ -83,7 +83,7 @@
       "capabilities": ["app-launch", "messages", "events", "things", "channels", "ingress-ack", "delete-undo"],
       "minimum_evidence": ["DAO/query correctness", "old-version migration and reopen device tests", "representative UI content/relaunch journeys"],
       "lane": "device",
-      "known_evidence_gaps": ["Migration UI and 50-run startup reliability are not yet proven."],
+      "known_evidence_gaps": ["Controlled-emulator App-owned startup reliability is proven 50/50; migration UI and physical-device startup remain NOT RUN."],
       "escalation_reasons": ["Room schema/query changes affect all canonical and derived consumers."]
     },
     {

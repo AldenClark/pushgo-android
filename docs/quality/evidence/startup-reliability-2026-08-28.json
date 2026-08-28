@@ -1,0 +1,37 @@
+{
+  "schema_version": 1,
+  "evidence_type": "hermetic-startup-reliability",
+  "platform": "android-controlled-emulator",
+  "recorded_on": "2026-08-28",
+  "base_revision": "64c9d8d",
+  "device": {
+    "serial": "emulator-5554",
+    "api": 37
+  },
+  "command": "ITERATIONS=50 scripts/run_android_startup_reliability.sh",
+  "scope": "io.ethan.pushgo.testing.QualityMessageJourneyInstrumentedTest#emptyFixtureShowsTheFunctionalEmptyStateInAnAppOwnedDatabase",
+  "oracle": "Each independent Instrumentation process created a fresh App-owned empty.clean session, reached the functional Messages empty state, and verified an isolated Room database. No failure was retried.",
+  "result": {
+    "requested_iterations": 50,
+    "completed_iterations": 50,
+    "passed_iterations": 50,
+    "success_rate": 1.0,
+    "product_status": "PASSED",
+    "test_system_status": "PASSED",
+    "test_system_issue_ids": [],
+    "duration_ms": {
+      "p50": 1901.5,
+      "p95": 9073,
+      "max": 15226
+    },
+    "startup_reliability_exit_criteria_met": true,
+    "compose_aggregate_flake_exit_criteria_met": false
+  },
+  "artifact_contract": {
+    "local_summary": "build/quality-results/android-startup-reliability/20260828-205052/summary.json",
+    "local_iterations": "build/quality-results/android-startup-reliability/20260828-205052/iterations.tsv",
+    "summary_sha256": "9dfbfefc9bf174660d33d950de21f93af96af488fe7ac40a0efe6849c48d7bd9",
+    "iterations_sha256": "8c9f07352b42fa2023040cf4a4823c8f5c12757b98e06063a5ac535d2461429f"
+  },
+  "scope_notice": "This proves focused controlled-emulator startup reliability. It does not close the multi-journey Compose aggregate flake or prove migration UI, physical-device latency, FCM, Doze, or OEM behavior."
+}

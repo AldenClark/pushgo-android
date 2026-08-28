@@ -1,6 +1,7 @@
 import copy
 import importlib.util
 import json
+import subprocess
 import unittest
 from datetime import date
 from pathlib import Path
@@ -58,6 +59,21 @@ class QualityTestSystemIssueTests(unittest.TestCase):
         )
 
         self.assertEqual([], matched)
+
+    def test_startup_reliability_rejects_invalid_iterations_before_doctor(self):
+        process = subprocess.run(
+            [str(REPO / "scripts/run_android_startup_reliability.sh")],
+            cwd=REPO,
+            env={"PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "ITERATIONS": "101"},
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            check=False,
+        )
+
+        self.assertEqual(2, process.returncode)
+        self.assertIn("iterations_must_be_between_1_and_100:101", process.stdout)
+        self.assertNotIn("device_serial=", process.stdout)
 
 
 if __name__ == "__main__":

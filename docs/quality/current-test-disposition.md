@@ -89,6 +89,10 @@
 4. 强 Room/ACK/迁移测试很多；消息系统通知的代表性纵向链路已映射到准确页面/数据终点与 Nightly/Release，Event/Thing 动作、系统 mark-read/delete/copy 仍需同样迁移。
 5. 真实 FCM、用户权限拒绝/再次授权、Doze、进程死亡冷启动、OEM/真机、安装流程和性能设备证据仍需独立 Lane。
 
+## 启动可靠性入口
+
+`scripts/run_android_startup_reliability.sh` 用受控 emulator 连续执行 App-owned `empty.clean` 功能启动，默认 50 次且零重试；详细 Oracle、双状态和 scope 边界见 `docs/quality/startup-reliability.md`。它是 Runtime/启动改动后的 opt-in 证据，不进入每次 PR，也不因 focused 50/50 自动关闭多旅程 Compose aggregate flake。
+
 ## Test-system/flake 处置
 
 `config/quality-test-system-issues.json` 取代分类器内无 owner/到期的字符串白名单。`android-quality-precondition` 是 0 重试的准备边界；`android-compose-snapshot-observer-runtime` 是有 owner 且 2026-09-11 到期的 active flake，同样不允许自动重试。分类器只看本轮 XML，且每一个 failure 都必须精确命中 active 登记；混入一个产品断言就按产品失败。收据必须记录 issue ID，未知/过期 ID、无 ID 的 `FLAKY`、无替代证据 quarantine 都被脚本拒绝。跨平台操作规则见兄弟 Apple 仓库的 `docs/quality/test-system-issue-governance.md`。
