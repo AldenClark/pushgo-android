@@ -80,7 +80,7 @@
       "capabilities": ["channels", "gateway-settings", "decryption-settings", "page-visibility", "transport-selector"],
       "minimum_evidence": ["validation/service/transport integration tests", "real Channel local-validation/sheet-error ownership/create/rename/keep-history/delete-history/relaunch journey", "real Settings page-visibility action/destination and relaunch journey", "real server invalid/candidate-registration-failure/no-commit/retry/normalize/data-scope/relaunch journey", "real decryption invalid/status/no-echo/clear/relaunch journey"],
       "lane": "device",
-      "known_evidence_gaps": ["Channel local validation with sheet-owned feedback plus accepted mutation, page visibility, candidate gateway registration rejection/no-commit/retry, server persistence/data scoping, decryption lifecycle, wrong-key correction, valid recovery, and corrupt-ciphertext safe failure now have real-control relaunch journeys. Channel remote rejection/compensation, local gateway commit/rollback or protected-store failure injection, and transport switching remain missing."],
+      "known_evidence_gaps": ["Channel local validation, accepted mutation, page visibility, gateway validation rejection, local commit failure with successful rollback/restart/retry, server scoping, decryption lifecycle, protected-write compensation, wrong-key correction, valid recovery, and corrupt-ciphertext safe failure have real-control journeys. Channel remote rejection/compensation, rollback-storage failure UI, real FCM/private switching, and physical system behavior remain missing."],
       "escalation_reasons": ["Credentials and remote/local reconciliation require failure and recovery evidence."]
     },
     {

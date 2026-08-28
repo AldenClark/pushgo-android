@@ -70,6 +70,8 @@ data class QualityFaults(
     val messageRefreshDelayMs: Int? = null,
     val failMessageLoad: Boolean = false,
     val failGatewaySwitchValidationOnce: Boolean = false,
+    val failGatewaySwitchCommitOnce: Boolean = false,
+    val failNotificationKeyPersistenceOnce: Boolean = false,
 )
 
 data class QualitySessionDescriptor(
@@ -110,6 +112,8 @@ object QualityRuntime {
     private val pendingMessageRefreshDelay = AtomicBoolean(false)
     private val remainingMessageLoadFailures = AtomicInteger(0)
     private val remainingGatewaySwitchValidationFailures = AtomicInteger(0)
+    private val remainingGatewaySwitchCommitFailures = AtomicInteger(0)
+    private val remainingNotificationKeyPersistenceFailures = AtomicInteger(0)
     private val messageRefreshScenarioAttempts = AtomicInteger(0)
 
     fun configure(encodedSession: String?): RuntimeProfile {
@@ -120,6 +124,12 @@ object QualityRuntime {
         remainingMessageLoadFailures.set(if (faults?.failMessageLoad == true) 1 else 0)
         remainingGatewaySwitchValidationFailures.set(
             if (faults?.failGatewaySwitchValidationOnce == true) 1 else 0
+        )
+        remainingGatewaySwitchCommitFailures.set(
+            if (faults?.failGatewaySwitchCommitOnce == true) 1 else 0
+        )
+        remainingNotificationKeyPersistenceFailures.set(
+            if (faults?.failNotificationKeyPersistenceOnce == true) 1 else 0
         )
         messageRefreshScenarioAttempts.set(0)
         return configuredProfile
@@ -148,6 +158,24 @@ object QualityRuntime {
             } > 0
         ) {
             throw QualityGatewaySwitchValidationException()
+        }
+    }
+
+    fun afterGatewayAddressPersistence() {
+        if (remainingGatewaySwitchCommitFailures.getAndUpdate { value ->
+                (value - 1).coerceAtLeast(0)
+            } > 0
+        ) {
+            throw QualityGatewaySwitchCommitException()
+        }
+    }
+
+    fun afterNotificationKeySecretPersistence() {
+        if (remainingNotificationKeyPersistenceFailures.getAndUpdate { value ->
+                (value - 1).coerceAtLeast(0)
+            } > 0
+        ) {
+            throw QualityNotificationKeyPersistenceException()
         }
     }
 
@@ -263,6 +291,14 @@ object QualityRuntime {
                     "fail_gateway_switch_validation_once",
                     false,
                 ) ?: false,
+                failGatewaySwitchCommitOnce = faultsJson?.optBoolean(
+                    "fail_gateway_switch_commit_once",
+                    false,
+                ) ?: false,
+                failNotificationKeyPersistenceOnce = faultsJson?.optBoolean(
+                    "fail_notification_key_persistence_once",
+                    false,
+                ) ?: false,
             ),
             messageRefreshScenario = refreshScenario,
             eventCloseScenario = eventCloseScenario,
@@ -276,6 +312,14 @@ object QualityRuntime {
             .put(
                 "fail_gateway_switch_validation_once",
                 session.faults.failGatewaySwitchValidationOnce,
+            )
+            .put(
+                "fail_gateway_switch_commit_once",
+                session.faults.failGatewaySwitchCommitOnce,
+            )
+            .put(
+                "fail_notification_key_persistence_once",
+                session.faults.failNotificationKeyPersistenceOnce,
             )
         session.faults.messageLoadDelayMs?.let {
             faults.put("message_load_delay_ms", it)
@@ -387,6 +431,8 @@ object QualityRuntime {
         pendingMessageRefreshDelay.set(false)
         remainingMessageLoadFailures.set(0)
         remainingGatewaySwitchValidationFailures.set(0)
+        remainingGatewaySwitchCommitFailures.set(0)
+        remainingNotificationKeyPersistenceFailures.set(0)
         messageRefreshScenarioAttempts.set(0)
     }
 }
@@ -397,3 +443,9 @@ class QualityMessageRefreshException : IllegalStateException("Injected provider 
 
 class QualityGatewaySwitchValidationException :
     IllegalStateException("Injected candidate gateway registration failure")
+
+class QualityGatewaySwitchCommitException :
+    IllegalStateException("Injected candidate gateway local commit failure")
+
+class QualityNotificationKeyPersistenceException :
+    IllegalStateException("Injected protected notification key persistence failure")

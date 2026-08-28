@@ -4,7 +4,6 @@ import android.content.Context
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 import android.util.Base64
-import androidx.core.content.edit
 import java.security.KeyStore
 import java.security.MessageDigest
 import javax.crypto.Cipher
@@ -87,9 +86,7 @@ class AndroidKeystoreSecretStore(
     }
 
     override fun clearAll() {
-        prefs.edit {
-            clear()
-        }
+        check(prefs.edit().clear().commit()) { "Protected secret store clear failed" }
     }
 
     private fun getString(key: String): String? {
@@ -118,16 +115,14 @@ class AndroidKeystoreSecretStore(
             delete(key)
             return
         }
-        val encrypted = encrypt(normalized) ?: return
-        prefs.edit {
-            putString(key, encrypted)
+        val encrypted = encrypt(normalized)
+        check(prefs.edit().putString(key, encrypted).commit()) {
+            "Protected secret store write failed"
         }
     }
 
     private fun delete(key: String) {
-        prefs.edit {
-            remove(key)
-        }
+        check(prefs.edit().remove(key).commit()) { "Protected secret store delete failed" }
     }
 
     private fun channelPasswordKey(gatewayUrl: String, channelId: String): String {
@@ -148,7 +143,7 @@ class AndroidKeystoreSecretStore(
         return builder.toString()
     }
 
-    private fun encrypt(plaintext: ByteArray): String? {
+    private fun encrypt(plaintext: ByteArray): String {
         return runCatching {
             val key = loadOrCreateKey()
             val cipher = Cipher.getInstance("AES/GCM/NoPadding")
@@ -160,7 +155,9 @@ class AndroidKeystoreSecretStore(
             System.arraycopy(iv, 0, payload, 1, iv.size)
             System.arraycopy(encrypted, 0, payload, 1 + iv.size, encrypted.size)
             Base64.encodeToString(payload, Base64.NO_WRAP)
-        }.getOrNull()
+        }.getOrElse { error ->
+            throw IllegalStateException("Protected secret encryption failed", error)
+        }
     }
 
     private fun decrypt(encoded: String): ByteArray? {

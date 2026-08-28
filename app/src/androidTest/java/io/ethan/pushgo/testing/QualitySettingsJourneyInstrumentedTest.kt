@@ -208,6 +208,50 @@ class QualitySettingsJourneyInstrumentedTest : QualityAppJourneyTestCase() {
     }
 
     @Test
+    fun gatewayLocalCommitFailureRollsBackBeforeRetryCommits() {
+        configureAndLaunch(
+            fixture = QualityFixture.CHANNELS_STANDARD,
+            faults = QualityFaults(failGatewaySwitchCommitOnce = true),
+            channelMutationScenario = QualityChannelMutationScenario.ACCEPTED,
+        )
+        openSettings()
+        scrollTo("row.settings.gateway")
+        val originalAddress = io.ethan.pushgo.data.AppConstants.defaultServerAddress
+        composeRule.onNodeWithTag("row.settings.gateway")
+            .assertTextContains(originalAddress)
+            .performClick()
+        val candidateAddress = "https://quality-commit.invalid/api"
+        val addressField = composeRule.onNodeWithTag("field.settings.gateway.address")
+        addressField.performTextClearance()
+        addressField.performTextInput("$candidateAddress/")
+        composeRule.onNodeWithTag("action.settings.gateway.save").performClick()
+
+        waitForTag("feedback.settings.gateway")
+        composeRule.onNodeWithTag("sheet.settings.gateway").assertIsDisplayed()
+        composeRule.onNodeWithTag("row.settings.gateway").assertTextContains(originalAddress)
+
+        relaunchCurrentQualitySessionWithFaults()
+        openSettings()
+        scrollTo("row.settings.gateway")
+        composeRule.onNodeWithTag("row.settings.gateway")
+            .assertTextContains(originalAddress)
+            .performClick()
+        val retryField = composeRule.onNodeWithTag("field.settings.gateway.address")
+        retryField.assertTextContains(originalAddress)
+        retryField.performTextClearance()
+        retryField.performTextInput("$candidateAddress/")
+        composeRule.onNodeWithTag("action.settings.gateway.save").performClick()
+        waitForTagToDisappear("sheet.settings.gateway")
+        composeRule.onNodeWithTag("row.settings.gateway").assertTextContains(candidateAddress)
+
+        scenario?.close()
+        scenario = launchMainActivity()
+        openSettings()
+        scrollTo("row.settings.gateway")
+        composeRule.onNodeWithTag("row.settings.gateway").assertTextContains(candidateAddress)
+    }
+
+    @Test
     fun decryptionRejectsInvalidKeyPersistsAndClearsValidKeyWithoutEchoingSecret() {
         configureAndLaunch(fixture = QualityFixture.MESSAGES_STANDARD)
         openSettings()
@@ -251,6 +295,44 @@ class QualitySettingsJourneyInstrumentedTest : QualityAppJourneyTestCase() {
         scrollTo("row.settings.decryption")
         composeRule.onNodeWithTag("row.settings.decryption")
             .assertTextContains(app.getString(io.ethan.pushgo.R.string.label_decryption_not_configured))
+    }
+
+    @Test
+    fun protectedKeyPersistenceFailureDoesNotConfigureBeforeRetry() {
+        configureAndLaunch(
+            fixture = QualityFixture.MESSAGES_STANDARD,
+            faults = QualityFaults(failNotificationKeyPersistenceOnce = true),
+        )
+        openSettings()
+        scrollTo("row.settings.decryption")
+        composeRule.onNodeWithTag("row.settings.decryption")
+            .assertTextContains(app.getString(io.ethan.pushgo.R.string.label_decryption_not_configured))
+            .performClick()
+        val validKey = Base64.getEncoder().encodeToString(ByteArray(32) { 0x35 })
+        composeRule.onNodeWithTag("field.settings.decryption.key").performTextInput(validKey)
+        composeRule.onNodeWithTag("action.settings.decryption.save").performClick()
+
+        waitForTag("feedback.settings.decryption")
+        composeRule.onNodeWithTag("sheet.settings.decryption").assertIsDisplayed()
+
+        relaunchCurrentQualitySessionWithFaults()
+        openSettings()
+        scrollTo("row.settings.decryption")
+        composeRule.onNodeWithTag("row.settings.decryption")
+            .assertTextContains(app.getString(io.ethan.pushgo.R.string.label_decryption_not_configured))
+            .performClick()
+        composeRule.onNodeWithTag("field.settings.decryption.key").performTextInput(validKey)
+        composeRule.onNodeWithTag("action.settings.decryption.save").performClick()
+        waitForTagToDisappear("sheet.settings.decryption")
+        composeRule.onNodeWithTag("row.settings.decryption")
+            .assertTextContains(app.getString(io.ethan.pushgo.R.string.label_decryption_configured))
+
+        scenario?.close()
+        scenario = launchMainActivity()
+        openSettings()
+        scrollTo("row.settings.decryption")
+        composeRule.onNodeWithTag("row.settings.decryption")
+            .assertTextContains(app.getString(io.ethan.pushgo.R.string.label_decryption_configured))
     }
 
     private fun openPageVisibilitySettings() {

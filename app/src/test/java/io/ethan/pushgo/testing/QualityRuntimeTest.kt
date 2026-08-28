@@ -31,6 +31,8 @@ class QualityRuntimeTest {
                 messageLoadDelayMs = 250,
                 messageRefreshDelayMs = 2_500,
                 failGatewaySwitchValidationOnce = true,
+                failGatewaySwitchCommitOnce = true,
+                failNotificationKeyPersistenceOnce = true,
             ),
             messageRefreshScenario = QualityMessageRefreshScenario.FAIL_ONCE_THEN_NEW_MESSAGE,
             eventCloseScenario = QualityEventCloseScenario.ACCEPTED_AND_DELIVERED,

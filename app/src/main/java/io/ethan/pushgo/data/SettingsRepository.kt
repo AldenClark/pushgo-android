@@ -2,10 +2,12 @@ package io.ethan.pushgo.data
 
 import android.content.SharedPreferences
 import androidx.core.content.edit
+import io.ethan.pushgo.BuildConfig
 import io.ethan.pushgo.data.db.AppSettingsDao
 import io.ethan.pushgo.data.db.AppSettingsEntity
 import io.ethan.pushgo.data.model.KeyEncoding
 import io.ethan.pushgo.data.model.MessageListSortMode
+import io.ethan.pushgo.testing.QualityRuntime
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -204,15 +206,31 @@ class SettingsRepository(
 
     suspend fun setNotificationKeyBytes(value: ByteArray?) {
         val trimmed = value?.takeIf { it.isNotEmpty() }
-        secretStore.setNotificationKeyBytes(trimmed)
-        updateSettings { current ->
-            if (trimmed == null) {
-                current.copy(notificationKeyUpdatedAt = null)
-            } else {
-                current.copy(
-                    notificationKeyUpdatedAt = System.currentTimeMillis()
-                )
+        val previous = secretStore.notificationKeyBytes()
+        try {
+            secretStore.setNotificationKeyBytes(trimmed)
+            if (BuildConfig.DEBUG) {
+                QualityRuntime.afterNotificationKeySecretPersistence()
             }
+            updateSettings { current ->
+                if (trimmed == null) {
+                    current.copy(notificationKeyUpdatedAt = null)
+                } else {
+                    current.copy(
+                        notificationKeyUpdatedAt = System.currentTimeMillis()
+                    )
+                }
+            }
+        } catch (commitError: Throwable) {
+            try {
+                secretStore.setNotificationKeyBytes(previous)
+            } catch (rollbackError: Throwable) {
+                throw IllegalStateException(
+                    "Notification key commit and protected-store rollback both failed",
+                    commitError,
+                ).apply { addSuppressed(rollbackError) }
+            }
+            throw commitError
         }
     }
 

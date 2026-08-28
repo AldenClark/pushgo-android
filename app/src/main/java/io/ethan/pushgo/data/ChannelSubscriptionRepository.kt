@@ -1,9 +1,11 @@
 package io.ethan.pushgo.data
 
 import androidx.room.withTransaction
+import io.ethan.pushgo.BuildConfig
 import io.ethan.pushgo.data.db.PushGoDatabase
 import io.ethan.pushgo.data.model.ChannelSubscription
 import io.ethan.pushgo.notifications.MessageStateCoordinator
+import io.ethan.pushgo.testing.QualityRuntime
 import io.ethan.pushgo.util.UrlValidators
 import kotlinx.coroutines.withTimeout
 import org.json.JSONObject
@@ -479,8 +481,12 @@ class ChannelSubscriptionRepository(
         val previousGatewayToken = settingsRepository.getGatewayToken()
         val previousProviderToken = settingsRepository.getFcmToken()
         val previousDeviceKey = settingsRepository.getDeviceKey()
+        val previousCandidateAckToken = settingsRepository.getGatewayAckToken(prepared.address)
         try {
             settingsRepository.setServerAddress(prepared.address)
+            if (BuildConfig.DEBUG) {
+                QualityRuntime.afterGatewayAddressPersistence()
+            }
             settingsRepository.setGatewayToken(prepared.gatewayToken)
             settingsRepository.setDeviceKey(prepared.deviceKey)
             if (prepared.channelType == FCM_CHANNEL_TYPE) {
@@ -488,10 +494,25 @@ class ChannelSubscriptionRepository(
             }
             settingsRepository.setGatewayAckToken(prepared.address, prepared.gatewayToken)
         } catch (error: Throwable) {
-            runCatching { settingsRepository.setServerAddress(previousAddress) }
-            runCatching { settingsRepository.setGatewayToken(previousGatewayToken) }
-            runCatching { settingsRepository.setFcmToken(previousProviderToken) }
-            runCatching { settingsRepository.setDeviceKey(previousDeviceKey) }
+            val rollbackFailures = mutableListOf<Throwable>()
+            suspend fun rollback(action: suspend () -> Unit) {
+                runCatching { action() }.onFailure(rollbackFailures::add)
+            }
+            rollback { settingsRepository.setServerAddress(previousAddress) }
+            rollback { settingsRepository.setGatewayToken(previousGatewayToken) }
+            rollback { settingsRepository.setFcmToken(previousProviderToken) }
+            rollback { settingsRepository.setDeviceKey(previousDeviceKey) }
+            rollback {
+                settingsRepository.setGatewayAckToken(prepared.address, previousCandidateAckToken)
+            }
+            if (rollbackFailures.isNotEmpty()) {
+                throw IllegalStateException(
+                    "Gateway local commit failed and rollback was incomplete",
+                    error,
+                ).also { aggregate ->
+                    rollbackFailures.forEach(aggregate::addSuppressed)
+                }
+            }
             throw error
         }
     }

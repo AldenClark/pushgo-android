@@ -65,4 +65,12 @@ abstract class QualityAppJourneyTestCase {
         }
         return ActivityScenario.launch(intent)
     }
+
+    protected fun relaunchCurrentQualitySessionWithFaults(faults: QualityFaults = QualityFaults()) {
+        val current = checkNotNull(QualityRuntime.currentSession())
+        scenario?.close()
+        app.releaseStorageForInstrumentationTest()
+        QualityRuntime.configure(QualityRuntime.encode(current.copy(faults = faults)))
+        scenario = launchMainActivity()
+    }
 }
