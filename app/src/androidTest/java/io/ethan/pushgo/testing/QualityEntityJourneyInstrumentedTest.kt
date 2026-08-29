@@ -207,6 +207,14 @@ class QualityEntityJourneyInstrumentedTest : QualityAppJourneyTestCase() {
             composeRule.onAllNodes(hasTestTag("thing.row.quality-thing"))
                 .fetchSemanticsNodes().isNotEmpty()
         }
+        composeRule.onNodeWithTag("thing.row.quality-thing-distractor").assertIsDisplayed()
+        composeRule.onNodeWithTag("thing.search.input").assertIsDisplayed().performTextInput("Reactor Alpha")
+        composeRule.waitUntil(timeoutMillis = 5_000) {
+            composeRule.onAllNodes(hasTestTag("thing.row.quality-thing-distractor"))
+                .fetchSemanticsNodes().isEmpty()
+        }
+        composeRule.onNodeWithTag("thing.row.quality-thing").assertIsDisplayed()
+        composeRule.onNodeWithTag("thing.row.quality-thing-distractor").assertDoesNotExist()
         composeRule.onNodeWithTag("thing.row.quality-thing", useUnmergedTree = true)
             .assert(hasAnyDescendant(hasText("Quality Reactor Alpha")))
         composeRule.onNodeWithTag("thing.row.quality-thing").assertIsDisplayed().performClick()

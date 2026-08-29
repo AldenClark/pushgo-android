@@ -448,9 +448,10 @@ class AppContainer(
                     deliverySuffix = "current",
                     receivedAt = Instant.parse("2026-01-15T08:01:00Z"),
                 ))
+                entityRepository.insertIncoming(qualityThingDistractor())
                 entityRepository.insertIncoming(qualityEvent(thingId = "quality-thing"))
                 messageRepository.insertIncoming(qualityThingMessage())
-                check(entityRepository.thingCount() == 1) {
+                check(entityRepository.thingCount() == 2) {
                     "thing.standard did not reach its canonical projection"
                 }
             }
@@ -867,6 +868,41 @@ class AppContainer(
             notificationId = null,
             serverId = "quality-session",
             bodyPreview = "The linked reactor message is visible in the Messages tab.",
+        )
+    }
+
+    private fun qualityThingDistractor(): IncomingEntityRecord {
+        val thingId = "quality-thing-distractor"
+        val receivedAt = Instant.parse("2026-01-15T08:00:30Z")
+        val summary = "Secondary fixture that must be excluded by the target search."
+        val payload = JSONObject()
+            .put("entity_type", "thing")
+            .put("entity_id", thingId)
+            .put("thing_id", thingId)
+            .put("delivery_id", "quality-delivery-thing-distractor")
+            .put("op_id", "quality-op-thing-distractor")
+            .put("observed_at", receivedAt.toString())
+            .put("title", "Quality Pump Beta")
+            .put("description", summary)
+            .put("state", "active")
+            .put("tags", JSONArray(listOf("quality", "pump")))
+            .put("attrs", JSONObject().put("temperature_c", 21).put("zone", "rack-2"))
+        return IncomingEntityRecord(
+            entityType = "thing",
+            entityId = thingId,
+            channel = "quality-secondary",
+            title = "Quality Pump Beta",
+            body = summary,
+            rawPayloadJson = payload.toString(),
+            receivedAt = receivedAt,
+            opId = "quality-op-thing-distractor",
+            deliveryId = "quality-delivery-thing-distractor",
+            serverId = "quality-session",
+            eventId = null,
+            thingId = thingId,
+            eventState = null,
+            eventTimeEpoch = null,
+            observedTimeEpoch = receivedAt.toEpochMilli(),
         )
     }
 }

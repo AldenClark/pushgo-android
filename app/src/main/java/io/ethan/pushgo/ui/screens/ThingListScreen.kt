@@ -742,7 +742,8 @@ fun ThingListScreen(
                                     value = searchQuery,
                                     onValueChange = { searchQuery = it },
                                     placeholderText = stringResource(R.string.label_search_things),
-                                    modifier = Modifier.weight(1f)
+                                    modifier = Modifier.weight(1f),
+                                    inputTestTag = "thing.search.input",
                                 ) {
                                     Box {
                                         var menuExpanded by remember { mutableStateOf(false) }
