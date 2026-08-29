@@ -26,6 +26,18 @@ class QualityImpactPlanTests(unittest.TestCase):
         self.assertIn("messages", plan["impacted_capabilities"])
         self.assertIn("Android accurate content/search/delete/relaunch UI journeys", plan["minimum_evidence"])
 
+    def test_entity_screen_change_prefers_positive_pr_ui_evidence(self):
+        plan = self.plan("app/src/main/java/io/ethan/pushgo/ui/screens/ThingListScreen.kt")
+
+        self.assertEqual("READY", plan["plan_status"])
+        self.assertEqual("pr-ui", plan["recommended_lane"])
+        self.assertTrue({"events", "things"}.issubset(plan["impacted_capabilities"]))
+
+    def test_entity_data_owner_change_keeps_device_evidence(self):
+        plan = self.plan("app/src/main/java/io/ethan/pushgo/data/EntityProjectionRepository.kt")
+
+        self.assertEqual("device", plan["recommended_lane"])
+
     def test_room_schema_expands_across_capabilities(self):
         plan = self.plan("app/src/main/java/io/ethan/pushgo/data/db/PushGoDatabase.kt")
 

@@ -95,13 +95,22 @@
       "known_evidence_gaps": ["media performance remains incomplete; representative Android pagination/read plus slow, new-result, and failure-recovery refresh workflows are protected."]
     },
     {
-      "id": "events-things",
-      "paths": ["app/src/main/java/io/ethan/pushgo/data/CanonicalEntityType.kt", "app/src/main/java/io/ethan/pushgo/data/Entity*.kt", "app/src/main/java/io/ethan/pushgo/ui/screens/Event*.kt", "app/src/main/java/io/ethan/pushgo/ui/screens/Thing*.kt", "app/src/main/java/io/ethan/pushgo/ui/screens/Entity*.kt"],
+      "id": "events-things-data",
+      "paths": ["app/src/main/java/io/ethan/pushgo/data/CanonicalEntityType.kt", "app/src/main/java/io/ethan/pushgo/data/Entity*.kt"],
       "capabilities": ["events", "things"],
       "minimum_evidence": ["entity projection/repository tests", "Android Event close/filter/relaunch and Thing accurate list/detail/relation/relaunch journeys"],
       "lane": "device",
-      "known_evidence_gaps": ["Event close slow/error/duplicate-submit recovery is protected at both the main Event and Thing-related Event entry through accurate detail, owner-scoped feedback, production parser/persistence, and relaunch. Thing filters/deep links/delete outcomes remain incomplete."],
-      "escalation_reasons": ["Entity projections feed lists, details, relations, ingress, and notifications."]
+      "known_evidence_gaps": ["Event close slow/error/duplicate-submit recovery is protected at both entry points. Precise single-Thing delete/control-object/relaunch is protected; deep links, bulk/channel deletion, and tombstones remain incomplete."],
+      "escalation_reasons": ["Entity data/projection owners feed lists, details, relations, ingress, and notifications."]
+    },
+    {
+      "id": "events-things-ui",
+      "paths": ["app/src/main/java/io/ethan/pushgo/ui/screens/Event*.kt", "app/src/main/java/io/ethan/pushgo/ui/screens/Thing*.kt", "app/src/main/java/io/ethan/pushgo/ui/screens/Entity*.kt"],
+      "capabilities": ["events", "things"],
+      "minimum_evidence": ["Android broad positive UI representative set including Event close/filter/relaunch and Thing accurate search/single-delete/control-object/three-relation/relaunch"],
+      "lane": "pr-ui",
+      "known_evidence_gaps": ["Pure screen composition changes do not automatically run failure injection, deep-link, bulk-delete, or tombstone matrices; run the owning focused risk path when the diff changes one of those contracts."],
+      "escalation_reasons": ["Pure presentation and stable action-entry changes need real positive UI outcomes without automatically consuming all Entity failure-recovery and data-boundary scenarios."]
     },
     {
       "id": "channels-settings-transport",
