@@ -1,5 +1,8 @@
 <resources xmlns:tools="http://schemas.android.com/tools">
     <string name="app_name">PushGo</string>
+    <string name="label_local_storage_unavailable">Local storage unavailable</string>
+    <string name="label_local_storage_unavailable_safety">To protect your data, the app has stopped reading and writing.</string>
+    <string name="action_exit_app">Exit app</string>
     <string name="tab_messages">Messages</string>
     <string name="tab_settings">Settings</string>
     <string name="action_mark_all_read">Mark all as read</string>

@@ -343,7 +343,15 @@ fun PushGoAppRoot(
                                     Icon(item.icon, contentDescription = item.label)
                                 }
                             },
-                            label = { Text(item.label, style = MaterialTheme.typography.labelSmall) },
+                            label = {
+                                Text(
+                                    text = item.label,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    modifier = Modifier.testTag(
+                                        "nav.item.${item.topLevelRoute()?.spec?.wireValue ?: "unknown"}.label"
+                                    ),
+                                )
+                            },
                             colors = NavigationBarItemDefaults.colors(
                                 selectedIconColor = uiColors.accentPrimary,
                                 selectedTextColor = uiColors.accentPrimary,
@@ -598,7 +606,10 @@ private fun PushGoUnreadBadge(text: String) {
         containerColor = uiColors.overlayForeground,
         contentColor = uiColors.accentPrimary
     ) {
-        Text(text)
+        Text(
+            text = text,
+            modifier = Modifier.testTag("nav.item.messages.unread_badge"),
+        )
     }
 }
 

@@ -97,9 +97,28 @@ class QualityAccessibilityLocalizationJourneyInstrumentedTest : QualityAppJourne
                 activity.resources.configuration.fontScale >= 1.49f,
             )
         }
-        composeRule.onNodeWithTag("nav.item.messages")
-            .assertTextEquals("消息")
-            .assertIsDisplayed()
+        val messagesNavigation = composeRule.onNodeWithTag("nav.item.messages")
+        messagesNavigation.assertIsDisplayed()
+        val messagesNavigationLabel = composeRule.onNodeWithTag(
+            "nav.item.messages.label",
+            useUnmergedTree = true,
+        )
+        val unreadBadge = composeRule.onNodeWithTag(
+            "nav.item.messages.unread_badge",
+            useUnmergedTree = true,
+        )
+        messagesNavigationLabel.assertTextEquals("消息").assertIsDisplayed()
+        unreadBadge.assertTextEquals("1").assertIsDisplayed()
+        val messagesLabelBounds = messagesNavigationLabel.fetchSemanticsNode().boundsInRoot
+        val unreadBadgeBounds = unreadBadge.fetchSemanticsNode().boundsInRoot
+        assertTrue("The Chinese Messages label must retain visible geometry", messagesLabelBounds.width >= 18f)
+        assertTrue("The unread badge must retain visible geometry", unreadBadgeBounds.width > 0f)
+        assertTrue(
+            "The unread badge must not overlap the Chinese Messages label",
+            !messagesLabelBounds.overlaps(unreadBadgeBounds),
+        )
+        messagesNavigation.performClick()
+        composeRule.onNodeWithTag("screen.messages.list").assertIsDisplayed()
         composeRule.onNodeWithText("P2 Split Seed Message").assertIsDisplayed().performClick()
         composeRule.onNodeWithTag("field.message.detail.body")
             .assertIsDisplayed()

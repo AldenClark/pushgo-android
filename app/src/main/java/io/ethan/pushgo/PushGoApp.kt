@@ -165,7 +165,7 @@ class PushGoApp : Application(), SingletonImageLoader.Factory {
             NotificationHelper.ensureManagedChannels(this)
             return
         }
-        if (io.ethan.pushgo.testing.QualityRuntime.isAppOwnedSessionConfigured()) {
+        if (io.ethan.pushgo.testing.QualityRuntime.currentSession() != null) {
             // Preserve the real Room/UI composition root while excluding
             // unrelated Firebase, Worker, service, and sync noise from the CUJ.
             NotificationHelper.cleanupObsoleteChannels(this)
@@ -304,8 +304,10 @@ class PushGoApp : Application(), SingletonImageLoader.Factory {
     }
 
     private fun scheduleProviderIngressSync(reason: String) {
+        if (io.ethan.pushgo.testing.QualityRuntime.currentSession() != null) return
         val container = containerOrNull() ?: return
         appScope.launch {
+            if (io.ethan.pushgo.testing.QualityRuntime.currentSession() != null) return@launch
             runCatching {
                 ProviderIngressCoordinator.pullPersistAndDrainAcks(
                     context = this@PushGoApp,
@@ -324,6 +326,10 @@ class PushGoApp : Application(), SingletonImageLoader.Factory {
         normalizedToken: String,
         triggerPull: Boolean,
     ) {
+        // A Firebase callback may have queued this Application-scoped coroutine
+        // before an instrumentation quality session was installed. Re-check at
+        // execution time so stale external work cannot mutate the App-owned DB.
+        if (io.ethan.pushgo.testing.QualityRuntime.currentSession() != null) return
         val useFcmChannel = runCatching { container.settingsRepository.getUseFcmChannel() }
             .getOrDefault(true)
         cachedUseFcmChannel = useFcmChannel
@@ -430,6 +436,7 @@ class PushGoApp : Application(), SingletonImageLoader.Factory {
     }
 
     fun handlePushTokenUpdate(deviceToken: String) {
+        if (io.ethan.pushgo.testing.QualityRuntime.currentSession() != null) return
         val container = containerOrNull()
         if (container == null) {
             io.ethan.pushgo.util.SilentSink.w(TAG, "handlePushTokenUpdate ignored: storage unavailable")

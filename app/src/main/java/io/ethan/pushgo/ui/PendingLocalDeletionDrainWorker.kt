@@ -8,6 +8,7 @@ import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import io.ethan.pushgo.PushGoApp
+import io.ethan.pushgo.testing.QualityRuntime
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.CancellationException
@@ -63,6 +64,7 @@ class PendingLocalDeletionDrainWorker(
     params: WorkerParameters,
 ) : CoroutineWorker(appContext, params) {
     override suspend fun doWork(): Result {
+        if (QualityRuntime.currentSession() != null) return Result.success()
         activeWorkers.incrementAndGet()
         return try {
             val app = applicationContext as? PushGoApp ?: return Result.retry()

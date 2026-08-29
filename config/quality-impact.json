@@ -100,7 +100,7 @@
       "capabilities": ["events", "things"],
       "minimum_evidence": ["entity projection/repository tests", "Android Event close/filter/relaunch and Thing accurate list/detail/relation/relaunch journeys"],
       "lane": "device",
-      "known_evidence_gaps": ["Event slow/error/duplicate-close recovery and Thing filters/deep links/delete outcomes remain incomplete."],
+      "known_evidence_gaps": ["Event close slow/error/duplicate-submit recovery is protected at both the main Event and Thing-related Event entry through accurate detail, owner-scoped feedback, production parser/persistence, and relaunch. Thing filters/deep links/delete outcomes remain incomplete."],
       "escalation_reasons": ["Entity projections feed lists, details, relations, ingress, and notifications."]
     },
     {
@@ -151,7 +151,7 @@
       "id": "app-shell-navigation",
       "paths": ["app/src/main/java/io/ethan/pushgo/MainActivity.kt", "app/src/main/java/io/ethan/pushgo/data/AppCoroutineDispatchers.kt", "app/src/main/java/io/ethan/pushgo/data/AppConstants.kt", "app/src/main/java/io/ethan/pushgo/data/OpaqueId.kt", "app/src/main/java/io/ethan/pushgo/ui/PushGoAppRoot.kt", "app/src/main/java/io/ethan/pushgo/ui/PushGoViewModelFactory.kt", "app/src/main/java/io/ethan/pushgo/ui/MessageDetailViewModelFactory.kt", "app/src/main/java/io/ethan/pushgo/ui/EdgeToEdgeInsets.kt", "app/src/main/java/io/ethan/pushgo/ui/viewmodel/UiMessage.kt", "app/src/main/java/io/ethan/pushgo/ui/screens/AppEmptyState.kt", "app/src/main/java/io/ethan/pushgo/util/DiagnosticLogStore.kt", "app/src/main/java/io/ethan/pushgo/util/ExternalNavigation.kt", "app/src/main/java/io/ethan/pushgo/util/SilentSink.kt"],
       "capabilities": ["app-launch", "primary-navigation"],
-      "minimum_evidence": ["App state/navigation JVM tests", "real control navigation UI journey"],
+      "minimum_evidence": ["App state/navigation JVM tests", "real control navigation UI journey including one applicable high-risk badge/loading/error/disabled state"],
       "lane": "pr-ui",
       "escalation_reasons": ["App composition/navigation affects reachability of every downstream capability."]
     },

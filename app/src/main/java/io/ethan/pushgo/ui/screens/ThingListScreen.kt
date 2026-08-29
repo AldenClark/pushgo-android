@@ -75,6 +75,7 @@ import io.ethan.pushgo.util.normalizeExternalImageUrl
 import io.ethan.pushgo.util.openExternalUrl
 import io.ethan.pushgo.ui.viewmodel.SettingsViewModel
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -205,6 +206,8 @@ fun ThingListScreen(
     var selectedRelatedMessage by remember { mutableStateOf<ThingRelatedMessage?>(null) }
     var selectedRelatedEvent by remember { mutableStateOf<EventCardModel?>(null) }
     var selectedRelatedUpdate by remember { mutableStateOf<ThingRelatedUpdate?>(null) }
+    var closingRelatedEventId by remember { mutableStateOf<String?>(null) }
+    var relatedEventCloseErrorMessage by remember { mutableStateOf<String?>(null) }
     
     var isPullRefreshing by remember { mutableStateOf(false) }
     var searchQuery by remember { mutableStateOf("") }
@@ -217,7 +220,6 @@ fun ThingListScreen(
     val effectivePendingScope by container.pendingLocalDeletionCoordinator.effectiveScope.collectAsStateWithLifecycle()
     val thingsLabel = stringResource(R.string.label_send_type_thing)
     val eventsLabel = stringResource(R.string.label_send_type_event)
-    val closeEventFailedMessage = stringResource(R.string.error_event_close_failed)
     val closeEventStatusDefault = stringResource(R.string.event_status_closed_default)
     val closeEventBodyDefault = stringResource(R.string.event_message_closed_default)
     val missingChannelMessage = stringResource(R.string.error_event_missing_channel)
@@ -616,7 +618,11 @@ fun ThingListScreen(
                 onSelectedTabChange = { selectedThingInitialTab = it },
                 channelNameMap = channelNameMap,
                 bottomGestureInset = bottomGestureInset,
-                onOpenRelatedEvent = { selectedRelatedEvent = it },
+                onOpenRelatedEvent = {
+                    closingRelatedEventId = null
+                    relatedEventCloseErrorMessage = null
+                    selectedRelatedEvent = it
+                },
                 onOpenRelatedMessage = { selectedRelatedMessage = it },
                 onOpenRelatedUpdate = { selectedRelatedUpdate = it },
                 onDelete = {
@@ -632,22 +638,31 @@ fun ThingListScreen(
     if (selectedRelatedEvent != null) {
         val event = selectedRelatedEvent!!
         PushGoModalBottomSheet(
-            onDismissRequest = { selectedRelatedEvent = null },
+            onDismissRequest = dismiss@{
+                if (closingRelatedEventId != null) return@dismiss
+                relatedEventCloseErrorMessage = null
+                selectedRelatedEvent = null
+            },
             paneTitle = event.title,
         ) {
             EventDetailSheet(
                 event = event,
                 channelDisplayName = event.channelId?.let { channelNameMap[it] ?: it },
                 bottomGestureInset = bottomGestureInset,
+                isClosing = closingRelatedEventId == event.eventId,
+                closeErrorMessage = relatedEventCloseErrorMessage,
                 onCloseEvent = {
                     val event = selectedRelatedEvent ?: return@EventDetailSheet
+                    if (closingRelatedEventId != null) return@EventDetailSheet
                     scope.launch {
                         val channelId = event.channelId.orEmpty().trim()
                         if (channelId.isEmpty()) {
-                            showToast(missingChannelMessage)
+                            relatedEventCloseErrorMessage = missingChannelMessage
                             return@launch
                         }
-                        runCatching {
+                        closingRelatedEventId = event.eventId
+                        relatedEventCloseErrorMessage = null
+                        try {
                             container.channelRepository.closeEvent(
                                 rawEventId = event.eventId,
                                 rawThingId = event.thingId,
@@ -656,12 +671,19 @@ fun ThingListScreen(
                                 rawMessage = closeEventBodyDefault,
                                 rawSeverity = event.severity?.wireValue,
                             )
-                        }.onSuccess {
                             showToast(closeEventSuccessMessage)
                             selectedRelatedEvent = null
                             reloadThingsInternal()
-                        }.onFailure { error ->
-                            showToast(error.toUserFacingText(context, R.string.error_event_close_failed))
+                        } catch (error: Throwable) {
+                            if (error is CancellationException) throw error
+                            relatedEventCloseErrorMessage = error.toUserFacingText(
+                                context,
+                                R.string.error_event_close_failed,
+                            )
+                        } finally {
+                            if (closingRelatedEventId == event.eventId) {
+                                closingRelatedEventId = null
+                            }
                         }
                     }
                 },

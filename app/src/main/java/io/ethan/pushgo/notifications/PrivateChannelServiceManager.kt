@@ -10,6 +10,7 @@ import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import io.ethan.pushgo.PushGoApp
 import io.ethan.pushgo.automation.PushGoAutomation
+import io.ethan.pushgo.testing.QualityRuntime
 
 class PrivateChannelServiceManager(private val context: Context) {
     fun refresh() {
@@ -44,6 +45,7 @@ class PrivateChannelServiceManager(private val context: Context) {
         params: WorkerParameters,
     ) : CoroutineWorker(appContext, params) {
         override suspend fun doWork(): Result {
+            if (QualityRuntime.currentSession() != null) return Result.success()
             val app = applicationContext as? PushGoApp ?: return Result.failure()
             val shouldRun = app.shouldRunPrivateChannelForegroundService()
             val intent = Intent(applicationContext, PrivateChannelForegroundService::class.java)

@@ -1,5 +1,8 @@
 <resources>
     <string name="app_name">PushGo</string>
+    <string name="label_local_storage_unavailable">本地数据库不可用</string>
+    <string name="label_local_storage_unavailable_safety">为防止数据被破坏，应用已停止读写。</string>
+    <string name="action_exit_app">退出应用</string>
     <string name="tab_messages">消息</string>
     <string name="tab_settings">设置</string>
     <string name="action_mark_all_read">全部标记为已读</string>

@@ -45,7 +45,8 @@ enum class QualityMessageRefreshScenario(val wireValue: String) {
 
 enum class QualityEventCloseScenario(val wireValue: String) {
     NONE("none"),
-    ACCEPTED_AND_DELIVERED("accepted_and_delivered");
+    ACCEPTED_AND_DELIVERED("accepted_and_delivered"),
+    FAIL_ONCE_THEN_ACCEPTED_AND_DELIVERED("fail_once_then_accepted_and_delivered");
 
     companion object {
         fun fromWireValue(value: String): QualityEventCloseScenario? = entries.firstOrNull {
@@ -80,6 +81,7 @@ enum class QualityTransportSwitchScenario(val wireValue: String) {
 }
 
 data class QualityFaults(
+    val failLocalStoreInitialization: Boolean = false,
     val messageLoadDelayMs: Int? = null,
     val messageRefreshDelayMs: Int? = null,
     val failMessageLoad: Boolean = false,
@@ -374,6 +376,10 @@ object QualityRuntime {
             sessionId = sessionId,
             fixture = fixture,
             faults = QualityFaults(
+                failLocalStoreInitialization = faultsJson?.optBoolean(
+                    "fail_local_store_initialization",
+                    false,
+                ) ?: false,
                 messageLoadDelayMs = delay,
                 messageRefreshDelayMs = refreshDelay,
                 failMessageLoad = faultsJson?.optBoolean("fail_message_load", false) ?: false,
@@ -407,6 +413,7 @@ object QualityRuntime {
 
     fun encode(session: QualitySessionDescriptor): String {
         val faults = JSONObject()
+            .put("fail_local_store_initialization", session.faults.failLocalStoreInitialization)
             .put("fail_message_load", session.faults.failMessageLoad)
             .put(
                 "fail_gateway_switch_validation_once",

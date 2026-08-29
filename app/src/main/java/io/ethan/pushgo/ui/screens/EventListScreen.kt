@@ -69,6 +69,7 @@ import io.ethan.pushgo.ui.theme.PushGoStateColors
 import io.ethan.pushgo.ui.theme.PushGoThemeExtras
 import io.ethan.pushgo.util.PayloadTimeNormalizer
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -194,6 +195,8 @@ fun EventListScreen(
     var loadedEventPages by remember { mutableIntStateOf(0) }
     var isLoadingMoreEvents by remember { mutableStateOf(false) }
     var selectedEvent by remember { mutableStateOf<EventCardModel?>(null) }
+    var closingEventId by remember { mutableStateOf<String?>(null) }
+    var closeEventErrorMessage by remember { mutableStateOf<String?>(null) }
     var isPullRefreshing by remember { mutableStateOf(false) }
     var searchQuery by remember { mutableStateOf("") }
     var selectedChannelFilters by remember { mutableStateOf<Set<String>>(emptySet()) }
@@ -276,12 +279,15 @@ fun EventListScreen(
     }
 
     suspend fun closeEvent(event: EventCardModel) {
+        if (closingEventId != null) return
         val channelId = event.channelId.orEmpty().trim()
         if (channelId.isEmpty()) {
-            showToast(missingChannelMessage)
+            closeEventErrorMessage = missingChannelMessage
             return
         }
-        runCatching {
+        closingEventId = event.eventId
+        closeEventErrorMessage = null
+        try {
             container.channelRepository.closeEvent(
                 rawEventId = event.eventId,
                 rawThingId = event.thingId,
@@ -290,7 +296,6 @@ fun EventListScreen(
                 rawMessage = closeEventBodyDefault,
                 rawSeverity = event.severity?.wireValue,
             )
-        }.onSuccess {
             withContext(Dispatchers.Main.immediate) {
                 Toast.makeText(appContext, closeEventSuccessMessage, Toast.LENGTH_SHORT).show()
                 if (selectedEvent?.eventId == event.eventId) {
@@ -299,13 +304,18 @@ fun EventListScreen(
                 }
             }
             reloadEventsInternal()
-        }.onFailure { error ->
+        } catch (error: Throwable) {
+            if (error is CancellationException) throw error
             io.ethan.pushgo.util.SilentSink.w(
                 "EventListScreen",
                 "event close failed",
                 error,
             )
-            showToast(error.toUserFacingText(context, R.string.error_event_close_failed))
+            closeEventErrorMessage = error.toUserFacingText(context, R.string.error_event_close_failed)
+        } finally {
+            if (closingEventId == event.eventId) {
+                closingEventId = null
+            }
         }
     }
 
@@ -522,6 +532,8 @@ fun EventListScreen(
         val target = openEventId?.trim()?.takeIf { it.isNotEmpty() } ?: return@LaunchedEffect
         val matched = allEvents.firstOrNull { it.eventId == target }
         if (matched != null) {
+            closeEventErrorMessage = null
+            closingEventId = null
             selectedEvent = loadEventDetailModel(target) ?: matched
             onEventDetailOpened(target)
             onOpenEventHandled()
@@ -529,6 +541,8 @@ fun EventListScreen(
         }
         val detailEvent = loadEventDetailModel(target)
         if (detailEvent != null) {
+            closeEventErrorMessage = null
+            closingEventId = null
             selectedEvent = detailEvent
             onEventDetailOpened(target)
             onOpenEventHandled()
@@ -542,6 +556,8 @@ fun EventListScreen(
     LaunchedEffect(effectivePendingScope) {
         val currentEvent = selectedEvent
         if (currentEvent != null && effectivePendingScope.suppressesEvent(currentEvent.eventId, currentEvent.channelId)) {
+            closeEventErrorMessage = null
+            closingEventId = null
             selectedEvent = null
             onEventDetailClosed()
         }
@@ -550,13 +566,20 @@ fun EventListScreen(
     if (selectedEvent != null) {
         val event = selectedEvent!!
         PushGoModalBottomSheet(
-            onDismissRequest = { selectedEvent = null; onEventDetailClosed() },
+            onDismissRequest = dismiss@{
+                if (closingEventId != null) return@dismiss
+                closeEventErrorMessage = null
+                selectedEvent = null
+                onEventDetailClosed()
+            },
             paneTitle = event.title,
         ) {
             EventDetailSheet(
                 event = event,
                 channelDisplayName = event.channelId?.let { channelNameMap[it] ?: it },
                 bottomGestureInset = bottomGestureInset,
+                isClosing = closingEventId == event.eventId,
+                closeErrorMessage = closeEventErrorMessage,
                 onCloseEvent = {
                     val targetEvent = selectedEvent ?: return@EventDetailSheet
                     scope.launch { closeEvent(targetEvent) }
@@ -711,6 +734,8 @@ fun EventListScreen(
                         event = event,
                         channelDisplayName = event.channelId?.let { channelNameMap[it] ?: it },
                         onClick = {
+                            closeEventErrorMessage = null
+                            closingEventId = null
                             selectedEvent = event
                             onEventDetailOpened(event.eventId)
                         },
@@ -903,6 +928,8 @@ fun EventDetailSheet(
     event: EventCardModel,
     channelDisplayName: String?,
     bottomGestureInset: Dp,
+    isClosing: Boolean = false,
+    closeErrorMessage: String? = null,
     onCloseEvent: () -> Unit,
     onDeleteEvent: () -> Unit,
 ) {
@@ -949,16 +976,25 @@ fun EventDetailSheet(
                     )
                     Row {
                         if (!isEnded) {
-                            IconButton(
-                                modifier = Modifier.size(32.dp).testTag("event.close.action"),
-                                onClick = { showCloseConfirmation = true },
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Outlined.CheckCircle,
-                                    contentDescription = stringResource(R.string.action_close_event),
-                                    tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.9f),
-                                    modifier = Modifier.size(20.dp),
+                            if (isClosing) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier
+                                        .size(24.dp)
+                                        .testTag("state.event.close.in_progress"),
+                                    strokeWidth = 2.dp,
                                 )
+                            } else {
+                                IconButton(
+                                    modifier = Modifier.size(32.dp).testTag("event.close.action"),
+                                    onClick = { showCloseConfirmation = true },
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Outlined.CheckCircle,
+                                        contentDescription = stringResource(R.string.action_close_event),
+                                        tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.9f),
+                                        modifier = Modifier.size(20.dp),
+                                    )
+                                }
                             }
                         }
                         IconButton(
@@ -973,6 +1009,17 @@ fun EventDetailSheet(
                             )
                         }
                     }
+                }
+
+                if (!closeErrorMessage.isNullOrBlank()) {
+                    Text(
+                        text = closeErrorMessage,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = uiColors.stateDanger.foreground,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("feedback.event.close"),
+                    )
                 }
 
                 Row(
@@ -1173,7 +1220,7 @@ fun EventDetailSheet(
         }
     }
 
-    if (showCloseConfirmation) {
+    if (showCloseConfirmation && !isClosing) {
         AlertDialog(
             onDismissRequest = { showCloseConfirmation = false },
             title = { Text(text = stringResource(R.string.action_close_event)) },

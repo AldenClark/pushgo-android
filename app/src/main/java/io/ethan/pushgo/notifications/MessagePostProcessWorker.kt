@@ -6,6 +6,7 @@ import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
 import io.ethan.pushgo.PushGoApp
 import io.ethan.pushgo.data.MessageImageStore
+import io.ethan.pushgo.testing.QualityRuntime
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
@@ -21,6 +22,7 @@ class MessagePostProcessWorker(
     }
 
     override suspend fun doWork(): Result = withContext(Dispatchers.IO) {
+        if (QualityRuntime.currentSession() != null) return@withContext Result.success()
         val messageId = inputData.getString(KEY_MESSAGE_ID) ?: return@withContext Result.success()
         val imageUrlHint = inputData.getString(KEY_IMAGE_URL)
 

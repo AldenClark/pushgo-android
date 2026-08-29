@@ -9,6 +9,7 @@ import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import androidx.work.workDataOf
 import io.ethan.pushgo.data.ChannelSubscriptionException
+import io.ethan.pushgo.testing.QualityRuntime
 import org.json.JSONObject
 import java.security.MessageDigest
 import java.util.concurrent.TimeUnit
@@ -18,6 +19,14 @@ class InboundMessageWorker(
     params: WorkerParameters,
 ) : CoroutineWorker(appContext, params) {
     override suspend fun doWork(): Result {
+        // Work may have been persisted before an instrumentation quality session
+        // was installed. Never let stale external delivery mutate its isolated DB.
+        if (
+            QualityRuntime.currentSession() != null &&
+            !inputData.getBoolean(KEY_ALLOW_QUALITY_SESSION, false)
+        ) {
+            return Result.success()
+        }
         val rawMessageData = inputData.getString(KEY_MESSAGE_DATA_JSON) ?: return Result.success()
         val messageData = InboundMessagePayloadCodec.decode(rawMessageData) ?: return Result.success()
         val transportMessageId = inputData.getString(KEY_TRANSPORT_MESSAGE_ID)
@@ -43,16 +52,39 @@ class InboundMessageWorker(
         private const val TAG = "InboundMessageWorker"
         internal const val KEY_MESSAGE_DATA_JSON = "message_data_json"
         internal const val KEY_TRANSPORT_MESSAGE_ID = "transport_message_id"
+        internal const val KEY_ALLOW_QUALITY_SESSION = "allow_quality_session"
 
         fun enqueue(
             context: Context,
             messageData: Map<String, String>,
             transportMessageId: String?,
         ) {
+            enqueueInternal(context, messageData, transportMessageId, allowQualitySession = false)
+        }
+
+        /** Explicit test ingress; production callbacks cannot opt into a quality session. */
+        internal fun enqueueForQualitySession(
+            context: Context,
+            messageData: Map<String, String>,
+            transportMessageId: String?,
+        ) {
+            check(QualityRuntime.currentSession() != null) {
+                "Quality ingress requires an active quality session"
+            }
+            enqueueInternal(context, messageData, transportMessageId, allowQualitySession = true)
+        }
+
+        private fun enqueueInternal(
+            context: Context,
+            messageData: Map<String, String>,
+            transportMessageId: String?,
+            allowQualitySession: Boolean,
+        ) {
             val payload = InboundMessagePayloadCodec.encode(messageData)
             val input = workDataOf(
                 KEY_MESSAGE_DATA_JSON to payload,
                 KEY_TRANSPORT_MESSAGE_ID to transportMessageId,
+                KEY_ALLOW_QUALITY_SESSION to allowQualitySession,
             )
             val request = OneTimeWorkRequestBuilder<InboundMessageWorker>()
                 .setInputData(input)

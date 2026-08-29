@@ -11,6 +11,7 @@ import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
+import kotlinx.coroutines.runBlocking
 
 @RunWith(AndroidJUnit4::class)
 class QualityMessageJourneyInstrumentedTest : QualityAppJourneyTestCase() {
@@ -30,6 +31,35 @@ class QualityMessageJourneyInstrumentedTest : QualityAppJourneyTestCase() {
         )
         assertNotEquals("pushgo.db", databaseName)
         assertTrue(databaseName.startsWith("pushgo-quality-"))
+    }
+
+    @Test
+    fun fatalStoreInitializationStopsReadWriteAndRecoversAfterRelaunch() {
+        configureAndLaunch(
+            fixture = QualityFixture.MESSAGES_STANDARD,
+            faults = QualityFaults(failLocalStoreInitialization = true),
+        )
+
+        composeRule.onNodeWithTag("state.storage.unavailable").assertIsDisplayed()
+        composeRule.onNodeWithText(app.getString(R.string.label_local_storage_unavailable))
+            .assertIsDisplayed()
+        composeRule.onNodeWithText(app.getString(R.string.label_local_storage_unavailable_safety))
+            .assertIsDisplayed()
+        composeRule.onNodeWithTag("field.storage.failure_reason")
+            .assertTextContains("Quality-injected local persistent storage initialization failure.")
+        composeRule.onNodeWithTag("screen.messages.list").assertDoesNotExist()
+        composeRule.onNodeWithTag("state.messages.empty").assertDoesNotExist()
+        composeRule.onNodeWithTag("nav.item.messages").assertDoesNotExist()
+        composeRule.onNodeWithTag("action.storage.exit").assertIsDisplayed().assertHasClickAction()
+
+        relaunchCurrentQualitySessionWithFaults()
+
+        composeRule.waitUntil(timeoutMillis = 8_000) {
+            composeRule.onAllNodes(hasText("P2 Split Seed Message"))
+                .fetchSemanticsNodes().isNotEmpty()
+        }
+        composeRule.onNodeWithText("P2 Split Seed Message").assertIsDisplayed()
+        composeRule.onNodeWithTag("state.storage.unavailable").assertDoesNotExist()
     }
 
     @Test
@@ -56,6 +86,7 @@ class QualityMessageJourneyInstrumentedTest : QualityAppJourneyTestCase() {
         configureAndLaunch(fixture = QualityFixture.MESSAGES_WORKFLOW)
 
         composeRule.onNodeWithText("Quality workflow 51").assertIsDisplayed()
+        assertUnreadNavigationBadge("39")
         composeRule.onNodeWithTag("action.messages.mark_all_read").assertIsDisplayed()
         for (attempt in 0 until 14) {
             if (composeRule.onAllNodes(hasText("Quality workflow 0")).fetchSemanticsNodes().isNotEmpty()) {
@@ -77,6 +108,9 @@ class QualityMessageJourneyInstrumentedTest : QualityAppJourneyTestCase() {
                 .fetchSemanticsNodes().isEmpty()
         }
         workflowRow.assert(hasStateDescription(readLabel))
+        waitForCanonicalUnreadCount(38)
+        revealMessagesNavigation()
+        assertUnreadNavigationBadge("38")
 
         for (attempt in 0 until 14) {
             if (composeRule.onAllNodes(hasTestTag("action.messages.mark_all_read"))
@@ -92,6 +126,7 @@ class QualityMessageJourneyInstrumentedTest : QualityAppJourneyTestCase() {
             composeRule.onAllNodes(hasTestTag("action.messages.mark_all_read"))
                 .fetchSemanticsNodes().isEmpty()
         }
+        assertUnreadNavigationBadge(null)
         scenario?.close()
         scenario = launchMainActivity()
         composeRule.waitUntil(timeoutMillis = 8_000) {
@@ -99,6 +134,7 @@ class QualityMessageJourneyInstrumentedTest : QualityAppJourneyTestCase() {
                 .fetchSemanticsNodes().isNotEmpty()
         }
         composeRule.onNodeWithTag("action.messages.mark_all_read").assertDoesNotExist()
+        assertUnreadNavigationBadge(null)
 
         composeRule.onNodeWithTag("action.messages.filter").performClick()
         composeRule.onNodeWithTag("filter.unread_only").assertIsDisplayed().performClick()
@@ -115,6 +151,49 @@ class QualityMessageJourneyInstrumentedTest : QualityAppJourneyTestCase() {
         }
         composeRule.onNodeWithText("Quality workflow 51").assertIsDisplayed()
         composeRule.onNodeWithTag("state.messages.empty").assertDoesNotExist()
+    }
+
+    private fun assertUnreadNavigationBadge(expectedText: String?) {
+        val matcher = hasTestTag("nav.item.messages.unread_badge")
+        val matched = runCatching { composeRule.waitUntil(timeoutMillis = 8_000) {
+            val nodes = composeRule.onAllNodes(matcher, useUnmergedTree = true).fetchSemanticsNodes()
+            if (expectedText == null) {
+                nodes.isEmpty()
+            } else {
+                nodes.size == 1 && runCatching {
+                    composeRule.onNode(matcher, useUnmergedTree = true).assertTextEquals(expectedText)
+                }.isSuccess
+            }
+        } }.isSuccess
+        if (!matched && expectedText != null) {
+            composeRule.onNode(matcher, useUnmergedTree = true).assertTextEquals(expectedText)
+        }
+        if (expectedText == null) {
+            composeRule.onNode(matcher, useUnmergedTree = true).assertDoesNotExist()
+        } else {
+            composeRule.onNode(matcher, useUnmergedTree = true)
+                .assertTextEquals(expectedText)
+                .assertIsDisplayed()
+        }
+    }
+
+    private fun waitForCanonicalUnreadCount(expectedCount: Int) {
+        val repository = checkNotNull(app.containerOrNull()).messageRepository
+        composeRule.waitUntil(timeoutMillis = 8_000) {
+            runBlocking { repository.unreadCount() == expectedCount }
+        }
+    }
+
+    private fun revealMessagesNavigation() {
+        val navigation = hasTestTag("nav.item.messages")
+        repeat(14) {
+            if (composeRule.onAllNodes(navigation).fetchSemanticsNodes().isNotEmpty()) {
+                return
+            }
+            composeRule.onNodeWithTag("screen.messages.list").performTouchInput { swipeDown() }
+            composeRule.waitForIdle()
+        }
+        composeRule.onNode(navigation).assertIsDisplayed()
     }
 
     @Test

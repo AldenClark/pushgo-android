@@ -136,7 +136,7 @@ class QualitySystemNotificationJourneyInstrumentedTest : QualityAppJourneyTestCa
     ) {
         val encoded = InboundMessagePayloadCodec.encode(payload)
         val uniqueName = InboundMessageWorker.buildUniqueWorkName(transportMessageId, encoded)
-        InboundMessageWorker.enqueue(app, payload, transportMessageId)
+        InboundMessageWorker.enqueueForQualitySession(app, payload, transportMessageId)
         val deadline = SystemClock.elapsedRealtime() + 15_000
         var states = emptyList<WorkInfo.State>()
         do {

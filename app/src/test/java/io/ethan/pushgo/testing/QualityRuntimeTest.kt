@@ -28,6 +28,7 @@ class QualityRuntimeTest {
             sessionId = "android-pr-123_retry-1",
             fixture = QualityFixture.MESSAGES_STANDARD,
             faults = QualityFaults(
+                failLocalStoreInitialization = true,
                 messageLoadDelayMs = 250,
                 messageRefreshDelayMs = 2_500,
                 failGatewaySwitchValidationOnce = true,
@@ -37,7 +38,7 @@ class QualityRuntimeTest {
                 failTransportSelectionPersistenceOnce = true,
             ),
             messageRefreshScenario = QualityMessageRefreshScenario.FAIL_ONCE_THEN_NEW_MESSAGE,
-            eventCloseScenario = QualityEventCloseScenario.ACCEPTED_AND_DELIVERED,
+            eventCloseScenario = QualityEventCloseScenario.FAIL_ONCE_THEN_ACCEPTED_AND_DELIVERED,
             channelMutationScenario = QualityChannelMutationScenario.ACCEPTED,
             transportSwitchScenario = QualityTransportSwitchScenario.REJECT_ONCE_THEN_ACCEPTED,
         )
@@ -51,7 +52,10 @@ class QualityRuntimeTest {
         assertTrue(decoded.securePreferencesName != AndroidKeystoreSecretStore.PRODUCTION_PREFERENCE_FILE)
         assertTrue(decoded.settingsCachePreferencesName.startsWith("pushgo-quality-"))
         assertTrue(decoded.securePreferencesName != decoded.settingsCachePreferencesName)
-        assertEquals(QualityEventCloseScenario.ACCEPTED_AND_DELIVERED, decoded.eventCloseScenario)
+        assertEquals(
+            QualityEventCloseScenario.FAIL_ONCE_THEN_ACCEPTED_AND_DELIVERED,
+            decoded.eventCloseScenario,
+        )
         assertEquals(QualityChannelMutationScenario.ACCEPTED, decoded.channelMutationScenario)
         assertEquals(
             QualityTransportSwitchScenario.REJECT_ONCE_THEN_ACCEPTED,

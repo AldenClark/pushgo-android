@@ -46,6 +46,16 @@ classify_current_test_system_failure() {
     --started-at-epoch "$lane_started_at_epoch"
 }
 
+verify_device_tests_executed() {
+  local started_at_epoch="$1"
+  local report_root="$2"
+  if ! python3 "$repo_root/scripts/verify_android_test_execution.py" \
+    --report-root "$report_root" \
+    --started-at-epoch "$started_at_epoch"; then
+    return 3
+  fi
+}
+
 on_exit() {
   local status=$?
   local classification=""
@@ -56,6 +66,8 @@ on_exit() {
     write_result PASSED PASSED
   elif [[ $status -eq 2 ]]; then
     write_result NOT_RUN BLOCKED "lane preparation was blocked before product evidence completed"
+  elif [[ $status -eq 3 ]]; then
+    write_result NOT_RUN FAILED "the selected Android device scope executed zero tests; no product claim was completed"
   elif classification="$(classify_current_test_system_failure)"; then
     printf '%s\n' "$classification"
     issue_ids="$(printf '%s\n' "$classification" | sed -n 's/^classification_issue_ids=//p')"
@@ -169,8 +181,11 @@ run_device_classes() {
     echo "reason=quality_doctor_missing_device_serial"
     exit 2
   }
+  local device_test_started_at
+  device_test_started_at="$(python3 -c 'import time; print(time.time())')"
   ANDROID_SERIAL="$device_serial" "$repo_root/gradlew" connectedDebugAndroidTest \
     "-Pandroid.testInstrumentationRunnerArguments.class=$classes"
+  verify_device_tests_executed "$device_test_started_at" "$repo_root/app/build/outputs/androidTest-results/connected"
   claims+=("Android migration/deletion/ACK/transport data boundaries: $classes")
 }
 
@@ -189,9 +204,12 @@ run_quality_device_classes() {
     echo "reason=quality_doctor_missing_device_serial"
     exit 2
   }
+  local device_test_started_at
+  device_test_started_at="$(python3 -c 'import time; print(time.time())')"
   ANDROID_SERIAL="$device_serial" "$repo_root/gradlew" connectedDebugAndroidTest \
     "-Pandroid.testInstrumentationRunnerArguments.class=$quality_device_classes" \
     "-Pandroid.testInstrumentationRunnerArguments.pushgoQualitySessionBase64=$payload"
+  verify_device_tests_executed "$device_test_started_at" "$repo_root/app/build/outputs/androidTest-results/connected"
   claims+=("Android core App UI empty/content/pagination/read/search/delete/slow-load/slow-refresh/error-retry/navigation/Event/Thing/Channel/Settings journeys")
 }
 
@@ -207,9 +225,12 @@ run_system_notification_journey() {
     echo "reason=quality_doctor_missing_device_serial"
     exit 2
   }
+  local device_test_started_at
+  device_test_started_at="$(python3 -c 'import time; print(time.time())')"
   ANDROID_SERIAL="$device_serial" "$repo_root/gradlew" connectedDebugAndroidTest \
     --rerun-tasks \
     "-Pandroid.testInstrumentationRunnerArguments.class=$system_notification_class"
+  verify_device_tests_executed "$device_test_started_at" "$repo_root/app/build/outputs/androidTest-results/connected"
   claims+=("Android durable inbound to real system notification/PendingIntent and accurate detail/read/dedupe/relaunch journey")
 }
 
@@ -232,15 +253,19 @@ run_performance() {
     echo "reason=hosted_performance_lane_requires_controlled_emulator:$device_serial"
     exit 2
   }
+  local device_test_started_at
+  device_test_started_at="$(python3 -c 'import time; print(time.time())')"
   ANDROID_SERIAL="$device_serial" "$repo_root/gradlew" \
     connectedDebugAndroidTest \
     --rerun-tasks \
     "-Pandroid.testInstrumentationRunnerArguments.class=io.ethan.pushgo.testing.RuntimeDataLayerInstrumentedTest#realRoomDaoSearchAndPaging_optIn100000" \
     "-Pandroid.testInstrumentationRunnerArguments.pushgo.runtime.include100k=true" \
     2>&1 | tee "$device_log"
+  verify_device_tests_executed "$device_test_started_at" "$repo_root/app/build/outputs/androidTest-results/connected"
   claims+=("Android 100k real Room correctness and provisional selected-emulator search ceiling")
 
   selected_claims+=("Release-like Macrobenchmark mechanics with exact 1k startup/detail product Oracle on controlled emulator")
+  device_test_started_at="$(python3 -c 'import time; print(time.time())')"
   ANDROID_SERIAL="$device_serial" "$repo_root/gradlew" \
     :macrobenchmark:connectedBenchmarkBenchmarkAndroidTest \
     --rerun-tasks \
@@ -250,6 +275,7 @@ run_performance() {
     "-Pandroid.testInstrumentationRunnerArguments.androidx.benchmark.suppressErrors=EMULATOR" \
     "-Pandroid.testInstrumentationRunnerArguments.pushgo.maxStartupMs=20000" \
     "-Pandroid.testInstrumentationRunnerArguments.pushgo.maxDetailMs=10000"
+  verify_device_tests_executed "$device_test_started_at" "$repo_root/macrobenchmark/build/outputs/androidTest-results/connected"
   claims+=("Release-like Macrobenchmark mechanics with exact 1k startup/detail product Oracle on controlled emulator")
 
   selected_claims+=("Filtered Baseline/Startup Profile and Release APK quality-control isolation")
@@ -294,9 +320,12 @@ run_accessibility_localization() {
     echo "reason=accessibility_localization_requires_api_33_or_newer:$device_api"
     exit 2
   }
+  local device_test_started_at
+  device_test_started_at="$(python3 -c 'import time; print(time.time())')"
   ANDROID_SERIAL="$device_serial" "$repo_root/gradlew" connectedDebugAndroidTest \
     --rerun-tasks \
     "-Pandroid.testInstrumentationRunnerArguments.class=io.ethan.pushgo.testing.QualityAccessibilityLocalizationJourneyInstrumentedTest"
+  verify_device_tests_executed "$device_test_started_at" "$repo_root/app/build/outputs/androidTest-results/connected"
   claims+=("Android zh-CN large-font real message-detail and add-channel journey")
 }
 
@@ -317,9 +346,11 @@ case "$lane" in
         exit 2
       }
       selected_claims+=("Android focused device behavior: $ANDROID_TEST_CLASS")
+      device_test_started_at="$(python3 -c 'import time; print(time.time())')"
       ANDROID_SERIAL="$device_serial" "$repo_root/gradlew" connectedDebugAndroidTest \
         --rerun-tasks \
         "-Pandroid.testInstrumentationRunnerArguments.class=$ANDROID_TEST_CLASS"
+      verify_device_tests_executed "$device_test_started_at" "$repo_root/app/build/outputs/androidTest-results/connected"
       claims+=("Android focused device behavior: $ANDROID_TEST_CLASS")
     else
       selected_claims+=("Android focused JVM behavior: $TEST_FILTER")

@@ -7,9 +7,12 @@
 | 检查 | 结果 | 证据边界 |
 | --- | --- | --- |
 | `./gradlew testDebugUnitTest` | PASSED：275 tests，0 failure/error/skipped | JVM/unit；不证明 Room device、真实 App UI 或系统能力 |
-| API 37 emulator 核心质量旅程 | PASSED：既有核心集；Event close、Thing relation 与 Channel mutation focused 各 1/1 | 证明 App-owned Room→Paging/Compose→消息空态/详情/重启/分页/已读/搜索/删除撤销/首次 slow/error/retry/慢刷新旧快照保留/真实导航，以及 Event 准确详情→确认关闭→canonical projection→筛选排除→activity relaunch 持久化、Thing 三关系页签→准确关联详情→返回/重启、Channel 创建→改名→两类退订→准确历史结果→重启；不证明 Event slow/error/duplicate close、Channel remote rejection/compensation、Settings server/decryption/transport、真实 FCM/权限/物理性能 |
+| API 37 emulator 核心质量旅程 | PASSED：当前 `device` Lane 29 条 App 旅程 + 18 条高风险数据边界，47/47、0 failure/skipped | 证明 App-owned Room→Paging/Compose→消息空态/详情/重启/分页/已读/搜索/删除撤销/首次 slow/error/retry/慢刷新旧快照保留/真实导航，以及 Event 准确详情→确认关闭→slow in-flight→防重复→边界拒绝→详情错误归属→正式解析/持久化重试→closed/relaunch、Thing 三关系页签与关联 Event 同所有权、Channel/Settings 高价值目的链；另有 zh-CN + fontScale 1.5 + unread=1 的导航 label/badge 可读与分离证据，以及真实数据驱动的 39→38→消失/relaunch；不证明真实 Gateway/FCM、权限拒绝或物理性能 |
+| API 37 Event 失败恢复增量旅程 | PASSED：主 Event 与 Thing 关联 Event focused 均 1/1，随后完整 device 47/47；`android-device-summary.json` 为 product/test-system=`PASSED/PASSED` | 证明准确详情、确认后可见 in-flight、防重复、详情错误归属、拒绝后 ongoing、重试经正式通知解析/持久化后 closed 与 activity relaunch；不替代真实 Gateway、FCM 或性能 |
+| 测试会话异步隔离负控 | PASSED：主 Event focused 1/1；执行中主动注入外部 token callback | 证明 session 建立前后竞态不会再由真实 Firebase/provider/持久化 Worker 改写 App-owned fixture；不以文件、配置位或 DB 可打开替代业务闭环 |
 | API 37 emulator 核心数据边界 | PASSED：18/18 | Production profile 下证明迁移、删除恢复与 ACK；与 Quality UI 进程隔离，防止 DB 会话污染 |
 | `assembleRelease` | PASSED | 证明当前生产变体可编译、压缩、lintVital 并产出 APK；不等同于安装/升级/签名链已通过 |
+| 变更影响 Release Lane | PASSED：`android-release-summary.json` 的 product/test-system 均为 `PASSED`、selected claims 无缺项 | 覆盖 29 条 App UI、50 条非跳过 data/Worker 边界、系统通知/PendingIntent、zh-CN 大字体、100k Room、2 条 Macrobenchmark 目的检查及 Release/Profile/R8/lint/package；100k opt-in helper 的明确 skip 不计入通过。real FCM、用户权限选择、Doze/重启/安装、物理无障碍与物理性能仍为 NOT RUN |
 | 真实 FCM/Private/权限/安装 | NOT RUN | 不允许由 JVM 或 synthetic contract 代替 |
 
 ## 现有 device 测试形态

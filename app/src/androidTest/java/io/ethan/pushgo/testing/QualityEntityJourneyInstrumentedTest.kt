@@ -62,6 +62,143 @@ class QualityEntityJourneyInstrumentedTest : QualityAppJourneyTestCase() {
     }
 
     @Test
+    fun eventCloseFailureKeepsAccurateDetailBlocksDuplicateAndRetryPersists() {
+        configureAndLaunch(
+            fixture = QualityFixture.EVENT_STANDARD,
+            eventCloseScenario = QualityEventCloseScenario.FAIL_ONCE_THEN_ACCEPTED_AND_DELIVERED,
+        )
+
+        composeRule.onNodeWithTag("nav.item.events").assertIsDisplayed().performClick()
+        composeRule.waitUntil(timeoutMillis = 8_000) {
+            composeRule.onAllNodes(hasTestTag("event.row.quality-event"))
+                .fetchSemanticsNodes().isNotEmpty()
+        }
+        composeRule.onNodeWithTag("event.row.quality-event").assertIsDisplayed().performClick()
+        composeRule.onNodeWithTag("sheet.event.detail").assertIsDisplayed()
+        composeRule.onNodeWithTag("field.event.detail.summary")
+            .assertTextEquals("Cooling loop temperature crossed the quality threshold.")
+
+        fun confirmClose() {
+            composeRule.onNodeWithTag("event.close.action").assertIsDisplayed().performClick()
+            composeRule.onNodeWithTag("event.close.confirm").assertIsDisplayed().performClick()
+        }
+
+        fun assertCloseInProgress() {
+            try {
+                composeRule.waitUntil(timeoutMillis = 2_000) {
+                    runCatching {
+                        composeRule.onNodeWithTag("state.event.close.in_progress").isDisplayed()
+                    }.getOrDefault(false)
+                }
+            } catch (failure: Throwable) {
+                println(
+                    composeRule.onAllNodes(isRoot(), useUnmergedTree = true)
+                        .printToString(maxDepth = 20),
+                )
+                println("Event close diagnostics: ${DiagnosticLogStore.snapshot().takeLast(20)}")
+                throw failure
+            }
+            composeRule.onNodeWithTag("state.event.close.in_progress").assertIsDisplayed()
+            composeRule.onNodeWithTag("event.close.action").assertDoesNotExist()
+        }
+
+        confirmClose()
+        assertCloseInProgress()
+        // A real Firebase callback can arrive while the quality-owned journey is
+        // running. It must not start an unrelated provider sync that deletes the
+        // fixture subscription and changes the retry outcome.
+        app.handlePushTokenUpdate("quality-unsolicited-external-token")
+        composeRule.onNodeWithTag("sheet.event.detail").assertIsDisplayed()
+        composeRule.onNodeWithTag("field.event.detail.summary")
+            .assertTextEquals("Cooling loop temperature crossed the quality threshold.")
+        composeRule.waitUntil(timeoutMillis = 5_000) {
+            composeRule.onAllNodes(hasTestTag("feedback.event.close"))
+                .fetchSemanticsNodes().isNotEmpty()
+        }
+        composeRule.onNodeWithTag("feedback.event.close").assertIsDisplayed()
+        composeRule.onNodeWithTag("sheet.event.detail", useUnmergedTree = true)
+            .assert(hasAnyDescendant(hasTestTag("feedback.event.close")))
+        composeRule.onNodeWithTag("field.event.detail.status.ongoing").assertIsDisplayed()
+        composeRule.onNodeWithTag("event.close.action").assertIsDisplayed()
+
+        confirmClose()
+        try {
+            composeRule.waitUntil(timeoutMillis = 12_000) {
+                composeRule.onAllNodes(hasTestTag("sheet.event.detail"))
+                    .fetchSemanticsNodes().isEmpty()
+            }
+        } catch (failure: Throwable) {
+            println(
+                composeRule.onAllNodes(isRoot(), useUnmergedTree = true)
+                    .printToString(maxDepth = 20),
+            )
+            println("Event close retry diagnostics: ${DiagnosticLogStore.snapshot().takeLast(20)}")
+            throw failure
+        }
+
+        scenario?.close()
+        scenario = launchMainActivity()
+        composeRule.onNodeWithTag("nav.item.events").assertIsDisplayed().performClick()
+        composeRule.waitUntil(timeoutMillis = 8_000) {
+            composeRule.onAllNodes(hasTestTag("event.row.quality-event"))
+                .fetchSemanticsNodes().isNotEmpty()
+        }
+        composeRule.onNodeWithTag("event.row.quality-event").performClick()
+        composeRule.onNodeWithTag("field.event.detail.status.closed").assertIsDisplayed()
+        composeRule.onNodeWithTag("event.close.action").assertDoesNotExist()
+    }
+
+    @Test
+    fun relatedEventCloseFailureStaysOwnedAndBlocksDuplicateSubmission() {
+        configureAndLaunch(
+            fixture = QualityFixture.THING_STANDARD,
+            eventCloseScenario = QualityEventCloseScenario.FAIL_ONCE_THEN_ACCEPTED_AND_DELIVERED,
+        )
+
+        composeRule.onNodeWithTag("nav.item.things").assertIsDisplayed().performClick()
+        composeRule.waitUntil(timeoutMillis = 8_000) {
+            composeRule.onAllNodes(hasTestTag("thing.row.quality-thing"))
+                .fetchSemanticsNodes().isNotEmpty()
+        }
+        composeRule.onNodeWithTag("thing.row.quality-thing").assertIsDisplayed().performClick()
+        composeRule.onNodeWithTag("tab.thing.detail.events").assertIsDisplayed().performClick()
+        composeRule.onNodeWithTag("event.row.quality-related-event")
+            .assertIsDisplayed()
+            .performClick()
+        composeRule.onNodeWithTag("sheet.event.detail").assertIsDisplayed()
+        composeRule.onNodeWithTag("sheet.event.detail", useUnmergedTree = true)
+            .assert(hasAnyDescendant(hasText("A deterministic event associated with Quality Reactor Alpha.")))
+
+        composeRule.onNodeWithTag("event.close.action").assertIsDisplayed().performClick()
+        composeRule.onNodeWithTag("event.close.confirm").assertIsDisplayed().performClick()
+        try {
+            composeRule.waitUntil(timeoutMillis = 2_000) {
+                runCatching {
+                    composeRule.onNodeWithTag("state.event.close.in_progress").isDisplayed()
+                }.getOrDefault(false)
+            }
+        } catch (failure: Throwable) {
+            println(
+                composeRule.onAllNodes(isRoot(), useUnmergedTree = true)
+                    .printToString(maxDepth = 20),
+            )
+            println("Related Event close diagnostics: ${DiagnosticLogStore.snapshot().takeLast(20)}")
+            throw failure
+        }
+        composeRule.onNodeWithTag("event.close.action").assertDoesNotExist()
+        composeRule.waitUntil(timeoutMillis = 5_000) {
+            composeRule.onAllNodes(hasTestTag("feedback.event.close"))
+                .fetchSemanticsNodes().isNotEmpty()
+        }
+        composeRule.onNodeWithTag("feedback.event.close").assertIsDisplayed()
+        composeRule.onNodeWithTag("sheet.event.detail").assertIsDisplayed()
+        composeRule.onNodeWithTag("sheet.event.detail", useUnmergedTree = true)
+            .assert(hasAnyDescendant(hasTestTag("feedback.event.close")))
+        composeRule.onNodeWithTag("field.event.detail.status.ongoing").assertIsDisplayed()
+        composeRule.onNodeWithTag("event.close.action").assertIsDisplayed()
+    }
+
+    @Test
     fun thingFixtureShowsAccurateOverviewAndAllThreeRealRelationTabs() {
         configureAndLaunch(fixture = QualityFixture.THING_STANDARD)
 

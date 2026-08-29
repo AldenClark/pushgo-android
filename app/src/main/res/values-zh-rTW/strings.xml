@@ -1,5 +1,8 @@
 <resources>
     <string name="app_name">PushGo</string>
+    <string name="label_local_storage_unavailable">本機資料庫無法使用</string>
+    <string name="label_local_storage_unavailable_safety">為防止資料損壞，應用程式已停止讀寫。</string>
+    <string name="action_exit_app">結束應用程式</string>
     <string name="tab_messages">訊息</string>
     <string name="tab_settings">設定</string>
     <string name="action_mark_all_read">全部標示為已讀</string>

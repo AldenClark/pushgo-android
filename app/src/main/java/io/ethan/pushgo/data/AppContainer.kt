@@ -24,6 +24,7 @@ import io.ethan.pushgo.update.UpdateManager
 import io.ethan.pushgo.util.UrlValidators
 import io.ethan.pushgo.util.FcmSupport
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.delay
 import org.json.JSONArray
 import org.json.JSONObject
 import java.time.Instant
@@ -49,6 +50,11 @@ class AppContainer(
     private val qualitySession = QualityRuntime.currentSession()
     private val qualityTransportScenario =
         qualitySession?.transportSwitchScenario ?: QualityTransportSwitchScenario.NONE
+    init {
+        check(qualitySession?.faults?.failLocalStoreInitialization != true) {
+            "Quality-injected local persistent storage initialization failure."
+        }
+    }
     val coroutineDispatchers = AppCoroutineDispatchers()
     val pushTokenProvider: PushTokenProvider =
         if (qualityTransportScenario != QualityTransportSwitchScenario.NONE) {
@@ -124,44 +130,62 @@ class AppContainer(
         database = database,
         pushTokenProvider = pushTokenProvider,
         service = ChannelSubscriptionService(ioDispatcher = coroutineDispatchers.io),
-        eventCloseRoundTrip = if (
-            QualityRuntime.currentSession()?.eventCloseScenario == QualityEventCloseScenario.ACCEPTED_AND_DELIVERED
-        ) {
-            EventCloseRoundTrip { outbound ->
-                val eventId = outbound.optString("event_id").trim()
-                check(eventId.isNotEmpty()) { "quality event close response missing event_id" }
-                val delivered = buildMap {
-                    outbound.keys().forEach { key -> put(key, outbound.opt(key)?.toString().orEmpty()) }
-                    put("entity_type", "event")
-                    put("entity_id", eventId)
-                    put("event_state", "closed")
-                    put("delivery_id", "quality-event-close-$eventId")
-                    put("sent_at", "2026-01-15T08:03:00Z")
+        eventCloseRoundTrip = QualityRuntime.currentSession()?.eventCloseScenario
+            ?.takeUnless { it == QualityEventCloseScenario.NONE }
+            ?.let { scenario ->
+                val closeAttempts = AtomicInteger(0)
+                val closeInFlight = AtomicBoolean(false)
+                EventCloseRoundTrip { outbound ->
+                    check(closeInFlight.compareAndSet(false, true)) {
+                        "a second event close crossed the boundary while the first was in flight"
+                    }
+                    try {
+                        val attempt = closeAttempts.incrementAndGet()
+                        if (scenario == QualityEventCloseScenario.FAIL_ONCE_THEN_ACCEPTED_AND_DELIVERED) {
+                            delay(2_500)
+                            if (attempt == 1) {
+                                throw ChannelSubscriptionException.local(
+                                    message = "Event close was rejected. Try again.",
+                                    code = "quality_event_close_rejected_once",
+                                    category = GatewayErrorCategory.UPSTREAM,
+                                )
+                            }
+                        }
+                        val eventId = outbound.optString("event_id").trim()
+                        check(eventId.isNotEmpty()) { "quality event close response missing event_id" }
+                        val delivered = buildMap {
+                            outbound.keys().forEach { key -> put(key, outbound.opt(key)?.toString().orEmpty()) }
+                            put("entity_type", "event")
+                            put("entity_id", eventId)
+                            put("event_state", "closed")
+                            put("delivery_id", "quality-event-close-$eventId")
+                            put("sent_at", "2026-01-15T08:03:00Z")
+                        }
+                        val parsed = checkNotNull(
+                            NotificationIngressParser.parse(
+                                data = delivered,
+                                transportMessageId = "quality-event-close-$eventId",
+                                keyBytes = null,
+                                textLocalizer = NotificationIngressParser.NotificationTextLocalizer.fromContext(appContext),
+                            ) as? InboundPersistenceRequest.Entity
+                        ) { "quality event close response did not parse as an event" }
+                        val outcome = InboundPersistenceCoordinator.persistAndNotify(
+                            context = appContext,
+                            messageRepository = messageRepository,
+                            entityRepository = entityRepository,
+                            inboundDeliveryLedgerRepository = inboundDeliveryLedgerRepository,
+                            settingsRepository = settingsRepository,
+                            inbound = parsed.copy(shouldNotify = false),
+                        )
+                        check(
+                            outcome.status == InboundPersistenceStatus.PERSISTED_MAIN ||
+                                outcome.status == InboundPersistenceStatus.DUPLICATE
+                        ) { "quality event close response did not reach the canonical store" }
+                    } finally {
+                        closeInFlight.set(false)
+                    }
                 }
-                val parsed = checkNotNull(
-                    NotificationIngressParser.parse(
-                        data = delivered,
-                        transportMessageId = "quality-event-close-$eventId",
-                        keyBytes = null,
-                        textLocalizer = NotificationIngressParser.NotificationTextLocalizer.fromContext(appContext),
-                    ) as? InboundPersistenceRequest.Entity
-                ) { "quality event close response did not parse as an event" }
-                val outcome = InboundPersistenceCoordinator.persistAndNotify(
-                    context = appContext,
-                    messageRepository = messageRepository,
-                    entityRepository = entityRepository,
-                    inboundDeliveryLedgerRepository = inboundDeliveryLedgerRepository,
-                    settingsRepository = settingsRepository,
-                    inbound = parsed.copy(shouldNotify = false),
-                )
-                check(
-                    outcome.status == InboundPersistenceStatus.PERSISTED_MAIN ||
-                        outcome.status == InboundPersistenceStatus.DUPLICATE
-                ) { "quality event close response did not reach the canonical store" }
-            }
-        } else {
-            null
-        },
+            },
         channelMutationRoundTrip = QualityRuntime.currentSession()?.channelMutationScenario
             ?.takeUnless { it == QualityChannelMutationScenario.NONE }
             ?.let { scenario ->
@@ -403,24 +427,14 @@ class AppContainer(
                 check(stored.body == "Configure decryption to read this message.")
             }
             QualityFixture.EVENT_STANDARD -> {
-                val rawGateway = settingsRepository.getServerAddress()
-                    ?.trim()
-                    ?.ifEmpty { null }
-                    ?: AppConstants.defaultServerAddress
-                val gateway = UrlValidators.normalizeGatewayBaseUrl(rawGateway)
-                    ?: AppConstants.defaultServerAddress
-                channelStore.upsertSubscription(
-                    gateway,
-                    "01H00000000000000000000000",
-                    "Quality",
-                    "quality-fixture-value",
-                )
+                seedQualityEventSubscription()
                 entityRepository.insertIncoming(qualityEvent())
                 check(entityRepository.eventCount() == 1) {
                     "event.standard did not reach its canonical projection"
                 }
             }
             QualityFixture.THING_STANDARD -> {
+                seedQualityEventSubscription()
                 entityRepository.insertIncoming(qualityThing(
                     title = "Quality Initial Thing Snapshot",
                     deliverySuffix = "initial",
@@ -463,6 +477,21 @@ class AppContainer(
         // Record completion only after every store mutation and canonical-projection
         // check succeeds. Live row counts may legitimately change during the journey.
         QualityRuntime.recordFixtureInitialization(appContext.filesDir)
+    }
+
+    private suspend fun seedQualityEventSubscription() {
+        val rawGateway = settingsRepository.getServerAddress()
+            ?.trim()
+            ?.ifEmpty { null }
+            ?: AppConstants.defaultServerAddress
+        val gateway = UrlValidators.normalizeGatewayBaseUrl(rawGateway)
+            ?: AppConstants.defaultServerAddress
+        channelStore.upsertSubscription(
+            gateway,
+            "01H00000000000000000000000",
+            "Quality",
+            "quality-fixture-value",
+        )
     }
 
     private fun qualityEncryptedMessagePayload(
