@@ -3,10 +3,14 @@ package io.ethan.pushgo.testing
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.test.espresso.Espresso.pressBack
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import io.ethan.pushgo.R
 import io.ethan.pushgo.ui.accessibility.hasContentDescriptionContaining
+import io.ethan.pushgo.ui.markdown.MarkdownRenderedSpanClassesKey
+import io.ethan.pushgo.ui.markdown.MarkdownRenderedTextKey
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -15,6 +19,54 @@ import kotlinx.coroutines.runBlocking
 
 @RunWith(AndroidJUnit4::class)
 class QualityMessageJourneyInstrumentedTest : QualityAppJourneyTestCase() {
+
+    @Test
+    fun markdownFixtureRendersMajorStructuresInTheRealDetail() {
+        configureAndLaunch(fixture = QualityFixture.MESSAGES_MARKDOWN)
+
+        composeRule.onNodeWithText("Quality Markdown Structure")
+            .assertIsDisplayed()
+            .performClick()
+        composeRule.waitUntil(timeoutMillis = 8_000) {
+            composeRule.onAllNodes(hasTestTag("field.message.detail.body"))
+                .fetchSemanticsNodes().firstOrNull()
+                ?.config
+                ?.let { config -> runCatching { config[MarkdownRenderedTextKey] }.getOrNull() }
+                ?.contains("Quality Markdown Heading") == true
+        }
+
+        val body = composeRule.onNodeWithTag("field.message.detail.body")
+            .assertIsDisplayed()
+            .fetchSemanticsNode()
+            .config
+        val renderedText = body[MarkdownRenderedTextKey]
+        val renderedSpans = body[MarkdownRenderedSpanClassesKey]
+        val accessibleText = body[SemanticsProperties.Text].joinToString(separator = "\n") { it.text }
+        assertTrue(renderedText.contains("Quality Markdown Heading"))
+        assertTrue(renderedText.contains("Completed deployment check"))
+        assertTrue(renderedText.contains("Production quote remains visible"))
+        assertTrue(accessibleText.contains("Gateway"))
+        assertTrue(accessibleText.contains("Healthy"))
+        assertTrue(renderedText.contains("pushgo status"))
+        assertTrue(renderedText.contains("Open quality guide"))
+        assertTrue(renderedText.contains("{\"environment\":\"quality\"}"))
+        assertFalse(renderedText.contains("# Quality Markdown Heading"))
+        listOf(
+            "HeadingSpan",
+            "TaskListSpan",
+            "BlockQuoteSpan",
+            "TableRowSpan",
+            "TableSpan",
+            "CodeSpan",
+            "CodeBlockSpan",
+            "LinkSpan",
+        ).forEach { expectedSpan ->
+            assertTrue(
+                "Production Markwon output lacks $expectedSpan; actual spans=$renderedSpans",
+                renderedSpans.contains(expectedSpan),
+            )
+        }
+    }
 
     @Test
     fun emptyFixtureShowsTheFunctionalEmptyStateInAnAppOwnedDatabase() {

@@ -4,6 +4,7 @@ import android.content.Context
 import io.ethan.pushgo.data.db.PushGoDatabase
 import io.ethan.pushgo.data.model.MessageStatus
 import io.ethan.pushgo.data.model.PushMessage
+import io.ethan.pushgo.markdown.MessagePreviewExtractor
 import io.ethan.pushgo.notifications.MessageStateCoordinator
 import io.ethan.pushgo.notifications.InboundPersistenceCoordinator
 import io.ethan.pushgo.notifications.InboundPersistenceRequest
@@ -380,6 +381,7 @@ class AppContainer(
             QualityFixture.MESSAGES_ENCRYPTED_CORRUPT -> emptyList()
             QualityFixture.MESSAGES_WORKFLOW -> (0 until 52).map(::qualityWorkflowMessage)
             QualityFixture.MESSAGES_FILTERS -> qualityFilterMessages()
+            QualityFixture.MESSAGES_MARKDOWN -> listOf(qualityMarkdownMessage())
             QualityFixture.MESSAGES_LARGE -> (0 until 1_000).map(::qualityMessage)
             QualityFixture.CHANNELS_STANDARD -> listOf(
                 qualityChannelMessage(
@@ -602,6 +604,51 @@ class AppContainer(
             notificationId = null,
             serverId = "quality-session",
             bodyPreview = body,
+        )
+    }
+
+    private fun qualityMarkdownMessage(): PushMessage {
+        val stableId = "quality-markdown-message"
+        val title = "Quality Markdown Structure"
+        val body = """
+            # Quality Markdown Heading
+
+            - [x] Completed deployment check
+            - Pending operator review
+
+            > Production quote remains visible
+
+            | Service | State |
+            | --- | --- |
+            | Gateway | Healthy |
+
+            `pushgo status` and [Open quality guide](https://example.com/pushgo-quality)
+
+            ```json
+            {"environment":"quality"}
+            ```
+        """.trimIndent()
+        return PushMessage(
+            id = stableId,
+            messageId = stableId,
+            title = title,
+            body = body,
+            channel = "quality-markdown",
+            url = null,
+            isRead = false,
+            receivedAt = Instant.parse("2026-01-15T08:00:00Z"),
+            rawPayloadJson = JSONObject()
+                .put("entity_type", "message")
+                .put("message_id", stableId)
+                .put("delivery_id", "quality-delivery-markdown")
+                .put("title", title)
+                .put("body", body)
+                .toString(),
+            status = MessageStatus.NORMAL,
+            decryptionState = null,
+            notificationId = null,
+            serverId = "quality-session",
+            bodyPreview = MessagePreviewExtractor.listPreview(body),
         )
     }
 

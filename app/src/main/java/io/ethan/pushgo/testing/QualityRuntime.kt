@@ -20,6 +20,7 @@ enum class QualityFixture(val wireValue: String) {
     MESSAGES_ENCRYPTED_CORRUPT("messages.encrypted.corrupt"),
     MESSAGES_WORKFLOW("messages.workflow"),
     MESSAGES_FILTERS("messages.filters"),
+    MESSAGES_MARKDOWN("messages.markdown"),
     MESSAGES_LARGE("messages.large"),
     EVENT_STANDARD("event.standard"),
     THING_STANDARD("thing.standard"),
