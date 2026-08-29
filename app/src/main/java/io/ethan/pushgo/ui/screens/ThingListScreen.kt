@@ -1403,7 +1403,9 @@ private fun ThingDetailSheet(
                         onClick = { url -> previewImageUrl = url },
                     )
                     IconButton(
-                        modifier = Modifier.size(32.dp),
+                        modifier = Modifier
+                            .size(32.dp)
+                            .testTag("action.thing.delete"),
                         onClick = onDelete,
                     ) {
                         Icon(

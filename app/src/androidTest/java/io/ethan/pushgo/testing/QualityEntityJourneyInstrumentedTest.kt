@@ -208,6 +208,12 @@ class QualityEntityJourneyInstrumentedTest : QualityAppJourneyTestCase() {
                 .fetchSemanticsNodes().isNotEmpty()
         }
         composeRule.onNodeWithTag("thing.row.quality-thing-distractor").assertIsDisplayed()
+        composeRule.onNodeWithTag("thing.row.quality-thing-distractor").performClick()
+        composeRule.onNodeWithTag("sheet.thing.detail").assertIsDisplayed()
+        composeRule.onNodeWithTag("action.thing.delete").assertIsDisplayed().performClick()
+        composeRule.onNodeWithTag("thing.row.quality-thing-distractor").assertDoesNotExist()
+        composeRule.onNodeWithTag("thing.row.quality-thing").assertIsDisplayed()
+        composeRule.onNodeWithTag("action.pending_deletion.undo").assertIsDisplayed()
         composeRule.onNodeWithTag("thing.search.input").assertIsDisplayed().performTextInput("Reactor Alpha")
         composeRule.waitUntil(timeoutMillis = 5_000) {
             composeRule.onAllNodes(hasTestTag("thing.row.quality-thing-distractor"))
@@ -264,6 +270,7 @@ class QualityEntityJourneyInstrumentedTest : QualityAppJourneyTestCase() {
             composeRule.onAllNodes(hasTestTag("thing.row.quality-thing"))
                 .fetchSemanticsNodes().isNotEmpty()
         }
+        composeRule.onNodeWithTag("thing.row.quality-thing-distractor").assertDoesNotExist()
         composeRule.onNodeWithTag("thing.row.quality-thing").assertIsDisplayed().performClick()
         composeRule.onNodeWithTag("event.row.quality-related-event").assertIsDisplayed().performClick()
         composeRule.onNodeWithTag("sheet.event.detail").assertIsDisplayed()
