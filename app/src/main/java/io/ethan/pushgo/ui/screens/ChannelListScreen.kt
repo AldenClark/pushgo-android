@@ -399,6 +399,7 @@ fun ChannelListScreen(
                                 count = ChannelEntryMode.entries.size
                             ),
                             colors = pushGoSegmentedButtonColors(),
+                            modifier = Modifier.testTag(mode.testTag),
                         ) {
                             Text(stringResource(mode.labelRes))
                         }
@@ -456,7 +457,9 @@ fun ChannelListScreen(
                                 subscribeChannelId = it
                             },
                             label = { Text(stringResource(R.string.label_channel_id)) },
-                            modifier = Modifier.fillMaxWidth(),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag("field.channels.subscribe.id"),
                             singleLine = true,
                             colors = pushGoOutlinedTextFieldColors(),
                         )
@@ -467,7 +470,9 @@ fun ChannelListScreen(
                                 subscribeChannelPassword = it
                             },
                             label = { Text(stringResource(R.string.label_channel_password)) },
-                            modifier = Modifier.fillMaxWidth(),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag("field.channels.subscribe.password"),
                             singleLine = true,
                             visualTransformation = PasswordVisualTransformation(),
                             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
@@ -530,9 +535,9 @@ fun ChannelListScreen(
     }
 }
 
-private enum class ChannelEntryMode(val labelRes: Int) {
-    Create(R.string.label_create_channel),
-    Subscribe(R.string.label_subscribe_channel),
+private enum class ChannelEntryMode(val labelRes: Int, val testTag: String) {
+    Create(R.string.label_create_channel, "mode.channels.entry.create"),
+    Subscribe(R.string.label_subscribe_channel, "mode.channels.entry.subscribe"),
 }
 
 @Composable
