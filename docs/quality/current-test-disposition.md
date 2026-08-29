@@ -84,6 +84,8 @@
 ## 当前首要缺口
 
 1. Messages、Event/Thing、Channel 本地 invalid/远端密码拒绝的 Sheet-owned 反馈、accepted 创建与订阅既有频道、创建本地 commit 失败→本地回滚+远端补偿→正式重载无脏行→重试/relaunch、Settings 页面可见性、server 候选注册/本地 commit 失败不提交→回滚→重试成功→数据换域/持久化、decryption lifecycle、受保护写失败补偿、错误 Key 纠正和坏密文安全失败均已按真实目的拆成 App-owned 纵向旅程；FCM/Private selector 也已覆盖双向远端拒绝保持旧 route、Private 本地 mode/secret 提交中点失败后的远端补偿与本地回滚、同入口重试后提交与 relaunch。Channel 订阅既有频道后若本地 commit 失败的安全 ownership/idempotency 补偿协议、rollback 自身再次失败的 UI、真实外部 FCM/Private delivery 仍是当前缺口。
+
+- `dataPageVisibilityUsesRealControlsAndPersistsAcrossRelaunch` 复用原 Event-only 正向方法和同一 App-owned session，同时关闭 Events/Things，要求两个入口消失且 Channels 仍可用；activity relaunch 后仍隐藏；恢复后分别进入准确 Event/Thing 功能空态，再次 relaunch 仍可达。当前字节 focused 1/1、零重试；不以 FilterChip selected、testTag 或 preference 值作为最终结果，也没有为对象页再增加一条设备旅程。
 2. 已删除的 Compose “UI baseline” 与 synthetic JVM Store 不再计入任何 Lane；剩余 `Runtime*` 名称文件只按真实 Room/ACK/transport 边界归属，不得从命名外推 UI 覆盖。
 3. App-owned `QualityRuntime` 仍是 DEBUG 测试接入点，但只负责 typed session、fixture/fault/readiness；其状态或 artifact 不得作为产品终点。
 4. 强 Room/ACK/迁移测试很多；消息系统通知的代表性纵向链路已映射到准确页面/数据终点与 Nightly/Release，Event/Thing 动作、系统 mark-read/delete/copy 仍需同样迁移。

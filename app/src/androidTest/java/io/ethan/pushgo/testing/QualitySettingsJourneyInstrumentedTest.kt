@@ -3,6 +3,7 @@ package io.ethan.pushgo.testing
 import androidx.compose.ui.test.*
 import androidx.test.espresso.Espresso.pressBack
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import io.ethan.pushgo.R
 import java.util.Base64
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
@@ -122,7 +123,7 @@ class QualitySettingsJourneyInstrumentedTest : QualityAppJourneyTestCase() {
     }
 
     @Test
-    fun eventPageVisibilityUsesRealControlsAndPersistsAcrossRelaunch() {
+    fun dataPageVisibilityUsesRealControlsAndPersistsAcrossRelaunch() {
         configureAndLaunch(fixture = QualityFixture.MESSAGES_STANDARD)
 
         openPageVisibilitySettings()
@@ -130,24 +131,35 @@ class QualitySettingsJourneyInstrumentedTest : QualityAppJourneyTestCase() {
             .assertIsSelected()
             .performClick()
             .assertIsNotSelected()
+        composeRule.onNodeWithTag("switch.settings.page.things")
+            .assertIsSelected()
+            .performClick()
+            .assertIsNotSelected()
         leaveSettings()
         composeRule.onNodeWithTag("nav.item.events").assertDoesNotExist()
+        composeRule.onNodeWithTag("nav.item.things").assertDoesNotExist()
+        composeRule.onNodeWithTag("screen.channels.list").assertIsDisplayed()
 
         scenario?.close()
         scenario = launchMainActivity()
         composeRule.onNodeWithTag("nav.item.events").assertDoesNotExist()
+        composeRule.onNodeWithTag("nav.item.things").assertDoesNotExist()
 
         openPageVisibilitySettings()
         composeRule.onNodeWithTag("switch.settings.page.events")
             .assertIsNotSelected()
             .performClick()
             .assertIsSelected()
+        composeRule.onNodeWithTag("switch.settings.page.things")
+            .assertIsNotSelected()
+            .performClick()
+            .assertIsSelected()
         leaveSettings()
-        assertEventDestinationCanOpen()
+        assertDataDestinationsCanOpen()
 
         scenario?.close()
         scenario = launchMainActivity()
-        assertEventDestinationCanOpen()
+        assertDataDestinationsCanOpen()
     }
 
     @Test
@@ -508,8 +520,9 @@ class QualitySettingsJourneyInstrumentedTest : QualityAppJourneyTestCase() {
         openSettings()
         composeRule.onNodeWithTag("screen.settings.content")
             .assertIsDisplayed()
-            .performScrollToNode(hasTestTag("switch.settings.page.events"))
+            .performScrollToNode(hasTestTag("switch.settings.page.things"))
         composeRule.onNodeWithTag("switch.settings.page.events").assertIsDisplayed()
+        composeRule.onNodeWithTag("switch.settings.page.things").assertIsDisplayed()
     }
 
     private fun leaveSettings() {
@@ -519,9 +532,13 @@ class QualitySettingsJourneyInstrumentedTest : QualityAppJourneyTestCase() {
         composeRule.onNodeWithTag("screen.channels.list").assertIsDisplayed()
     }
 
-    private fun assertEventDestinationCanOpen() {
+    private fun assertDataDestinationsCanOpen() {
         composeRule.onNodeWithTag("nav.item.events").assertIsDisplayed().performClick()
         composeRule.onNodeWithTag("screen.events.list").assertIsDisplayed()
+        composeRule.onNodeWithText(app.getString(R.string.label_no_events_title)).assertIsDisplayed()
+        composeRule.onNodeWithTag("nav.item.things").assertIsDisplayed().performClick()
+        composeRule.onNodeWithTag("screen.things.list").assertIsDisplayed()
+        composeRule.onNodeWithText(app.getString(R.string.label_no_things_title)).assertIsDisplayed()
     }
 
     private fun openSettings() {
