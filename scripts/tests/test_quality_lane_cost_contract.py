@@ -13,6 +13,7 @@ class QualityLaneCostContractTests(unittest.TestCase):
         self.assertIsNotNone(match)
         scopes = match.group(1).split(",")
         self.assertEqual(len(scopes), len(set(scopes)))
+        self.assertEqual(12, len(scopes))
 
         sources = {
             path.stem: path.read_text()
@@ -28,6 +29,8 @@ class QualityLaneCostContractTests(unittest.TestCase):
             self.assertTrue(any(required_fragment in scope for scope in scopes), required_fragment)
         for deferred_fragment in ("Failure", "failure", "Corrupt", "corrupt", "Slow", "slow", "Delete", "delete", "Rejection"):
             self.assertFalse(any(deferred_fragment in scope for scope in scopes), deferred_fragment)
+        self.assertFalse(any("emptyFixtureShows" in scope for scope in scopes))
+        self.assertFalse(any("searchReturnsOnly" in scope for scope in scopes))
         self.assertIn('run_quality_device_classes "$positive_device_scopes"', runner)
 
 

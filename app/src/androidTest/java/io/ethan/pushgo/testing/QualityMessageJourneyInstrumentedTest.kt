@@ -137,6 +137,26 @@ class QualityMessageJourneyInstrumentedTest : QualityAppJourneyTestCase() {
             ).fetchSemanticsNodes().isNotEmpty()
         }
         composeRule.onNodeWithText("P2 Split Seed Message").assertExists()
+
+        composeRule.onNodeWithTag("field.message.search")
+            .assertIsDisplayed()
+            .performTextInput("not-present-in-any-message")
+        composeRule.waitUntil(timeoutMillis = 8_000) {
+            composeRule.onAllNodes(hasTestTag("state.messages.search.empty"))
+                .fetchSemanticsNodes().isNotEmpty()
+        }
+        composeRule.onNodeWithText("P2 Split Seed Message").assertDoesNotExist()
+        composeRule.onNodeWithTag("field.message.search").performTextClearance()
+        composeRule.onNodeWithTag("field.message.search").performTextInput("P2 Split")
+        composeRule.waitUntil(timeoutMillis = 8_000) {
+            composeRule.onAllNodes(hasText("P2 Split Seed Message"))
+                .fetchSemanticsNodes().isNotEmpty()
+        }
+        composeRule.onNodeWithTag("state.messages.search.empty").assertDoesNotExist()
+        composeRule.onNodeWithText("P2 Split Seed Message").performClick()
+        composeRule.onNodeWithTag("sheet.message.detail").assertIsDisplayed()
+        composeRule.onNodeWithTag("field.message.detail.body")
+            .assertTextContains("Seeded from fixture.seed_messages for UI validation.")
     }
 
     @Test
@@ -612,6 +632,12 @@ class QualityMessageJourneyInstrumentedTest : QualityAppJourneyTestCase() {
         configureAndLaunch(fixture = QualityFixture.EMPTY_CLEAN)
 
         composeRule.onNodeWithTag("screen.messages.list").assertIsDisplayed()
+        composeRule.onNodeWithTag("state.messages.empty").assertIsDisplayed()
+        val databaseName = checkNotNull(
+            checkNotNull(app.containerOrNull()).database.openHelper.databaseName
+        )
+        assertNotEquals("pushgo.db", databaseName)
+        assertTrue(databaseName.startsWith("pushgo-quality-"))
         composeRule.onNodeWithTag("nav.item.events").assertIsDisplayed().performClick()
         composeRule.onNodeWithTag("screen.events.list").assertIsDisplayed()
         composeRule.onNodeWithTag("nav.item.things").assertIsDisplayed().performClick()
