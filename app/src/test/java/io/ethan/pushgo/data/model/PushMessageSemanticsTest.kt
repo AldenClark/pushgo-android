@@ -61,6 +61,20 @@ class PushMessageSemanticsTest {
     }
 
     @Test
+    fun pushMessage_parsesCanonicalJsonArrayTags() {
+        val message = messageWithPayload(
+            """
+                {
+                  "entity_type":"message",
+                  "tags":["ops","ops","urgent"]
+                }
+            """.trimIndent(),
+        )
+
+        assertEquals(listOf("ops", "urgent"), message.tags)
+    }
+
+    @Test
     fun pushMessage_invalidOccurredAtAndUnknownEntityTypeFallbackToNullOrEmpty() {
         val payload = """
             {

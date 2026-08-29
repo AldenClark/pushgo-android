@@ -449,7 +449,11 @@ fun MessageListScreen(
                                                     )
                                                 }
                                             }
-                                            DropdownMenu(expanded = searchMenuExpanded, onDismissRequest = { searchMenuExpanded = false }) {
+                                            DropdownMenu(
+                                                modifier = Modifier.testTag("filter.surface"),
+                                                expanded = searchMenuExpanded,
+                                                onDismissRequest = { searchMenuExpanded = false },
+                                            ) {
                                                 FlowRow(
                                                     modifier = Modifier
                                                         .widthIn(max = 320.dp)
@@ -490,6 +494,9 @@ fun MessageListScreen(
                                                 if (channelOptions.isNotEmpty()) {
                                                     channelOptions.forEach { (channel, _) ->
                                                         DropdownMenuItem(
+                                                            modifier = Modifier.testTag(
+                                                                "filter.channel.${channel.ifBlank { "ungrouped" }}"
+                                                            ),
                                                             text = {
                                                                 val baseName = if (channel.isBlank()) {
                                                                     stringResource(R.string.label_group_ungrouped)
@@ -531,6 +538,7 @@ fun MessageListScreen(
                                                         tagOptions.forEach { (tag, _) ->
                                                             val selected = filterState.tags.contains(tag)
                                                             FilterChip(
+                                                                    modifier = Modifier.testTag("filter.tag.$tag"),
                                                                     selected = selected,
                                                                     onClick = {
                                                                         viewModel.toggleTag(tag)

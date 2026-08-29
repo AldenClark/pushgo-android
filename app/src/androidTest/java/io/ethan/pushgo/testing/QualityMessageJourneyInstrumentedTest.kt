@@ -153,6 +153,136 @@ class QualityMessageJourneyInstrumentedTest : QualityAppJourneyTestCase() {
         composeRule.onNodeWithTag("state.messages.empty").assertDoesNotExist()
     }
 
+    @Test
+    fun channelTagCombinedUngroupedFiltersAndScopedReadPersist() {
+        configureAndLaunch(fixture = QualityFixture.MESSAGES_FILTERS)
+
+        waitForMessageSet(
+            present = setOf(
+                "Quality filter alpha even",
+                "Quality filter alpha odd",
+                "Quality filter beta odd",
+                "Quality filter beta even",
+                "Quality filter ungrouped orphan",
+            ),
+        )
+        assertUnreadNavigationBadge("4")
+
+        openMessageFilters()
+        composeRule.onNodeWithTag("filter.channel.filter-alpha").performClick()
+        pressBack()
+
+        openMessageFilters()
+        revealFilterOption("filter.tag.even")
+        composeRule.onNodeWithTag("filter.tag.even").performClick()
+        pressBack()
+        waitForMessageSet(
+            present = setOf("Quality filter alpha even"),
+            absent = setOf(
+                "Quality filter alpha odd",
+                "Quality filter beta odd",
+                "Quality filter beta even",
+                "Quality filter ungrouped orphan",
+            ),
+        )
+        openMessageFilters()
+        revealFilterOption("filter.channel.filter-alpha")
+        composeRule.onNodeWithTag("filter.channel.filter-alpha").performClick()
+        revealFilterOption("filter.tag.even")
+        composeRule.onNodeWithTag("filter.tag.even").performClick()
+        revealFilterOption("filter.channel.ungrouped")
+        composeRule.onNodeWithTag("filter.channel.ungrouped").performClick()
+        pressBack()
+        waitForMessageSet(
+            present = setOf("Quality filter ungrouped orphan"),
+            absent = setOf(
+                "Quality filter alpha even",
+                "Quality filter alpha odd",
+                "Quality filter beta odd",
+                "Quality filter beta even",
+            ),
+        )
+
+        composeRule.onNodeWithTag("action.messages.mark_all_read")
+            .assertIsDisplayed()
+            .performClick()
+        composeRule.waitUntil(timeoutMillis = 8_000) {
+            composeRule.onAllNodes(hasTestTag("action.messages.mark_all_read"))
+                .fetchSemanticsNodes().isEmpty()
+        }
+        waitForCanonicalUnreadCount(3)
+        assertUnreadNavigationBadge("3")
+
+        scenario?.close()
+        scenario = launchMainActivity()
+        composeRule.waitUntil(timeoutMillis = 8_000) {
+            composeRule.onAllNodes(hasText("Quality filter ungrouped orphan"))
+                .fetchSemanticsNodes().isNotEmpty()
+        }
+        assertUnreadNavigationBadge("3")
+        composeRule.onNode(hasContentDescriptionContaining("Quality filter ungrouped orphan"))
+            .assert(hasStateDescription(app.getString(R.string.a11y_state_read)))
+
+        openMessageFilters()
+        revealFilterOption("filter.channel.ungrouped")
+        composeRule.onNodeWithTag("filter.channel.ungrouped").performClick()
+        pressBack()
+        waitForMessageSet(
+            present = setOf("Quality filter ungrouped orphan"),
+            absent = setOf(
+                "Quality filter alpha even",
+                "Quality filter alpha odd",
+                "Quality filter beta odd",
+                "Quality filter beta even",
+            ),
+        )
+        composeRule.onNodeWithTag("action.messages.mark_all_read").assertDoesNotExist()
+    }
+
+    private fun openMessageFilters() {
+        composeRule.onNodeWithTag("action.messages.filter").assertIsDisplayed().performClick()
+        composeRule.onNodeWithTag("filter.surface").assertIsDisplayed()
+        composeRule.onNodeWithTag("filter.unread_only").assertIsDisplayed()
+    }
+
+    private fun revealFilterOption(testTag: String) {
+        // DropdownMenu owns the actual verticalScroll node below its popup
+        // surface and clips off-screen children from the semantics tree. Find
+        // that real scroll owner through a visible production descendant.
+        val scrollOwner = composeRule.onNode(
+            hasScrollAction() and hasAnyDescendant(hasTestTag("filter.unread_only")),
+            useUnmergedTree = true,
+        )
+        repeat(4) {
+            if (runCatching {
+                    composeRule.onNodeWithTag(testTag).assertIsDisplayed()
+                }.isSuccess
+            ) {
+                return
+            }
+            scrollOwner.performTouchInput {
+                if (testTag.startsWith("filter.tag.")) swipeUp() else swipeDown()
+            }
+            composeRule.waitForIdle()
+        }
+        composeRule.onNodeWithTag(testTag).assertIsDisplayed()
+    }
+
+    private fun waitForMessageSet(
+        present: Set<String>,
+        absent: Set<String> = emptySet(),
+    ) {
+        composeRule.waitUntil(timeoutMillis = 8_000) {
+            present.all { title ->
+                composeRule.onAllNodes(hasText(title)).fetchSemanticsNodes().isNotEmpty()
+            } && absent.all { title ->
+                composeRule.onAllNodes(hasText(title)).fetchSemanticsNodes().isEmpty()
+            }
+        }
+        present.forEach { title -> composeRule.onNodeWithText(title).assertIsDisplayed() }
+        absent.forEach { title -> composeRule.onNodeWithText(title).assertDoesNotExist() }
+    }
+
     private fun assertUnreadNavigationBadge(expectedText: String?) {
         val matcher = hasTestTag("nav.item.messages.unread_badge")
         val matched = runCatching { composeRule.waitUntil(timeoutMillis = 8_000) {

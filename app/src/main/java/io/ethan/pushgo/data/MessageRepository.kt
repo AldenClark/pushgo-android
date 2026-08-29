@@ -144,7 +144,8 @@ class MessageRepository(
         if (plan.isEmpty) {
             return kotlinx.coroutines.flow.flowOf(PagingData.empty())
         }
-        val normalizedChannels = channels.map(String::trim).filter(String::isNotEmpty).distinct()
+        // Empty is the canonical key for the user-visible "Ungrouped" facet.
+        val normalizedChannels = channels.map(String::trim).distinct()
         val normalizedFacetTags = facetTags.map { it.trim().lowercase(Locale.ROOT) }
             .filter(String::isNotEmpty)
             .distinct()

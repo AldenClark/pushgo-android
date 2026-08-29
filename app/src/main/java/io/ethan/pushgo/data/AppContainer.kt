@@ -379,6 +379,7 @@ class AppContainer(
             QualityFixture.MESSAGES_ENCRYPTED_VALID,
             QualityFixture.MESSAGES_ENCRYPTED_CORRUPT -> emptyList()
             QualityFixture.MESSAGES_WORKFLOW -> (0 until 52).map(::qualityWorkflowMessage)
+            QualityFixture.MESSAGES_FILTERS -> qualityFilterMessages()
             QualityFixture.MESSAGES_LARGE -> (0 until 1_000).map(::qualityMessage)
             QualityFixture.CHANNELS_STANDARD -> listOf(
                 qualityChannelMessage(
@@ -596,6 +597,84 @@ class AppContainer(
             isRead = index % 4 == 0,
             receivedAt = Instant.parse("2026-01-15T08:00:00Z").plusSeconds(index.toLong()),
             rawPayloadJson = rawPayload,
+            status = MessageStatus.NORMAL,
+            decryptionState = null,
+            notificationId = null,
+            serverId = "quality-session",
+            bodyPreview = body,
+        )
+    }
+
+    private fun qualityFilterMessages(): List<PushMessage> = listOf(
+        qualityFilterMessage(
+            id = "quality-filter-alpha-even",
+            title = "Quality filter alpha even",
+            channel = "filter-alpha",
+            tags = listOf("workflow", "even"),
+            isRead = false,
+            offsetSeconds = 5,
+        ),
+        qualityFilterMessage(
+            id = "quality-filter-alpha-odd",
+            title = "Quality filter alpha odd",
+            channel = "filter-alpha",
+            tags = listOf("workflow", "odd"),
+            isRead = true,
+            offsetSeconds = 4,
+        ),
+        qualityFilterMessage(
+            id = "quality-filter-beta-odd",
+            title = "Quality filter beta odd",
+            channel = "filter-beta",
+            tags = listOf("workflow", "odd"),
+            isRead = false,
+            offsetSeconds = 3,
+        ),
+        qualityFilterMessage(
+            id = "quality-filter-beta-even",
+            title = "Quality filter beta even",
+            channel = "filter-beta",
+            tags = listOf("ops", "even"),
+            isRead = false,
+            offsetSeconds = 2,
+        ),
+        qualityFilterMessage(
+            id = "quality-filter-ungrouped",
+            title = "Quality filter ungrouped orphan",
+            channel = "",
+            tags = listOf("orphan"),
+            isRead = false,
+            offsetSeconds = 1,
+        ),
+    )
+
+    private fun qualityFilterMessage(
+        id: String,
+        title: String,
+        channel: String,
+        tags: List<String>,
+        isRead: Boolean,
+        offsetSeconds: Long,
+    ): PushMessage {
+        val body = "Exact filter fixture body for $id."
+        return PushMessage(
+            id = id,
+            messageId = id,
+            title = title,
+            body = body,
+            channel = channel,
+            url = null,
+            isRead = isRead,
+            receivedAt = Instant.parse("2026-01-15T08:00:00Z").plusSeconds(offsetSeconds),
+            rawPayloadJson = JSONObject()
+                .put("entity_type", "message")
+                .put("message_id", id)
+                .put("delivery_id", "quality-delivery-$id")
+                .put("channel_id", channel)
+                .put("title", title)
+                .put("body", body)
+                .put("tags", org.json.JSONArray(tags))
+                .toString(),
             status = MessageStatus.NORMAL,
             decryptionState = null,
             notificationId = null,
