@@ -121,6 +121,12 @@ class QualityMessageJourneyInstrumentedTest : QualityAppJourneyTestCase() {
         composeRule.onNodeWithText("P2 Split Seed Message").assertIsDisplayed().performClick()
         composeRule.onNodeWithTag("field.message.detail.body")
             .assertTextContains("Seeded from fixture.seed_messages for UI validation.")
+        composeRule.onNodeWithTag("message.image.0")
+            .performScrollTo()
+            .assertIsDisplayed()
+            .assertHasClickAction()
+            .performClick()
+        composeRule.onNodeWithTag("dialog.image.preview").assertIsDisplayed()
 
         scenario?.close()
         scenario = launchMainActivity()

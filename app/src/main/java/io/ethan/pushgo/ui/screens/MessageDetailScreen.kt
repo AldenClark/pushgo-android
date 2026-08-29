@@ -506,6 +506,7 @@ internal fun MessageDetailCoreContent(
                     },
                     onClickLabel = stringResource(R.string.a11y_action_open_image_preview),
                     modifier = Modifier
+                        .testTag("message.image.0")
                         .fillMaxWidth()
                         .heightIn(min = 180.dp, max = 360.dp)
                         .aspectRatio(reservedAspectRatio)

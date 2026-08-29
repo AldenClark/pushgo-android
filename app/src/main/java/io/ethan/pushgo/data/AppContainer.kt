@@ -1,6 +1,8 @@
 package io.ethan.pushgo.data
 
 import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.Color
 import io.ethan.pushgo.data.db.PushGoDatabase
 import io.ethan.pushgo.data.model.MessageStatus
 import io.ethan.pushgo.data.model.PushMessage
@@ -29,6 +31,7 @@ import kotlinx.coroutines.delay
 import org.json.JSONArray
 import org.json.JSONObject
 import java.time.Instant
+import java.io.File
 import java.util.Base64
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
@@ -376,13 +379,13 @@ class AppContainer(
         if (QualityRuntime.fixtureInitializationWasRecorded(appContext.filesDir)) return
         val messages = when (session.fixture) {
             QualityFixture.EMPTY_CLEAN -> emptyList()
-            QualityFixture.MESSAGES_STANDARD -> listOf(qualityMessage(index = 0))
+            QualityFixture.MESSAGES_STANDARD -> listOf(qualityMessage(index = 0, includesMedia = true))
             QualityFixture.MESSAGES_ENCRYPTED_VALID,
             QualityFixture.MESSAGES_ENCRYPTED_CORRUPT -> emptyList()
             QualityFixture.MESSAGES_WORKFLOW -> (0 until 52).map(::qualityWorkflowMessage)
             QualityFixture.MESSAGES_FILTERS -> qualityFilterMessages()
             QualityFixture.MESSAGES_MARKDOWN -> listOf(qualityMarkdownMessage())
-            QualityFixture.MESSAGES_LARGE -> (0 until 1_000).map(::qualityMessage)
+            QualityFixture.MESSAGES_LARGE -> (0 until 1_000).map { qualityMessage(index = it) }
             QualityFixture.CHANNELS_STANDARD -> listOf(
                 qualityChannelMessage(
                     id = "quality-channel-keep-message",
@@ -543,7 +546,7 @@ class AppContainer(
         settingsRepository.setFcmToken(deviceToken.trim().ifEmpty { null })
     }
 
-    private fun qualityMessage(index: Int): PushMessage {
+    private fun qualityMessage(index: Int, includesMedia: Boolean = false): PushMessage {
         val stableId = if (index == 0) "quality-standard-message" else "quality-large-$index"
         val title = if (index == 0) "P2 Split Seed Message" else "Quality message $index"
         val body = if (index == 0) {
@@ -558,6 +561,14 @@ class AppContainer(
             .put("delivery_id", "quality-delivery-$stableId")
             .put("title", title)
             .put("body", body)
+            .apply {
+                if (includesMedia) {
+                    val image = qualityStandardMessageImage()
+                    put("images", JSONArray(listOf(QUALITY_STANDARD_MESSAGE_IMAGE_URL)).toString())
+                    put(MessageImageStore.KEY_IMAGE_LOCAL_PATH, image.absolutePath)
+                    put(MessageImageStore.KEY_IMAGE_THUMBNAIL_LOCAL_PATH, image.absolutePath)
+                }
+            }
             .toString()
         return PushMessage(
             id = stableId,
@@ -575,6 +586,32 @@ class AppContainer(
             serverId = "quality-session",
             bodyPreview = body,
         )
+    }
+
+    private fun qualityStandardMessageImage(): File {
+        val sessionID = qualitySession?.sessionId.orEmpty().filter { it.isLetterOrDigit() || it == '-' }
+        val imageDirectory = File(appContext.filesDir, "quality-fixtures/$sessionID").apply { mkdirs() }
+        val image = File(imageDirectory, "standard-message.png")
+        if (!image.exists()) {
+            val bitmap = Bitmap.createBitmap(8, 8, Bitmap.Config.ARGB_8888)
+            bitmap.eraseColor(Color.rgb(32, 122, 255))
+            image.outputStream().use { output ->
+                check(bitmap.compress(Bitmap.CompressFormat.PNG, 100, output))
+            }
+            bitmap.recycle()
+        }
+        File(image.parentFile, "${image.name}.meta.json").writeText(
+            JSONObject()
+                .put("expiresAtEpochMillis", System.currentTimeMillis() + QUALITY_IMAGE_TTL_MS)
+                .toString(),
+        )
+        return image
+    }
+
+    private companion object {
+        const val QUALITY_IMAGE_TTL_MS = 24L * 60L * 60L * 1000L
+        const val QUALITY_STANDARD_MESSAGE_IMAGE_URL =
+            "https://quality-media.pushgo.dev/standard-message.png"
     }
 
     private fun qualityWorkflowMessage(index: Int): PushMessage {
