@@ -164,6 +164,9 @@ run_jvm_and_compile_device_tests() {
 # Keeping the routine device lane curated prevents diagnostics and rare platform
 # permutations from consuming the feedback budget on every run.
 quality_device_classes="io.ethan.pushgo.testing.QualityMessageJourneyInstrumentedTest,io.ethan.pushgo.testing.QualityEntityJourneyInstrumentedTest,io.ethan.pushgo.testing.QualityChannelJourneyInstrumentedTest,io.ethan.pushgo.testing.QualitySettingsJourneyInstrumentedTest"
+# Daily device evidence is a broad positive slice, not every failure-injection
+# method in the four journey classes. Full classes remain in device/nightly/release.
+positive_device_scopes="io.ethan.pushgo.testing.QualityMessageJourneyInstrumentedTest#markdownFixtureRendersMajorStructuresInTheRealDetail,io.ethan.pushgo.testing.QualityMessageJourneyInstrumentedTest#emptyFixtureShowsTheFunctionalEmptyStateInAnAppOwnedDatabase,io.ethan.pushgo.testing.QualityMessageJourneyInstrumentedTest#standardFixtureShowsAccurateContentAndSurvivesActivityRelaunch,io.ethan.pushgo.testing.QualityMessageJourneyInstrumentedTest#workflowFixtureLoadsSecondPageAndPersistsReadActions,io.ethan.pushgo.testing.QualityMessageJourneyInstrumentedTest#channelTagCombinedUngroupedFiltersAndScopedReadPersist,io.ethan.pushgo.testing.QualityMessageJourneyInstrumentedTest#searchReturnsOnlyTheTargetAndOpensItsRealDetail,io.ethan.pushgo.testing.QualityMessageJourneyInstrumentedTest#refreshPersistsNewProviderResultOpensDetailAndSurvivesRelaunch,io.ethan.pushgo.testing.QualityMessageJourneyInstrumentedTest#primaryNavigationUsesRealControlsAndReachesEveryProductScreen,io.ethan.pushgo.testing.QualityEntityJourneyInstrumentedTest#eventClosePersistsAndOngoingFilterReflectsTheRealProjection,io.ethan.pushgo.testing.QualityEntityJourneyInstrumentedTest#thingFixtureShowsAccurateOverviewAndAllThreeRealRelationTabs,io.ethan.pushgo.testing.QualityChannelJourneyInstrumentedTest#createRenameAndBothUnsubscribeOutcomesReachAccuratePersistentUserResults,io.ethan.pushgo.testing.QualitySettingsJourneyInstrumentedTest#encryptedMessageRecoversThroughRealSettingsEntryAndSurvivesRelaunch,io.ethan.pushgo.testing.QualitySettingsJourneyInstrumentedTest#eventPageVisibilityUsesRealControlsAndPersistsAcrossRelaunch,io.ethan.pushgo.testing.QualitySettingsJourneyInstrumentedTest#serverConfigurationRejectsInvalidInputAndScopesDataAfterRelaunch"
 core_data_classes="io.ethan.pushgo.data.db.PushGoDatabaseMigrationDeviceTest,io.ethan.pushgo.data.PendingLocalDeletionRoomDeviceTest,io.ethan.pushgo.data.ProviderAckScopeDeviceTest"
 nightly_data_classes="$core_data_classes,io.ethan.pushgo.testing.RuntimeDataLayerInstrumentedTest,io.ethan.pushgo.testing.RuntimeChannelSwitchInstrumentedTest,io.ethan.pushgo.testing.RuntimePrivateChannelStateFlowInstrumentedTest,io.ethan.pushgo.ui.PendingLocalDeletionWorkBoundaryDeviceTest"
 system_notification_class="io.ethan.pushgo.testing.QualitySystemNotificationJourneyInstrumentedTest"
@@ -190,12 +193,13 @@ run_device_classes() {
 }
 
 run_quality_device_classes() {
+  local classes="${1:-$quality_device_classes}"
   local session_id="android-lane-$(date +%s)"
   local payload
   local doctor_output
   local device_serial
   payload="$(printf '{"schema_version":1,"session_id":"%s","fixture":"empty.clean","faults":{}}' "$session_id" | base64 | tr -d '\n')"
-  selected_claims+=("Android core App UI empty/content/pagination/read/search/delete/slow-load/slow-refresh/error-retry/navigation/Event/Thing/Channel/Settings journeys")
+  selected_claims+=("Android selected App-owned UI journeys: $classes")
   doctor_output="$("$repo_root/scripts/quality_doctor.sh")"
   printf '%s\n' "$doctor_output"
   device_serial="$(printf '%s\n' "$doctor_output" | awk -F= '$1 == "device_serial" { print $2; exit }')"
@@ -207,10 +211,10 @@ run_quality_device_classes() {
   local device_test_started_at
   device_test_started_at="$(python3 -c 'import time; print(time.time())')"
   ANDROID_SERIAL="$device_serial" "$repo_root/gradlew" connectedDebugAndroidTest \
-    "-Pandroid.testInstrumentationRunnerArguments.class=$quality_device_classes" \
+    "-Pandroid.testInstrumentationRunnerArguments.class=$classes" \
     "-Pandroid.testInstrumentationRunnerArguments.pushgoQualitySessionBase64=$payload"
   verify_device_tests_executed "$device_test_started_at" "$repo_root/app/build/outputs/androidTest-results/connected"
-  claims+=("Android core App UI empty/content/pagination/read/search/delete/slow-load/slow-refresh/error-retry/navigation/Event/Thing/Channel/Settings journeys")
+  claims+=("Android selected App-owned UI journeys: $classes")
 }
 
 run_system_notification_journey() {
@@ -369,7 +373,7 @@ case "$lane" in
     run_jvm_and_compile_device_tests
     ;;
   pr-ui)
-    run_quality_device_classes
+    run_quality_device_classes "$positive_device_scopes"
     ;;
   device)
     run_jvm_and_compile_device_tests
