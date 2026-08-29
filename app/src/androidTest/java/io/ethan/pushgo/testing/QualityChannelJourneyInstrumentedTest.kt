@@ -1,8 +1,13 @@
 package io.ethan.pushgo.testing
 
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
 import androidx.compose.ui.test.*
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import androidx.test.platform.app.InstrumentationRegistry
+import org.junit.Assert.assertEquals
 import org.junit.Test
 import org.junit.runner.RunWith
 
@@ -34,6 +39,32 @@ class QualityChannelJourneyInstrumentedTest : QualityAppJourneyTestCase() {
         )
 
         openChannels()
+        val expectedCopiedChannelId = "01H00000000000000000000001"
+        val targetContext = InstrumentationRegistry.getInstrumentation().targetContext
+        val clipboard = targetContext.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+        val savedClip = clipboard.primaryClip
+        try {
+            clipboard.setPrimaryClip(ClipData.newPlainText("quality", "pushgo-quality-copy-sentinel"))
+            composeRule.onNodeWithTag("channel.row.$expectedCopiedChannelId")
+                .assertIsDisplayed()
+                .performClick()
+            composeRule.waitUntil(timeoutMillis = 3_000) {
+                clipboard.primaryClip
+                    ?.getItemAt(0)
+                    ?.coerceToText(targetContext)
+                    ?.toString() == expectedCopiedChannelId
+            }
+            assertEquals(
+                expectedCopiedChannelId,
+                clipboard.primaryClip?.getItemAt(0)?.coerceToText(targetContext)?.toString(),
+            )
+        } finally {
+            if (savedClip != null) {
+                clipboard.setPrimaryClip(savedClip)
+            } else {
+                clipboard.clearPrimaryClip()
+            }
+        }
         composeRule.onNodeWithTag("action.channels.add").performClick()
         composeRule.onNodeWithTag("sheet.channels.entry").assertIsDisplayed()
         composeRule.onNodeWithTag("field.channels.create.name").performTextInput("Quality Created Channel")
