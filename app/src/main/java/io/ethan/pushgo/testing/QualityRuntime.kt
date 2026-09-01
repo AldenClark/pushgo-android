@@ -65,7 +65,8 @@ enum class QualityChannelMutationScenario(val wireValue: String) {
     ACCEPTED("accepted"),
     REJECT_ONCE_THEN_ACCEPTED("reject_once_then_accepted"),
     RENAME_REJECT_ONCE_THEN_ACCEPTED("rename_reject_once_then_accepted"),
-    REQUIRE_CREATE_COMPENSATION("require_create_compensation");
+    REQUIRE_CREATE_COMPENSATION("require_create_compensation"),
+    EXISTING_SUBSCRIBE_MUST_NOT_COMPENSATE("existing_subscribe_must_not_compensate");
 
     companion object {
         fun fromWireValue(value: String): QualityChannelMutationScenario? = entries.firstOrNull {

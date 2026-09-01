@@ -202,6 +202,7 @@ class AppContainer(
                 private var subscribeAttempts = 0
                 private var renameAttempts = 0
                 private val activeCreatedChannelIds = mutableSetOf<String>()
+                private var existingSubscriptionWasCompensated = false
 
                 private fun requireExpectedGateway(gatewayUrl: String) {
                     val expected = qualitySession?.expectedChannelMutationGatewayUrl ?: return
@@ -265,6 +266,17 @@ class AppContainer(
                     }
                     val resolvedId = channelId ?: "01H00000000000000000000003"
                     if (
+                        scenario == QualityChannelMutationScenario.EXISTING_SUBSCRIBE_MUST_NOT_COMPENSATE &&
+                        channelId != null &&
+                        existingSubscriptionWasCompensated
+                    ) {
+                        throw ChannelSubscriptionException.local(
+                            message = "The existing channel subscription was incorrectly revoked.",
+                            code = "existing_channel_subscription_was_compensated",
+                            category = GatewayErrorCategory.CONFLICT,
+                        )
+                    }
+                    if (
                         scenario == QualityChannelMutationScenario.REQUIRE_CREATE_COMPENSATION &&
                         channelId == null &&
                         resolvedId in activeCreatedChannelIds
@@ -311,6 +323,13 @@ class AppContainer(
                 override suspend fun unsubscribe(gatewayUrl: String, channelId: String) {
                     requireExpectedGateway(gatewayUrl)
                     check(channelId.isNotBlank()) { "quality channel unsubscribe requires an id" }
+                    if (
+                        scenario == QualityChannelMutationScenario.EXISTING_SUBSCRIBE_MUST_NOT_COMPENSATE &&
+                        channelId !in activeCreatedChannelIds
+                    ) {
+                        existingSubscriptionWasCompensated = true
+                        return
+                    }
                     activeCreatedChannelIds -= channelId
                 }
             }
