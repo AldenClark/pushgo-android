@@ -206,6 +206,12 @@ Doze 宿主脚本首次试跑 `build/quality-results/android-doze-positive-curre
 
 提交 `e69ae66` 的干净工作树在 `Medium_Phone / emulator-5554` fresh 执行 1/1，原生 failure/error/skip 均为 0；收据 `build/quality-results/android-delete-permanent-current-20260902/android-focused-summary.json` 的 product/test-system=`PASSED/PASSED`、`source_dirty=false`，选择器与 `executed_claims` 完全一致。该证据覆盖受控 emulator 的永久删除与存储重建边界，不外推进程死亡、系统通知或物理设备。
 
+### 2026-09-02 Android 加密消息设置恢复回归
+
+执行 `QualitySettingsJourneyInstrumentedTest#encryptedMessageRecoversThroughRealSettingsEntryAndSurvivesRelaunch`：从真实 Settings 入口输入错误 Key 时保持安全占位和可修正状态，输入正确 Key 后同一 canonical 消息正文恢复；Key 控件默认遮蔽、显隐状态和恢复后的 Activity 重开均必须准确。Oracle 以认证后的真实正文、原消息身份和持久状态为准，不以 Key 保存或控件存在代替用户目的。
+
+提交 `90848a1` 的干净工作树在 `Medium_Phone / emulator-5554` fresh 执行 1/1，原生 failure/error/skip 均为 0；收据 `build/quality-results/android-encryption-positive-current-20260902/android-focused-summary.json` 的 product/test-system=`PASSED/PASSED`、`source_dirty=false`，选择器与 `executed_claims` 完全一致。该证据覆盖受控 emulator 的加密恢复与设置持久化边界，不外推真实 Keystore/Provider、物理设备或 OEM。
+
 ### 2026-09-02 Android 网关核心规则提交后干净复验
 
 针对“先验证/注册、再覆盖旧网关”的核心规则，提交后干净工作树分别复验三条最小充分旅程：`serverConfigurationRejectsInvalidInputAndScopesDataAfterRelaunch`（非法地址/候选注册拒绝、旧配置保持）、`gatewayLocalCommitFailureRollsBackBeforeRetryCommits`（本地提交中点失败回滚）和 `gatewaySyncFailureReportsCommittedGatewayAndPendingRecovery`（提交后同步待恢复）。三条均在 `Medium_Phone / emulator-5554` fresh 1/1、零 failure/error/skip，收据分别为 `build/quality-results/android-gateway-validation-clean-20260902/android-focused-summary.json`、`build/quality-results/android-gateway-local-rollback-clean-20260902/android-focused-summary.json`、`build/quality-results/android-gateway-sync-pending-clean-20260902/android-focused-summary.json`；均为 product/test-system=`PASSED/PASSED`、`source_dirty=false`，选择器和 `executed_claims` 一致。该组只证明受控 emulator 的真实 Settings/重开边界，不外推真实公网 Gateway、FCM/Private、物理设备/OEM、进程死亡或长期观察。
