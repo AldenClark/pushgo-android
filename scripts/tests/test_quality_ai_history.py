@@ -1,6 +1,8 @@
 import copy
 import importlib.util
 import json
+import subprocess
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -80,15 +82,102 @@ class QualityAIHistoryTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "duplicate historical commit"):
             AI_HISTORY.evaluate_corpus(REPO, corpus, self.manifest, QUALITY_IMPACT)
 
-    def test_blind_packets_do_not_disclose_target_commits_or_answers(self):
+    def test_blind_packets_disclose_acceptance_contract_without_target_or_answers(self):
         output = AI_HISTORY.blind_packets(REPO, self.corpus)
 
         self.assertEqual(len(self.corpus["tasks"]), len(output["packets"]))
-        for packet in output["packets"]:
+        for task, packet in zip(self.corpus["tasks"], output["packets"], strict=True):
+            full_commit, _, _ = AI_HISTORY.changed_paths(REPO, task["commit"])
+            self.assertEqual(
+                {
+                    "id",
+                    "task_prompt",
+                    *AI_HISTORY.BLIND_PACKET_CONTRACT_FIELDS,
+                    "required_response",
+                    "materialize_command",
+                },
+                set(packet),
+            )
             self.assertNotIn("commit", packet)
+            self.assertNotIn("base_commit", packet)
             self.assertNotIn("semantic_review", packet)
+            self.assertNotIn("minimum_lane", packet)
             self.assertNotIn("required_capabilities", packet)
+            self.assertNotIn("required_changed_path_groups", packet)
+            for field in AI_HISTORY.BLIND_PACKET_CONTRACT_FIELDS:
+                self.assertIn(field, packet)
+                self.assertEqual(task[field], packet[field])
+            serialized = json.dumps(packet, ensure_ascii=False, sort_keys=True)
+            self.assertNotIn(full_commit, serialized)
+            self.assertNotIn(task["commit"], serialized)
+            self.assertNotIn('"semantic_review"', serialized)
             self.assertIn("--materialize-task", packet["materialize_command"])
+
+    def test_blind_packet_contract_is_detached_from_answer_corpus(self):
+        output = AI_HISTORY.blind_packets(REPO, self.corpus)
+        packet = output["packets"][0]
+        original_outcome = self.corpus["tasks"][0]["user_outcome"]
+
+        packet["user_outcome"] = "mutated-review-input"
+
+        self.assertEqual(
+            original_outcome,
+            self.corpus["tasks"][0]["user_outcome"],
+        )
+
+    def test_materialized_snapshot_is_history_free_parent_without_review_answers(self):
+        task = self.corpus["tasks"][0]
+        full_commit, changed_paths, parent = AI_HISTORY.changed_paths(REPO, task["commit"])
+        with tempfile.TemporaryDirectory() as temporary:
+            output = Path(temporary) / "snapshot"
+            AI_HISTORY.materialize_history_free_snapshot(
+                REPO,
+                self.corpus,
+                task["id"],
+                output,
+            )
+
+            self.assertFalse((output / ".git").exists())
+            for relative in AI_HISTORY.BLIND_REVIEW_ONLY_PATHS:
+                self.assertFalse((output / relative).exists(), relative)
+
+            compared = False
+            for path in changed_paths:
+                parent_bytes = subprocess.run(
+                    ["git", "show", f"{parent}:{path}"],
+                    cwd=REPO,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.DEVNULL,
+                )
+                target_bytes = subprocess.run(
+                    ["git", "show", f"{full_commit}:{path}"],
+                    cwd=REPO,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.DEVNULL,
+                )
+                snapshot_path = output / path
+                if (
+                    parent_bytes.returncode == 0
+                    and target_bytes.returncode == 0
+                    and parent_bytes.stdout != target_bytes.stdout
+                    and snapshot_path.is_file()
+                ):
+                    self.assertEqual(parent_bytes.stdout, snapshot_path.read_bytes())
+                    compared = True
+                    break
+            self.assertTrue(compared, "fixture task must contain a changed parent file")
+
+    def test_materialization_refuses_to_overwrite_existing_output(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            output = Path(temporary) / "already-exists"
+            output.mkdir()
+            with self.assertRaisesRegex(ValueError, "must not already exist"):
+                AI_HISTORY.materialize_history_free_snapshot(
+                    REPO,
+                    self.corpus,
+                    self.corpus["tasks"][0]["id"],
+                    output,
+                )
 
 
 if __name__ == "__main__":

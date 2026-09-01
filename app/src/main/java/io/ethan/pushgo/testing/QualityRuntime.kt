@@ -7,10 +7,12 @@ import io.ethan.pushgo.data.ProviderPullContract
 import io.ethan.pushgo.data.ProviderPullPage
 import io.ethan.pushgo.data.PullItem
 import java.io.File
+import java.net.URI
 import java.util.Base64
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.delay
+import org.json.JSONArray
 import org.json.JSONObject
 
 enum class QualityFixture(val wireValue: String) {
@@ -20,6 +22,7 @@ enum class QualityFixture(val wireValue: String) {
     MESSAGES_ENCRYPTED_CORRUPT("messages.encrypted.corrupt"),
     MESSAGES_WORKFLOW("messages.workflow"),
     MESSAGES_FILTERS("messages.filters"),
+    MESSAGES_CLEANUP("messages.cleanup"),
     MESSAGES_MARKDOWN("messages.markdown"),
     MESSAGES_LARGE("messages.large"),
     EVENT_STANDARD("event.standard"),
@@ -61,6 +64,7 @@ enum class QualityChannelMutationScenario(val wireValue: String) {
     NONE("none"),
     ACCEPTED("accepted"),
     REJECT_ONCE_THEN_ACCEPTED("reject_once_then_accepted"),
+    RENAME_REJECT_ONCE_THEN_ACCEPTED("rename_reject_once_then_accepted"),
     REQUIRE_CREATE_COMPENSATION("require_create_compensation");
 
     companion object {
@@ -82,13 +86,50 @@ enum class QualityTransportSwitchScenario(val wireValue: String) {
     }
 }
 
+enum class QualityUpdateScenario(val wireValue: String) {
+    NONE("none"),
+    AVAILABLE_STABLE("available_stable"),
+    AVAILABLE_STABLE_AND_BETA("available_stable_and_beta");
+
+    companion object {
+        fun fromWireValue(value: String): QualityUpdateScenario? = entries.firstOrNull {
+            it.wireValue == value
+        }
+    }
+}
+
+enum class QualitySystemCapability(val wireValue: String) {
+    PRIVATE_FOREGROUND_SERVICE("private_foreground_service"),
+    NOTIFICATION_PERMISSION_JOURNEY("notification_permission_journey"),
+    DOZE_REMINDER_JOURNEY("doze_reminder_journey");
+
+    companion object {
+        fun fromWireValue(value: String): QualitySystemCapability? = entries.firstOrNull {
+            it.wireValue == value
+        }
+    }
+}
+
+data class QualityUpdateArtifact(
+    val versionCode: Int,
+    val versionName: String,
+    val apkUrl: String,
+    val apkSha256: String,
+)
+
 data class QualityFaults(
     val failLocalStoreInitialization: Boolean = false,
     val messageLoadDelayMs: Int? = null,
+    val messagePageLoadDelayMs: Int? = null,
     val messageRefreshDelayMs: Int? = null,
+    val messageRefreshPresentationDelayMs: Int? = null,
+    val messageSearchDelayMs: Int? = null,
     val failMessageLoad: Boolean = false,
+    val failMessagePageLoadOnce: Boolean = false,
+    val failMessageSearchOnce: Boolean = false,
     val failGatewaySwitchValidationOnce: Boolean = false,
     val failGatewaySwitchCommitOnce: Boolean = false,
+    val failGatewayPostCommitSyncOnce: Boolean = false,
     val failNotificationKeyPersistenceOnce: Boolean = false,
     val failChannelSubscriptionPersistenceOnce: Boolean = false,
     val failTransportSelectionPersistenceOnce: Boolean = false,
@@ -102,7 +143,11 @@ data class QualitySessionDescriptor(
     val messageRefreshScenario: QualityMessageRefreshScenario = QualityMessageRefreshScenario.NONE,
     val eventCloseScenario: QualityEventCloseScenario = QualityEventCloseScenario.NONE,
     val channelMutationScenario: QualityChannelMutationScenario = QualityChannelMutationScenario.NONE,
+    val expectedChannelMutationGatewayUrl: String? = null,
     val transportSwitchScenario: QualityTransportSwitchScenario = QualityTransportSwitchScenario.NONE,
+    val updateScenario: QualityUpdateScenario = QualityUpdateScenario.NONE,
+    val updateArtifact: QualityUpdateArtifact? = null,
+    val systemCapabilities: Set<QualitySystemCapability> = emptySet(),
 ) {
     val databaseName: String
         get() = "pushgo-quality-$sessionId.db"
@@ -112,6 +157,9 @@ data class QualitySessionDescriptor(
 
     val settingsCachePreferencesName: String
         get() = "pushgo-quality-$sessionId-settings-cache"
+
+    val reminderSnoozePreferencesName: String
+        get() = "pushgo-quality-$sessionId-reminder-snooze"
 }
 
 sealed interface RuntimeProfile {
@@ -132,27 +180,44 @@ object QualityRuntime {
     @Volatile
     private var configuredProfile: RuntimeProfile = RuntimeProfile.Production
     private val pendingMessageLoadDelay = AtomicBoolean(false)
+    private val pendingMessagePageLoadDelay = AtomicBoolean(false)
     private val pendingMessageRefreshDelay = AtomicBoolean(false)
+    private val pendingMessageRefreshPresentationDelay = AtomicBoolean(false)
+    private val pendingMessageSearchDelay = AtomicBoolean(false)
     private val remainingMessageLoadFailures = AtomicInteger(0)
+    private val remainingMessagePageLoadFailures = AtomicInteger(0)
+    private val remainingMessageSearchFailures = AtomicInteger(0)
     private val remainingGatewaySwitchValidationFailures = AtomicInteger(0)
     private val remainingGatewaySwitchCommitFailures = AtomicInteger(0)
+    private val remainingGatewayPostCommitSyncFailures = AtomicInteger(0)
     private val remainingNotificationKeyPersistenceFailures = AtomicInteger(0)
     private val pendingChannelSubscriptionPersistenceFailure = AtomicBoolean(false)
     private val remainingChannelSubscriptionPersistenceFailures = AtomicInteger(0)
     private val remainingTransportSelectionPersistenceFailures = AtomicInteger(0)
     private val messageRefreshScenarioAttempts = AtomicInteger(0)
 
+    fun allowsSystemCapability(capability: QualitySystemCapability): Boolean =
+        currentSession()?.systemCapabilities?.contains(capability) == true
+
     fun configure(encodedSession: String?): RuntimeProfile {
         configuredProfile = resolve(encodedSession)
         val faults = currentSession()?.faults
         pendingMessageLoadDelay.set((faults?.messageLoadDelayMs ?: 0) > 0)
+        pendingMessagePageLoadDelay.set((faults?.messagePageLoadDelayMs ?: 0) > 0)
         pendingMessageRefreshDelay.set((faults?.messageRefreshDelayMs ?: 0) > 0)
+        pendingMessageRefreshPresentationDelay.set(false)
+        pendingMessageSearchDelay.set((faults?.messageSearchDelayMs ?: 0) > 0)
         remainingMessageLoadFailures.set(if (faults?.failMessageLoad == true) 1 else 0)
+        remainingMessagePageLoadFailures.set(if (faults?.failMessagePageLoadOnce == true) 1 else 0)
+        remainingMessageSearchFailures.set(if (faults?.failMessageSearchOnce == true) 1 else 0)
         remainingGatewaySwitchValidationFailures.set(
             if (faults?.failGatewaySwitchValidationOnce == true) 1 else 0
         )
         remainingGatewaySwitchCommitFailures.set(
             if (faults?.failGatewaySwitchCommitOnce == true) 1 else 0
+        )
+        remainingGatewayPostCommitSyncFailures.set(
+            if (faults?.failGatewayPostCommitSyncOnce == true) 1 else 0
         )
         remainingNotificationKeyPersistenceFailures.set(
             if (faults?.failNotificationKeyPersistenceOnce == true) 1 else 0
@@ -178,10 +243,52 @@ object QualityRuntime {
         }
     }
 
+    suspend fun beforeMessagePageLoad() {
+        val faults = currentSession()?.faults ?: return
+        if (pendingMessagePageLoadDelay.compareAndSet(true, false)) {
+            delay(faults.messagePageLoadDelayMs?.toLong() ?: 0L)
+        }
+        if (remainingMessagePageLoadFailures.getAndUpdate { value ->
+                (value - 1).coerceAtLeast(0)
+            } > 0
+        ) {
+            throw QualityMessagePageLoadException()
+        }
+    }
+
     suspend fun beforeMessageRefresh() {
         val faults = currentSession()?.faults ?: return
         if (pendingMessageRefreshDelay.compareAndSet(true, false)) {
             delay(faults.messageRefreshDelayMs?.toLong() ?: 0L)
+        }
+    }
+
+    fun armMessageRefreshPresentationDelay() {
+        val delayMs = currentSession()?.faults?.messageRefreshPresentationDelayMs ?: 0
+        pendingMessageRefreshPresentationDelay.set(delayMs > 0)
+    }
+
+    suspend fun beforeMessageRefreshPresentation() {
+        val faults = currentSession()?.faults ?: return
+        if (pendingMessageRefreshPresentationDelay.compareAndSet(true, false)) {
+            delay(faults.messageRefreshPresentationDelayMs?.toLong() ?: 0L)
+        }
+    }
+
+    suspend fun beforeMessageSearch(rawQuery: String) {
+        if (rawQuery.isBlank()) return
+        val faults = currentSession()?.faults ?: return
+        if (pendingMessageSearchDelay.compareAndSet(true, false)) {
+            delay(faults.messageSearchDelayMs?.toLong() ?: 0L)
+        }
+    }
+
+    fun beforeMessageSearchLoad() {
+        if (remainingMessageSearchFailures.getAndUpdate { value ->
+                (value - 1).coerceAtLeast(0)
+            } > 0
+        ) {
+            throw QualityMessageSearchException()
         }
     }
 
@@ -200,6 +307,15 @@ object QualityRuntime {
             } > 0
         ) {
             throw QualityGatewaySwitchCommitException()
+        }
+    }
+
+    fun beforeGatewayPostCommitSync() {
+        if (remainingGatewayPostCommitSyncFailures.getAndUpdate { value ->
+                (value - 1).coerceAtLeast(0)
+            } > 0
+        ) {
+            throw QualityGatewayPostCommitSyncException()
         }
     }
 
@@ -356,22 +472,95 @@ object QualityRuntime {
         ) {
             "unsupported channel mutation scenario: $channelMutationScenarioValue"
         }
+        val expectedChannelMutationGatewayUrl = payload
+            .optString("expected_channel_mutation_gateway_url")
+            .trim()
+            .ifEmpty { null }
         val transportSwitchScenarioValue = payload.optString("transport_switch_scenario", "none").trim()
         val transportSwitchScenario = requireNotNull(
             QualityTransportSwitchScenario.fromWireValue(transportSwitchScenarioValue)
         ) {
             "unsupported transport switch scenario: $transportSwitchScenarioValue"
         }
+        val updateScenarioValue = payload.optString("update_scenario", "none").trim()
+        val updateScenario = requireNotNull(QualityUpdateScenario.fromWireValue(updateScenarioValue)) {
+            "unsupported update scenario: $updateScenarioValue"
+        }
+        val updateArtifact = payload.optJSONObject("update_artifact")?.let { artifact ->
+            val versionCode = artifact.optInt("version_code", -1)
+            val versionName = artifact.optString("version_name").trim()
+            val apkUrl = artifact.optString("apk_url").trim()
+            val apkSha256 = artifact.optString("apk_sha256").trim().lowercase()
+            require(versionCode > 0) { "quality update artifact version code must be positive" }
+            require(versionName.isNotEmpty() && versionName.length <= 64) {
+                "quality update artifact version name is invalid"
+            }
+            require(apkSha256.matches(Regex("[0-9a-f]{64}"))) {
+                "quality update artifact SHA-256 is invalid"
+            }
+            val uri = runCatching { URI(apkUrl) }
+                .getOrElse { throw IllegalArgumentException("quality update artifact URL is invalid", it) }
+            require(!uri.host.isNullOrBlank()) {
+                "quality update artifact URL must include a host"
+            }
+            val httpLoopback = uri.scheme == "http" && uri.host in setOf("127.0.0.1", "localhost")
+            require(uri.scheme == "https" || httpLoopback) {
+                "quality update artifact URL must use HTTPS or loopback HTTP"
+            }
+            require(uri.userInfo == null && uri.fragment == null) {
+                "quality update artifact URL cannot contain credentials or a fragment"
+            }
+            QualityUpdateArtifact(
+                versionCode = versionCode,
+                versionName = versionName,
+                apkUrl = apkUrl,
+                apkSha256 = apkSha256,
+            )
+        }
+        require(updateArtifact == null || updateScenario == QualityUpdateScenario.AVAILABLE_STABLE) {
+            "quality update artifact requires the available_stable scenario"
+        }
+        val systemCapabilities = payload.optJSONArray("system_capabilities")?.let { values ->
+            buildSet {
+                for (index in 0 until values.length()) {
+                    val wireValue = values.optString(index).trim()
+                    require(wireValue.isNotEmpty()) {
+                        "quality system capability must be a non-empty string"
+                    }
+                    add(
+                        requireNotNull(QualitySystemCapability.fromWireValue(wireValue)) {
+                            "unsupported quality system capability: $wireValue"
+                        }
+                    )
+                }
+            }
+        }.orEmpty()
         val faultsJson = payload.optJSONObject("faults")
         val delay = faultsJson?.takeIf { it.has("message_load_delay_ms") }
             ?.getInt("message_load_delay_ms")
         require(delay == null || delay in 0..30_000) {
             "message load delay must be between 0 and 30000 ms"
         }
+        val pageDelay = faultsJson?.takeIf { it.has("message_page_load_delay_ms") }
+            ?.getInt("message_page_load_delay_ms")
+        require(pageDelay == null || pageDelay in 0..30_000) {
+            "message page load delay must be between 0 and 30000 ms"
+        }
         val refreshDelay = faultsJson?.takeIf { it.has("message_refresh_delay_ms") }
             ?.getInt("message_refresh_delay_ms")
         require(refreshDelay == null || refreshDelay in 0..30_000) {
             "message refresh delay must be between 0 and 30000 ms"
+        }
+        val refreshPresentationDelay = faultsJson
+            ?.takeIf { it.has("message_refresh_presentation_delay_ms") }
+            ?.getInt("message_refresh_presentation_delay_ms")
+        require(refreshPresentationDelay == null || refreshPresentationDelay in 0..30_000) {
+            "message refresh presentation delay must be between 0 and 30000 ms"
+        }
+        val searchDelay = faultsJson?.takeIf { it.has("message_search_delay_ms") }
+            ?.getInt("message_search_delay_ms")
+        require(searchDelay == null || searchDelay in 0..30_000) {
+            "message search delay must be between 0 and 30000 ms"
         }
         return QualitySessionDescriptor(
             schemaVersion = schemaVersion,
@@ -383,14 +572,29 @@ object QualityRuntime {
                     false,
                 ) ?: false,
                 messageLoadDelayMs = delay,
+                messagePageLoadDelayMs = pageDelay,
                 messageRefreshDelayMs = refreshDelay,
+                messageRefreshPresentationDelayMs = refreshPresentationDelay,
+                messageSearchDelayMs = searchDelay,
                 failMessageLoad = faultsJson?.optBoolean("fail_message_load", false) ?: false,
+                failMessagePageLoadOnce = faultsJson?.optBoolean(
+                    "fail_message_page_load_once",
+                    false,
+                ) ?: false,
+                failMessageSearchOnce = faultsJson?.optBoolean(
+                    "fail_message_search_once",
+                    false,
+                ) ?: false,
                 failGatewaySwitchValidationOnce = faultsJson?.optBoolean(
                     "fail_gateway_switch_validation_once",
                     false,
                 ) ?: false,
                 failGatewaySwitchCommitOnce = faultsJson?.optBoolean(
                     "fail_gateway_switch_commit_once",
+                    false,
+                ) ?: false,
+                failGatewayPostCommitSyncOnce = faultsJson?.optBoolean(
+                    "fail_gateway_post_commit_sync_once",
                     false,
                 ) ?: false,
                 failNotificationKeyPersistenceOnce = faultsJson?.optBoolean(
@@ -409,7 +613,11 @@ object QualityRuntime {
             messageRefreshScenario = refreshScenario,
             eventCloseScenario = eventCloseScenario,
             channelMutationScenario = channelMutationScenario,
+            expectedChannelMutationGatewayUrl = expectedChannelMutationGatewayUrl,
             transportSwitchScenario = transportSwitchScenario,
+            updateScenario = updateScenario,
+            updateArtifact = updateArtifact,
+            systemCapabilities = systemCapabilities,
         )
     }
 
@@ -417,6 +625,8 @@ object QualityRuntime {
         val faults = JSONObject()
             .put("fail_local_store_initialization", session.faults.failLocalStoreInitialization)
             .put("fail_message_load", session.faults.failMessageLoad)
+            .put("fail_message_page_load_once", session.faults.failMessagePageLoadOnce)
+            .put("fail_message_search_once", session.faults.failMessageSearchOnce)
             .put(
                 "fail_gateway_switch_validation_once",
                 session.faults.failGatewaySwitchValidationOnce,
@@ -424,6 +634,10 @@ object QualityRuntime {
             .put(
                 "fail_gateway_switch_commit_once",
                 session.faults.failGatewaySwitchCommitOnce,
+            )
+            .put(
+                "fail_gateway_post_commit_sync_once",
+                session.faults.failGatewayPostCommitSyncOnce,
             )
             .put(
                 "fail_notification_key_persistence_once",
@@ -440,8 +654,17 @@ object QualityRuntime {
         session.faults.messageLoadDelayMs?.let {
             faults.put("message_load_delay_ms", it)
         }
+        session.faults.messagePageLoadDelayMs?.let {
+            faults.put("message_page_load_delay_ms", it)
+        }
         session.faults.messageRefreshDelayMs?.let {
             faults.put("message_refresh_delay_ms", it)
+        }
+        session.faults.messageRefreshPresentationDelayMs?.let {
+            faults.put("message_refresh_presentation_delay_ms", it)
+        }
+        session.faults.messageSearchDelayMs?.let {
+            faults.put("message_search_delay_ms", it)
         }
         val payload = JSONObject()
             .put("schema_version", session.schemaVersion)
@@ -450,8 +673,24 @@ object QualityRuntime {
             .put("message_refresh_scenario", session.messageRefreshScenario.wireValue)
             .put("event_close_scenario", session.eventCloseScenario.wireValue)
             .put("channel_mutation_scenario", session.channelMutationScenario.wireValue)
+            .put("expected_channel_mutation_gateway_url", session.expectedChannelMutationGatewayUrl)
             .put("transport_switch_scenario", session.transportSwitchScenario.wireValue)
+            .put("update_scenario", session.updateScenario.wireValue)
+            .put(
+                "system_capabilities",
+                JSONArray(session.systemCapabilities.map(QualitySystemCapability::wireValue)),
+            )
             .put("faults", faults)
+        session.updateArtifact?.let { artifact ->
+            payload.put(
+                "update_artifact",
+                JSONObject()
+                    .put("version_code", artifact.versionCode)
+                    .put("version_name", artifact.versionName)
+                    .put("apk_url", artifact.apkUrl)
+                    .put("apk_sha256", artifact.apkSha256),
+            )
+        }
         return Base64.getEncoder().encodeToString(payload.toString().toByteArray())
     }
 
@@ -550,10 +789,14 @@ object QualityRuntime {
     internal fun resetForTesting() {
         configuredProfile = RuntimeProfile.Production
         pendingMessageLoadDelay.set(false)
+        pendingMessagePageLoadDelay.set(false)
         pendingMessageRefreshDelay.set(false)
+        pendingMessageSearchDelay.set(false)
         remainingMessageLoadFailures.set(0)
+        remainingMessageSearchFailures.set(0)
         remainingGatewaySwitchValidationFailures.set(0)
         remainingGatewaySwitchCommitFailures.set(0)
+        remainingGatewayPostCommitSyncFailures.set(0)
         remainingNotificationKeyPersistenceFailures.set(0)
         pendingChannelSubscriptionPersistenceFailure.set(false)
         remainingChannelSubscriptionPersistenceFailures.set(0)
@@ -564,6 +807,10 @@ object QualityRuntime {
 
 class QualityMessageLoadException : IllegalStateException("Injected message list load failure")
 
+class QualityMessagePageLoadException : IllegalStateException("Injected message page load failure")
+
+class QualityMessageSearchException : IllegalStateException("Injected message search failure")
+
 class QualityMessageRefreshException : IllegalStateException("Injected provider refresh failure")
 
 class QualityGatewaySwitchValidationException :
@@ -571,6 +818,9 @@ class QualityGatewaySwitchValidationException :
 
 class QualityGatewaySwitchCommitException :
     IllegalStateException("Injected candidate gateway local commit failure")
+
+class QualityGatewayPostCommitSyncException :
+    IllegalStateException("Injected post-commit gateway subscription sync failure")
 
 class QualityNotificationKeyPersistenceException :
     IllegalStateException("Injected protected notification key persistence failure")

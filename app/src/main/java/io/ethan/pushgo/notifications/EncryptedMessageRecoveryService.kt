@@ -19,7 +19,7 @@ class EncryptedMessageRecoveryService(
         var decryptedCount = 0
 
         for (existing in candidates) {
-            val payload = payloadStrings(existing.rawPayloadJson) ?: continue
+            val payload = encryptedRecoveryPayloadStrings(existing.rawPayloadJson) ?: continue
             val reparsed = NotificationIngressParser.parse(
                 data = payload,
                 transportMessageId = existing.notificationId,
@@ -47,15 +47,30 @@ class EncryptedMessageRecoveryService(
         )
     }
 
-    private fun payloadStrings(rawPayloadJson: String): Map<String, String>? {
-        val source = runCatching { JSONObject(rawPayloadJson) }.getOrNull() ?: return null
-        return buildMap {
-            source.keys().forEach { key ->
-                val value = source.opt(key)
-                if (value != null && value != JSONObject.NULL) {
-                    put(key, if (value is String) value else value.toString())
-                }
+}
+
+internal fun encryptedRecoveryPayloadStrings(rawPayloadJson: String): Map<String, String>? {
+    val source = runCatching { JSONObject(rawPayloadJson) }.getOrNull() ?: return null
+    return buildMap {
+        source.keys().forEach { key ->
+            if (
+                key == NotificationIngressParser.RECOVERY_TITLE_CIPHERTEXT ||
+                key == NotificationIngressParser.RECOVERY_BODY_CIPHERTEXT
+            ) {
+                return@forEach
+            }
+            val value = source.opt(key)
+            if (value != null && value != JSONObject.NULL) {
+                put(key, if (value is String) value else value.toString())
             }
         }
+        source.optString(NotificationIngressParser.RECOVERY_TITLE_CIPHERTEXT)
+            .trim()
+            .takeIf { it.isNotEmpty() }
+            ?.let { put("title", it) }
+        source.optString(NotificationIngressParser.RECOVERY_BODY_CIPHERTEXT)
+            .trim()
+            .takeIf { it.isNotEmpty() }
+            ?.let { put("body", it) }
     }
 }

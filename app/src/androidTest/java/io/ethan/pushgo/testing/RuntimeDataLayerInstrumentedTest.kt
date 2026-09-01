@@ -125,8 +125,8 @@ class RuntimeDataLayerInstrumentedTest {
         assertEquals(original.messageId, failed.messageId)
         assertTrue(failed.isRead)
         assertEquals(persistedBeforeRecovery.receivedAt, failed.receivedAt)
-        assertEquals(original.title, failed.title)
-        assertEquals(original.body, failed.body)
+        assertEquals(NotificationIngressParser.AUTHENTICATION_FAILED_TITLE, failed.title)
+        assertEquals(NotificationIngressParser.AUTHENTICATION_FAILED_BODY, failed.body)
         assertEquals(DecryptionState.DECRYPT_FAILED, failed.decryptionState)
         assertEquals(encodedCiphertext, JSONObject(failed.rawPayloadJson).getString("ciphertext"))
 
@@ -814,6 +814,65 @@ class RuntimeDataLayerInstrumentedTest {
         assertEquals("latest thing", db.thingHeadDao().getByThingId("ordered-thing")?.title)
         assertEquals(4, db.eventChangeLogDao().countAll())
         assertEquals(4, db.thingChangeLogDao().countAll())
+    }
+
+    @Test
+    fun eventStateConvergesAcrossTopLevelAndThingProjectionsInBothDirections() = runBlocking {
+        val db = openFreshDatabase().database
+        val entities = entityRepository(db)
+        val thingId = "converged-thing"
+        assertTrue(entities.insertIncoming(incomingEntity(
+            entityType = "thing", entityId = thingId, eventId = null, thingId = thingId,
+            title = "Converged Thing", deliveryId = "converged-thing-create",
+            receivedAtMs = BASE_TIME_MS,
+        )))
+
+        suspend fun seedBothProjections(eventId: String, offset: Long) {
+            assertTrue(entities.insertIncoming(incomingEntity(
+                entityType = "event", entityId = eventId, eventId = eventId, thingId = null,
+                title = "Converged Event", deliveryId = "$eventId-top",
+                receivedAtMs = BASE_TIME_MS + offset,
+            )))
+            assertTrue(entities.insertIncoming(incomingEntity(
+                entityType = "event", entityId = eventId, eventId = eventId, thingId = thingId,
+                title = "Converged Event", deliveryId = "$eventId-thing",
+                receivedAtMs = BASE_TIME_MS + offset + 1,
+            )))
+        }
+
+        fun closedRecord(eventId: String, thingId: String?, offset: Long): IncomingEntityRecord {
+            return incomingEntity(
+                entityType = "event", entityId = eventId, eventId = eventId, thingId = thingId,
+                title = "", deliveryId = "$eventId-close",
+                receivedAtMs = BASE_TIME_MS + offset,
+            ).let { record ->
+                record.copy(
+                    rawPayloadJson = JSONObject(record.rawPayloadJson)
+                        .put("event_state", "closed")
+                        .put("status", "closed")
+                        .toString(),
+                    eventState = "closed",
+                )
+            }
+        }
+
+        val topClosedEventId = "top-close-convergence"
+        seedBothProjections(topClosedEventId, 1_000)
+        assertTrue(entities.insertIncoming(closedRecord(topClosedEventId, thingId = null, offset = 2_000)))
+        assertEquals("closed", db.topLevelEventHeadDao().getByEventId(topClosedEventId)?.eventState)
+        assertEquals(
+            "closed",
+            db.thingSubEventDao().getByEventId(topClosedEventId).maxBy { it.receivedAt }.eventState,
+        )
+
+        val thingClosedEventId = "thing-close-convergence"
+        seedBothProjections(thingClosedEventId, 3_000)
+        assertTrue(entities.insertIncoming(closedRecord(thingClosedEventId, thingId = thingId, offset = 4_000)))
+        assertEquals("closed", db.topLevelEventHeadDao().getByEventId(thingClosedEventId)?.eventState)
+        assertEquals(
+            "closed",
+            db.thingSubEventDao().getByEventId(thingClosedEventId).maxBy { it.receivedAt }.eventState,
+        )
     }
 
     @Test

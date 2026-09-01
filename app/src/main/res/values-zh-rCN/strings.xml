@@ -133,6 +133,7 @@
     <string name="label_send_type_event">事件</string>
     <string name="label_send_type_thing">对象</string>
     <string name="message_gateway_saved">网关已保存</string>
+    <string name="message_gateway_saved_sync_pending">网关已切换，频道同步待完成，稍后会自动重试。</string>
     <string name="message_show_unread_only">只显示未读</string>
     <string name="dialog_private_channel_whitelist_title">请保持 PushGo 后台运行</string>
     <string name="dialog_private_channel_whitelist_body">私有通道依赖后台长连接。请将 PushGo 加入系统电池/后台白名单，并关闭激进省电清理，否则可能出现消息延迟或收不到消息。</string>
@@ -348,4 +349,9 @@
     <string name="label_docs_e2ee_hint">了解数据加密和客户端解密密钥配置。</string>
     <string name="a11y_open_documentation">%1$s。%2$s 将在浏览器中打开。</string>
     <string name="error_open_documentation">无法打开文档。</string>
+    <string name="channel_stats_empty">暂无消息</string>
+    <string name="channel_stats_loading">正在加载动态…</string>
+    <string name="channel_stats_no_recent">暂无最近消息</string>
+    <string name="channel_stats_summary">%1$d 条消息 · %2$d 条未读 · 最近 %3$s</string>
+    <string name="channel_stats_unavailable">动态暂不可用</string>
 </resources>

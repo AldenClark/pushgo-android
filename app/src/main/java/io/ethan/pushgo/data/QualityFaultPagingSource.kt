@@ -12,6 +12,13 @@ import kotlinx.coroutines.CancellationException
  */
 internal class QualityFaultPagingSource<Key : Any, Value : Any>(
     private val delegate: PagingSource<Key, Value>,
+    private val beforeLoad: suspend (PagingSource.LoadParams<Key>) -> Unit = { params ->
+        if (params is PagingSource.LoadParams.Append) {
+            QualityRuntime.beforeMessagePageLoad()
+        } else {
+            QualityRuntime.beforeMessageListLoad()
+        }
+    },
 ) : PagingSource<Key, Value>() {
     init {
         registerInvalidatedCallback(delegate::invalidate)
@@ -22,7 +29,10 @@ internal class QualityFaultPagingSource<Key : Any, Value : Any>(
 
     override suspend fun load(params: LoadParams<Key>): LoadResult<Key, Value> {
         return try {
-            QualityRuntime.beforeMessageListLoad()
+            beforeLoad(params)
+            if (params is LoadParams.Refresh) {
+                QualityRuntime.beforeMessageRefreshPresentation()
+            }
             delegate.load(params)
         } catch (cancellation: CancellationException) {
             throw cancellation

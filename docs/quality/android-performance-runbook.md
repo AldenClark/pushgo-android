@@ -43,8 +43,11 @@ Macrobenchmark 不直接读取测试进程外的数据库，也不复制共享 D
 
 - 真实 Room 100k 写入、分页、FTS、筛选、投影、关闭重开；
 - 受控 emulator 上 Release-like Macrobenchmark dry-run，校验精确 1k 启动/详情目的；
+- 在上述正向 Macrobenchmark 通过后，以同一 App-owned `messages.large` 数据注入 3,500ms 首次加载延迟；只有准确 sentinel 标题最终可见且 2,000ms 预算断言如期失败，才证明性能门禁会对真实慢加载变红；
 - Release APK 构建与 Profile/测试控制隔离契约；
 - 若没有完整真机参数，结果明确记录真机性能 `NOT RUN`。
+
+慢加载负控不把“预期超时”写成产品通过：独立收据固定为 product `NOT_RUN` / test-system `PASSED`，记录注入值、实测值、预算和准确内容终点。若 App 接受超预算，或失败并非准确的预算断言，Lane 以测试系统 `FAILED` 退出。它复用刚构建的 benchmark APK，不重复 R8；当前增量执行约 16 秒，因此只随 `performance`/`release` 运行，不进入日常 PR/device 正向集。
 
 `release` Lane 是功能、设备、可访问性、性能与 Release 隔离的并集。Macrobenchmark/Profile 代码变化至少选择 `performance`；若同时影响消息功能、Room 或 UI，则选择器提升到 `release`。
 
@@ -93,6 +96,8 @@ ANDROID_BASELINE_PROFILE_DEVICE_SERIAL='<controlled-emulator-serial>' \
 4. 行、Sheet、正文不可达：UI/交互 `FAILED`；
 5. trace 无帧或解析失败：测试系统 `BLOCKED`；
 6. 指标有效但超过预算：性能 `FAILED`。
+
+慢加载敏感性负控是例外的“预期失败实验”：只有先到达准确内容终点、再触发精确预算失败才记 test-system `PASSED`；App 未被压慢、错误内容、准备失败、错误断言或测试被跳过均不得冒充敏感性证据。该实验不产生产品性能通过结论。
 
 修复后从最窄失败用例开始，再跑 `performance` Lane；改变 App、fixture、判定器、Profile 或 Release APK 后，旧 PASS 自动失效。
 

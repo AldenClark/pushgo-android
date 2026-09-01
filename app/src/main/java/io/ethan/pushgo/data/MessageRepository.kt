@@ -42,6 +42,49 @@ import org.json.JSONObject
 import java.util.Locale
 import java.util.concurrent.atomic.AtomicLong
 
+private val ENCRYPTED_RECOVERY_PROVENANCE_FIELDS = listOf(
+    "ciphertext",
+    "_pushgo_recovery_title_ciphertext",
+    "_pushgo_recovery_body_ciphertext",
+    "entity_type",
+    "entity_id",
+    "event_id",
+    "thing_id",
+    "event_state",
+    "event_time",
+    "observed_at",
+    "occurred_at",
+    "message_id",
+    "delivery_id",
+    "op_id",
+    "channel_id",
+    "server_id",
+    "base_url",
+    "provider_device_key",
+    "severity",
+    "ttl",
+    "sent_at",
+)
+
+internal fun hasSameEncryptedRecoveryProvenance(
+    existing: PushMessage,
+    replay: PushMessage,
+): Boolean {
+    fun provenance(rawPayloadJson: String): Map<String, String>? {
+        val payload = runCatching { JSONObject(rawPayloadJson) }.getOrNull() ?: return null
+        val encrypted = listOf(
+            "ciphertext",
+            "_pushgo_recovery_title_ciphertext",
+            "_pushgo_recovery_body_ciphertext",
+        ).any { key -> payload.optString(key, "").isNotBlank() }
+        if (!encrypted) return null
+        return ENCRYPTED_RECOVERY_PROVENANCE_FIELDS.associateWith { key ->
+            if (payload.has(key) && !payload.isNull(key)) payload.optString(key, "") else ""
+        }
+    }
+    return provenance(existing.rawPayloadJson)?.let { it == provenance(replay.rawPayloadJson) } == true
+}
+
 private const val SQLITE_BIND_PARAMETER_CHUNK_SIZE = 900
 private const val SQLITE_SEARCH_BIND_PARAMETER_BUDGET = SQLITE_BIND_PARAMETER_CHUNK_SIZE
 
@@ -63,6 +106,8 @@ class MessageRepository(
     private var searchIndexReady = false
     @Volatile
     private var summaryProjectionReady = false
+
+    suspend fun currentStoreRevision(): Long = channelStatsDao.storeRevision()
 
     private companion object {
         private const val TAG_METADATA_BACKFILL_PREFS = "pushgo_message_search_maintenance"
@@ -157,7 +202,15 @@ class MessageRepository(
         val pagingFlow = Pager(
             config = PagingConfig(pageSize = 50, enablePlaceholders = false, initialLoadSize = 50),
             pagingSourceFactory = {
-                searchPagingSource(plan, readState, normalizedExcludedIds, normalizedChannels, normalizedFacetTags)
+                val source = searchPagingSource(
+                    plan,
+                    readState,
+                    normalizedExcludedIds,
+                    normalizedChannels,
+                    normalizedFacetTags,
+                )
+                if (QualityRuntime.currentSession() == null) source
+                else QualityFaultPagingSource(source) { QualityRuntime.beforeMessageSearchLoad() }
             },
         ).flow.map { pagingData -> pagingData.map(MessageListRow::asListItem) }
         return flow {
@@ -329,12 +382,20 @@ class MessageRepository(
         reparsed: PushMessage,
     ): Boolean = database.withTransaction {
         val existingEntity = dao.getById(existingId) ?: return@withTransaction false
-        if (existingEntity.decryptionState == DecryptionState.DECRYPT_OK.name) {
+        if (existingEntity.decryptionState !in setOf(
+                DecryptionState.NOT_CONFIGURED.name,
+                DecryptionState.ALG_MISMATCH.name,
+                DecryptionState.DECRYPT_FAILED.name,
+            )
+        ) {
             return@withTransaction false
         }
         val existing = existingEntity.asModel()
         val stableMessageId = existing.messageId?.trim()?.takeIf(String::isNotEmpty)
         if (stableMessageId == null || reparsed.messageId?.trim() != stableMessageId) {
+            return@withTransaction false
+        }
+        if (!hasSameEncryptedRecoveryProvenance(existing, reparsed)) {
             return@withTransaction false
         }
         val replacement = reparsed.copy(
@@ -413,6 +474,7 @@ class MessageRepository(
         message: PushMessage,
         providerAckIdentity: ProviderAckIdentity? = null,
         deliveryScope: InboundDeliveryScope? = providerAckIdentity.inboundDeliveryScope(),
+        claimIngressIdentity: Boolean = true,
     ): Boolean {
         if (!isMessageEntity(message)) {
             return false
@@ -424,7 +486,7 @@ class MessageRepository(
                 channelId = canonicalMessage.channel,
                 entityType = canonicalMessage.entityType,
                 entityId = operationScopeEntityId(canonicalMessage),
-                deliveryId = canonicalMessage.deliveryId,
+                deliveryId = canonicalMessage.deliveryId.takeIf { claimIngressIdentity },
                 opId = canonicalMessage.opId,
                 appliedAt = canonicalMessage.receivedAt.toEpochMilli(),
                 providerAckIdentity = providerAckIdentity,
@@ -438,8 +500,8 @@ class MessageRepository(
                 channelId = canonicalMessage.channel,
                 entityType = canonicalMessage.entityType,
                 entityId = operationScopeEntityId(canonicalMessage),
-                opId = canonicalMessage.opId,
-                deliveryId = canonicalMessage.deliveryId,
+                opId = canonicalMessage.opId.takeIf { claimIngressIdentity },
+                deliveryId = canonicalMessage.deliveryId.takeIf { claimIngressIdentity },
                 appliedAt = canonicalMessage.receivedAt.toEpochMilli(),
                 providerAckIdentity = providerAckIdentity,
                 deliveryScope = deliveryScope,

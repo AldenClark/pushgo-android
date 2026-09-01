@@ -197,6 +197,7 @@ fun EventListScreen(
     var selectedEvent by remember { mutableStateOf<EventCardModel?>(null) }
     var closingEventId by remember { mutableStateOf<String?>(null) }
     var closeEventErrorMessage by remember { mutableStateOf<String?>(null) }
+    var targetUnavailableFeedback by remember { mutableStateOf<String?>(null) }
     var isPullRefreshing by remember { mutableStateOf(false) }
     var searchQuery by remember { mutableStateOf("") }
     var selectedChannelFilters by remember { mutableStateOf<Set<String>>(emptySet()) }
@@ -211,6 +212,7 @@ fun EventListScreen(
     val closeEventBodyDefault = stringResource(R.string.event_message_closed_default)
     val closeEventSuccessMessage = stringResource(R.string.message_event_closed)
     val missingChannelMessage = stringResource(R.string.error_event_missing_channel)
+    val targetUnavailableMessage = stringResource(R.string.error_gateway_resource_not_found)
     val eventsLabel = stringResource(R.string.label_send_type_event)
     val scope = rememberCoroutineScope()
     val listState = rememberLazyListState()
@@ -530,8 +532,14 @@ fun EventListScreen(
 
     LaunchedEffect(openEventId, allEvents, hasMoreEvents, isLoadingMoreEvents) {
         val target = openEventId?.trim()?.takeIf { it.isNotEmpty() } ?: return@LaunchedEffect
+        if (effectivePendingScope.suppressesEvent(target, null)) {
+            targetUnavailableFeedback = targetUnavailableMessage
+            onOpenEventHandled()
+            return@LaunchedEffect
+        }
         val matched = allEvents.firstOrNull { it.eventId == target }
         if (matched != null) {
+            targetUnavailableFeedback = null
             closeEventErrorMessage = null
             closingEventId = null
             selectedEvent = loadEventDetailModel(target) ?: matched
@@ -541,6 +549,7 @@ fun EventListScreen(
         }
         val detailEvent = loadEventDetailModel(target)
         if (detailEvent != null) {
+            targetUnavailableFeedback = null
             closeEventErrorMessage = null
             closingEventId = null
             selectedEvent = detailEvent
@@ -550,6 +559,9 @@ fun EventListScreen(
         }
         if (hasMoreEvents && !isLoadingMoreEvents) {
             loadMoreEventsIfNeeded()
+        } else if (hasLoadedOnce && !isLoadingMoreEvents) {
+            targetUnavailableFeedback = targetUnavailableMessage
+            onOpenEventHandled()
         }
     }
 
@@ -719,6 +731,11 @@ fun EventListScreen(
                     Text(text = stringResource(R.string.label_send_type_event), style = MaterialTheme.typography.headlineMedium.copy(fontWeight = FontWeight.SemiBold, letterSpacing = (-0.5).sp), color = uiColors.textPrimary, modifier = Modifier.padding(start = ScreenHorizontalPadding, top = 8.dp, bottom = 12.dp).semantics { heading() })
                 }
             }
+            targetUnavailableFeedback?.let { message ->
+                item {
+                    EntityTargetUnavailableNotice(message = message)
+                }
+            }
             if (filteredEvents.isEmpty()) {
                 item {
                     AppEmptyState(
@@ -734,6 +751,7 @@ fun EventListScreen(
                         event = event,
                         channelDisplayName = event.channelId?.let { channelNameMap[it] ?: it },
                         onClick = {
+                            targetUnavailableFeedback = null
                             closeEventErrorMessage = null
                             closingEventId = null
                             selectedEvent = event
@@ -1146,7 +1164,10 @@ fun EventDetailSheet(
                 iconSize = 40.dp,
             )
         } else {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Column(
+                modifier = Modifier.testTag("event.timeline.count.${timelineDescending.size}"),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
                 timelineDescending.forEach { row ->
                     val pointAttrs = parseEventDisplayAttributes(row.attrsJson)
                     Surface(
@@ -1236,7 +1257,10 @@ fun EventDetailSheet(
                 }
             },
             dismissButton = {
-                TextButton(onClick = { showCloseConfirmation = false }) {
+                TextButton(
+                    onClick = { showCloseConfirmation = false },
+                    modifier = Modifier.testTag("event.close.cancel"),
+                ) {
                     Text(text = stringResource(R.string.label_cancel))
                 }
             },

@@ -33,6 +33,8 @@ import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.Lock
 import androidx.compose.material.icons.outlined.Memory
 import androidx.compose.material.icons.outlined.NotificationsActive
+import androidx.compose.material.icons.outlined.Visibility
+import androidx.compose.material.icons.outlined.VisibilityOff
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CardDefaults
@@ -72,7 +74,10 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import io.ethan.pushgo.R
@@ -133,6 +138,7 @@ fun SettingsScreen(
     )
     var showDecryptionSheet by remember { mutableStateOf(false) }
     var showGatewaySheet by remember { mutableStateOf(false) }
+    var showGatewayToken by remember { mutableStateOf(false) }
     val bottomGestureInset = rememberBottomGestureInset()
 
     fun refreshDeliveryRiskState() {
@@ -177,8 +183,15 @@ fun SettingsScreen(
     LaunchedEffect(uiState.successMessage) {
         val message = uiState.successMessage
         if (message != null) {
-            if (message is io.ethan.pushgo.ui.viewmodel.ResMessage && message.resId == R.string.message_gateway_saved) {
+            if (
+                message is io.ethan.pushgo.ui.viewmodel.ResMessage &&
+                message.resId in setOf(
+                    R.string.message_gateway_saved,
+                    R.string.message_gateway_saved_sync_pending,
+                )
+            ) {
                 showGatewaySheet = false
+                showGatewayToken = false
             }
             val text = message.resolve(context)
             Toast.makeText(context, text, Toast.LENGTH_SHORT).show()
@@ -268,6 +281,7 @@ fun SettingsScreen(
                     subtitle = gatewaySubtitle,
                     onClick = {
                         viewModel.beginGatewayEdit()
+                        showGatewayToken = false
                         showGatewaySheet = true
                     },
                 )
@@ -495,6 +509,7 @@ fun SettingsScreen(
             modifier = Modifier.testTag("sheet.settings.gateway"),
             onDismissRequest = {
                 viewModel.cancelGatewayEdit()
+                showGatewayToken = false
                 showGatewaySheet = false
             },
             sheetState = sheetState,
@@ -513,10 +528,12 @@ fun SettingsScreen(
                 GatewaySection(
                     gatewayAddress = uiState.gatewayAddress,
                     gatewayToken = uiState.gatewayToken,
+                    isGatewayTokenVisible = showGatewayToken,
                     errorMessage = viewModel.gatewayErrorMessage?.resolve(context),
                     isSavingGateway = uiState.isSavingGateway,
                     onGatewayAddressChange = viewModel::updateGatewayAddress,
                     onGatewayTokenChange = viewModel::updateGatewayToken,
+                    onGatewayTokenVisibilityChange = { showGatewayToken = !showGatewayToken },
                     onSaveGateway = { viewModel.saveGatewayConfig(context) },
                 )
             }
@@ -1340,10 +1357,12 @@ private fun startActivityOrFallback(
 private fun GatewaySection(
     gatewayAddress: String,
     gatewayToken: String,
+    isGatewayTokenVisible: Boolean,
     errorMessage: String?,
     isSavingGateway: Boolean,
     onGatewayAddressChange: (String) -> Unit,
     onGatewayTokenChange: (String) -> Unit,
+    onGatewayTokenVisibilityChange: () -> Unit,
     onSaveGateway: () -> Unit,
 ) {
     val uiColors = PushGoThemeExtras.colors
@@ -1363,6 +1382,8 @@ private fun GatewaySection(
             value = gatewayToken,
             onValueChange = onGatewayTokenChange,
             labelText = stringResource(R.string.label_server_token),
+            secretVisible = isGatewayTokenVisible,
+            onSecretVisibilityChange = onGatewayTokenVisibilityChange,
             modifier = Modifier
                 .fillMaxWidth()
                 .testTag("field.settings.gateway.token"),
@@ -1404,9 +1425,16 @@ private fun GatewaySheetInputField(
     value: String,
     onValueChange: (String) -> Unit,
     labelText: String,
+    secretVisible: Boolean? = null,
+    onSecretVisibilityChange: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
     val uiColors = PushGoThemeExtras.colors
+    val visibilityStateLabel = if (secretVisible == true) {
+        stringResource(R.string.a11y_state_on)
+    } else {
+        stringResource(R.string.a11y_state_off)
+    }
     OutlinedTextField(
         value = value,
         onValueChange = onValueChange,
@@ -1428,6 +1456,37 @@ private fun GatewaySheetInputField(
         },
         modifier = modifier,
         singleLine = true,
+        visualTransformation = if (secretVisible == false) {
+            PasswordVisualTransformation()
+        } else {
+            VisualTransformation.None
+        },
+        trailingIcon = if (secretVisible != null && onSecretVisibilityChange != null) {
+            {
+                IconButton(
+                    modifier = Modifier
+                        .testTag("action.settings.gateway.token.toggle_visibility")
+                        .semantics { stateDescription = visibilityStateLabel },
+                    onClick = onSecretVisibilityChange,
+                ) {
+                    Icon(
+                        imageVector = if (secretVisible) {
+                            Icons.Outlined.VisibilityOff
+                        } else {
+                            Icons.Outlined.Visibility
+                        },
+                        contentDescription = if (secretVisible) {
+                            stringResource(R.string.label_hide_key)
+                        } else {
+                            stringResource(R.string.label_show_key)
+                        },
+                        tint = uiColors.textSecondary,
+                    )
+                }
+            }
+        } else {
+            null
+        },
         shape = RoundedCornerShape(12.dp),
         colors = pushGoOutlinedTextFieldColors(),
     )

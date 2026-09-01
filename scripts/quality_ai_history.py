@@ -9,10 +9,12 @@ review remains human/AI evidence and is deliberately not converted into a score.
 from __future__ import annotations
 
 import argparse
+import copy
 import fnmatch
 import importlib.util
 import json
 import os
+import shutil
 import subprocess
 import tarfile
 import tempfile
@@ -29,6 +31,20 @@ SEMANTIC_REVIEW_FIELDS = (
     "negative_control",
     "weak_oracle_rejected",
     "evidence",
+)
+
+BLIND_REVIEW_ONLY_PATHS = (
+    "config/quality-ai-task-history.json",
+    "docs/quality/ai-historical-task-evaluation.md",
+    "build/quality-results/apple-ai-history-audit.json",
+    "build/quality-results/apple-ai-history-blind.json",
+    "build/quality-results/android-ai-history-audit.json",
+    "build/quality-results/android-ai-history-blind.json",
+)
+
+BLIND_PACKET_CONTRACT_FIELDS = (
+    "user_outcome",
+    "credible_counterexample",
 )
 
 
@@ -202,12 +218,15 @@ def evaluate_corpus(
 def blind_packets(repo: Path, corpus: dict[str, Any]) -> dict[str, Any]:
     packets = []
     for task in corpus["tasks"]:
-        _, _, parent = changed_paths(repo, task["commit"])
+        changed_paths(repo, task["commit"])
         packets.append(
             {
                 "id": task["id"],
-                "base_commit": parent,
                 "task_prompt": task["task_prompt"],
+                **{
+                    field: copy.deepcopy(task[field])
+                    for field in BLIND_PACKET_CONTRACT_FIELDS
+                },
                 "required_response": [
                     "user purpose and protected behavior",
                     "caller/state/data/platform impact trace",
@@ -226,7 +245,12 @@ def blind_packets(repo: Path, corpus: dict[str, Any]) -> dict[str, Any]:
         "schema_version": 1,
         "platform": corpus["platform"],
         "packets": packets,
-        "scope_notice": "Packets intentionally omit target commits and expected answers; materialize a history-free base snapshot before evaluation.",
+        "scope_notice": (
+            "Packets disclose the user outcome and credible counterexample but intentionally "
+            "omit base/target commit identities, target diffs, expected lanes/capabilities/path "
+            "groups, and recorded semantic-review answers; materialize a "
+            "history-free base snapshot before evaluation."
+        ),
     }
 
 
@@ -251,6 +275,12 @@ def materialize_history_free_snapshot(
         run_git(repo, "archive", "--format=tar", f"--output={archive}", parent)
         with tarfile.open(archive, "r") as handle:
             handle.extractall(export, filter="data")
+        for relative in BLIND_REVIEW_ONLY_PATHS:
+            candidate = export / relative
+            if candidate.is_dir():
+                shutil.rmtree(candidate)
+            elif candidate.exists():
+                candidate.unlink()
         os.replace(export, output)
 
 

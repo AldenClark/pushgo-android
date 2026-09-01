@@ -164,7 +164,8 @@ android {
         debug {
             buildConfigField("String", "DEFAULT_SERVER_ADDRESS", "\"https://gateway.pushgo.cn\"")
             buildConfigField("boolean", "QUALITY_RUNTIME_ENABLED", "true")
-            buildConfigField("boolean", "QUALITY_SESSION_CONTROL_ENABLED", "false")
+            buildConfigField("boolean", "QUALITY_SESSION_CONTROL_ENABLED", "true")
+            manifestPlaceholders["qualityFixtureProviderEnabled"] = "true"
         }
         release {
             isMinifyEnabled = true
@@ -224,6 +225,12 @@ android {
     sourceSets {
         getByName("main") {
             jniLibs.directories.add(generatedRustJniDir.absolutePath)
+        }
+        getByName("debug") {
+            kotlin.directories.add("src/benchmark/java/io/ethan/pushgo/testing")
+        }
+        getByName("androidTest") {
+            assets.directories.add("schemas/io.ethan.pushgo.data.db.PushGoDatabase")
         }
         getByName("nonMinifiedRelease") {
             kotlin.directories.add("src/benchmark/java/io/ethan/pushgo/testing")

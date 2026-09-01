@@ -30,9 +30,15 @@ class QualityRuntimeTest {
             faults = QualityFaults(
                 failLocalStoreInitialization = true,
                 messageLoadDelayMs = 250,
+                messagePageLoadDelayMs = 1_500,
                 messageRefreshDelayMs = 2_500,
+                messageRefreshPresentationDelayMs = 2_750,
+                messageSearchDelayMs = 2_000,
+                failMessagePageLoadOnce = true,
+                failMessageSearchOnce = true,
                 failGatewaySwitchValidationOnce = true,
                 failGatewaySwitchCommitOnce = true,
+                failGatewayPostCommitSyncOnce = true,
                 failNotificationKeyPersistenceOnce = true,
                 failChannelSubscriptionPersistenceOnce = true,
                 failTransportSelectionPersistenceOnce = true,
@@ -40,7 +46,20 @@ class QualityRuntimeTest {
             messageRefreshScenario = QualityMessageRefreshScenario.FAIL_ONCE_THEN_NEW_MESSAGE,
             eventCloseScenario = QualityEventCloseScenario.FAIL_ONCE_THEN_ACCEPTED_AND_DELIVERED,
             channelMutationScenario = QualityChannelMutationScenario.ACCEPTED,
+            expectedChannelMutationGatewayUrl = "https://quality-settings.invalid/api",
             transportSwitchScenario = QualityTransportSwitchScenario.REJECT_ONCE_THEN_ACCEPTED,
+            updateScenario = QualityUpdateScenario.AVAILABLE_STABLE,
+            updateArtifact = QualityUpdateArtifact(
+                versionCode = 1_030_199,
+                versionName = "v1.3.1",
+                apkUrl = "http://127.0.0.1:48123/update.apk",
+                apkSha256 = "ab".repeat(32),
+            ),
+            systemCapabilities = setOf(
+                QualitySystemCapability.PRIVATE_FOREGROUND_SERVICE,
+                QualitySystemCapability.NOTIFICATION_PERMISSION_JOURNEY,
+                QualitySystemCapability.DOZE_REMINDER_JOURNEY,
+            ),
         )
 
         val decoded = QualityRuntime.decode(QualityRuntime.encode(session))
@@ -58,9 +77,91 @@ class QualityRuntimeTest {
         )
         assertEquals(QualityChannelMutationScenario.ACCEPTED, decoded.channelMutationScenario)
         assertEquals(
+            "https://quality-settings.invalid/api",
+            decoded.expectedChannelMutationGatewayUrl,
+        )
+        assertEquals(
             QualityTransportSwitchScenario.REJECT_ONCE_THEN_ACCEPTED,
             decoded.transportSwitchScenario,
         )
+        assertEquals(QualityUpdateScenario.AVAILABLE_STABLE, decoded.updateScenario)
+        assertEquals(1_030_199, decoded.updateArtifact?.versionCode)
+        assertEquals(
+            setOf(
+                QualitySystemCapability.PRIVATE_FOREGROUND_SERVICE,
+                QualitySystemCapability.NOTIFICATION_PERMISSION_JOURNEY,
+                QualitySystemCapability.DOZE_REMINDER_JOURNEY,
+            ),
+            decoded.systemCapabilities,
+        )
+    }
+
+    @Test
+    fun messagePageFailureIsConsumedOnceSoTheUserCanRetry() {
+        val session = QualitySessionDescriptor(
+            schemaVersion = 1,
+            sessionId = "message-page-retry",
+            fixture = QualityFixture.MESSAGES_WORKFLOW,
+            faults = QualityFaults(failMessagePageLoadOnce = true),
+        )
+        QualityRuntime.configure(QualityRuntime.encode(session))
+
+        assertThrows(QualityMessagePageLoadException::class.java) {
+            runBlocking { QualityRuntime.beforeMessagePageLoad() }
+        }
+        runBlocking { QualityRuntime.beforeMessagePageLoad() }
+    }
+
+    @Test
+    fun unknownSystemCapabilityIsRejectedInsteadOfSilentlyBroadeningTheSession() {
+        val encoded = encodeJson(
+            JSONObject()
+                .put("schema_version", 1)
+                .put("session_id", "unknown-system-capability")
+                .put("fixture", "empty.clean")
+                .put("system_capabilities", org.json.JSONArray().put("unknown_system_surface"))
+        )
+
+        assertThrows(IllegalArgumentException::class.java) {
+            QualityRuntime.decode(encoded)
+        }
+    }
+
+    @Test
+    fun updateArtifactRejectsUntrustedPlaintextAndInvalidDigest() {
+        val plaintextRemote = encodeJson(
+            JSONObject()
+                .put("schema_version", 1)
+                .put("session_id", "update-remote-http")
+                .put("fixture", "empty.clean")
+                .put("update_scenario", "available_stable")
+                .put(
+                    "update_artifact",
+                    JSONObject()
+                        .put("version_code", 1_030_199)
+                        .put("version_name", "v1.3.1")
+                        .put("apk_url", "http://example.com/update.apk")
+                        .put("apk_sha256", "ab".repeat(32)),
+                )
+        )
+        val invalidDigest = encodeJson(
+            JSONObject()
+                .put("schema_version", 1)
+                .put("session_id", "update-invalid-digest")
+                .put("fixture", "empty.clean")
+                .put("update_scenario", "available_stable")
+                .put(
+                    "update_artifact",
+                    JSONObject()
+                        .put("version_code", 1_030_199)
+                        .put("version_name", "v1.3.1")
+                        .put("apk_url", "http://127.0.0.1:48123/update.apk")
+                        .put("apk_sha256", "not-a-digest"),
+                )
+        )
+
+        assertThrows(IllegalArgumentException::class.java) { QualityRuntime.decode(plaintextRemote) }
+        assertThrows(IllegalArgumentException::class.java) { QualityRuntime.decode(invalidDigest) }
     }
 
     @Test
@@ -164,6 +265,21 @@ class QualityRuntimeTest {
     }
 
     @Test
+    fun unboundedPageDelayFaultIsRejected() {
+        val encoded = encodeJson(
+            JSONObject()
+                .put("schema_version", 1)
+                .put("session_id", "unbounded-page-delay")
+                .put("fixture", "messages.standard")
+                .put("faults", JSONObject().put("message_page_load_delay_ms", 30_001))
+        )
+
+        assertThrows(IllegalArgumentException::class.java) {
+            QualityRuntime.decode(encoded)
+        }
+    }
+
+    @Test
     fun unboundedRefreshDelayFaultIsRejected() {
         val encoded = encodeJson(
             JSONObject()
@@ -171,6 +287,21 @@ class QualityRuntimeTest {
                 .put("session_id", "slow-refresh-negative-control")
                 .put("fixture", "messages.standard")
                 .put("faults", JSONObject().put("message_refresh_delay_ms", 30_001))
+        )
+
+        assertThrows(IllegalArgumentException::class.java) {
+            QualityRuntime.decode(encoded)
+        }
+    }
+
+    @Test
+    fun unboundedSearchDelayFaultIsRejected() {
+        val encoded = encodeJson(
+            JSONObject()
+                .put("schema_version", 1)
+                .put("session_id", "slow-search-negative-control")
+                .put("fixture", "messages.standard")
+                .put("faults", JSONObject().put("message_search_delay_ms", 30_001))
         )
 
         assertThrows(IllegalArgumentException::class.java) {
@@ -275,6 +406,22 @@ class QualityRuntimeTest {
             QualityRuntime.beforeGatewaySwitchValidation()
         }
         QualityRuntime.beforeGatewaySwitchValidation()
+    }
+
+    @Test
+    fun gatewayPostCommitSyncFaultFailsOnceThenAllowsRecoveryRetry() {
+        val session = QualitySessionDescriptor(
+            schemaVersion = 1,
+            sessionId = "gateway-post-commit-sync-contract",
+            fixture = QualityFixture.CHANNELS_STANDARD,
+            faults = QualityFaults(failGatewayPostCommitSyncOnce = true),
+        )
+        QualityRuntime.configure(QualityRuntime.encode(session))
+
+        assertThrows(QualityGatewayPostCommitSyncException::class.java) {
+            QualityRuntime.beforeGatewayPostCommitSync()
+        }
+        QualityRuntime.beforeGatewayPostCommitSync()
     }
 
     @Test

@@ -43,6 +43,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
@@ -110,6 +111,7 @@ internal fun MessageHistoryCleanupFlow(
 
     if (showRangeSheet) {
         ModalBottomSheet(
+            modifier = Modifier.testTag("sheet.messages.history_cleanup.range"),
             onDismissRequest = {
                 if (phase !is MessageHistoryCleanupPhase.Cleaning) {
                     selectedRange = null
@@ -226,6 +228,7 @@ private fun MessageHistoryCleanupRangeCard(
     Surface(
         modifier = Modifier
             .fillMaxWidth()
+            .testTag("option.messages.history_cleanup.${range.testTagSuffix}")
             .clickable(onClick = onClick),
         shape = RoundedCornerShape(18.dp),
         color = MaterialTheme.colorScheme.surfaceContainerLow,
@@ -300,6 +303,7 @@ private fun MessageHistoryCleanupStatusDialog(
     }
 
     BasicAlertDialog(
+        modifier = Modifier.testTag("dialog.messages.history_cleanup.status"),
         onDismissRequest = {
             if (phase !is MessageHistoryCleanupPhase.Cleaning) onDismiss()
         },
@@ -450,7 +454,9 @@ private fun MessageHistoryCleanupDialogActions(
                 }
                 Button(
                     onClick = onConfirm,
-                    modifier = Modifier.weight(1f),
+                    modifier = Modifier
+                        .weight(1f)
+                        .testTag("action.messages.history_cleanup.confirm"),
                     colors = ButtonDefaults.buttonColors(
                         containerColor = MaterialTheme.colorScheme.error,
                         contentColor = MaterialTheme.colorScheme.onError,
@@ -467,10 +473,22 @@ private fun MessageHistoryCleanupDialogActions(
             Spacer(modifier = Modifier.height(20.dp))
             Button(
                 onClick = onClose,
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("action.messages.history_cleanup.done"),
             ) {
                 Text(stringResource(R.string.history_cleanup_done))
             }
         }
     }
 }
+
+private val MessageHistoryCleanupRange.testTagSuffix: String
+    get() = when (this) {
+        MessageHistoryCleanupRange.ALL -> "all"
+        MessageHistoryCleanupRange.SEVEN_DAYS -> "7_days"
+        MessageHistoryCleanupRange.THIRTY_DAYS -> "30_days"
+        MessageHistoryCleanupRange.THREE_MONTHS -> "3_months"
+        MessageHistoryCleanupRange.SIX_MONTHS -> "6_months"
+        MessageHistoryCleanupRange.ONE_YEAR -> "1_year"
+    }

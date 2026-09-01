@@ -10,8 +10,8 @@ fi
 
 repo_root="${PUSHGO_ANDROID_QUALITY_REPO_ROOT:?missing quality script repository root}"
 lane="${1:-pr}"
-results_root="$repo_root/build/quality-results"
-result_file="$results_root/android-$lane-summary.json"
+results_root="${QUALITY_RESULTS_ROOT:-$repo_root/build/quality-results}"
+result_file="${QUALITY_RESULT_FILE:-$results_root/android-$lane-summary.json}"
 lane_started_at_epoch="$(python3 -c 'import time; print(time.time())')"
 mkdir -p "$results_root"
 
@@ -19,8 +19,15 @@ claims=()
 selected_claims=()
 test_system_issue_ids=()
 not_run=(
-  "real FCM, user permission-decision UI, Doze/reboot/install, and physical accessibility evidence"
+  "real FCM/private delivery, reboot, production-distributed/OEM install policy, physical audio, and physical accessibility evidence"
 )
+controlled_system_not_run="controlled-emulator notification permission, Doze, system notification, and Private Service journeys"
+controlled_system_physical_not_run="physical/OEM notification, Doze, and Private Service behavior beyond the controlled-emulator system journeys"
+if [[ "$lane" != "nightly" && "$lane" != "release" ]]; then
+  not_run+=("$controlled_system_not_run")
+else
+  not_run+=("$controlled_system_physical_not_run")
+fi
 if [[ "$lane" != "performance" && "$lane" != "release" ]]; then
   not_run+=("opt-in 100k production Room performance evidence")
   not_run+=("Release-like Macrobenchmark mechanics and physical-device performance evidence")
@@ -56,9 +63,22 @@ classify_current_test_system_failure() {
 verify_device_tests_executed() {
   local started_at_epoch="$1"
   local report_root="$2"
-  if ! python3 "$repo_root/scripts/verify_android_test_execution.py" \
-    --report-root "$report_root" \
-    --started-at-epoch "$started_at_epoch"; then
+  local -a verify_args=(
+    --report-root "$report_root"
+    --started-at-epoch "$started_at_epoch"
+  )
+  if [[ -n "${QUALITY_EXPECTED_ANDROID_TEST_COUNT:-}" ]]; then
+    [[ "${QUALITY_EXPECTED_ANDROID_TEST_COUNT}" =~ ^[1-9][0-9]*$ ]] || {
+      echo "status=BLOCKED"
+      echo "reason=invalid_expected_android_test_count:${QUALITY_EXPECTED_ANDROID_TEST_COUNT}"
+      return 2
+    }
+    verify_args+=(--expected-test-count "$QUALITY_EXPECTED_ANDROID_TEST_COUNT")
+  fi
+  if [[ -n "${QUALITY_EXPECTED_ANDROID_TEST_SELECTORS:-}" ]]; then
+    verify_args+=(--expected-selectors "$QUALITY_EXPECTED_ANDROID_TEST_SELECTORS")
+  fi
+  if ! python3 "$repo_root/scripts/verify_android_test_execution.py" "${verify_args[@]}"; then
     return 3
   fi
 }
@@ -74,7 +94,9 @@ on_exit() {
   elif [[ $status -eq 2 ]]; then
     write_result NOT_RUN BLOCKED "lane preparation was blocked before product evidence completed"
   elif [[ $status -eq 3 ]]; then
-    write_result NOT_RUN FAILED "the selected Android device scope executed zero tests; no product claim was completed"
+    write_result NOT_RUN FAILED "fresh Android execution did not exactly match every selected scope; no product claim was completed"
+  elif [[ $status -eq 4 ]]; then
+    write_result NOT_RUN FAILED "a required test-system sensitivity control did not reject the deliberately broken behavior"
   elif classification="$(classify_current_test_system_failure)"; then
     printf '%s\n' "$classification"
     issue_ids="$(printf '%s\n' "$classification" | sed -n 's/^classification_issue_ids=//p')"
@@ -96,9 +118,20 @@ if ! python3 "$repo_root/scripts/quality_test_system_issues.py" --check; then
   exit 2
 fi
 
+quality_minimum_free_bytes="${QUALITY_MIN_FREE_BYTES:-3221225472}"
+# A named host-JVM focused check does not compile androidTest or assemble an APK.
+# Keep a smaller, explicit reserve only for that low-growth path so a full PR
+# lane cannot be accidentally weakened when shared disk space is tight.
+if [[ -z "${QUALITY_MIN_FREE_BYTES:-}" \
+  && "$lane" == "focused" \
+  && -n "${TEST_FILTER:-}" \
+  && -z "${ANDROID_TEST_CLASS:-}" ]]; then
+  quality_minimum_free_bytes=1073741824
+fi
+
 if ! python3 "$repo_root/scripts/quality_disk_preflight.py" \
   --path "$results_root" \
-  --minimum-free-bytes "${QUALITY_MIN_FREE_BYTES:-3221225472}"; then
+  --minimum-free-bytes "$quality_minimum_free_bytes"; then
   exit 2
 fi
 
@@ -151,6 +184,11 @@ PY
         "$repo_root/scripts/verify_android_release_contract.sh" "$release_tag"
         claims+=("Android JNI/toolchain/schema/release static contracts")
         ;;
+      android-preparation-contract)
+        selected_claims+=("Android App-owned preparation rejects invalid sessions within 10 seconds and recovers to accurate functional empty state")
+        "$repo_root/scripts/run_android_preparation_contract.sh"
+        claims+=("Android App-owned preparation rejects invalid sessions within 10 seconds and recovers to accurate functional empty state")
+        ;;
       *)
         echo "status=BLOCKED"
         echo "reason=unsupported_android_impact_check:$check"
@@ -163,13 +201,18 @@ PY
 run_impact_contracts
 
 run_jvm_and_compile_device_tests() {
+  local host_test_started_at
   selected_claims+=("Android JVM behavior suite, localization completeness, and androidTest compilation")
   "$repo_root/scripts/quality_doctor.sh" --allow-no-device
   python3 "$repo_root/scripts/verify_android_localizations.py"
+  host_test_started_at="$(python3 -c 'import time; print(time.time())')"
   "$repo_root/gradlew" \
-    testDebugUnitTest \
+    testDebugUnitTest --rerun-tasks \
     compileDebugAndroidTestKotlin \
     assembleDebug
+  verify_device_tests_executed \
+    "$host_test_started_at" \
+    "$repo_root/app/build/test-results/testDebugUnitTest"
   claims+=("Android JVM behavior suite, localization completeness, and androidTest compilation")
 }
 
@@ -177,18 +220,22 @@ run_jvm_and_compile_device_tests() {
 # Keeping the routine device lane curated prevents diagnostics and rare platform
 # permutations from consuming the feedback budget on every run.
 quality_device_classes="io.ethan.pushgo.testing.QualityMessageJourneyInstrumentedTest,io.ethan.pushgo.testing.QualityEntityJourneyInstrumentedTest,io.ethan.pushgo.testing.QualityChannelJourneyInstrumentedTest,io.ethan.pushgo.testing.QualitySettingsJourneyInstrumentedTest"
-# Daily device evidence is a broad positive slice, not every failure-injection
-# method in the four journey classes. Full classes remain in device/nightly/release.
-positive_device_scopes="io.ethan.pushgo.testing.QualityMessageJourneyInstrumentedTest#markdownFixtureRendersMajorStructuresInTheRealDetail,io.ethan.pushgo.testing.QualityMessageJourneyInstrumentedTest#standardFixtureShowsAccurateContentAndSurvivesActivityRelaunch,io.ethan.pushgo.testing.QualityMessageJourneyInstrumentedTest#workflowFixtureLoadsSecondPageAndPersistsReadActions,io.ethan.pushgo.testing.QualityMessageJourneyInstrumentedTest#channelTagCombinedUngroupedFiltersAndScopedReadPersist,io.ethan.pushgo.testing.QualityMessageJourneyInstrumentedTest#refreshPersistsNewProviderResultOpensDetailAndSurvivesRelaunch,io.ethan.pushgo.testing.QualityMessageJourneyInstrumentedTest#primaryNavigationUsesRealControlsAndReachesEveryProductScreen,io.ethan.pushgo.testing.QualityEntityJourneyInstrumentedTest#eventClosePersistsAndOngoingFilterReflectsTheRealProjection,io.ethan.pushgo.testing.QualityEntityJourneyInstrumentedTest#thingFixtureShowsAccurateOverviewAndAllThreeRealRelationTabs,io.ethan.pushgo.testing.QualityChannelJourneyInstrumentedTest#createRenameAndBothUnsubscribeOutcomesReachAccuratePersistentUserResults,io.ethan.pushgo.testing.QualitySettingsJourneyInstrumentedTest#encryptedMessageRecoversThroughRealSettingsEntryAndSurvivesRelaunch,io.ethan.pushgo.testing.QualitySettingsJourneyInstrumentedTest#dataPageVisibilityUsesRealControlsAndPersistsAcrossRelaunch,io.ethan.pushgo.testing.QualitySettingsJourneyInstrumentedTest#serverConfigurationRejectsInvalidInputAndScopesDataAfterRelaunch"
+# PR uses one representative purpose chain per high-value owner, while explicit
+# device runs retain the broader positive set. Impact-selected PR changes still
+# replace this fallback with their exact required_device_scopes. Full classes
+# remain in nightly/release.
+pr_device_scopes="io.ethan.pushgo.testing.QualityMessageJourneyInstrumentedTest#standardFixtureShowsAccurateContentAndSurvivesActivityRelaunch,io.ethan.pushgo.testing.QualityMessageJourneyInstrumentedTest#workflowFixtureLoadsSecondPageAndPersistsReadActions,io.ethan.pushgo.testing.QualityMessageJourneyInstrumentedTest#primaryNavigationUsesRealControlsAndReachesEveryProductScreen,io.ethan.pushgo.testing.QualityEntityJourneyInstrumentedTest#eventClosePersistsAndOngoingFilterReflectsTheRealProjection,io.ethan.pushgo.testing.QualityChannelJourneyInstrumentedTest#createRenameAndBothUnsubscribeOutcomesReachAccuratePersistentUserResults,io.ethan.pushgo.testing.QualitySettingsJourneyInstrumentedTest#serverConfigurationRejectsInvalidInputAndScopesDataAfterRelaunch"
+positive_device_scopes="io.ethan.pushgo.testing.QualityMessageJourneyInstrumentedTest#markdownFixtureRendersMajorStructuresInTheRealDetail,io.ethan.pushgo.testing.QualityMessageJourneyInstrumentedTest#standardFixtureShowsAccurateContentAndSurvivesActivityRelaunch,io.ethan.pushgo.testing.QualityMessageJourneyInstrumentedTest#historyCleanupRemovesOnlyOldMessagesAndPersistsAcrossRelaunch,io.ethan.pushgo.testing.QualityMessageJourneyInstrumentedTest#workflowFixtureLoadsSecondPageAndPersistsReadActions,io.ethan.pushgo.testing.QualityMessageJourneyInstrumentedTest#channelTagCombinedUngroupedFiltersAndScopedReadPersist,io.ethan.pushgo.testing.QualityMessageJourneyInstrumentedTest#primaryNavigationUsesRealControlsAndReachesEveryProductScreen,io.ethan.pushgo.testing.QualityEntityJourneyInstrumentedTest#eventClosePersistsAndOngoingFilterReflectsTheRealProjection,io.ethan.pushgo.testing.QualityEntityJourneyInstrumentedTest#thingFixtureShowsAccurateOverviewAndAllThreeRealRelationTabs,io.ethan.pushgo.testing.QualityChannelJourneyInstrumentedTest#createRenameAndBothUnsubscribeOutcomesReachAccuratePersistentUserResults,io.ethan.pushgo.testing.QualitySettingsJourneyInstrumentedTest#encryptedMessageRecoversThroughRealSettingsEntryAndSurvivesRelaunch,io.ethan.pushgo.testing.QualitySettingsJourneyInstrumentedTest#dataPageVisibilityUsesRealControlsAndPersistsAcrossRelaunch,io.ethan.pushgo.testing.QualitySettingsJourneyInstrumentedTest#serverConfigurationRejectsInvalidInputAndScopesDataAfterRelaunch"
 core_data_classes="io.ethan.pushgo.data.db.PushGoDatabaseMigrationDeviceTest,io.ethan.pushgo.data.PendingLocalDeletionRoomDeviceTest,io.ethan.pushgo.data.ProviderAckScopeDeviceTest"
 nightly_data_classes="$core_data_classes,io.ethan.pushgo.testing.RuntimeDataLayerInstrumentedTest,io.ethan.pushgo.testing.RuntimeChannelSwitchInstrumentedTest,io.ethan.pushgo.testing.RuntimePrivateChannelStateFlowInstrumentedTest,io.ethan.pushgo.ui.PendingLocalDeletionWorkBoundaryDeviceTest"
-system_notification_class="io.ethan.pushgo.testing.QualitySystemNotificationJourneyInstrumentedTest"
+system_notification_classes="io.ethan.pushgo.testing.QualitySystemNotificationJourneyInstrumentedTest,io.ethan.pushgo.testing.QualityPrivateForegroundServiceJourneyInstrumentedTest"
 
 run_device_classes() {
   local classes="$1"
+  local claim="${2:-Android migration/deletion/ACK/transport data boundaries: $classes}"
   local doctor_output
   local device_serial
-  selected_claims+=("Android migration/deletion/ACK/transport data boundaries: $classes")
+  selected_claims+=("$claim")
   doctor_output="$("$repo_root/scripts/quality_doctor.sh")"
   printf '%s\n' "$doctor_output"
   device_serial="$(printf '%s\n' "$doctor_output" | awk -F= '$1 == "device_serial" { print $2; exit }')"
@@ -202,7 +249,7 @@ run_device_classes() {
   ANDROID_SERIAL="$device_serial" "$repo_root/gradlew" connectedDebugAndroidTest \
     "-Pandroid.testInstrumentationRunnerArguments.class=$classes"
   verify_device_tests_executed "$device_test_started_at" "$repo_root/app/build/outputs/androidTest-results/connected"
-  claims+=("Android migration/deletion/ACK/transport data boundaries: $classes")
+  claims+=("$claim")
 }
 
 run_quality_device_classes() {
@@ -230,10 +277,52 @@ run_quality_device_classes() {
   claims+=("Android selected App-owned UI journeys: $classes")
 }
 
-run_system_notification_journey() {
+run_notification_permission_host_profile() {
+  local device_serial="$1"
+  local expected_selector="$2"
+  local permission_output
+  local permission_status
+  set +e
+  permission_output="$(ANDROID_SERIAL="$device_serial" "$repo_root/scripts/run_android_notification_permission_positive.sh")"
+  permission_status=$?
+  set -e
+  printf '%s\n' "$permission_output"
+  if printf '%s\n' "$permission_output" | grep -q '^cleanup_status=FAILED$'; then
+    return 3
+  fi
+  case "$permission_status" in
+    0) ;;
+    2) return 2 ;;
+    3) return 3 ;;
+    *) return 1 ;;
+  esac
+  printf '%s\n' "$permission_output" | python3 \
+    "$repo_root/scripts/verify_android_host_execution_receipt.py" \
+    --expected-selector "$expected_selector" || return 3
+}
+
+mark_planned_controlled_system_profile() {
+  local profile="$1"
+  local -a remaining=()
+  local item
+  for item in "${not_run[@]}"; do
+    [[ "$item" == "$controlled_system_not_run" || "$item" == "$controlled_system_physical_not_run" || "$item" == "controlled-emulator Doze, system notification, and Private Service journeys" ]] \
+      || remaining+=("$item")
+  done
+  not_run=("${remaining[@]}")
+  if [[ "$profile" == "notification-permission" ]]; then
+    not_run+=("controlled-emulator Doze, system notification, and Private Service journeys")
+    not_run+=("$controlled_system_physical_not_run")
+  else
+    not_run+=("$controlled_system_physical_not_run")
+  fi
+}
+
+run_system_notification_journeys() {
   local doctor_output
   local device_serial
-  selected_claims+=("Android durable inbound to real system notification/PendingIntent and accurate detail/read/dedupe/relaunch journey")
+  local permission_selector="io.ethan.pushgo.testing.QualityNotificationPermissionJourneyInstrumentedTest#enabledSystemDecisionRefreshesTheRealAppAndRemovesDisabledDeliveryState"
+  selected_claims+=("Android notification permission, Doze recovery/snooze isolation, real process restart persistence with exact HTTPS browser handoff/return, critical alert playback, exact Message/Event/Thing cold-warm notification routes, and Private foreground Service system journeys: denied/settings/return plus restricted/system-unrestricted/return/session-snooze plus unread/read/no-PID/new-PID/exact-data/browser-url/detail-return plus durable inbound/audio/PendingIntent/read/dedupe and Settings/start/persist/stop")
   doctor_output="$("$repo_root/scripts/quality_doctor.sh")"
   printf '%s\n' "$doctor_output"
   device_serial="$(printf '%s\n' "$doctor_output" | awk -F= '$1 == "device_serial" { print $2; exit }')"
@@ -242,13 +331,34 @@ run_system_notification_journey() {
     echo "reason=quality_doctor_missing_device_serial"
     exit 2
   }
+  run_notification_permission_host_profile "$device_serial" "$permission_selector"
+  QUALITY_ANDROID_SKIP_INSTALL=1 ANDROID_SERIAL="$device_serial" \
+    "$repo_root/scripts/run_android_doze_positive.sh"
+  QUALITY_ANDROID_SKIP_INSTALL=1 ANDROID_SERIAL="$device_serial" \
+    "$repo_root/scripts/run_android_process_restart_positive.sh"
   local device_test_started_at
   device_test_started_at="$(python3 -c 'import time; print(time.time())')"
   ANDROID_SERIAL="$device_serial" "$repo_root/gradlew" connectedDebugAndroidTest \
     --rerun-tasks \
-    "-Pandroid.testInstrumentationRunnerArguments.class=$system_notification_class"
+    "-Pandroid.testInstrumentationRunnerArguments.class=$system_notification_classes"
   verify_device_tests_executed "$device_test_started_at" "$repo_root/app/build/outputs/androidTest-results/connected"
-  claims+=("Android durable inbound to real system notification/PendingIntent and accurate detail/read/dedupe/relaunch journey")
+  claims+=("Android notification permission, Doze recovery/snooze isolation, real process restart persistence with exact HTTPS browser handoff/return, critical alert playback, exact Message/Event/Thing cold-warm notification routes, and Private foreground Service system journeys: denied/settings/return plus restricted/system-unrestricted/return/session-snooze plus unread/read/no-PID/new-PID/exact-data/browser-url/detail-return plus durable inbound/audio/PendingIntent/read/dedupe and Settings/start/persist/stop")
+}
+
+run_update_install_positive() {
+  local doctor_output
+  local device_serial
+  selected_claims+=("Android positive update replaces the real package and preserves exact canonical data")
+  doctor_output="$("$repo_root/scripts/quality_doctor.sh")"
+  printf '%s\n' "$doctor_output"
+  device_serial="$(printf '%s\n' "$doctor_output" | awk -F= '$1 == "device_serial" { print $2; exit }')"
+  [[ -n "$device_serial" ]] || {
+    echo "status=BLOCKED"
+    echo "reason=quality_doctor_missing_device_serial"
+    exit 2
+  }
+  ANDROID_SERIAL="$device_serial" "$repo_root/scripts/run_android_update_install_positive.sh"
+  claims+=("Android positive update replaces the real package and preserves exact canonical data")
 }
 
 run_performance() {
@@ -294,6 +404,10 @@ run_performance() {
     "-Pandroid.testInstrumentationRunnerArguments.pushgo.maxDetailMs=10000"
   verify_device_tests_executed "$device_test_started_at" "$repo_root/macrobenchmark/build/outputs/androidTest-results/connected"
   claims+=("Release-like Macrobenchmark mechanics with exact 1k startup/detail product Oracle on controlled emulator")
+
+  # This expected-failure control is test-system evidence, not a product claim. It deliberately
+  # slows the same 1k App-owned load and must trip the existing startup-to-accurate-content budget.
+  ANDROID_SERIAL="$device_serial" "$repo_root/scripts/run_android_performance_negative_control.sh"
 
   selected_claims+=("Filtered Baseline/Startup Profile and Release APK quality-control isolation")
   "$repo_root/gradlew" :app:assembleRelease --console=plain
@@ -346,7 +460,85 @@ run_accessibility_localization() {
   claims+=("Android zh-CN large-font real message-detail and add-channel journey")
 }
 
+run_planned_device_evidence() {
+  local plan_path="${QUALITY_IMPACT_PLAN:-}"
+  local run_lines
+  local profile
+  local scopes
+  local expected_count
+  [[ -n "$plan_path" && -f "$plan_path" ]] || {
+    echo "status=BLOCKED"
+    echo "reason=planned_device_lane_requires_impact_plan"
+    exit 2
+  }
+  if ! run_lines="$(python3 "$repo_root/scripts/quality_planned_device_runs.py" --plan "$plan_path")"; then
+    echo "status=BLOCKED"
+    echo "reason=invalid_structured_device_execution_plan"
+    exit 2
+  fi
+  # Keep the execution plan on a dedicated descriptor. Gradle and host-profile helpers may read
+  # stdin; sharing fd 0 with this loop silently dropped every profile after the first one.
+  while IFS=$'\t' read -r profile scopes expected_count <&3; do
+    [[ -n "$profile" && -n "$scopes" && -n "$expected_count" ]] || continue
+    case "$profile" in
+      generic)
+        QUALITY_EXPECTED_ANDROID_TEST_SELECTORS="$scopes" \
+          QUALITY_EXPECTED_ANDROID_TEST_COUNT="$expected_count" \
+          run_device_classes "$scopes" "Android impact-selected generic instrumented behavior: $scopes"
+        ;;
+      app-owned)
+        QUALITY_EXPECTED_ANDROID_TEST_SELECTORS="$scopes" \
+          QUALITY_EXPECTED_ANDROID_TEST_COUNT="$expected_count" \
+          run_quality_device_classes "$scopes"
+        ;;
+      accessibility)
+        [[ "$scopes" == "io.ethan.pushgo.testing.QualityAccessibilityLocalizationJourneyInstrumentedTest#simplifiedChineseAtLargeFontCompletesMessageDetailAndAddChannelJourney" ]] || {
+          echo "status=BLOCKED"
+          echo "reason=unsupported_accessibility_planned_scopes:$scopes"
+          exit 2
+        }
+        QUALITY_EXPECTED_ANDROID_TEST_SELECTORS="$scopes" \
+          QUALITY_EXPECTED_ANDROID_TEST_COUNT="$expected_count" \
+          run_accessibility_localization
+        ;;
+      notification-permission)
+        local permission_scope="io.ethan.pushgo.testing.QualityNotificationPermissionJourneyInstrumentedTest#enabledSystemDecisionRefreshesTheRealAppAndRemovesDisabledDeliveryState"
+        [[ "$scopes" == "$permission_scope" && "$expected_count" == "1" ]] || {
+          echo "status=BLOCKED"
+          echo "reason=unsupported_notification_permission_planned_scopes:$scopes"
+          exit 2
+        }
+        local doctor_output
+        local device_serial
+        selected_claims+=("Android planned notification-permission host/system journey: $scopes")
+        doctor_output="$("$repo_root/scripts/quality_doctor.sh")"
+        printf '%s\n' "$doctor_output"
+        device_serial="$(printf '%s\n' "$doctor_output" | awk -F= '$1 == "device_serial" { print $2; exit }')"
+        [[ -n "$device_serial" ]] || {
+          echo "status=BLOCKED"
+          echo "reason=quality_doctor_missing_device_serial"
+          exit 2
+        }
+        mark_planned_controlled_system_profile "notification-permission"
+        run_notification_permission_host_profile "$device_serial" "$scopes"
+        claims+=("Android planned notification-permission host/system journey: $scopes")
+        ;;
+      system-notification)
+        mark_planned_controlled_system_profile "system-notification"
+        QUALITY_EXPECTED_ANDROID_TEST_SELECTORS="$scopes" \
+          QUALITY_EXPECTED_ANDROID_TEST_COUNT="$expected_count" \
+          run_system_notification_journeys
+        ;;
+    esac
+  done 3<<< "$run_lines"
+}
+
 case "$lane" in
+  preparation)
+    selected_claims+=("Android App-owned preparation rejects invalid sessions within 10 seconds and recovers to accurate functional empty state")
+    "$repo_root/scripts/run_android_preparation_contract.sh"
+    claims+=("Android App-owned preparation rejects invalid sessions within 10 seconds and recovers to accurate functional empty state")
+    ;;
   focused)
     [[ -n "${TEST_FILTER:-}" || -n "${ANDROID_TEST_CLASS:-}" ]] || {
       echo "status=BLOCKED"
@@ -370,14 +562,40 @@ case "$lane" in
       verify_device_tests_executed "$device_test_started_at" "$repo_root/app/build/outputs/androidTest-results/connected"
       claims+=("Android focused device behavior: $ANDROID_TEST_CLASS")
     else
+      focused_jvm_output=""
+      focused_jvm_exit_code=0
       selected_claims+=("Android focused JVM behavior: $TEST_FILTER")
       "$repo_root/scripts/quality_doctor.sh" --allow-no-device
-      "$repo_root/gradlew" testDebugUnitTest --tests "$TEST_FILTER"
+      host_test_started_at="$(python3 -c 'import time; print(time.time())')"
+      set +e
+      focused_jvm_output="$(
+        "$repo_root/gradlew" testDebugUnitTest --rerun-tasks --tests "$TEST_FILTER" 2>&1
+      )"
+      focused_jvm_exit_code=$?
+      set -e
+      printf '%s\n' "$focused_jvm_output"
+      if (( focused_jvm_exit_code != 0 )); then
+        if grep -Fq "No tests found for given includes:" <<< "$focused_jvm_output"; then
+          echo "status=FAILED_TEST_SYSTEM"
+          echo "reason=focused_jvm_filter_matched_no_tests:$TEST_FILTER"
+          exit 3
+        fi
+        exit "$focused_jvm_exit_code"
+      fi
+      verify_device_tests_executed \
+        "$host_test_started_at" \
+        "$repo_root/app/build/test-results/testDebugUnitTest"
       claims+=("Android focused JVM behavior: $TEST_FILTER")
     fi
     ;;
+  planned-device)
+    run_planned_device_evidence
+    ;;
   performance)
     run_performance
+    ;;
+  update-install)
+    run_update_install_positive
     ;;
   accessibility)
     run_accessibility_localization
@@ -386,27 +604,28 @@ case "$lane" in
     run_jvm_and_compile_device_tests
     ;;
   pr-ui)
-    run_quality_device_classes "$positive_device_scopes"
+    run_quality_device_classes "$pr_device_scopes"
     ;;
   device)
     run_jvm_and_compile_device_tests
-    run_quality_device_classes
+    run_quality_device_classes "$positive_device_scopes"
     run_device_classes "$core_data_classes"
     ;;
   nightly)
     run_jvm_and_compile_device_tests
     run_quality_device_classes
     run_device_classes "$nightly_data_classes"
-    run_system_notification_journey
+    run_system_notification_journeys
     run_accessibility_localization
     ;;
   release)
     run_jvm_and_compile_device_tests
     run_quality_device_classes
     run_device_classes "$nightly_data_classes"
-    run_system_notification_journey
+    run_system_notification_journeys
     run_accessibility_localization
     run_performance
+    run_update_install_positive
     ;;
   *)
     echo "status=BLOCKED"

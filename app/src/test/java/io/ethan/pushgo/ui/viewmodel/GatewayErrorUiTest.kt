@@ -64,4 +64,30 @@ class GatewayErrorUiTest {
         val res = message as ResMessage
         assertEquals(R.string.error_gateway_channel_subscriber_limit_exceeded, res.resId)
     }
+
+    @Test
+    fun authAndRateLimitKeepDifferentRecoveryMessages() {
+        val cases = listOf(
+            ChannelSubscriptionException(
+                message = "authentication failed",
+                code = "authentication_failed",
+                category = GatewayErrorCategory.AUTH,
+                httpStatus = 401,
+                retryable = false,
+            ) to R.string.error_gateway_auth_failed,
+            ChannelSubscriptionException(
+                message = "too many requests",
+                code = null,
+                category = GatewayErrorCategory.RATE_LIMIT,
+                httpStatus = 429,
+                retryable = true,
+            ) to R.string.error_gateway_rate_limited,
+        )
+
+        cases.forEach { (error, expectedResId) ->
+            val message = error.toUiErrorMessage(R.string.error_private_channel_subscribe_failed)
+            assertTrue(message is ResMessage)
+            assertEquals(expectedResId, (message as ResMessage).resId)
+        }
+    }
 }

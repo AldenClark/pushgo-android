@@ -112,6 +112,31 @@ class ChannelSubscriptionServiceIngressContractTest {
     }
 
     @Test
+    fun subscribeExistingChannel_isAnIdempotentSuccess() = runBlocking {
+        CapturingGatewayServer(
+            responseBody = """{"success":true,"data":{"channel_id":"existing-channel","channel_name":"Existing","created":false,"subscribed":true}}"""
+        ).use { server ->
+            val result = ChannelSubscriptionService().subscribe(
+                baseUrl = server.baseUrl,
+                token = "token-001",
+                deviceKey = "device-001",
+                channelId = "existing-channel",
+                channelName = null,
+                password = "qualityx",
+            )
+
+            assertEquals("existing-channel", result.channelId)
+            assertFalse(result.created)
+            assertTrue(result.subscribed)
+
+            val request = server.firstRequest()
+            assertEquals("/channel/subscribe", request.path)
+            val body = JSONObject(request.body)
+            assertEquals("existing-channel", body.getString("channel_id"))
+        }
+    }
+
+    @Test
     fun registerDevice_preservesStructuredGatewayProblem() = runBlocking {
         CapturingGatewayServer(
             responseBody = """

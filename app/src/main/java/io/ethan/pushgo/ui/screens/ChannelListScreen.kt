@@ -1,6 +1,7 @@
 package io.ethan.pushgo.ui.screens
 
 import android.widget.Toast
+import android.text.format.DateFormat
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -46,6 +47,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.produceState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalClipboard
@@ -65,6 +67,7 @@ import io.ethan.pushgo.R
 import io.ethan.pushgo.data.AppContainer
 import io.ethan.pushgo.data.PendingLocalDeletionOperation
 import io.ethan.pushgo.data.model.ChannelSubscription
+import io.ethan.pushgo.data.model.MessageChannelCount
 import io.ethan.pushgo.ui.PendingLocalDeletionCoordinator
 import io.ethan.pushgo.ui.accessibility.joinAccessibilitySummary
 import io.ethan.pushgo.ui.accessibility.pushGoMergedActionSemantics
@@ -77,7 +80,17 @@ import io.ethan.pushgo.ui.theme.PushGoThemeExtras
 import io.ethan.pushgo.ui.theme.pushGoPrimaryButtonColors
 import io.ethan.pushgo.ui.theme.pushGoSegmentedButtonColors
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
+import java.time.Instant
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
+
+private sealed interface ChannelActivityState {
+    data object Loading : ChannelActivityState
+    data object Failed : ChannelActivityState
+    data class Loaded(val byIdentifier: Map<String, MessageChannelCount>) : ChannelActivityState
+}
 
 @Composable
 @OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
@@ -96,6 +109,22 @@ fun ChannelListScreen(
     val effectivePendingScope by container.pendingLocalDeletionCoordinator.effectiveScope.collectAsStateWithLifecycle()
     val visibleChannelSubscriptions = viewModel.channelSubscriptions.filterNot {
         effectivePendingScope.suppressesChannel(it.channelId)
+    }
+    val channelActivityState by produceState<ChannelActivityState>(
+        initialValue = ChannelActivityState.Loading,
+        key1 = container.messageRepository,
+    ) {
+        try {
+            container.messageRepository.observeChannelCounts().collect { counts ->
+                value = ChannelActivityState.Loaded(
+                    counts.associateBy { it.channel.trim() }
+                )
+            }
+        } catch (cancellation: CancellationException) {
+            throw cancellation
+        } catch (_: Exception) {
+            value = ChannelActivityState.Failed
+        }
     }
 
     LaunchedEffect(viewModel.errorMessage) {
@@ -214,7 +243,13 @@ fun ChannelListScreen(
                 items(visibleChannelSubscriptions, key = { it.channelId }) { subscription ->
                     ChannelRow(
                         subscription = subscription,
+                        activityText = channelActivityText(
+                            context = context,
+                            state = channelActivityState,
+                            identifier = subscription.channelId,
+                        ),
                         onRename = {
+                            viewModel.clearChannelRenameError()
                             pendingChannelRename = subscription
                             renameAlias = subscription.displayName
                         },
@@ -313,7 +348,10 @@ fun ChannelListScreen(
             target?.displayName ?: "",
         )
         PushGoAlertDialog(
-            onDismissRequest = { pendingChannelRename = null },
+            onDismissRequest = {
+                viewModel.clearChannelRenameError()
+                pendingChannelRename = null
+            },
             paneTitle = renameTitle,
             title = {
                 Text(
@@ -324,7 +362,10 @@ fun ChannelListScreen(
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     OutlinedTextField(
                         value = renameAlias,
-                        onValueChange = { renameAlias = it },
+                        onValueChange = {
+                            renameAlias = it
+                            viewModel.clearChannelRenameError()
+                        },
                         label = { Text(stringResource(R.string.label_channel_alias)) },
                         modifier = Modifier
                             .fillMaxWidth()
@@ -336,6 +377,14 @@ fun ChannelListScreen(
                         text = stringResource(R.string.label_rename_channel_hint),
                         style = MaterialTheme.typography.bodySmall,
                     )
+                    viewModel.channelRenameErrorMessage?.let { message ->
+                        Text(
+                            text = message.resolve(context),
+                            color = MaterialTheme.colorScheme.error,
+                            style = MaterialTheme.typography.bodySmall,
+                            modifier = Modifier.testTag("feedback.channel.rename"),
+                        )
+                    }
                 }
             },
             confirmButton = {
@@ -344,8 +393,9 @@ fun ChannelListScreen(
                         val channelId = target?.channelId ?: return@TextButton
                         val alias = renameAlias
                         scope.launch {
-                            viewModel.renameChannel(channelId, alias)
-                            pendingChannelRename = null
+                            if (viewModel.renameChannel(channelId, alias)) {
+                                pendingChannelRename = null
+                            }
                         }
                     },
                     enabled = !viewModel.isRenamingChannel && renameAlias.trim().isNotEmpty(),
@@ -355,7 +405,13 @@ fun ChannelListScreen(
                 }
             },
             dismissButton = {
-                TextButton(onClick = { pendingChannelRename = null }) {
+                TextButton(
+                    onClick = {
+                        viewModel.clearChannelRenameError()
+                        pendingChannelRename = null
+                    },
+                    modifier = Modifier.testTag("action.channel.rename.cancel"),
+                ) {
                     Text(stringResource(R.string.label_cancel))
                 }
             }
@@ -544,6 +600,7 @@ private enum class ChannelEntryMode(val labelRes: Int, val testTag: String) {
 
 internal fun ChannelRow(
     subscription: ChannelSubscription,
+    activityText: String,
     onRename: () -> Unit,
     onDelete: () -> Unit,
     onCopy: () -> Unit,
@@ -553,6 +610,7 @@ internal fun ChannelRow(
     val rowSummary = joinAccessibilitySummary(
         subscription.displayName,
         subscription.channelId,
+        activityText,
     )
 
     Row(
@@ -582,6 +640,14 @@ internal fun ChannelRow(
                 style = MaterialTheme.typography.bodySmall,
                 color = uiColors.textSecondary,
                 maxLines = 1
+            )
+            Spacer(modifier = Modifier.height(2.dp))
+            Text(
+                text = activityText,
+                style = MaterialTheme.typography.bodySmall,
+                color = uiColors.textSecondary,
+                modifier = Modifier.testTag("channel.stats.${subscription.channelId}"),
+                maxLines = 2,
             )
         }
 
@@ -629,6 +695,34 @@ internal fun ChannelRow(
                     }
                 )
             }
+        }
+    }
+}
+
+private fun channelActivityText(
+    context: android.content.Context,
+    state: ChannelActivityState,
+    identifier: String,
+): String {
+    return when (state) {
+        ChannelActivityState.Loading -> context.getString(R.string.channel_stats_loading)
+        ChannelActivityState.Failed -> context.getString(R.string.channel_stats_unavailable)
+        is ChannelActivityState.Loaded -> {
+            val stats = state.byIdentifier[identifier.trim()]
+                ?: return context.getString(R.string.channel_stats_empty)
+            val latest = stats.latestReceivedAt?.let { epochMillis ->
+                val locale = context.resources.configuration.locales[0]
+                val pattern = DateFormat.getBestDateTimePattern(locale, "yMMMdjm")
+                DateTimeFormatter.ofPattern(pattern, locale)
+                    .withZone(ZoneId.systemDefault())
+                    .format(Instant.ofEpochMilli(epochMillis))
+            } ?: context.getString(R.string.channel_stats_no_recent)
+            context.getString(
+                R.string.channel_stats_summary,
+                stats.totalCount,
+                stats.unreadCount,
+                latest,
+            )
         }
     }
 }

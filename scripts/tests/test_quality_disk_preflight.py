@@ -49,22 +49,38 @@ class QualityDiskPreflightTests(unittest.TestCase):
         self.assertIn("reason=insufficient_free_disk:", process.stdout)
 
     def test_lane_preflight_block_still_writes_a_trustworthy_receipt(self):
-        process = subprocess.run(
-            [str(REPO / "scripts/quality_test.sh"), "pr-ui"],
-            cwd=REPO,
-            env={
-                "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
-                "QUALITY_MIN_FREE_BYTES": str(2**63 - 1),
-            },
-            text=True,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            check=False,
-        )
+        canonical_receipt = REPO / "build/quality-results/android-pr-ui-summary.json"
+        canonical_before = canonical_receipt.read_bytes() if canonical_receipt.exists() else None
+        with tempfile.TemporaryDirectory() as directory:
+            isolated_results = Path(directory) / "quality-results"
+            process = subprocess.run(
+                [str(REPO / "scripts/quality_test.sh"), "pr-ui"],
+                cwd=REPO,
+                env={
+                    "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+                    "QUALITY_MIN_FREE_BYTES": str(2**63 - 1),
+                    "QUALITY_RESULTS_ROOT": str(isolated_results),
+                },
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                check=False,
+            )
+            isolated_receipt = isolated_results / "android-pr-ui-summary.json"
+            self.assertTrue(isolated_receipt.is_file())
+            receipt = isolated_receipt.read_text()
 
         self.assertEqual(2, process.returncode)
         self.assertIn("reason=insufficient_free_disk:", process.stdout)
         self.assertIn("quality_result=", process.stdout)
+        self.assertIn('"product_capability_status": "NOT_RUN"', receipt)
+        self.assertIn('"test_system_status": "BLOCKED"', receipt)
+        canonical_after = canonical_receipt.read_bytes() if canonical_receipt.exists() else None
+        self.assertEqual(
+            canonical_before,
+            canonical_after,
+            "A host negative control must never overwrite retained device evidence.",
+        )
 
 
 if __name__ == "__main__":

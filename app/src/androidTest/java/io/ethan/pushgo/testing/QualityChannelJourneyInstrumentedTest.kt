@@ -3,13 +3,18 @@ package io.ethan.pushgo.testing
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.text.format.DateFormat
 import androidx.compose.ui.test.*
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import io.ethan.pushgo.R
 import org.junit.Assert.assertEquals
 import org.junit.Test
 import org.junit.runner.RunWith
+import java.time.Instant
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 
 @RunWith(AndroidJUnit4::class)
 class QualityChannelJourneyInstrumentedTest : QualityAppJourneyTestCase() {
@@ -35,12 +40,29 @@ class QualityChannelJourneyInstrumentedTest : QualityAppJourneyTestCase() {
     fun createRenameAndBothUnsubscribeOutcomesReachAccuratePersistentUserResults() {
         configureAndLaunch(
             fixture = QualityFixture.CHANNELS_STANDARD,
-            channelMutationScenario = QualityChannelMutationScenario.ACCEPTED,
+            channelMutationScenario = QualityChannelMutationScenario.RENAME_REJECT_ONCE_THEN_ACCEPTED,
         )
 
         openChannels()
-        val expectedCopiedChannelId = "01H00000000000000000000001"
         val targetContext = InstrumentationRegistry.getInstrumentation().targetContext
+        val locale = targetContext.resources.configuration.locales[0]
+        val datePattern = DateFormat.getBestDateTimePattern(locale, "yMMMdjm")
+        val expectedLatest = DateTimeFormatter.ofPattern(datePattern, locale)
+            .withZone(ZoneId.systemDefault())
+            .format(Instant.parse("2026-01-15T08:01:00Z"))
+        val expectedActivity = targetContext.getString(
+            R.string.channel_stats_summary,
+            1,
+            1,
+            expectedLatest,
+        )
+        composeRule.onNodeWithTag(
+            "channel.stats.01H00000000000000000000001",
+            useUnmergedTree = true,
+        )
+            .assertIsDisplayed()
+            .assertTextEquals(expectedActivity)
+        val expectedCopiedChannelId = "01H00000000000000000000001"
         val clipboard = targetContext.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
         val savedClip = clipboard.primaryClip
         try {
@@ -68,6 +90,8 @@ class QualityChannelJourneyInstrumentedTest : QualityAppJourneyTestCase() {
         composeRule.onNodeWithTag("action.channels.add").performClick()
         composeRule.onNodeWithTag("sheet.channels.entry").assertIsDisplayed()
         composeRule.onNodeWithTag("mode.channels.entry.subscribe").performClick()
+        waitForNode("field.channels.subscribe.id")
+        waitForNode("field.channels.subscribe.password")
         composeRule.onNodeWithTag("field.channels.subscribe.id")
             .performTextInput("01H00000000000000000000004")
         composeRule.onNodeWithTag("field.channels.subscribe.password")
@@ -89,15 +113,38 @@ class QualityChannelJourneyInstrumentedTest : QualityAppJourneyTestCase() {
             .assert(SemanticsMatcher.expectValue(SemanticsProperties.Password, Unit))
             .performTextInput("quality-channel-password")
         composeRule.onNodeWithTag("feedback.channels.entry").assertDoesNotExist()
+        waitForEnabledNode("action.channels.entry.submit")
         composeRule.onNodeWithTag("action.channels.entry.submit").performClick()
         waitForNode("channel.row.01H00000000000000000000003")
         composeRule.onNodeWithTag("channel.row.01H00000000000000000000003")
             .assertTextContains("Quality Created Channel")
 
         openChannelAction("01H00000000000000000000003", "rename")
+        composeRule.onNodeWithTag("field.channel.rename.alias").apply {
+            performTextClearance()
+            performTextInput("Cancelled Rename")
+        }
+        composeRule.onNodeWithTag("action.channel.rename.cancel").performClick()
+        composeRule.onNodeWithTag("channel.row.01H00000000000000000000003")
+            .assertTextContains("Quality Created Channel")
+
+        openChannelAction("01H00000000000000000000003", "rename")
         val renameField = composeRule.onNodeWithTag("field.channel.rename.alias")
         renameField.performTextClearance()
+        renameField.performTextInput("x".repeat(129))
+        composeRule.onNodeWithTag("action.channel.rename.save").performClick()
+        waitForNode("feedback.channel.rename")
+        composeRule.onNodeWithTag("channel.row.01H00000000000000000000003")
+            .assertTextContains("Quality Created Channel")
+
+        renameField.performTextClearance()
         renameField.performTextInput("Quality Renamed Channel")
+        composeRule.onNodeWithTag("action.channel.rename.save").performClick()
+        waitForNode("feedback.channel.rename")
+        composeRule.onNodeWithTag("field.channel.rename.alias")
+            .assertTextContains("Quality Renamed Channel")
+        composeRule.onNodeWithTag("channel.row.01H00000000000000000000003")
+            .assertTextContains("Quality Created Channel")
         composeRule.onNodeWithTag("action.channel.rename.save").performClick()
         composeRule.waitUntil(timeoutMillis = 8_000) {
             composeRule.onAllNodes(
@@ -227,6 +274,13 @@ class QualityChannelJourneyInstrumentedTest : QualityAppJourneyTestCase() {
             composeRule.onAllNodes(hasTestTag(tag)).fetchSemanticsNodes().isNotEmpty()
         }
         composeRule.onNodeWithTag(tag).assertIsDisplayed()
+    }
+
+    private fun waitForEnabledNode(tag: String, timeoutMillis: Long = 8_000) {
+        composeRule.waitUntil(timeoutMillis = timeoutMillis) {
+            composeRule.onAllNodes(hasTestTag(tag) and isEnabled()).fetchSemanticsNodes().isNotEmpty()
+        }
+        composeRule.onNodeWithTag(tag).assertIsDisplayed().assertIsEnabled()
     }
 
     private fun waitForNodeToDisappear(tag: String, timeoutMillis: Long = 8_000) {

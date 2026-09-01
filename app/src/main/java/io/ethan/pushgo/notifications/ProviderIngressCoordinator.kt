@@ -161,7 +161,7 @@ object ProviderIngressCoordinator {
                     inbound = parsed,
                     beforeMessageNotify = beforeMessageNotify,
                 )
-                if (outcome.status != InboundPersistenceStatus.FAILED) {
+                if (outcome.isCanonicalPersistenceComplete()) {
                     pagePersisted += 1
                 } else {
                     pageHadPersistenceFailure = true
@@ -240,7 +240,7 @@ object ProviderIngressCoordinator {
                     inbound = parsed,
                     beforeMessageNotify = beforeMessageNotify,
                 )
-                if (outcome.status == InboundPersistenceStatus.FAILED) {
+                if (!shouldCompleteLegacyPull(parsed, outcome)) {
                     hadFailure = true
                 } else {
                     // Legacy Pull already removed the server row. Commit the local terminal
@@ -418,8 +418,28 @@ internal fun PullItem.authoritativePayload(): Map<String, String> =
 internal fun InboundPersistenceRequest.withProviderAckIdentity(
     identity: ProviderAckIdentity,
 ): InboundPersistenceRequest = when (this) {
-    is InboundPersistenceRequest.Message -> copy(providerAckIdentity = identity)
-    is InboundPersistenceRequest.Entity -> copy(providerAckIdentity = identity)
+    is InboundPersistenceRequest.Message -> copy(
+        providerAckIdentity = identity.takeIf { securityDisposition.allowsSuccessfulAck },
+    )
+    is InboundPersistenceRequest.Entity -> copy(
+        providerAckIdentity = identity.takeIf { securityDisposition.allowsSuccessfulAck },
+    )
 }
+
+internal fun shouldCompleteLegacyPull(
+    inbound: InboundPersistenceRequest,
+    outcome: InboundPersistenceOutcome,
+): Boolean {
+    val allowsSuccessfulAck = when (inbound) {
+        is InboundPersistenceRequest.Message -> inbound.securityDisposition.allowsSuccessfulAck
+        is InboundPersistenceRequest.Entity -> inbound.securityDisposition.allowsSuccessfulAck
+    }
+    return outcome.status != InboundPersistenceStatus.FAILED &&
+        outcome.shouldAck &&
+        allowsSuccessfulAck
+}
+
+internal fun InboundPersistenceOutcome.isCanonicalPersistenceComplete(): Boolean =
+    status != InboundPersistenceStatus.FAILED && status != InboundPersistenceStatus.REJECTED
 
 private const val MAX_PROVIDER_PULL_PAGES_PER_RUN = 1_000

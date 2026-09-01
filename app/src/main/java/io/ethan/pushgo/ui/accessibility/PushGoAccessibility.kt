@@ -18,6 +18,7 @@ import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.ui.semantics.testTag
 
 @Suppress("DEPRECATION")
 fun announceForAccessibility(context: Context, message: String) {
@@ -60,8 +61,10 @@ fun Modifier.pushGoMergedActionSemantics(
     onLongClickLabel: String? = null,
     onLongClickAction: (() -> Unit)? = null,
     customActions: List<CustomAccessibilityAction> = emptyList(),
+    testTag: String? = null,
 ): Modifier {
     return semantics(mergeDescendants = true) {
+        testTag?.let { this.testTag = it }
         contentDescription = summary
         role = modifierRole
         stateDescription?.let { this.stateDescription = it }

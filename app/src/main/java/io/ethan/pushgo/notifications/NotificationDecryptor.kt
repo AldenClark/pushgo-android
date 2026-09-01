@@ -11,6 +11,9 @@ object NotificationDecryptor {
     private val VALID_KEY_LENGTHS = setOf(16, 24, 32)
     private const val MAX_CIPHERTEXT_BYTES = 64 * 1024
 
+    internal fun looksLikeEncryptedEnvelope(value: String): Boolean =
+        InlineCipherEnvelope.looksLikeCiphertext(value)
+
     data class Result(
         val title: String,
         val body: String,
@@ -33,6 +36,7 @@ object NotificationDecryptor {
         val locationValue: String?,
         val locationJson: String?,
         val decryptionState: DecryptionState?,
+        val authenticatedFields: Set<String> = emptySet(),
     ) {
         val image: String?
             get() = images.firstOrNull()
@@ -149,12 +153,14 @@ object NotificationDecryptor {
         var inlineStatus: DecryptStatus = DecryptStatus.NONE
         var cipherStatus: DecryptStatus = DecryptStatus.NONE
         var payloadOverridesApplied = false
+        val authenticatedFields = linkedSetOf<String>()
 
         val inlineTitle = decryptInlineField(title, keyBytes)
         when (inlineTitle.status) {
             DecryptStatus.SUCCESS -> {
                 resolvedTitle = inlineTitle.text ?: resolvedTitle
                 inlineStatus = DecryptStatus.SUCCESS
+                authenticatedFields += "title"
             }
             DecryptStatus.FAILURE -> inlineStatus = DecryptStatus.FAILURE
             DecryptStatus.NONE -> Unit
@@ -165,6 +171,7 @@ object NotificationDecryptor {
             DecryptStatus.SUCCESS -> {
                 resolvedBody = inlineBody.text ?: resolvedBody
                 inlineStatus = if (inlineStatus == DecryptStatus.FAILURE) inlineStatus else DecryptStatus.SUCCESS
+                authenticatedFields += "body"
             }
             DecryptStatus.FAILURE -> inlineStatus = DecryptStatus.FAILURE
             DecryptStatus.NONE -> Unit
@@ -174,9 +181,11 @@ object NotificationDecryptor {
             val cipherResult = decryptCiphertextPayload(ciphertext, keyBytes)
             cipherStatus = cipherResult.status
             if (cipherResult.status == DecryptStatus.SUCCESS) {
-                cipherResult.title?.let { resolvedTitle = it }
-                cipherResult.body?.let {
-                    resolvedBody = it
+                if ("title" in cipherResult.authenticatedFields) {
+                    resolvedTitle = cipherResult.title.orEmpty()
+                }
+                if ("body" in cipherResult.authenticatedFields) {
+                    resolvedBody = cipherResult.body.orEmpty()
                 }
                 images = cipherResult.images
                 resolvedUrl = cipherResult.url
@@ -197,6 +206,7 @@ object NotificationDecryptor {
                 locationValue = cipherResult.locationValue
                 locationJson = cipherResult.locationJson
                 payloadOverridesApplied = cipherResult.hasPayloadOverrides
+                authenticatedFields += cipherResult.authenticatedFields
             }
         }
 
@@ -229,6 +239,7 @@ object NotificationDecryptor {
             locationValue = locationValue,
             locationJson = locationJson,
             decryptionState = state,
+            authenticatedFields = authenticatedFields,
         )
     }
 
@@ -272,6 +283,32 @@ object NotificationDecryptor {
                 locationType = json.stringValue("location_type"),
                 locationValue = json.stringValue("location_value"),
                 locationJson = decodeObjectJsonValue(json["location"]),
+                authenticatedFields = buildSet {
+                    if (json.containsKey("title")) add("title")
+                    if (json.containsKey("body")) add("body")
+                    if (json.containsKey("image") || json.containsKey("images")) add("images")
+                    for (field in listOf(
+                        "url",
+                        "tags",
+                        "metadata",
+                        "description",
+                        "status",
+                        "message",
+                        "attrs",
+                        "started_at",
+                        "ended_at",
+                        "primary_image",
+                        "state",
+                        "created_at",
+                        "deleted_at",
+                        "external_ids",
+                        "location_type",
+                        "location_value",
+                        "location",
+                    )) {
+                        if (json.containsKey(field)) add(field)
+                    }
+                },
             )
         } catch (ex: Exception) {
             CipherDecryptResult(DecryptStatus.FAILURE)
@@ -340,6 +377,7 @@ object NotificationDecryptor {
         val locationType: String? = null,
         val locationValue: String? = null,
         val locationJson: String? = null,
+        val authenticatedFields: Set<String> = emptySet(),
     )
 
     private val CipherDecryptResult.hasPayloadOverrides: Boolean

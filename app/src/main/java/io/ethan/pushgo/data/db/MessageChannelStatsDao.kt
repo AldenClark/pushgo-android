@@ -9,7 +9,7 @@ import kotlinx.coroutines.flow.Flow
 interface MessageChannelStatsDao {
     @Query(
         """
-        SELECT channel, total_count, unread_count
+        SELECT channel, total_count, unread_count, latest_received_at
         FROM message_channel_counts
         WHERE total_count > 0
         ORDER BY latest_received_at DESC, channel ASC
@@ -28,4 +28,7 @@ interface MessageChannelStatsDao {
 
     @Query("SELECT revision FROM message_store_revision WHERE id = 1")
     fun observeStoreRevision(): Flow<Long>
+
+    @Query("SELECT revision FROM message_store_revision WHERE id = 1")
+    suspend fun storeRevision(): Long
 }

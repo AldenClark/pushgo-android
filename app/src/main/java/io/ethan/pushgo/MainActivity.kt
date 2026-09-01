@@ -40,6 +40,7 @@ import androidx.core.content.edit
 import io.ethan.pushgo.automation.PushGoAutomation
 import io.ethan.pushgo.notifications.NotificationHelper
 import io.ethan.pushgo.testing.QualityRuntime
+import io.ethan.pushgo.testing.QualitySystemCapability
 import io.ethan.pushgo.ui.PushGoAppRoot
 import io.ethan.pushgo.ui.screens.PushGoAlertDialog
 import io.ethan.pushgo.ui.theme.PushGoTheme
@@ -183,9 +184,21 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun evaluateStartupDeliveryGuards(requestNotificationRuntimePermission: Boolean) {
+        val exercisesNotificationPermissionJourney = QualityRuntime.allowsSystemCapability(
+            QualitySystemCapability.NOTIFICATION_PERMISSION_JOURNEY,
+        )
+        val exercisesDozeReminderJourney = QualityRuntime.allowsSystemCapability(
+            QualitySystemCapability.DOZE_REMINDER_JOURNEY,
+        )
+        val appOwnedQualitySession = QualityRuntime.isAppOwnedSessionConfigured()
+        val legacyAutomationSession = PushGoAutomation.isSessionConfigured() && !appOwnedQualitySession
         if (
-            PushGoAutomation.isSessionConfigured() ||
-            QualityRuntime.isAppOwnedSessionConfigured()
+            legacyAutomationSession ||
+            (
+                appOwnedQualitySession &&
+                    !exercisesNotificationPermissionJourney &&
+                    !exercisesDozeReminderJourney
+            )
         ) {
             showNotificationPermissionDialog = false
             showDozeModeDialog = false
@@ -210,6 +223,13 @@ class MainActivity : AppCompatActivity() {
                 showDozeModeDialog = false
                 return
             }
+        }
+        // The typed quality capability owns only the notification-permission journey. Once that
+        // real system outcome is healthy, keep the unrelated Doze reminder out of this test.
+        if (exercisesNotificationPermissionJourney) {
+            showNotificationPermissionDialog = false
+            showDozeModeDialog = false
+            return
         }
         if (!NotificationManagerCompat.from(this).areNotificationsEnabled()) {
             showNotificationPermissionDialog = true
@@ -264,6 +284,7 @@ class MainActivity : AppCompatActivity() {
                         )
                         Text(
                             text = title,
+                            modifier = Modifier.testTag("field.delivery_guard.title"),
                             style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
                             color = uiColors.textPrimary,
                         )
@@ -274,11 +295,13 @@ class MainActivity : AppCompatActivity() {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(
                         text = message,
+                        modifier = Modifier.testTag("field.delivery_guard.message"),
                         style = MaterialTheme.typography.bodyMedium,
                         color = uiColors.textPrimary,
                     )
                     Text(
                         text = urgencyHint,
+                        modifier = Modifier.testTag("field.delivery_guard.urgency"),
                         style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold),
                         color = uiColors.stateDanger.foreground,
                     )
@@ -287,6 +310,7 @@ class MainActivity : AppCompatActivity() {
             confirmButton = {
                 Button(
                     onClick = onConfirm,
+                    modifier = Modifier.testTag("action.delivery_guard.confirm"),
                     colors = pushGoDangerButtonColors(),
                 ) {
                     Text(confirmText)

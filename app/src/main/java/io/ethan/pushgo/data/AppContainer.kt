@@ -13,6 +13,7 @@ import io.ethan.pushgo.notifications.InboundPersistenceRequest
 import io.ethan.pushgo.notifications.InboundPersistenceStatus
 import io.ethan.pushgo.notifications.NotificationIngressParser
 import io.ethan.pushgo.notifications.PrivateChannelClient
+import io.ethan.pushgo.notifications.PrivateChannelServiceManager
 import io.ethan.pushgo.testing.InstrumentationRuntime
 import io.ethan.pushgo.testing.QualityFixture
 import io.ethan.pushgo.testing.QualityChannelMutationScenario
@@ -20,10 +21,14 @@ import io.ethan.pushgo.testing.QualityEventCloseScenario
 import io.ethan.pushgo.testing.QualityRuntime
 import io.ethan.pushgo.testing.QualityTransportSwitchException
 import io.ethan.pushgo.testing.QualityTransportSwitchScenario
+import io.ethan.pushgo.testing.QualityUpdateScenario
 import io.ethan.pushgo.ui.PendingLocalDeletionDrainScheduler
 import io.ethan.pushgo.ui.PendingLocalDeletionCoordinator
 import io.ethan.pushgo.ui.WorkManagerPendingLocalDeletionDrainScheduler
 import io.ethan.pushgo.update.UpdateManager
+import io.ethan.pushgo.update.UpdateFeedEntry
+import io.ethan.pushgo.update.UpdateFeedClient
+import io.ethan.pushgo.update.UpdateFeedPayload
 import io.ethan.pushgo.util.UrlValidators
 import io.ethan.pushgo.util.FcmSupport
 import kotlinx.coroutines.CoroutineScope
@@ -195,18 +200,35 @@ class AppContainer(
             ?.let { scenario ->
             object : ChannelMutationRoundTrip {
                 private var subscribeAttempts = 0
+                private var renameAttempts = 0
                 private val activeCreatedChannelIds = mutableSetOf<String>()
 
-                override suspend fun ensureProviderRoute(providerToken: String): String {
+                private fun requireExpectedGateway(gatewayUrl: String) {
+                    val expected = qualitySession?.expectedChannelMutationGatewayUrl ?: return
+                    check(
+                        UrlValidators.normalizeGatewayBaseUrl(gatewayUrl) ==
+                            UrlValidators.normalizeGatewayBaseUrl(expected)
+                    ) {
+                        "quality channel operation was routed through the wrong gateway"
+                    }
+                }
+
+                override suspend fun ensureProviderRoute(
+                    gatewayUrl: String,
+                    providerToken: String,
+                ): String {
+                    requireExpectedGateway(gatewayUrl)
                     check(providerToken.isNotBlank()) { "quality channel route requires a provider token" }
                     return "quality-channel-device"
                 }
 
                 override suspend fun subscribe(
+                    gatewayUrl: String,
                     channelId: String?,
                     channelName: String?,
                     password: String,
                 ): ChannelSubscribeResult {
+                    requireExpectedGateway(gatewayUrl)
                     check(password.isNotBlank()) { "quality channel subscribe requires a password" }
                     subscribeAttempts += 1
                     if (
@@ -243,15 +265,29 @@ class AppContainer(
                 }
 
                 override suspend fun rename(
+                    gatewayUrl: String,
                     channelId: String,
                     channelName: String,
                     password: String,
                 ): ChannelRenameResult {
+                    requireExpectedGateway(gatewayUrl)
                     check(password.isNotBlank()) { "quality channel rename requires a password" }
+                    renameAttempts += 1
+                    if (
+                        scenario == QualityChannelMutationScenario.RENAME_REJECT_ONCE_THEN_ACCEPTED &&
+                        renameAttempts == 1
+                    ) {
+                        throw ChannelSubscriptionException.local(
+                            message = "The channel rename was rejected. Check the name and try again.",
+                            code = "channel_rename_rejected",
+                            category = GatewayErrorCategory.CONFLICT,
+                        )
+                    }
                     return ChannelRenameResult(channelId = channelId, channelName = channelName)
                 }
 
-                override suspend fun unsubscribe(channelId: String) {
+                override suspend fun unsubscribe(gatewayUrl: String, channelId: String) {
+                    requireExpectedGateway(gatewayUrl)
                     check(channelId.isNotBlank()) { "quality channel unsubscribe requires an id" }
                     activeCreatedChannelIds -= channelId
                 }
@@ -266,9 +302,100 @@ class AppContainer(
         entityRepository = entityRepository,
         settingsRepository = settingsRepository,
     )
-    private val qualityTransportSwitchAttempts = AtomicInteger(0)
-    private val qualityFcmTransportPreparationAttempts = AtomicInteger(0)
-    private val qualityFcmCandidateActive = AtomicBoolean(false)
+    val transportSwitchCoordinator = TransportSwitchCoordinator(
+        store = RoomTransportTransitionStore(database.transportTransitionDao()),
+        secretStore = secureSecretStore,
+        gateway = if (qualityTransportScenario == QualityTransportSwitchScenario.NONE) {
+            privateChannelClient
+        } else {
+            object : TransportTransitionGateway {
+                private var routeRevision = 1L
+                private var state = TransportTransitionRemoteState.PREPARED
+                private var channelType = "fcm"
+                private var privateAttempts = 0
+                private var fcmAttempts = 0
+                private var activeOperationId: String? = null
+
+                override suspend fun loadContext() = TransportTransitionContext(
+                    gatewayUrl = "https://quality.invalid",
+                    deviceKey = "quality-transport-device",
+                    routeRevision = routeRevision,
+                    routeTransitionV2 = true,
+                )
+
+                override suspend fun prepare(
+                    operationId: String,
+                    context: TransportTransitionContext,
+                    channelType: String,
+                    providerToken: String?,
+                ): PreparedTransportTransition {
+                    val attempt = if (channelType == "fcm") ++fcmAttempts else ++privateAttempts
+                    if (
+                        qualityTransportScenario ==
+                            QualityTransportSwitchScenario.REJECT_ONCE_THEN_ACCEPTED &&
+                        attempt == 1
+                    ) {
+                        throw QualityTransportSwitchException()
+                    }
+                    this.channelType = channelType
+                    state = TransportTransitionRemoteState.PREPARED
+                    activeOperationId = operationId
+                    return PreparedTransportTransition("quality-$operationId", context.routeRevision)
+                }
+
+                override suspend fun commit(
+                    operationId: String,
+                    transitionId: String,
+                ): CommittedTransportTransition {
+                    routeRevision += 1
+                    state = TransportTransitionRemoteState.COMMITTED
+                    return CommittedTransportTransition(routeRevision, channelType)
+                }
+
+                override suspend fun abort(
+                    operationId: String,
+                    transitionId: String,
+                ): TransportTransitionSnapshot {
+                    state = TransportTransitionRemoteState.ABORTED
+                    return TransportTransitionSnapshot(state, routeRevision, channelType)
+                }
+
+                override suspend fun query(
+                    operationId: String,
+                    transitionId: String?,
+                    deviceKey: String,
+                ): TransportTransitionSnapshot {
+                    if (activeOperationId != operationId) {
+                        throw TransportTransitionNotFoundException("quality operation not found")
+                    }
+                    return TransportTransitionSnapshot(
+                        state = state,
+                        routeRevision = routeRevision,
+                        channelType = channelType,
+                        transitionId = "quality-$operationId",
+                        committedRevision = routeRevision.takeIf {
+                            state == TransportTransitionRemoteState.COMMITTED
+                        },
+                        candidateChannelType = channelType.takeIf {
+                            state == TransportTransitionRemoteState.COMMITTED
+                        },
+                    )
+                }
+            }
+        },
+        selectionApplier = object : TransportSelectionApplier {
+            override suspend fun apply(useFcm: Boolean, providerToken: String?) {
+                QualityRuntime.afterTransportSelectionPersistence()
+                settingsRepository.setFcmToken(providerToken.takeIf { useFcm })
+                settingsRepository.setUseFcmChannel(useFcm)
+                privateChannelClient.setRuntime(
+                    fcmAvailable = useFcm,
+                    systemToken = providerToken.takeIf { useFcm },
+                )
+                PrivateChannelServiceManager.refreshForMode(appContext, useFcm)
+            }
+        },
+    )
     val fcmSupportChecker: (Context) -> Boolean =
         if (qualityTransportScenario != QualityTransportSwitchScenario.NONE) {
             { true }
@@ -276,61 +403,17 @@ class AppContainer(
             FcmSupport::isAvailable
         }
     val gatewayPrivateChannelEnabledFetcher: suspend () -> Boolean? =
-        if (qualityTransportScenario != QualityTransportSwitchScenario.NONE) {
+        if (
+            qualityTransportScenario != QualityTransportSwitchScenario.NONE ||
+            qualitySession?.channelMutationScenario != QualityChannelMutationScenario.NONE
+        ) {
+            // Gateway mutation journeys own a controlled transport boundary.
+            // Do not let a post-commit sync Oracle spend its budget on a real
+            // capability/DNS probe; production sessions still use the real
+            // gateway profile fetch below.
             { true }
         } else {
             { privateChannelClient.gatewayPrivateChannelEnabled() }
-        }
-    val switchToPrivateAndRetireProvider: suspend (String, String?) -> Unit =
-        when (qualityTransportScenario) {
-            QualityTransportSwitchScenario.REJECT_ONCE_THEN_ACCEPTED -> {
-                { _, _ ->
-                    if (qualityTransportSwitchAttempts.incrementAndGet() == 1) {
-                        throw QualityTransportSwitchException()
-                    }
-                    qualityFcmCandidateActive.set(false)
-                }
-            }
-            QualityTransportSwitchScenario.ACCEPTED -> {
-                { _, _ -> qualityFcmCandidateActive.set(false) }
-            }
-            QualityTransportSwitchScenario.NONE -> {
-                { providerType, providerToken ->
-                    privateChannelClient.switchToPrivateAndRetireProvider(
-                        providerType,
-                        providerToken,
-                    )
-                }
-            }
-        }
-    val prepareFcmTransport: suspend (String) -> Unit =
-        when (qualityTransportScenario) {
-            QualityTransportSwitchScenario.REJECT_ONCE_THEN_ACCEPTED -> {
-                { _ ->
-                    if (qualityFcmTransportPreparationAttempts.incrementAndGet() == 1) {
-                        settingsRepository.setFcmToken("quality-uncommitted-fcm-token")
-                        settingsRepository.setDeviceKey("quality-uncommitted-device-key")
-                        qualityFcmCandidateActive.set(true)
-                        throw QualityTransportSwitchException()
-                    }
-                    check(!qualityFcmCandidateActive.get()) {
-                        "The failed FCM candidate was not compensated before retry."
-                    }
-                }
-            }
-            QualityTransportSwitchScenario.ACCEPTED -> {
-                { _ ->
-                    check(!qualityFcmCandidateActive.get()) {
-                        "The failed FCM candidate was not compensated before retry."
-                    }
-                }
-            }
-            QualityTransportSwitchScenario.NONE -> {
-                { providerToken ->
-                    privateChannelClient.switchToProviderChannel("fcm", providerToken)
-                    channelRepository.syncSubscriptionsIfNeeded(providerToken)
-                }
-            }
         }
     private val pendingLocalDeletionRepository = RoomPendingLocalDeletionRepository(
         database = database,
@@ -359,6 +442,45 @@ class AppContainer(
     val updateManager = UpdateManager(
         context = appContext,
         settingsRepository = settingsRepository,
+        feedFetcher = qualitySession?.updateScenario
+            ?.takeUnless { it == QualityUpdateScenario.NONE }
+            ?.let { scenario ->
+                {
+                    check(
+                        scenario == QualityUpdateScenario.AVAILABLE_STABLE ||
+                            scenario == QualityUpdateScenario.AVAILABLE_STABLE_AND_BETA
+                    )
+                    val artifact = qualitySession.updateArtifact
+                    UpdateFeedPayload(
+                        entries = buildList {
+                            add(
+                                UpdateFeedEntry(
+                                    channel = "stable",
+                                    versionCode = artifact?.versionCode ?: Int.MAX_VALUE - 1,
+                                    versionName = artifact?.versionName ?: "9.9.9-quality",
+                                    apkUrl = artifact?.apkUrl
+                                        ?: "https://quality.invalid/pushgo-9.9.9.apk",
+                                    apkSha256 = artifact?.apkSha256 ?: "0".repeat(64),
+                                    notes = "Quality update improves message delivery reliability.",
+                                )
+                            )
+                            if (scenario == QualityUpdateScenario.AVAILABLE_STABLE_AND_BETA) {
+                                add(
+                                    UpdateFeedEntry(
+                                        channel = "beta",
+                                        versionCode = Int.MAX_VALUE,
+                                        versionName = "10.0.0-beta-quality",
+                                        apkUrl = "https://quality.invalid/pushgo-10.0.0-beta.apk",
+                                        apkSha256 = "1".repeat(64),
+                                        notes = "Quality beta update exercises the opt-in channel.",
+                                    )
+                                )
+                            }
+                        },
+                    )
+                }
+            }
+            ?: UpdateFeedClient(appContext)::fetchFeed,
     )
     val automationController = AppAutomationController(
         appContext = appContext,
@@ -382,8 +504,12 @@ class AppContainer(
             QualityFixture.MESSAGES_STANDARD -> listOf(qualityMessage(index = 0, includesMedia = true))
             QualityFixture.MESSAGES_ENCRYPTED_VALID,
             QualityFixture.MESSAGES_ENCRYPTED_CORRUPT -> emptyList()
-            QualityFixture.MESSAGES_WORKFLOW -> (0 until 52).map(::qualityWorkflowMessage)
+            // 134 rows produce exactly 100 unread messages (every fourth row is read).
+            // That keeps the normal workflow fixture small while exercising the real
+            // navigation-badge boundary: 100 -> "99+", then one read -> 99.
+            QualityFixture.MESSAGES_WORKFLOW -> (0 until 134).map(::qualityWorkflowMessage)
             QualityFixture.MESSAGES_FILTERS -> qualityFilterMessages()
+            QualityFixture.MESSAGES_CLEANUP -> qualityCleanupMessages()
             QualityFixture.MESSAGES_MARKDOWN -> listOf(qualityMarkdownMessage())
             QualityFixture.MESSAGES_LARGE -> (0 until 1_000).map { qualityMessage(index = it) }
             QualityFixture.CHANNELS_STANDARD -> listOf(
@@ -391,11 +517,13 @@ class AppContainer(
                     id = "quality-channel-keep-message",
                     title = "Quality Keep History Message",
                     channelId = "01H00000000000000000000001",
+                    receivedAt = Instant.parse("2026-01-15T08:01:00Z"),
                 ),
                 qualityChannelMessage(
                     id = "quality-channel-delete-message",
                     title = "Quality Delete History Message",
                     channelId = "01H00000000000000000000002",
+                    receivedAt = Instant.parse("2026-01-15T09:02:00Z"),
                 ),
             )
             QualityFixture.EVENT_STANDARD,
@@ -434,9 +562,32 @@ class AppContainer(
             }
             QualityFixture.EVENT_STANDARD -> {
                 seedQualityEventSubscription()
+                entityRepository.insertIncoming(qualityThing(
+                    title = "Quality Initial Thing Snapshot",
+                    deliverySuffix = "initial",
+                    receivedAt = Instant.parse("2026-01-15T08:00:00Z"),
+                ))
+                entityRepository.insertIncoming(qualityThing(
+                    title = "Quality Reactor Alpha",
+                    deliverySuffix = "current",
+                    receivedAt = Instant.parse("2026-01-15T08:01:00Z"),
+                ))
                 entityRepository.insertIncoming(qualityEvent())
-                check(entityRepository.eventCount() == 1) {
+                entityRepository.insertIncoming(
+                    qualityEvent(
+                        thingId = "quality-thing",
+                        relatedIdentity = false,
+                        deliverySuffix = "thing-projection",
+                    )
+                )
+                (0 until 16).forEach { index ->
+                    entityRepository.insertIncoming(qualityNavigationEvent(index))
+                }
+                check(entityRepository.eventCount() == 17) {
                     "event.standard did not reach its canonical projection"
+                }
+                check(entityRepository.thingCount() == 1) {
+                    "event.standard linked Thing did not reach its canonical projection"
                 }
             }
             QualityFixture.THING_STANDARD -> {
@@ -452,9 +603,12 @@ class AppContainer(
                     receivedAt = Instant.parse("2026-01-15T08:01:00Z"),
                 ))
                 entityRepository.insertIncoming(qualityThingDistractor())
+                (0 until 16).forEach { index ->
+                    entityRepository.insertIncoming(qualityNavigationThing(index))
+                }
                 entityRepository.insertIncoming(qualityEvent(thingId = "quality-thing"))
                 messageRepository.insertIncoming(qualityThingMessage())
-                check(entityRepository.thingCount() == 2) {
+                check(entityRepository.thingCount() == 18) {
                     "thing.standard did not reach its canonical projection"
                 }
             }
@@ -563,10 +717,12 @@ class AppContainer(
             .put("body", body)
             .apply {
                 if (includesMedia) {
+                    put("severity", "high")
                     val image = qualityStandardMessageImage()
                     put("images", JSONArray(listOf(QUALITY_STANDARD_MESSAGE_IMAGE_URL)).toString())
                     put(MessageImageStore.KEY_IMAGE_LOCAL_PATH, image.absolutePath)
                     put(MessageImageStore.KEY_IMAGE_THUMBNAIL_LOCAL_PATH, image.absolutePath)
+                    put("url", QUALITY_STANDARD_MESSAGE_URL)
                 }
             }
             .toString()
@@ -576,7 +732,7 @@ class AppContainer(
             title = title,
             body = body,
             channel = "quality",
-            url = null,
+            url = if (includesMedia) QUALITY_STANDARD_MESSAGE_URL else null,
             isRead = false,
             receivedAt = receivedAt,
             rawPayloadJson = rawPayload,
@@ -608,10 +764,58 @@ class AppContainer(
         return image
     }
 
+    private fun qualityCleanupMessages(): List<PushMessage> {
+        val now = Instant.now()
+        return listOf(
+            qualityCleanupMessage(
+                id = "quality-cleanup-old",
+                title = "Quality Old Cleanup Target",
+                receivedAt = now.minus(45, java.time.temporal.ChronoUnit.DAYS),
+            ),
+            qualityCleanupMessage(
+                id = "quality-cleanup-recent",
+                title = "Quality Recent Cleanup Control",
+                receivedAt = now.minus(2, java.time.temporal.ChronoUnit.DAYS),
+            ),
+        )
+    }
+
+    private fun qualityCleanupMessage(
+        id: String,
+        title: String,
+        receivedAt: Instant,
+    ): PushMessage {
+        val body = "Deterministic cleanup boundary message."
+        return PushMessage(
+            id = id,
+            messageId = id,
+            title = title,
+            body = body,
+            channel = "quality-cleanup",
+            url = null,
+            isRead = false,
+            receivedAt = receivedAt,
+            rawPayloadJson = JSONObject()
+                .put("entity_type", "message")
+                .put("message_id", id)
+                .put("delivery_id", "quality-delivery-$id")
+                .put("title", title)
+                .put("body", body)
+                .put("sent_at", receivedAt.toString())
+                .toString(),
+            status = MessageStatus.NORMAL,
+            decryptionState = null,
+            notificationId = null,
+            serverId = "quality-session",
+            bodyPreview = body,
+        )
+    }
+
     private companion object {
         const val QUALITY_IMAGE_TTL_MS = 24L * 60L * 60L * 1000L
         const val QUALITY_STANDARD_MESSAGE_IMAGE_URL =
             "https://quality-media.pushgo.dev/standard-message.png"
+        const val QUALITY_STANDARD_MESSAGE_URL = "https://pushgo.dev/quality-message"
     }
 
     private fun qualityWorkflowMessage(index: Int): PushMessage {
@@ -619,6 +823,9 @@ class AppContainer(
         val title = "Quality workflow $index"
         val body = "Cross-page deterministic workflow row $index."
         val channel = if (index % 2 == 0) "workflow-alpha" else "workflow-beta"
+        // Preserve the 100-unread badge oracle while making the two navigation
+        // outcomes visibly different: single reselect -> row 119, double -> row 133.
+        val isRead = index >= 120 || (index % 4 == 0 && index >= 40)
         val rawPayload = JSONObject()
             .put("entity_type", "message")
             .put("message_id", stableId)
@@ -634,7 +841,7 @@ class AppContainer(
             body = body,
             channel = channel,
             url = null,
-            isRead = index % 4 == 0,
+            isRead = isRead,
             receivedAt = Instant.parse("2026-01-15T08:00:00Z").plusSeconds(index.toLong()),
             rawPayloadJson = rawPayload,
             status = MessageStatus.NORMAL,
@@ -648,7 +855,10 @@ class AppContainer(
     private fun qualityMarkdownMessage(): PushMessage {
         val stableId = "quality-markdown-message"
         val title = "Quality Markdown Structure"
-        val body = """
+        val longContent = (1..24).joinToString(separator = "\n\n") { index ->
+            "Long content paragraph $index: multilingual text 中文繁體 العربية emoji 👩🏽‍💻 remains readable after wrapping."
+        }
+        val baseBody = """
             # Quality Markdown Heading
 
             - [x] Completed deployment check
@@ -666,6 +876,8 @@ class AppContainer(
             {"environment":"quality"}
             ```
         """.trimIndent()
+        val body = "$baseBody\n\n$longContent\n\n" +
+            "## Unicode completion sentinel 终点 終點 Ω مرحبا 👩🏽‍💻"
         return PushMessage(
             id = stableId,
             messageId = stableId,
@@ -768,7 +980,12 @@ class AppContainer(
         )
     }
 
-    private fun qualityChannelMessage(id: String, title: String, channelId: String): PushMessage {
+    private fun qualityChannelMessage(
+        id: String,
+        title: String,
+        channelId: String,
+        receivedAt: Instant,
+    ): PushMessage {
         val body = "Deterministic history owned by $channelId."
         return PushMessage(
             id = id,
@@ -778,7 +995,7 @@ class AppContainer(
             channel = channelId,
             url = null,
             isRead = false,
-            receivedAt = Instant.parse("2026-01-15T08:00:00Z"),
+            receivedAt = receivedAt,
             rawPayloadJson = JSONObject()
                 .put("entity_type", "message")
                 .put("message_id", id)
@@ -795,25 +1012,32 @@ class AppContainer(
         )
     }
 
-    private fun qualityEvent(thingId: String? = null): IncomingEntityRecord {
-        val stableId = if (thingId == null) "quality-event" else "quality-related-event"
-        val title = if (thingId == null) "Quality Cooling Alert" else "Quality Related Event"
-        val description = if (thingId == null) {
+    private fun qualityEvent(
+        thingId: String? = null,
+        relatedIdentity: Boolean = thingId != null,
+        deliverySuffix: String? = null,
+    ): IncomingEntityRecord {
+        val stableId = if (relatedIdentity) "quality-related-event" else "quality-event"
+        val title = if (relatedIdentity) "Quality Related Event" else "Quality Cooling Alert"
+        val description = if (!relatedIdentity) {
             "Cooling loop temperature crossed the quality threshold."
         } else {
             "A deterministic event associated with Quality Reactor Alpha."
         }
-        val receivedAt = if (thingId == null) {
+        val receivedAt = if (!relatedIdentity) {
             Instant.parse("2026-01-15T08:02:00Z")
         } else {
             Instant.parse("2026-01-15T08:03:00Z")
         }
+        val deliveryIdentity = deliverySuffix
+            ?.let { "$stableId-$it" }
+            ?: stableId
         val payload = JSONObject()
             .put("entity_type", "event")
             .put("entity_id", stableId)
             .put("event_id", stableId)
-            .put("delivery_id", "quality-delivery-$stableId")
-            .put("op_id", "quality-op-$stableId")
+            .put("delivery_id", "quality-delivery-$deliveryIdentity")
+            .put("op_id", "quality-op-$deliveryIdentity")
             .put("event_state", "ONGOING")
             .put("event_time", receivedAt.toString())
             .put("title", title)
@@ -831,12 +1055,50 @@ class AppContainer(
             body = "Inspect the deterministic cooling fixture.",
             rawPayloadJson = payload.toString(),
             receivedAt = receivedAt,
-            opId = "quality-op-$stableId",
-            deliveryId = "quality-delivery-$stableId",
+            opId = "quality-op-$deliveryIdentity",
+            deliveryId = "quality-delivery-$deliveryIdentity",
             serverId = "quality-session",
             eventId = stableId,
             thingId = thingId,
             eventState = "ONGOING",
+            eventTimeEpoch = receivedAt.toEpochMilli(),
+            observedTimeEpoch = null,
+        )
+    }
+
+    private fun qualityNavigationEvent(index: Int): IncomingEntityRecord {
+        val suffix = index.toString().padStart(2, '0')
+        val eventId = "quality-event-navigation-$suffix"
+        val title = "Navigation Event $suffix"
+        val receivedAt = Instant.parse("2026-01-15T07:$suffix:00Z")
+        val summary = "Deterministic off-screen Event used to prove current-tab return-to-top."
+        val payload = JSONObject()
+            .put("entity_type", "event")
+            .put("entity_id", eventId)
+            .put("event_id", eventId)
+            .put("delivery_id", "quality-delivery-$eventId")
+            .put("op_id", "quality-op-$eventId")
+            .put("event_state", "CLOSED")
+            .put("event_time", receivedAt.toString())
+            .put("title", title)
+            .put("description", summary)
+            .put("status", "closed")
+            .put("message", summary)
+            .put("severity", "normal")
+        return IncomingEntityRecord(
+            entityType = "event",
+            entityId = eventId,
+            channel = "quality-navigation",
+            title = title,
+            body = summary,
+            rawPayloadJson = payload.toString(),
+            receivedAt = receivedAt,
+            opId = "quality-op-$eventId",
+            deliveryId = "quality-delivery-$eventId",
+            serverId = "quality-session",
+            eventId = eventId,
+            thingId = null,
+            eventState = "CLOSED",
             eventTimeEpoch = receivedAt.toEpochMilli(),
             observedTimeEpoch = null,
         )
@@ -876,6 +1138,41 @@ class AppContainer(
             eventState = null,
             eventTimeEpoch = null,
             observedTimeEpoch = receivedAt.toEpochMilli(),
+        )
+    }
+
+    private fun qualityNavigationThing(index: Int): IncomingEntityRecord {
+        val suffix = index.toString().padStart(2, '0')
+        val thingId = "quality-thing-navigation-$suffix"
+        val title = "Navigation Thing $suffix"
+        val observedAt = Instant.parse("2026-01-15T07:$suffix:00Z")
+        val summary = "Deterministic off-screen Thing used to prove current-tab return-to-top."
+        val payload = JSONObject()
+            .put("entity_type", "thing")
+            .put("entity_id", thingId)
+            .put("thing_id", thingId)
+            .put("delivery_id", "quality-delivery-$thingId")
+            .put("op_id", "quality-op-$thingId")
+            .put("observed_at", observedAt.toString())
+            .put("title", title)
+            .put("description", summary)
+            .put("state", "active")
+        return IncomingEntityRecord(
+            entityType = "thing",
+            entityId = thingId,
+            channel = "quality-navigation",
+            title = title,
+            body = summary,
+            rawPayloadJson = payload.toString(),
+            receivedAt = observedAt,
+            opId = "quality-op-$thingId",
+            deliveryId = "quality-delivery-$thingId",
+            serverId = "quality-session",
+            eventId = null,
+            thingId = thingId,
+            eventState = null,
+            eventTimeEpoch = null,
+            observedTimeEpoch = observedAt.toEpochMilli(),
         )
     }
 

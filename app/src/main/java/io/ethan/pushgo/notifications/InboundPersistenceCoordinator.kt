@@ -17,7 +17,9 @@ import io.ethan.pushgo.data.IncomingEntityRecord
 import io.ethan.pushgo.data.MessageRepository
 import io.ethan.pushgo.data.ProviderAckIdentity
 import io.ethan.pushgo.data.SettingsRepository
+import io.ethan.pushgo.data.hasSameEncryptedRecoveryProvenance
 import io.ethan.pushgo.data.inboundDeliveryScope
+import io.ethan.pushgo.data.model.DecryptionState
 import io.ethan.pushgo.data.model.MessageSeverity
 import io.ethan.pushgo.data.model.PushMessage
 import java.util.concurrent.TimeUnit
@@ -70,6 +72,7 @@ sealed interface InboundPersistenceRequest {
         val imageUrl: String?,
         val shouldNotify: Boolean,
         val providerAckIdentity: ProviderAckIdentity? = null,
+        val securityDisposition: InboundSecurityDisposition = InboundSecurityDisposition.ACCEPTED,
     ) : InboundPersistenceRequest
 
     data class Entity(
@@ -80,7 +83,22 @@ sealed interface InboundPersistenceRequest {
         val shouldNotify: Boolean,
         val hasExplicitTitle: Boolean = true,
         val providerAckIdentity: ProviderAckIdentity? = null,
+        val securityDisposition: InboundSecurityDisposition = InboundSecurityDisposition.ACCEPTED,
     ) : InboundPersistenceRequest
+}
+
+/**
+ * Trust result carried from authenticated payload parsing to persistence side effects.
+ * A quarantined payload may be retained by canonical identity for a later key correction,
+ * but it must never cross the notification or successful-ack boundaries.
+ */
+enum class InboundSecurityDisposition(
+    val allowsNotification: Boolean,
+    val allowsSuccessfulAck: Boolean,
+) {
+    ACCEPTED(allowsNotification = true, allowsSuccessfulAck = true),
+    ENCRYPTED_UNAVAILABLE(allowsNotification = false, allowsSuccessfulAck = true),
+    AUTHENTICATION_FAILED(allowsNotification = false, allowsSuccessfulAck = false),
 }
 
 enum class InboundPersistenceStatus {
@@ -142,11 +160,32 @@ object InboundPersistenceCoordinator {
         deliveryScope: InboundDeliveryScope?,
         beforeMessageNotify: suspend (PushMessage, String?) -> Unit,
     ): InboundPersistenceOutcome {
+        val allowsSuccessfulAck = inbound.securityDisposition.allowsSuccessfulAck
+        val providerAckIdentity = inbound.providerAckIdentity.takeIf { allowsSuccessfulAck }
+        val effectiveDeliveryScope = deliveryScope.takeIf { allowsSuccessfulAck }
+        val stableMessageId = inbound.message.messageId?.trim()?.takeIf { it.isNotEmpty() }
+        val existingBeforePersist = stableMessageId?.let { messageRepository.getByMessageId(it) }
+        if (
+            inbound.message.decryptionState == DecryptionState.DECRYPT_OK &&
+            existingBeforePersist != null &&
+            !hasSameEncryptedRecoveryProvenance(existingBeforePersist, inbound.message)
+        ) {
+            io.ethan.pushgo.util.SilentSink.w(
+                TAG,
+                "encrypted replay provenance mismatch messageId=$stableMessageId",
+            )
+            return InboundPersistenceOutcome(
+                status = InboundPersistenceStatus.REJECTED,
+                notified = false,
+                shouldAck = false,
+            )
+        }
         val inserted = runCatching {
             messageRepository.insertIncoming(
                 message = inbound.message,
-                providerAckIdentity = inbound.providerAckIdentity,
-                deliveryScope = deliveryScope,
+                providerAckIdentity = providerAckIdentity,
+                deliveryScope = effectiveDeliveryScope,
+                claimIngressIdentity = allowsSuccessfulAck,
             )
         }
             .onFailure { error ->
@@ -168,12 +207,35 @@ object InboundPersistenceCoordinator {
         settingsRepository.reenablePageForEntity("message")
         if (!inserted) {
             val pending = messageRepository.wouldPersistAsPending(inbound.message)
-            val shouldAck = inboundDeliveryLedgerRepository.shouldAckDelivery(
-                deliveryId = inbound.message.deliveryId,
-                scope = deliveryScope,
-            )
+            val shouldAck = allowsSuccessfulAck &&
+                inboundDeliveryLedgerRepository.shouldAckDelivery(
+                    deliveryId = inbound.message.deliveryId,
+                    scope = effectiveDeliveryScope,
+                )
             if (shouldAck && !pending) {
-                val stableMessageId = inbound.message.messageId?.trim()?.takeIf { it.isNotEmpty() }
+                val existingBeforeReplay = stableMessageId?.let { messageRepository.getByMessageId(it) }
+                if (
+                    inbound.message.decryptionState == DecryptionState.DECRYPT_OK &&
+                    existingBeforeReplay != null &&
+                    existingBeforeReplay.decryptionState != DecryptionState.DECRYPT_OK
+                ) {
+                    messageRepository.replaceEncryptedRecoveryCandidate(
+                        existingId = existingBeforeReplay.id,
+                        reparsed = inbound.message,
+                    )
+                    val recovered = messageRepository.getByMessageId(stableMessageId)
+                    if (recovered?.decryptionState != DecryptionState.DECRYPT_OK) {
+                        io.ethan.pushgo.util.SilentSink.w(
+                            TAG,
+                            "authenticated replay failed to replace quarantined messageId=$stableMessageId",
+                        )
+                        return InboundPersistenceOutcome(
+                            status = InboundPersistenceStatus.FAILED,
+                            notified = false,
+                            shouldAck = false,
+                        )
+                    }
+                }
                 val canonicalMessage = resolveCanonicalMessageForReplay(inbound.message) { messageId ->
                     messageRepository.getByMessageId(messageId)
                 }
@@ -191,7 +253,7 @@ object InboundPersistenceCoordinator {
                 // Resolve media from the canonical payload too; a replay payload may differ.
                 beforeMessageNotify(canonicalMessage, null)
                 if (
-                    inbound.shouldNotify &&
+                    inbound.shouldNotify && inbound.securityDisposition.allowsNotification &&
                     !NotificationHelper.showMessageReplayNotificationSilently(
                         context = context,
                         message = canonicalMessage,
@@ -217,14 +279,15 @@ object InboundPersistenceCoordinator {
         }
 
         beforeMessageNotify(inbound.message, inbound.imageUrl)
-        if (!inbound.shouldNotify) {
+        if (!inbound.shouldNotify || !inbound.securityDisposition.allowsNotification) {
             return InboundPersistenceOutcome(
                 status = InboundPersistenceStatus.PERSISTED_MAIN,
                 notified = false,
-                shouldAck = inboundDeliveryLedgerRepository.shouldAckDelivery(
-                    deliveryId = inbound.message.deliveryId,
-                    scope = deliveryScope,
-                ),
+                shouldAck = allowsSuccessfulAck &&
+                    inboundDeliveryLedgerRepository.shouldAckDelivery(
+                        deliveryId = inbound.message.deliveryId,
+                        scope = effectiveDeliveryScope,
+                    ),
             )
         }
 
@@ -243,10 +306,11 @@ object InboundPersistenceCoordinator {
         return InboundPersistenceOutcome(
             status = InboundPersistenceStatus.PERSISTED_MAIN,
             notified = true,
-            shouldAck = inboundDeliveryLedgerRepository.shouldAckDelivery(
-                deliveryId = inbound.message.deliveryId,
-                scope = deliveryScope,
-            ),
+            shouldAck = allowsSuccessfulAck &&
+                inboundDeliveryLedgerRepository.shouldAckDelivery(
+                    deliveryId = inbound.message.deliveryId,
+                    scope = effectiveDeliveryScope,
+                ),
         )
     }
 
@@ -259,6 +323,16 @@ object InboundPersistenceCoordinator {
         inbound: InboundPersistenceRequest.Entity,
         deliveryScope: InboundDeliveryScope?,
     ): InboundPersistenceOutcome {
+        if (!shouldPersistEntityProjection(inbound)) {
+            return InboundPersistenceOutcome(
+                status = InboundPersistenceStatus.REJECTED,
+                notified = false,
+                shouldAck = false,
+            )
+        }
+        val allowsSuccessfulAck = inbound.securityDisposition.allowsSuccessfulAck
+        val providerAckIdentity = inbound.providerAckIdentity.takeIf { allowsSuccessfulAck }
+        val effectiveDeliveryScope = deliveryScope.takeIf { allowsSuccessfulAck }
         val eventFallbackTitle = if (
             inbound.record.entityType == "event" &&
                 !inbound.hasExplicitTitle
@@ -291,8 +365,8 @@ object InboundPersistenceCoordinator {
         val inserted = runCatching {
             entityRepository.insertIncoming(
                 resolvedInbound.record,
-                resolvedInbound.providerAckIdentity,
-                deliveryScope,
+                providerAckIdentity,
+                effectiveDeliveryScope,
             )
         }
             .onFailure { error ->
@@ -322,11 +396,15 @@ object InboundPersistenceCoordinator {
         settingsRepository.reenablePageForEntity(displayInbound.record.entityType)
         if (!inserted) {
             val pending = entityRepository.wouldPersistAsPending(displayInbound.record)
-            val shouldAck = inboundDeliveryLedgerRepository.shouldAckDelivery(
-                deliveryId = displayInbound.record.deliveryId,
-                scope = deliveryScope,
-            )
-            if (shouldAck && !pending && displayInbound.shouldNotify) {
+            val shouldAck = allowsSuccessfulAck &&
+                inboundDeliveryLedgerRepository.shouldAckDelivery(
+                    deliveryId = displayInbound.record.deliveryId,
+                    scope = effectiveDeliveryScope,
+                )
+            if (
+                shouldAck && !pending && displayInbound.shouldNotify &&
+                displayInbound.securityDisposition.allowsNotification
+            ) {
                 if (!showEntityReplayNotificationSilently(context, displayInbound)) {
                     return InboundPersistenceOutcome(
                         status = InboundPersistenceStatus.FAILED,
@@ -352,17 +430,18 @@ object InboundPersistenceCoordinator {
                 shouldAck = shouldAck,
             )
         }
-        if (!displayInbound.shouldNotify) {
+        if (!displayInbound.shouldNotify || !displayInbound.securityDisposition.allowsNotification) {
             if (displayInbound.record.entityType == "thing") {
                 replayPendingThingChildren(messageRepository, entityRepository, displayInbound)
             }
             return InboundPersistenceOutcome(
                 status = InboundPersistenceStatus.PERSISTED_MAIN,
                 notified = false,
-                shouldAck = inboundDeliveryLedgerRepository.shouldAckDelivery(
-                    deliveryId = displayInbound.record.deliveryId,
-                    scope = deliveryScope,
-                ),
+                shouldAck = allowsSuccessfulAck &&
+                    inboundDeliveryLedgerRepository.shouldAckDelivery(
+                        deliveryId = displayInbound.record.deliveryId,
+                        scope = effectiveDeliveryScope,
+                    ),
             )
         }
 
@@ -379,10 +458,11 @@ object InboundPersistenceCoordinator {
         return InboundPersistenceOutcome(
             status = InboundPersistenceStatus.PERSISTED_MAIN,
             notified = true,
-            shouldAck = inboundDeliveryLedgerRepository.shouldAckDelivery(
-                deliveryId = displayInbound.record.deliveryId,
-                scope = deliveryScope,
-            ),
+            shouldAck = allowsSuccessfulAck &&
+                inboundDeliveryLedgerRepository.shouldAckDelivery(
+                    deliveryId = displayInbound.record.deliveryId,
+                    scope = effectiveDeliveryScope,
+                ),
         )
     }
 
@@ -457,6 +537,10 @@ object InboundPersistenceCoordinator {
         )
     }
 }
+
+internal fun shouldPersistEntityProjection(
+    inbound: InboundPersistenceRequest.Entity,
+): Boolean = inbound.securityDisposition == InboundSecurityDisposition.ACCEPTED
 
 private fun canonicalNotificationLevel(message: PushMessage, fallback: String?): String? {
     return when (message.severity) {

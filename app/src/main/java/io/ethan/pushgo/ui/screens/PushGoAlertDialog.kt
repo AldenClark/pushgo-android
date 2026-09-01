@@ -6,6 +6,8 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.testTagsAsResourceId
 import io.ethan.pushgo.ui.accessibility.pushGoPaneSemantics
 import io.ethan.pushgo.ui.theme.PushGoThemeExtras
 
@@ -20,7 +22,9 @@ internal fun PushGoAlertDialog(
 ) {
     val uiColors = PushGoThemeExtras.colors
     AlertDialog(
-        modifier = Modifier.pushGoPaneSemantics(paneTitle),
+        modifier = Modifier
+            .semantics { testTagsAsResourceId = true }
+            .pushGoPaneSemantics(paneTitle),
         onDismissRequest = onDismissRequest,
         title = title,
         text = text,

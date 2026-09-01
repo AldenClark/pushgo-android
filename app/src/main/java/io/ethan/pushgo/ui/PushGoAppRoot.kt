@@ -53,6 +53,7 @@ import io.ethan.pushgo.update.UpdateInstallIntentLauncher
 import io.ethan.pushgo.update.UpdateNotifier
 import io.ethan.pushgo.ui.screens.ChannelListScreen
 import io.ethan.pushgo.ui.screens.EventListScreen
+import io.ethan.pushgo.ui.screens.EntityTargetUnavailableNotice
 import io.ethan.pushgo.ui.screens.MessageDetailScreen
 import io.ethan.pushgo.ui.screens.MessageListScreen
 import io.ethan.pushgo.ui.screens.PushGoAlertDialog
@@ -96,11 +97,13 @@ fun PushGoAppRoot(
     val settingsViewModel: SettingsViewModel = viewModel(factory = factory)
     
     var selectedMessageId by remember { mutableStateOf<String?>(null) }
+    var unavailableMessageTargetFeedback by remember { mutableStateOf<String?>(null) }
     var pendingEventIdToOpen by remember { mutableStateOf<String?>(null) }
     var pendingThingIdToOpen by remember { mutableStateOf<String?>(null) }
     var pendingThingDetailTabToOpen by remember { mutableStateOf<String?>(null) }
     var openedEntityType by remember { mutableStateOf<String?>(null) }
     var openedEntityId by remember { mutableStateOf<String?>(null) }
+    var consumedStartIntent by remember { mutableStateOf<Intent?>(null) }
     var messageScrollToUnreadToken by remember { mutableLongStateOf(0L) }
     var messageScrollToTopToken by remember { mutableLongStateOf(0L) }
     var eventScrollToTopToken by remember { mutableLongStateOf(0L) }
@@ -130,6 +133,7 @@ fun PushGoAppRoot(
         .collectAsStateWithLifecycle(initialValue = container.settingsRepository.getCachedEventPageEnabled())
     val isThingPageEnabled by container.settingsRepository.thingPageEnabledFlow
         .collectAsStateWithLifecycle(initialValue = container.settingsRepository.getCachedThingPageEnabled())
+    val unavailableMessageTargetText = stringResource(R.string.error_gateway_resource_not_found)
 
     val items = buildList {
         if (isMessagePageEnabled) add(BottomItem(MessagesRoute, stringResource(R.string.tab_messages), Icons.AutoMirrored.Filled.Chat))
@@ -146,10 +150,13 @@ fun PushGoAppRoot(
 
     val currentTopLevelRoute = currentRoute.topLevelRoute()
     val showBottomBar = currentTopLevelRoute != null
+    val topLevelDoubleTapWindowMs = 320L
+    val topLevelSingleTapCommitDelayMs = 340L
 
     fun handleTopLevelReselection(route: TopLevelRoute) {
         val now = SystemClock.elapsedRealtime()
-        val isDoubleTap = lastReselectedRoute == route && now - lastReselectTimestampMs <= 320L
+        val isDoubleTap = lastReselectedRoute == route &&
+            now - lastReselectTimestampMs <= topLevelDoubleTapWindowMs
 
         if (isDoubleTap) {
             pendingMessageReselectJob?.cancel()
@@ -173,11 +180,14 @@ fun PushGoAppRoot(
         if (route == TopLevelRoute.MESSAGES) {
             val tokenAtSchedule = messageScrollToUnreadToken
             pendingMessageReselectJob = appScope.launch {
-                delay(280L)
+                // Commit only after the full double-tap window so a valid late
+                // second tap cannot cause an unread→top visual bounce.
+                delay(topLevelSingleTapCommitDelayMs)
                 if (lastReselectedRoute == TopLevelRoute.MESSAGES && lastReselectTimestampMs == now && messageScrollToUnreadToken == tokenAtSchedule) {
                     messageScrollToUnreadToken += 1
                     lastReselectedRoute = null
                     lastReselectTimestampMs = 0L
+                    pendingMessageReselectJob = null
                 }
             }
         }
@@ -219,21 +229,57 @@ fun PushGoAppRoot(
         autoUpdateWasInstalling = settingsViewModel.isInstallingUpdate
     }
 
-    LaunchedEffect(startIntent) {
-        val openSettings = startIntent?.getBooleanExtra(UpdateNotifier.EXTRA_OPEN_SETTINGS, false) == true
-        val entityId = startIntent?.getStringExtra(NotificationHelper.EXTRA_ENTITY_ID)?.takeIf { it.isNotEmpty() }
-        val entityType = startIntent?.getStringExtra(NotificationHelper.EXTRA_ENTITY_TYPE)?.lowercase()
+    LaunchedEffect(startIntent, currentBackStackEntry) {
+        val routeIntent = startIntent ?: return@LaunchedEffect
+        // A cold notification can compose this effect before NavHost installs its graph. Consume
+        // each Activity Intent exactly once, but only after the first destination is available.
+        if (currentBackStackEntry == null || consumedStartIntent === routeIntent) {
+            return@LaunchedEffect
+        }
+        consumedStartIntent = routeIntent
+
+        val openSettings = routeIntent.getBooleanExtra(UpdateNotifier.EXTRA_OPEN_SETTINGS, false)
+        val entityId = routeIntent.getStringExtra(NotificationHelper.EXTRA_ENTITY_ID)
+            ?.trim()
+            ?.takeIf { it.isNotEmpty() }
+        val entityType = routeIntent.getStringExtra(NotificationHelper.EXTRA_ENTITY_TYPE)
+            ?.trim()
+            ?.lowercase()
         if (openSettings) {
             navController.navigate(SettingsRoute) { popUpTo(navController.graph.findStartDestination().id) { saveState = true }; launchSingleTop = true; restoreState = true }
         } else if (entityType == "event" && entityId != null) {
+            selectedMessageId = null
+            pendingThingIdToOpen = null
+            pendingThingDetailTabToOpen = null
             navController.navigate(EventsRoute) { popUpTo(navController.graph.findStartDestination().id) { saveState = true }; launchSingleTop = true; restoreState = true }
             pendingEventIdToOpen = entityId
         } else if (entityType == "thing" && entityId != null) {
+            selectedMessageId = null
+            pendingEventIdToOpen = null
             navController.navigate(ThingsRoute) { popUpTo(navController.graph.findStartDestination().id) { saveState = true }; launchSingleTop = true; restoreState = true }
             pendingThingIdToOpen = entityId
-            pendingThingDetailTabToOpen = startIntent.getStringExtra(MainActivity.EXTRA_THING_DETAIL_TAB)
+            pendingThingDetailTabToOpen = routeIntent.getStringExtra(MainActivity.EXTRA_THING_DETAIL_TAB)
         } else {
-            selectedMessageId = startIntent?.getStringExtra(NotificationHelper.EXTRA_MESSAGE_ID)
+            val messageId = routeIntent.getStringExtra(NotificationHelper.EXTRA_MESSAGE_ID)
+                ?.trim()
+                ?.takeIf { it.isNotEmpty() }
+            if (messageId != null) {
+                pendingEventIdToOpen = null
+                pendingThingIdToOpen = null
+                pendingThingDetailTabToOpen = null
+                navController.navigate(MessagesRoute) { popUpTo(navController.graph.findStartDestination().id) { saveState = true }; launchSingleTop = true; restoreState = true }
+                // A notification can outlive a locally committed deletion. Validate
+                // its target before presenting a detail so an unavailable target has
+                // the declared Messages-list fallback rather than a misleading empty
+                // detail screen.
+                if (container.messageRepository.getById(messageId) == null) {
+                    selectedMessageId = null
+                    unavailableMessageTargetFeedback = unavailableMessageTargetText
+                } else {
+                    unavailableMessageTargetFeedback = null
+                    selectedMessageId = messageId
+                }
+            }
         }
     }
 
@@ -372,6 +418,7 @@ fun PushGoAppRoot(
                 navController = navController, container = container, factory = factory, settingsViewModel = settingsViewModel,
                 initialRoute = initialRoute, padding = padding,
                 onMessageClick = { messageId ->
+                    unavailableMessageTargetFeedback = null
                     selectedMessageId = messageId
                 },
                 onMessageBottomBarVisibilityChanged = { bottomBarVisible = it },
@@ -395,6 +442,13 @@ fun PushGoAppRoot(
                 },
                 onThingDetailOpened = { openedEntityType = "thing"; openedEntityId = it }, onThingDetailClosed = { openedEntityType = null; openedEntityId = null }
             )
+            unavailableMessageTargetFeedback?.let { feedback ->
+                EntityTargetUnavailableNotice(
+                    message = feedback,
+                    feedbackTag = "feedback.message.target_unavailable",
+                    modifier = Modifier.align(Alignment.TopCenter),
+                )
+            }
             if (qualityReadinessStatus != "inactive" && qualitySessionId != null) {
                 Box(
                     modifier = Modifier

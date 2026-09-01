@@ -138,6 +138,7 @@ fun MessageDetailScreen(
     val context = LocalContext.current
     val clipboard = LocalClipboard.current
     val copiedMessage = stringResource(R.string.message_text_copied)
+    val copyFailedMessage = stringResource(R.string.error_request_failed)
     val imageSavedMessage = stringResource(R.string.message_image_saved)
     val imageSaveFailedMessage = stringResource(R.string.error_message_image_save_failed)
     val imageShareFailedMessage = stringResource(R.string.error_message_image_share_failed)
@@ -257,10 +258,17 @@ fun MessageDetailScreen(
                         val trimmed = text.trim()
                         if (trimmed.isEmpty()) return@MessageDetailCoreContent
                         scope.launch {
-                            clipboard.setText(AnnotatedString(trimmed))
+                            val feedback = runCatching {
+                                clipboard.setText(AnnotatedString(trimmed))
+                            }.fold(
+                                onSuccess = { copiedMessage },
+                                onFailure = { copyFailedMessage },
+                            )
+                            withContext(Dispatchers.Main.immediate) {
+                                Toast.makeText(context, feedback, Toast.LENGTH_SHORT).show()
+                                announceForAccessibility(context, feedback)
+                            }
                         }
-                        Toast.makeText(context, copiedMessage, Toast.LENGTH_SHORT).show()
-                        announceForAccessibility(context, copiedMessage)
                     },
                     onOpenImage = { model ->
                         when (model) {
@@ -332,8 +340,10 @@ fun MessageDetailScreen(
                         imageStore = imageStore,
                     )
                     val messageText = if (saved) imageSavedMessage else imageSaveFailedMessage
-                    Toast.makeText(context, messageText, Toast.LENGTH_SHORT).show()
-                    announceForAccessibility(context, messageText)
+                    withContext(Dispatchers.Main.immediate) {
+                        Toast.makeText(context, messageText, Toast.LENGTH_SHORT).show()
+                        announceForAccessibility(context, messageText)
+                    }
                 }
             },
             onShareImage = {
@@ -345,8 +355,10 @@ fun MessageDetailScreen(
                         imageStore = imageStore,
                     )
                     if (!shared) {
-                        Toast.makeText(context, imageShareFailedMessage, Toast.LENGTH_SHORT).show()
-                        announceForAccessibility(context, imageShareFailedMessage)
+                        withContext(Dispatchers.Main.immediate) {
+                            Toast.makeText(context, imageShareFailedMessage, Toast.LENGTH_SHORT).show()
+                            announceForAccessibility(context, imageShareFailedMessage)
+                        }
                     }
                 }
             },
@@ -390,6 +402,7 @@ internal fun MessageDetailCoreContent(
 
     Column(
         modifier = Modifier
+            .testTag("message.detail.scroll")
             .verticalScroll(detailScrollState)
             .padding(horizontal = 12.dp)
             .padding(top = 12.dp)

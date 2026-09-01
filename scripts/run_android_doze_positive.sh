@@ -1,0 +1,320 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+device_serial="${ANDROID_SERIAL:-}"
+package_name="io.ethan.pushgo"
+permission="android.permission.POST_NOTIFICATIONS"
+control_activity="$package_name/.testing.BenchmarkUnstopActivity"
+main_activity="$package_name/.MainActivity"
+run_dir="$(mktemp -d "${TMPDIR:-/tmp}/pushgo-doze-positive.XXXXXX")"
+ui_dump="$run_dir/window.xml"
+device_ui_dump="/sdcard/pushgo-doze-positive.xml"
+prepared=0
+original_granted=false
+original_user_set=0
+original_user_fixed=0
+original_whitelisted=false
+
+blocked() {
+  echo "status=BLOCKED"
+  echo "reason=$1"
+  exit 2
+}
+
+failed() {
+  echo "status=FAILED"
+  echo "reason=$1"
+  if dump_ui; then
+    python3 - "$ui_dump" <<'PY'
+import sys
+import xml.etree.ElementTree as ET
+
+root = ET.parse(sys.argv[1]).getroot()
+shown = 0
+for node in root.iter("node"):
+    values = [node.attrib.get(key, "") for key in ("package", "resource-id", "text")]
+    if any(values):
+        print("ui=" + "|".join(values))
+        shown += 1
+        if shown >= 80:
+            break
+PY
+  fi
+  adb -s "$device_serial" shell dumpsys window windows \
+    | sed -n 's/.*mCurrentFocus=//p' | head -n 1 || true
+  exit 1
+}
+
+[[ -n "$device_serial" ]] || blocked "ANDROID_SERIAL is required"
+[[ "$(adb -s "$device_serial" shell getprop ro.kernel.qemu | tr -d '\r')" == "1" ]] || \
+  blocked "Doze journey changes battery-optimization state and requires a controlled emulator"
+
+is_whitelisted() {
+  adb -s "$device_serial" shell dumpsys deviceidle whitelist | rg -q "$package_name"
+}
+
+restore_permission() {
+  local restore_failed=0
+  local restored_line=""
+  adb -s "$device_serial" shell pm clear-permission-flags \
+    "$package_name" "$permission" user-set user-fixed >/dev/null 2>&1 || restore_failed=1
+  if [[ "$original_granted" == "true" ]]; then
+    adb -s "$device_serial" shell pm grant "$package_name" "$permission" >/dev/null 2>&1 || restore_failed=1
+  else
+    adb -s "$device_serial" shell pm revoke "$package_name" "$permission" >/dev/null 2>&1 || restore_failed=1
+  fi
+  if [[ "$original_user_set" -eq 1 ]]; then
+    adb -s "$device_serial" shell pm set-permission-flags \
+      "$package_name" "$permission" user-set >/dev/null 2>&1 || restore_failed=1
+  fi
+  if [[ "$original_user_fixed" -eq 1 ]]; then
+    adb -s "$device_serial" shell pm set-permission-flags \
+      "$package_name" "$permission" user-fixed >/dev/null 2>&1 || restore_failed=1
+  fi
+  restored_line="$(adb -s "$device_serial" shell dumpsys package "$package_name" \
+    | awk '/android.permission.POST_NOTIFICATIONS: granted=/{print; exit}')"
+  [[ "$original_granted" == "true" && "$restored_line" == *"granted=true"* ]] || \
+    [[ "$original_granted" == "false" && "$restored_line" == *"granted=false"* ]] || restore_failed=1
+  return "$restore_failed"
+}
+
+restore_battery_optimization() {
+  if [[ "$original_whitelisted" == "true" ]]; then
+    adb -s "$device_serial" shell cmd deviceidle whitelist +"$package_name" >/dev/null 2>&1
+  else
+    adb -s "$device_serial" shell cmd deviceidle whitelist -"$package_name" >/dev/null 2>&1
+  fi
+}
+
+clear_session() {
+  local clear_output=""
+  [[ "$prepared" -eq 1 ]] || return 0
+  adb -s "$device_serial" shell am force-stop "$package_name" >/dev/null 2>&1 || true
+  adb -s "$device_serial" logcat -c >/dev/null 2>&1 || true
+  clear_output="$(adb -s "$device_serial" shell am start -W \
+    -n "$control_activity" \
+    --ez io.ethan.pushgo.testing.CLEAR_SESSION true 2>&1)" || true
+  [[ "$clear_output" == *"Status: ok"* ]] || return 1
+  if adb -s "$device_serial" logcat -d -s PushGoQualityControl:E '*:S' | rg -q 'quality control failed'; then
+    return 1
+  fi
+  prepared=0
+}
+
+cleanup() {
+  local status=$?
+  adb -s "$device_serial" shell am force-stop "$package_name" >/dev/null 2>&1 || true
+  if ! clear_session; then
+    echo "cleanup_status=FAILED"
+    echo "cleanup_reason=App-owned Doze session was not cleared"
+    [[ "$status" -ne 0 ]] || status=1
+  fi
+  if ! restore_permission; then
+    echo "cleanup_status=FAILED"
+    echo "cleanup_reason=original notification permission state was not restored"
+    [[ "$status" -ne 0 ]] || status=1
+  fi
+  if ! restore_battery_optimization; then
+    echo "cleanup_status=FAILED"
+    echo "cleanup_reason=original battery optimization state was not restored"
+    [[ "$status" -ne 0 ]] || status=1
+  fi
+  adb -s "$device_serial" shell am force-stop "$package_name" >/dev/null 2>&1 || true
+  adb -s "$device_serial" shell rm -f "$device_ui_dump" >/dev/null 2>&1 || true
+  rm -rf "$run_dir"
+  exit "$status"
+}
+trap cleanup EXIT
+
+if [[ "${QUALITY_ANDROID_SKIP_INSTALL:-0}" != "1" ]]; then
+  "$repo_root/gradlew" :app:installDebug
+fi
+
+permission_line="$(adb -s "$device_serial" shell dumpsys package "$package_name" \
+  | awk '/android.permission.POST_NOTIFICATIONS: granted=/{print; exit}')"
+[[ "$permission_line" == *"granted=true"* ]] && original_granted=true
+[[ "$permission_line" == *"USER_SET"* ]] && original_user_set=1
+[[ "$permission_line" == *"USER_FIXED"* ]] && original_user_fixed=1
+is_whitelisted && original_whitelisted=true
+
+dump_ui() {
+  adb -s "$device_serial" shell uiautomator dump "$device_ui_dump" >/dev/null 2>&1 || return 1
+  adb -s "$device_serial" exec-out cat "$device_ui_dump" >"$ui_dump" 2>/dev/null || return 1
+  rg -q '<hierarchy' "$ui_dump"
+}
+
+node_center() {
+  local resource_id="$1"
+  python3 - "$ui_dump" "$resource_id" <<'PY'
+import re
+import sys
+import xml.etree.ElementTree as ET
+
+root = ET.parse(sys.argv[1]).getroot()
+query = sys.argv[2]
+for node in root.iter("node"):
+    resource_id = node.attrib.get("resource-id", "")
+    if resource_id != query and not resource_id.endswith(":id/" + query):
+        continue
+    match = re.fullmatch(r"\[(\d+),(\d+)\]\[(\d+),(\d+)\]", node.attrib.get("bounds", ""))
+    if match:
+        x1, y1, x2, y2 = map(int, match.groups())
+        print(f"{(x1 + x2) // 2},{(y1 + y2) // 2}")
+        raise SystemExit(0)
+raise SystemExit(1)
+PY
+}
+
+node_text() {
+  local resource_id="$1"
+  python3 - "$ui_dump" "$resource_id" <<'PY'
+import sys
+import xml.etree.ElementTree as ET
+
+root = ET.parse(sys.argv[1]).getroot()
+query = sys.argv[2]
+for node in root.iter("node"):
+    resource_id = node.attrib.get("resource-id", "")
+    if resource_id == query or resource_id.endswith(":id/" + query):
+        print(node.attrib.get("text", ""))
+        raise SystemExit(0)
+raise SystemExit(1)
+PY
+}
+
+wait_for_node() {
+  local resource_id="$1"
+  local timeout_seconds="${2:-15}"
+  local deadline=$((SECONDS + timeout_seconds))
+  while (( SECONDS < deadline )); do
+    if dump_ui && node_center "$resource_id" >/dev/null 2>&1; then
+      return 0
+    fi
+    sleep 0.25
+  done
+  return 1
+}
+
+wait_for_absent() {
+  local resource_id="$1"
+  local timeout_seconds="${2:-10}"
+  local deadline=$((SECONDS + timeout_seconds))
+  while (( SECONDS < deadline )); do
+    if dump_ui && ! node_center "$resource_id" >/dev/null 2>&1; then
+      return 0
+    fi
+    sleep 0.25
+  done
+  return 1
+}
+
+tap_node() {
+  local resource_id="$1"
+  wait_for_node "$resource_id" 15 || failed "UI node was not reachable: $resource_id"
+  dump_ui || failed "UI tree could not be captured before tapping $resource_id"
+  local center
+  center="$(node_center "$resource_id")" || failed "UI node disappeared before tapping: $resource_id"
+  adb -s "$device_serial" shell input tap "${center%,*}" "${center#*,}"
+}
+
+prepare_session() {
+  local session_id="$1"
+  local payload
+  local prepare_output=""
+  payload="$(python3 - "$session_id" <<'PY'
+import base64
+import json
+import sys
+
+payload = {
+    "schema_version": 1,
+    "session_id": sys.argv[1],
+    "fixture": "empty.clean",
+    "system_capabilities": ["doze_reminder_journey"],
+    "faults": {},
+}
+print(base64.b64encode(json.dumps(payload, separators=(",", ":")).encode()).decode())
+PY
+)"
+  adb -s "$device_serial" logcat -c
+  prepare_output="$(adb -s "$device_serial" shell am start -W \
+    -n "$control_activity" \
+    --es io.ethan.pushgo.testing.SESSION_BASE64 "$payload" 2>&1)" || \
+    blocked "App-owned Doze fixture could not be prepared: $prepare_output"
+  [[ "$prepare_output" == *"Status: ok"* ]] || \
+    blocked "App-owned Doze control did not launch: $prepare_output"
+  prepared=1
+  if adb -s "$device_serial" logcat -d -s PushGoQualityControl:E '*:S' | rg -q 'quality control failed'; then
+    blocked "App-owned Doze fixture failed inside the app"
+  fi
+}
+
+launch_app() {
+  adb -s "$device_serial" shell am force-stop "$package_name"
+  adb -s "$device_serial" shell am start -W -n "$main_activity" >/dev/null
+}
+
+open_settings_from_root() {
+  wait_for_node "nav.item.channels" 10 || failed "Channels navigation was not reachable"
+  tap_node "nav.item.channels"
+  wait_for_node "action.channels.settings" 10 || failed "Channels did not expose Settings"
+  tap_node "action.channels.settings"
+  wait_for_node "screen.settings.content" 10 || failed "PushGo did not open Settings"
+}
+
+adb -s "$device_serial" shell pm grant "$package_name" "$permission"
+adb -s "$device_serial" shell pm clear-permission-flags \
+  "$package_name" "$permission" user-set user-fixed
+adb -s "$device_serial" shell cmd deviceidle whitelist -"$package_name" >/dev/null
+
+prepare_session "android-doze-positive-$(date +%s)"
+launch_app
+wait_for_node "field.delivery_guard.title" 10 || \
+  failed "PushGo did not explain the active battery optimization risk"
+dump_ui || failed "Doze explanation UI could not be captured"
+[[ "$(node_text "field.delivery_guard.title")" == "Battery optimization is enabled" ]] || \
+  failed "PushGo showed the wrong delivery-risk explanation"
+wait_for_node "field.delivery_guard.message" 3 || failed "PushGo did not explain delayed delivery"
+wait_for_node "field.delivery_guard.urgency" 3 || failed "PushGo did not explain Doze urgency"
+
+adb -s "$device_serial" shell input keyevent KEYCODE_BACK
+wait_for_absent "field.delivery_guard.title" 5 || failed "PushGo did not dismiss the startup Doze explanation"
+open_settings_from_root
+wait_for_node "banner.settings.doze_enabled" 10 || failed "Settings did not show the Doze risk banner"
+tap_node "action.settings.open_battery_optimization_settings"
+wait_for_node "android:id/button1" 10 || failed "PushGo did not open the real unrestricted-mode system dialog"
+dump_ui || failed "System battery dialog could not be captured"
+[[ "$(node_text "android:id/button1")" == "Allow" ]] || failed "System battery dialog did not expose the Allow action"
+tap_node "android:id/button1"
+
+wait_for_node "screen.settings.content" 10 || failed "PushGo did not resume Settings after battery settings"
+is_whitelisted || failed "Android did not exempt PushGo after the real system Allow action"
+wait_for_absent "banner.settings.doze_enabled" 10 || \
+  failed "Settings kept the Doze banner after unrestricted mode was enabled"
+
+adb -s "$device_serial" shell cmd deviceidle whitelist -"$package_name" >/dev/null
+launch_app
+wait_for_node "field.delivery_guard.title" 10 || failed "Doze reminder did not return after restoring restricted mode"
+adb -s "$device_serial" shell input keyevent KEYCODE_BACK
+wait_for_absent "field.delivery_guard.title" 5 || failed "PushGo did not return from the restored Doze explanation"
+open_settings_from_root
+wait_for_node "banner.settings.doze_enabled" 10 || failed "Settings lost the restored Doze risk banner"
+tap_node "action.settings.snooze_doze_reminder"
+wait_for_absent "banner.settings.doze_enabled" 5 || failed "One-month snooze did not hide the Doze banner"
+is_whitelisted && failed "Snooze incorrectly changed Android battery optimization state"
+
+launch_app
+wait_for_node "nav.item.channels" 10 || failed "PushGo did not relaunch after snoozing Doze"
+wait_for_absent "field.delivery_guard.title" 3 || failed "Snoozed Doze reminder reappeared in the same session"
+open_settings_from_root
+wait_for_absent "banner.settings.doze_enabled" 3 || failed "Snoozed Doze banner reappeared in the same session"
+
+clear_session || failed "First App-owned Doze session could not be cleared"
+prepare_session "android-doze-isolation-$(date +%s)"
+launch_app
+wait_for_node "field.delivery_guard.title" 10 || \
+  failed "A new App-owned session inherited the previous session's Doze snooze"
+
+echo "status=PASSED"
+echo "claim=restricted explanation -> Settings banner -> real system unrestricted -> return refresh -> session-owned snooze -> clean-session reminder"

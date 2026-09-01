@@ -16,10 +16,20 @@ fun interface EventCloseRoundTrip {
 }
 
 interface ChannelMutationRoundTrip {
-    suspend fun ensureProviderRoute(providerToken: String): String
-    suspend fun subscribe(channelId: String?, channelName: String?, password: String): ChannelSubscribeResult
-    suspend fun rename(channelId: String, channelName: String, password: String): ChannelRenameResult
-    suspend fun unsubscribe(channelId: String)
+    suspend fun ensureProviderRoute(gatewayUrl: String, providerToken: String): String
+    suspend fun subscribe(
+        gatewayUrl: String,
+        channelId: String?,
+        channelName: String?,
+        password: String,
+    ): ChannelSubscribeResult
+    suspend fun rename(
+        gatewayUrl: String,
+        channelId: String,
+        channelName: String,
+        password: String,
+    ): ChannelRenameResult
+    suspend fun unsubscribe(gatewayUrl: String, channelId: String)
 }
 
 class ChannelSubscriptionRepository(
@@ -252,7 +262,7 @@ class ChannelSubscriptionRepository(
                     category = GatewayErrorCategory.VALIDATION,
                 )
 
-            val result = channelMutationRoundTrip?.rename(channelId, alias, password)
+            val result = channelMutationRoundTrip?.rename(config.address, channelId, alias, password)
                 ?: service.renameChannel(
                     baseUrl = config.address,
                     token = config.token,
@@ -301,7 +311,7 @@ class ChannelSubscriptionRepository(
             )
         if (channelMutationRoundTrip != null) {
             ensureProviderRoute(token, config)
-            channelMutationRoundTrip.unsubscribe(channelId)
+            channelMutationRoundTrip.unsubscribe(config.address, channelId)
             return
         }
         var deviceKey = ensureProviderRoute(token, config)
@@ -344,7 +354,12 @@ class ChannelSubscriptionRepository(
         requireExpectedGateway(config, expectedGatewayUrl)
         if (channelMutationRoundTrip != null) {
             ensureProviderRoute(token, config)
-            val result = channelMutationRoundTrip.subscribe(channelId, null, normalizedPassword)
+            val result = channelMutationRoundTrip.subscribe(
+                config.address,
+                channelId,
+                null,
+                normalizedPassword,
+            )
             if (!result.subscribed) {
                 throw ChannelSubscriptionException.local(
                     message = "Request failed",
@@ -438,6 +453,7 @@ class ChannelSubscriptionRepository(
 
         val resolvedDeviceKey = if (channelMutationRoundTrip != null) {
             channelMutationRoundTrip.ensureProviderRoute(
+                normalizedAddress,
                 normalizedProviderToken ?: "quality-private-route"
             ).trim()
         } else {
@@ -612,7 +628,10 @@ class ChannelSubscriptionRepository(
             )
         }
         if (channelMutationRoundTrip != null) {
-            val deviceKey = channelMutationRoundTrip.ensureProviderRoute(normalizedToken).trim()
+            val deviceKey = channelMutationRoundTrip.ensureProviderRoute(
+                config.address,
+                normalizedToken,
+            ).trim()
             if (deviceKey.isEmpty()) {
                 throw ChannelSubscriptionException.local(
                     message = "Request failed",
@@ -721,7 +740,12 @@ class ChannelSubscriptionRepository(
         val config = resolveServerConfig()
         if (channelMutationRoundTrip != null) {
             ensureProviderRoute(token, config)
-            val result = channelMutationRoundTrip.subscribe(channelId, channelName, password)
+            val result = channelMutationRoundTrip.subscribe(
+                config.address,
+                channelId,
+                channelName,
+                password,
+            )
             if (!result.subscribed) {
                 throw ChannelSubscriptionException.local(
                     message = "Request failed",

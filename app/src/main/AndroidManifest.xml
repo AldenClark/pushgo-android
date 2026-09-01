@@ -38,6 +38,7 @@
             android:excludeFromRecents="true"
             android:exported="${qualityFixtureProviderEnabled}"
             android:noHistory="true"
+            android:permission="android.permission.DUMP"
             android:theme="@android:style/Theme.NoDisplay" />
         <activity
             android:name=".MainActivity"

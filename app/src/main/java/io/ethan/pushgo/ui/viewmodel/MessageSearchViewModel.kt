@@ -7,8 +7,11 @@ import androidx.paging.cachedIn
 import io.ethan.pushgo.data.MessageRepository
 import io.ethan.pushgo.data.model.MessageFilter
 import io.ethan.pushgo.data.model.MessageListItem
+import io.ethan.pushgo.testing.QualityRuntime
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.FlowPreview
+import kotlinx.coroutines.flow.emitAll
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.StateFlow
@@ -34,13 +37,18 @@ class MessageSearchViewModel(
         Triple(rawQuery, currentFilter, suppressedIds)
     }
         .flatMapLatest { (rawQuery, currentFilter, suppressedIds) ->
-            repository.searchMessages(
-                rawQuery = rawQuery,
-                unreadOnly = currentFilter.unreadOnly,
-                excludedIds = suppressedIds,
-                channels = currentFilter.channels,
-                facetTags = currentFilter.tags,
-            )
+            flow {
+                QualityRuntime.beforeMessageSearch(rawQuery)
+                emitAll(
+                    repository.searchMessages(
+                        rawQuery = rawQuery,
+                        unreadOnly = currentFilter.unreadOnly,
+                        excludedIds = suppressedIds,
+                        channels = currentFilter.channels,
+                        facetTags = currentFilter.tags,
+                    )
+                )
+            }
         }
         .cachedIn(viewModelScope)
 

@@ -115,10 +115,20 @@ class PushGoApp : Application(), SingletonImageLoader.Factory {
     fun isAppVisible(): Boolean = startedActivities > 0
 
     fun shouldRunPrivateChannelForegroundService(): Boolean {
-        if (PushGoAutomation.isSessionConfigured() || isEffectiveFcmModeEnabled()) {
+        val qualityOwnsPrivateService = io.ethan.pushgo.testing.QualityRuntime
+            .allowsSystemCapability(
+                io.ethan.pushgo.testing.QualitySystemCapability.PRIVATE_FOREGROUND_SERVICE,
+            )
+        if (PushGoAutomation.isSessionConfigured() && !qualityOwnsPrivateService) {
             return false
         }
         val container = containerOrNull() ?: return false
+        val fcmModeEnabled = if (qualityOwnsPrivateService) {
+            container.settingsRepository.getCachedUseFcmChannel()
+        } else {
+            isEffectiveFcmModeEnabled()
+        }
+        if (fcmModeEnabled) return false
         val snapshot = container.privateChannelClient.readConnectionSnapshot()
         return startedActivities > 0 || snapshot.keepaliveState != KeepaliveState.FGS_LOST
     }
@@ -173,6 +183,16 @@ class PushGoApp : Application(), SingletonImageLoader.Factory {
             return
         }
         container.pendingLocalDeletionCoordinator.start()
+        appScope.launch {
+            runCatching { container.transportSwitchCoordinator.recoverPending() }
+                .onFailure { error ->
+                    PushGoAutomation.recordRuntimeError(
+                        source = "transport.transition.recovery",
+                        error = error,
+                        category = "network",
+                    )
+                }
+        }
         cachedUseFcmChannel = container.settingsRepository.getCachedUseFcmChannel()
         appScope.launch {
             runCatching {

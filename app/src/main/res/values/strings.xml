@@ -170,6 +170,7 @@
     <string name="label_send_type_event">Events</string>
     <string name="label_send_type_thing">Objects</string>
     <string name="message_gateway_saved">Gateway saved</string>
+    <string name="message_gateway_saved_sync_pending">Gateway saved; channel sync is pending and will retry automatically.</string>
     <string name="dialog_private_channel_whitelist_title">Keep PushGo running in background</string>
     <string name="dialog_private_channel_whitelist_body">Private channel needs persistent background connectivity. Please add PushGo to your system battery/background whitelist and disable aggressive cleanup, otherwise messages may be delayed or missed.</string>
     <string name="message_decryption_saved">Decryption settings saved</string><string name="message_channel_created_and_subscribed">Channel created and subscribed</string>
@@ -353,4 +354,9 @@
     <string name="label_docs_e2ee_hint">Configure payload encryption and client decryption keys.</string>
     <string name="a11y_open_documentation">%1$s. %2$s Opens in browser.</string>
     <string name="error_open_documentation">Unable to open documentation.</string>
+    <string name="channel_stats_empty">No messages</string>
+    <string name="channel_stats_loading">Loading activity…</string>
+    <string name="channel_stats_no_recent">No recent message</string>
+    <string name="channel_stats_summary">%1$d messages · %2$d unread · Latest %3$s</string>
+    <string name="channel_stats_unavailable">Activity unavailable</string>
 </resources>

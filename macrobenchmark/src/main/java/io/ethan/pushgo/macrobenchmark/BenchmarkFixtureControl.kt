@@ -2,6 +2,7 @@ package io.ethan.pushgo.macrobenchmark
 
 import android.os.Process
 import android.os.SystemClock
+import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.uiautomator.UiDevice
 import java.util.Base64
 
@@ -16,7 +17,19 @@ internal const val UI_WAIT_SLACK_MILLISECONDS = 2_000L
 
 private val encodedSession: String by lazy {
     val sessionId = "android-performance-${Process.myPid()}-${SystemClock.elapsedRealtime()}"
-    val json = """{"schema_version":1,"session_id":"$sessionId","fixture":"messages.large","faults":{}}"""
+    val rawLoadDelay = InstrumentationRegistry.getArguments()
+        .getString("pushgo.fixtureLoadDelayMs")
+    val loadDelayMilliseconds = if (rawLoadDelay == null) {
+        0L
+    } else {
+        checkNotNull(rawLoadDelay.toLongOrNull()) {
+            "pushgo.fixtureLoadDelayMs must be an integer"
+        }
+    }
+    check(loadDelayMilliseconds in 0L..30_000L) {
+        "pushgo.fixtureLoadDelayMs must be between 0 and 30000"
+    }
+    val json = """{"schema_version":1,"session_id":"$sessionId","fixture":"messages.large","faults":{"message_load_delay_ms":$loadDelayMilliseconds}}"""
     Base64.getEncoder().encodeToString(json.toByteArray(Charsets.UTF_8))
 }
 

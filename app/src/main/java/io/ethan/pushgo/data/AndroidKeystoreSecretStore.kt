@@ -54,6 +54,17 @@ class AndroidKeystoreSecretStore(
         putString(SECRET_FCM_TOKEN, token?.trim()?.ifEmpty { null })
     }
 
+    override fun pendingTransportToken(operationId: String): String? {
+        return getString(pendingTransportTokenKey(operationId))?.trim()?.ifEmpty { null }
+    }
+
+    override fun setPendingTransportToken(operationId: String, token: String?) {
+        putString(
+            pendingTransportTokenKey(operationId),
+            token?.trim()?.ifEmpty { null },
+        )
+    }
+
     override fun deviceKey(): String? {
         return getString(SECRET_DEVICE_KEY)?.trim()?.ifEmpty { null }
     }
@@ -131,6 +142,12 @@ class AndroidKeystoreSecretStore(
 
     private fun gatewayAckTokenKey(gatewayUrl: String): String {
         return "gateway_ack_token_${sha256Hex(gatewayUrl.trim())}"
+    }
+
+    private fun pendingTransportTokenKey(operationId: String): String {
+        val normalized = operationId.trim()
+        require(normalized.isNotEmpty()) { "transport operation id is required" }
+        return "pending_transport_token_${sha256Hex(normalized)}"
     }
 
     private fun sha256Hex(value: String): String {

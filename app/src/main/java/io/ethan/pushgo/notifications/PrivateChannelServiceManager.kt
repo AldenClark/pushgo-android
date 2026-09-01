@@ -11,6 +11,7 @@ import androidx.work.WorkerParameters
 import io.ethan.pushgo.PushGoApp
 import io.ethan.pushgo.automation.PushGoAutomation
 import io.ethan.pushgo.testing.QualityRuntime
+import io.ethan.pushgo.testing.QualitySystemCapability
 
 class PrivateChannelServiceManager(private val context: Context) {
     fun refresh() {
@@ -76,7 +77,10 @@ class PrivateChannelServiceManager(private val context: Context) {
         }
 
         fun refreshForMode(context: Context, useFcmChannel: Boolean) {
-            if (PushGoAutomation.isSessionConfigured() || useFcmChannel) {
+            val qualityOwnsPrivateService = QualityRuntime.allowsSystemCapability(
+                QualitySystemCapability.PRIVATE_FOREGROUND_SERVICE,
+            )
+            if ((PushGoAutomation.isSessionConfigured() && !qualityOwnsPrivateService) || useFcmChannel) {
                 stopNow(context)
             } else {
                 refresh(context)

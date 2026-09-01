@@ -55,6 +55,12 @@ class AndroidPerformanceRunnerPreflightTests(unittest.TestCase):
         self.assertEqual(2, result.returncode)
         self.assertIn("ANDROID_BASELINE_PROFILE_DEVICE_SERIAL is required", result.stderr)
 
+    def test_slow_load_negative_control_requires_explicit_emulator(self):
+        result = self.run_script("run_android_performance_negative_control.sh")
+
+        self.assertEqual(2, result.returncode)
+        self.assertIn("ANDROID_SERIAL is required", result.stderr)
+
 
 if __name__ == "__main__":
     unittest.main()

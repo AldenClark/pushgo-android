@@ -2,11 +2,18 @@
 set -euo pipefail
 export PYTHONDONTWRITEBYTECODE=1
 
+if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
+  echo "usage: scripts/quality_changed.sh [quality_impact.py options]"
+  echo "Generates a fresh impact plan and executes its recommended minimum lane."
+  exit 0
+fi
+
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-results_root="$repo_root/build/quality-results"
+results_root="${QUALITY_RESULTS_ROOT:-$repo_root/build/quality-results}"
 impact_file="$results_root/android-impact-plan.json"
 phase="${QUALITY_IMPACT_PHASE:-full}"
 mkdir -p "$results_root"
+export QUALITY_RESULTS_ROOT="$results_root"
 
 python3 -m unittest discover -s "$repo_root/scripts/tests" -p 'test_*.py'
 python3 "$repo_root/scripts/quality_impact.py" \
@@ -15,6 +22,7 @@ python3 "$repo_root/scripts/quality_impact.py" \
   "$@"
 
 recommended_lane="$(python3 -c 'import json, sys; print(json.load(open(sys.argv[1]))["recommended_lane"])' "$impact_file")"
+required_device_scopes="$(python3 -c 'import json, sys; print(",".join(json.load(open(sys.argv[1])).get("required_device_scopes", [])))' "$impact_file")"
 if [[ "${QUALITY_IMPACT_PLAN_ONLY:-0}" == "1" ]]; then
   echo "status=NOT_RUN"
   echo "reason=impact_plan_only"
@@ -41,6 +49,15 @@ case "$phase" in
     ;;
 esac
 
+export QUALITY_IMPACT_PLAN="$impact_file"
+if [[ "$lane" != "not-run" && "$lane" != "pr" && -n "$required_device_scopes" ]]; then
+  if [[ "$phase" == "full" ]]; then
+    "$repo_root/scripts/quality_test.sh" pr
+  fi
+  lane="planned-device"
+  echo "executing_required_device_scopes=$required_device_scopes"
+fi
+
 if [[ "$lane" == "not-run" ]]; then
   python3 "$repo_root/scripts/quality_result.py" \
     --output "$results_root/android-changed-$phase-summary.json" \
@@ -56,5 +73,4 @@ if [[ "$lane" == "not-run" ]]; then
 fi
 
 echo "executing_recommended_lane=$lane"
-export QUALITY_IMPACT_PLAN="$impact_file"
 exec "$repo_root/scripts/quality_test.sh" "$lane"

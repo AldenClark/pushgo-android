@@ -112,6 +112,7 @@
     <string name="label_skip_for_one_month">暫時忽略</string>
     <string name="label_update_install_manual_continue">手動繼續安裝</string>
     <string name="message_gateway_saved">網關已儲存</string>
+    <string name="message_gateway_saved_sync_pending">網關已切換，頻道同步待完成，稍後會自動重試。</string>
     <string name="message_decryption_saved">解密設定已儲存</string><string name="message_channel_created_and_subscribed">頻道已建立並訂閱</string>
     <string name="message_channel_subscribed">頻道已訂閱</string>
     <string name="message_channel_renamed">頻道已重新命名</string>
@@ -351,4 +352,9 @@
     <string name="label_docs_e2ee_hint">了解資料加密和客戶端解密金鑰設定。</string>
     <string name="a11y_open_documentation">%1$s。%2$s 將在瀏覽器中開啟。</string>
     <string name="error_open_documentation">無法開啟文件。</string>
+    <string name="channel_stats_empty">暫無訊息</string>
+    <string name="channel_stats_loading">正在載入動態…</string>
+    <string name="channel_stats_no_recent">暫無最近訊息</string>
+    <string name="channel_stats_summary">%1$d 則訊息 · %2$d 則未讀 · 最近 %3$s</string>
+    <string name="channel_stats_unavailable">動態暫不可用</string>
 </resources>

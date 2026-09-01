@@ -110,6 +110,16 @@ jobs:
           path: |
             app/build/reports/tests/
             build/quality-results/*.json
+            !build/quality-results/*-summary.json
+
+      - name: Upload compact host receipts
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: android-quality-receipts-host-${{ github.run_id }}-${{ github.run_attempt }}
+          if-no-files-found: error
+          retention-days: 21
+          path: build/quality-results/*-summary.json
 
   device-regression:
     if: github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref == 'refs/heads/main') || github.event_name == 'schedule' || startsWith(github.ref, 'refs/tags/') || (github.event_name == 'workflow_dispatch' && inputs.lane != 'pr')
@@ -135,9 +145,16 @@ jobs:
             --check
           echo "QUALITY_IMPACT_PLAN=build/quality-results/android-impact-plan.json" >> "$GITHUB_ENV"
           impact_lane="$(python3 -c 'import json; print(json.load(open("build/quality-results/android-impact-plan.json"))["recommended_lane"])')"
+          required_device_scopes="$(python3 -c 'import json; print(",".join(json.load(open("build/quality-results/android-impact-plan.json")).get("required_device_scopes", [])))')"
           case "$impact_lane" in
             not-run|pr) echo "QUALITY_SKIP_DEVICE=1" >> "$GITHUB_ENV" ;;
-            *) echo "QUALITY_LANE=$impact_lane" >> "$GITHUB_ENV" ;;
+            *)
+              if [[ -n "$required_device_scopes" ]]; then
+                echo "QUALITY_LANE=planned-device" >> "$GITHUB_ENV"
+              else
+                echo "QUALITY_LANE=$impact_lane" >> "$GITHUB_ENV"
+              fi
+              ;;
           esac
 
       - name: Enable KVM
@@ -210,3 +227,50 @@ jobs:
             app/src/release/generated/baselineProfiles/
             build/quality-results/*.log
             build/quality-results/*.json
+            !build/quality-results/*-summary.json
+
+      - name: Upload compact device receipts
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: android-quality-receipts-device-${{ env.QUALITY_LANE }}-${{ github.run_id }}-${{ github.run_attempt }}
+          if-no-files-found: error
+          retention-days: 21
+          path: build/quality-results/*-summary.json
+
+  observation:
+    if: ${{ always() && github.event_name == 'schedule' && github.event.schedule == '43 18 * * *' }}
+    needs: device-regression
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+
+      - name: Build retained observation report
+        env:
+          QUALITY_GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          python3 scripts/quality_observation_collect.py \
+            --repository "$GITHUB_REPOSITORY" \
+            --workflow android-quality.yml \
+            --artifact-name-prefix android-quality-receipts- \
+            --output build/quality-observation-input
+          python3 scripts/quality_observation.py \
+            --input build/quality-observation-input \
+            --output build/quality-results/android-two-week-observation.json \
+            --required-lane pr \
+            --required-lane nightly \
+            --required-lane release
+
+      - name: Upload longitudinal observation report
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: android-quality-observation-${{ github.run_id }}-${{ github.run_attempt }}
+          if-no-files-found: error
+          retention-days: 21
+          path: build/quality-results/android-two-week-observation.json

@@ -27,7 +27,7 @@
   "rules": [
     {
       "id": "quality-system",
-      "paths": ["AGENTS.md", "app/src/test/**", "scripts/tests/**", "scripts/quality_*.py", "scripts/quality_*.sh", ".github/workflows/android-quality.yml", "config/quality-impact.json", "config/quality-ai-task-history.json", "config/quality-test-system-issues.json"],
+      "paths": ["AGENTS.md", "app/src/test/**", "scripts/tests/**", "scripts/quality_*.py", "scripts/quality_*.sh", ".github/workflows/android-quality.yml", "config/quality-impact.json", "config/quality-ai-task-history.json", "config/quality-test-system-issues.json", "config/quality-waivers.json"],
       "capabilities": ["quality-system-trustworthiness"],
       "minimum_evidence": ["quality selector unit/negative controls", "Android JVM suite and androidTest compilation"],
       "lane": "pr",
@@ -37,32 +37,55 @@
       "id": "quality-device-test-system",
       "paths": ["app/src/androidTest/**"],
       "capabilities": ["quality-system-trustworthiness"],
-      "minimum_evidence": ["androidTest compilation", "Android core App UI representative lane"],
+      "minimum_evidence": ["androidTest compilation", "exact changed @Test method when diff attribution is reliable, otherwise every runnable method in the changed instrumented class; required execution profiles and exact fresh XML selector identities must match before evidence is accepted"],
       "lane": "pr-ui",
-      "known_evidence_gaps": ["A changed device test outside curated lanes still needs an explicit focused class invocation."],
+      "known_evidence_gaps": ["Dynamic diff attribution narrows Kotlin @Test changes; helper and fixture changes expand to every runnable method, and shared support changes expand to every statically referenced runnable consumer. Deleted, renamed, unknown, or unresolved sources block before execution. Specialized permission, system, accessibility, and App-owned profiles remain distinct."],
       "escalation_reasons": ["Instrumented-test changes require device execution; compilation alone cannot validate the Oracle."]
     },
     {
       "id": "quality-system-notification-journey",
-      "paths": ["app/src/androidTest/java/io/ethan/pushgo/testing/QualitySystemNotificationJourneyInstrumentedTest.kt", "app/src/androidTest/java/io/ethan/pushgo/testing/NotificationPermissionTestSupport.kt"],
-      "capabilities": ["notification-system-route", "quality-system-trustworthiness"],
-      "minimum_evidence": ["focused durable inbound to system notification/PendingIntent journey", "permission-precondition attribution negative controls"],
+      "paths": ["app/src/androidTest/java/io/ethan/pushgo/testing/QualityNotificationPermissionJourneyInstrumentedTest.kt", "app/src/androidTest/java/io/ethan/pushgo/testing/QualitySystemNotificationJourneyInstrumentedTest.kt", "app/src/androidTest/java/io/ethan/pushgo/testing/QualityPrivateForegroundServiceJourneyInstrumentedTest.kt", "app/src/androidTest/java/io/ethan/pushgo/testing/NotificationPermissionTestSupport.kt", "scripts/run_android_notification_permission_positive.sh"],
+      "capabilities": ["notification-permission", "notification-system-route", "alert-playback", "private-foreground-service", "quality-system-trustworthiness"],
+      "minimum_evidence": ["host-driven denied permission to App explanation to real Android Settings enable and return-refresh journey", "semantic enabled-state verifier", "focused durable critical inbound to system notification/USAGE_ALARM playback/PendingIntent/stop journey", "focused Settings to Private foreground Service/system notification/persistence/stop journey", "permission-precondition attribution negative controls"],
+      "required_device_scopes": [
+        "io.ethan.pushgo.testing.QualitySystemNotificationJourneyInstrumentedTest#duplicateInboundDeliveryPostsOneSystemNotificationAndOpensAccurateReadDetail",
+        "io.ethan.pushgo.testing.QualityPrivateForegroundServiceJourneyInstrumentedTest#privateSelectionStartsDurableSystemServiceAndFcmSelectionStopsIt"
+      ],
       "lane": "nightly",
-      "known_evidence_gaps": ["Simulator/emulator system routing does not prove real external FCM delivery, user permission decisions, Doze, reboot, OEM behavior, or process-death cold start."],
+      "known_evidence_gaps": ["Controlled emulator proves the actual Android permission decision and Settings surfaces, but does not prove real external FCM/private delivery, physical audible output, Doze, reboot/package replacement, OEM behavior, or process-death cold start."],
       "escalation_reasons": ["A changed system-route test must execute its own system surface; the routine PR UI subset cannot validate it."]
+    },
+    {
+      "id": "quality-system-process-restart-journey",
+      "paths": ["app/src/benchmark/java/io/ethan/pushgo/testing/BenchmarkFixtureProvider.kt", "app/src/benchmark/java/io/ethan/pushgo/testing/BenchmarkUnstopActivity.kt", "scripts/run_android_process_restart_positive.sh"],
+      "capabilities": ["app-launch", "messages", "message-detail", "external-navigation", "quality-system-trustworthiness"],
+      "minimum_evidence": ["host-driven canonical unread message to exact detail/read mutation to verified no-PID to new-PID restart to exact persisted detail/read state", "production Open URL action to unique HTTPS handler, exact user-visible canonical browser URL, and return to the same accurate detail", "App-owned session preparation and teardown completion", "one-time wrong-body and wrong-url sensitivity controls"],
+      "lane": "nightly",
+      "known_evidence_gaps": ["Controlled-emulator force-stop proves a real Linux process boundary and durable App-owned Room/UI state, but does not prove low-memory OS eviction, reboot, OEM task policy, physical-device startup timing, or production-data migration."],
+      "escalation_reasons": ["Process lifecycle tests must prove both process identity change and a durable user outcome; Activity recreation or a PID check alone is insufficient."]
+    },
+    {
+      "id": "quality-preparation-contract",
+      "paths": ["app/src/benchmark/java/io/ethan/pushgo/testing/BenchmarkFixtureProvider.kt", "scripts/run_android_preparation_contract.sh", "scripts/tests/test_quality_preparation_contract.py"],
+      "capabilities": ["app-launch", "app-owned-quality-runtime", "quality-system-trustworthiness"],
+      "minimum_evidence": ["stable preparation phase and cleanup on failure", "invalid App-owned session stops within 10 seconds without business UI or retry", "normal empty.clean reaches readiness and the accurate functional empty state"],
+      "required_checks": ["android-preparation-contract"],
+      "lane": "nightly",
+      "known_evidence_gaps": ["Controlled-emulator timing does not prove physical-device startup performance."],
+      "escalation_reasons": ["The external App-owned control owns real process preparation and must never leave a partial Session or report a Binder shell return code as business readiness."]
     },
     {
       "id": "quality-settings-semantic-journeys",
       "paths": ["app/src/androidTest/java/io/ethan/pushgo/testing/QualitySettingsJourneyInstrumentedTest.kt"],
       "capabilities": ["channels", "gateway-settings", "decryption-settings", "page-visibility", "transport-selector", "messages", "ingress-ack"],
-      "minimum_evidence": ["focused settings transaction/error/recovery/decryption device journeys with final UI and durable state"],
+      "minimum_evidence": ["focused settings transaction/error/recovery/decryption device journeys with final UI and durable state", "gateway post-commit sync failure keeps the new gateway active, reports pending recovery, and preserves it after relaunch"],
       "lane": "device",
       "known_evidence_gaps": ["Device journeys use controlled transport and ingress boundaries; real external FCM/private delivery and physical KeyStore implementations remain NOT RUN."],
       "escalation_reasons": ["A changed settings journey must execute itself and retain exact failure, no-commit, recovery, message, and ACK outcomes."]
     },
     {
       "id": "android-performance-system",
-      "paths": ["macrobenchmark/**", "app/src/benchmark/**", "app/src/release/generated/baselineProfiles/**", "app/src/main/java/io/ethan/pushgo/ui/screens/MessageListScreen.kt", "scripts/run_android_physical_macrobenchmark.sh", "scripts/regenerate_android_baseline_profile.sh", "scripts/validate_android_macrobenchmark.py", "scripts/verify_android_performance_contract.py"],
+      "paths": ["macrobenchmark/**", "app/src/benchmark/**", "app/src/release/generated/baselineProfiles/**", "scripts/run_android_physical_macrobenchmark.sh", "scripts/regenerate_android_baseline_profile.sh", "scripts/validate_android_macrobenchmark.py", "scripts/verify_android_performance_contract.py"],
       "capabilities": ["app-launch-performance", "message-detail-frame-performance", "baseline-profile", "quality-system-trustworthiness"],
       "minimum_evidence": ["exact 1k-store startup/detail product Oracle on controlled emulator", "Macrobenchmark JSON contract and negative controls", "filtered Baseline/Startup Profile and Release APK isolation", "explicit physical-device budgets or truthful NOT RUN"],
       "lane": "performance",
@@ -73,7 +96,8 @@
       "id": "quality-runtime-release-isolation",
       "paths": ["app/src/main/java/io/ethan/pushgo/testing/**", "app/src/debug/**", "app/src/release/java/io/ethan/pushgo/automation/**", "app/src/main/java/io/ethan/pushgo/PushGoApp.kt", "app/src/main/java/io/ethan/pushgo/data/AppContainer.kt", "app/src/main/java/io/ethan/pushgo/data/AppAutomationController.kt"],
       "capabilities": ["app-owned-quality-runtime", "release-runtime-isolation", "app-launch"],
-      "minimum_evidence": ["QualityRuntime JVM tests", "App-owned Android UI journey", "Release build/runtime isolation"],
+      "minimum_evidence": ["QualityRuntime JVM tests", "invalid App-owned session stops in its exact preparation phase within 10 seconds", "normal empty.clean preparation reaches readiness and the accurate functional empty state", "Release build/runtime isolation"],
+      "required_checks": ["android-preparation-contract"],
       "lane": "release",
       "escalation_reasons": ["Composition-root or Runtime changes cross Room lifecycle and Release boundaries."]
     },
@@ -83,7 +107,7 @@
       "capabilities": ["app-launch", "messages", "events", "things", "channels", "ingress-ack", "delete-undo"],
       "minimum_evidence": ["DAO/query correctness", "old-version migration and reopen device tests", "representative UI content/relaunch journeys"],
       "lane": "device",
-      "known_evidence_gaps": ["Controlled-emulator App-owned startup reliability is proven 50/50; migration UI and physical-device startup remain NOT RUN."],
+      "known_evidence_gaps": ["Controlled-emulator App-owned startup reliability is proven 50/50; one v21-to-current migration representative now reaches accurate real list/detail UI after Container reopen, while other source versions and physical-device startup remain NOT RUN."],
       "escalation_reasons": ["Room schema/query changes affect all canonical and derived consumers."]
     },
     {
@@ -91,8 +115,23 @@
       "paths": ["app/src/main/java/io/ethan/pushgo/data/Message*.kt", "app/src/main/java/io/ethan/pushgo/data/QualityFaultPagingSource.kt", "app/src/main/java/io/ethan/pushgo/data/PendingLocalDeletion*.kt", "app/src/main/java/io/ethan/pushgo/data/RepositoryPendingLocalDeletionExecutor.kt", "app/src/main/java/io/ethan/pushgo/data/model/Message*.kt", "app/src/main/java/io/ethan/pushgo/ui/Message*.kt", "app/src/main/java/io/ethan/pushgo/ui/PendingLocalDeletion*.kt", "app/src/main/java/io/ethan/pushgo/ui/viewmodel/Message*.kt", "app/src/main/java/io/ethan/pushgo/ui/screens/Message*.kt", "app/src/main/java/io/ethan/pushgo/ui/screens/PushGoSearchBar.kt", "app/src/main/java/io/ethan/pushgo/util/SearchTextNormalizer.kt"],
       "capabilities": ["messages", "message-detail", "search-filter", "delete-undo"],
       "minimum_evidence": ["JVM/Room message/search/deletion tests", "Android accurate content/search/delete/relaunch UI journeys", "Android provider refresh new-result/failure-recovery UI journeys"],
+      "required_device_scopes": [
+        "io.ethan.pushgo.testing.QualityMessageJourneyInstrumentedTest#workflowFixtureLoadsSecondPageAndPersistsReadActions"
+      ],
       "lane": "device",
-      "known_evidence_gaps": ["media performance remains incomplete; representative Android pagination/read plus slow, new-result, and failure-recovery refresh workflows are protected."]
+      "known_evidence_gaps": ["media performance remains incomplete; representative Android pagination/read, page-owned failure/retry, and new-result/failure-recovery refresh workflows are protected."]
+    },
+    {
+      "id": "message-search-recovery-ui",
+      "paths": ["app/src/main/java/io/ethan/pushgo/ui/viewmodel/MessageSearchViewModel.kt", "app/src/main/java/io/ethan/pushgo/ui/screens/MessageSearchScreen.kt", "app/src/main/java/io/ethan/pushgo/ui/screens/PushGoSearchBar.kt"],
+      "capabilities": ["search-filter"],
+      "minimum_evidence": ["Android failed search must not masquerade as empty or stale results; Retry reaches one exact canonical result and matching detail"],
+      "required_device_scopes": [
+        "io.ethan.pushgo.testing.QualityMessageJourneyInstrumentedTest#searchReturnsOnlyTheTargetAndOpensItsRealDetail"
+      ],
+      "lane": "device",
+      "known_evidence_gaps": ["This focused recovery path does not claim index-rebuild integrity, 10k/100k search latency, physical-device behavior, or every query-normalization permutation."],
+      "escalation_reasons": ["Search presentation and query-owner changes can otherwise ship a plausible empty or stale list while the user cannot recover to the requested canonical message."]
     },
     {
       "id": "events-things-data",
@@ -108,15 +147,32 @@
       "paths": ["app/src/main/java/io/ethan/pushgo/ui/screens/Event*.kt", "app/src/main/java/io/ethan/pushgo/ui/screens/Thing*.kt", "app/src/main/java/io/ethan/pushgo/ui/screens/Entity*.kt"],
       "capabilities": ["events", "things"],
       "minimum_evidence": ["Android broad positive UI representative set including Event close/filter/relaunch and Thing accurate search/single-delete/control-object/three-relation/relaunch"],
+      "required_device_scopes": [
+        "io.ethan.pushgo.testing.QualityEntityJourneyInstrumentedTest#eventClosePersistsAndOngoingFilterReflectsTheRealProjection",
+        "io.ethan.pushgo.testing.QualityEntityJourneyInstrumentedTest#thingFixtureShowsAccurateOverviewAndAllThreeRealRelationTabs"
+      ],
       "lane": "pr-ui",
       "known_evidence_gaps": ["Pure screen composition changes do not automatically run failure injection, deep-link, bulk-delete, or tombstone matrices; run the owning focused risk path when the diff changes one of those contracts."],
       "escalation_reasons": ["Pure presentation and stable action-entry changes need real positive UI outcomes without automatically consuming all Entity failure-recovery and data-boundary scenarios."]
     },
     {
+      "id": "transport-switch-coordinator",
+      "paths": ["app/src/main/java/io/ethan/pushgo/data/TransportSwitchCoordinator.kt"],
+      "capabilities": ["transport-selector"],
+      "minimum_evidence": ["TransportSwitchCoordinator prepare/commit/query/recovery JVM transaction contract", "real Settings FCM/private selector rejection-preserves-active-route/retry/commit/relaunch journey", "real Settings local-finalize-failure/relaunch/retry journey"],
+      "required_device_scopes": [
+        "io.ethan.pushgo.testing.QualitySettingsJourneyInstrumentedTest#privateTransportLocalCommitFailureRollsBackBeforeRetryCommits",
+        "io.ethan.pushgo.testing.QualitySettingsJourneyInstrumentedTest#transportRejectionsPreserveActiveRouteUntilRetryAndPersistAfterRelaunch"
+      ],
+      "lane": "device",
+      "known_evidence_gaps": ["Stateful controlled Gateway evidence does not prove a real Gateway, real FCM/private delivery, process-death recovery, system Service/notification behavior, or physical-device behavior."],
+      "escalation_reasons": ["The coordinator owns durable remote/local transport cutover ordering, unknown-result reconciliation, CAS supersession, and restart recovery."]
+    },
+    {
       "id": "channels-settings-transport",
       "paths": ["app/src/main/java/io/ethan/pushgo/data/Channel*.kt", "app/src/main/java/io/ethan/pushgo/data/SettingsRepository.kt", "app/src/main/java/io/ethan/pushgo/data/SecureSecretStore.kt", "app/src/main/java/io/ethan/pushgo/data/AndroidKeystoreSecretStore.kt", "app/src/main/java/io/ethan/pushgo/data/NotificationKeyValidator.kt", "app/src/main/java/io/ethan/pushgo/data/RepositoryPendingChannelDeletionBackend.kt", "app/src/main/java/io/ethan/pushgo/data/DurablePendingChannelDeletionExecutor.kt", "app/src/main/java/io/ethan/pushgo/data/model/ChannelSubscription.kt", "app/src/main/java/io/ethan/pushgo/data/model/KeyEncoding.kt", "app/src/main/java/io/ethan/pushgo/data/model/ServerConfig.kt", "app/src/main/java/io/ethan/pushgo/ui/screens/Channel*.kt", "app/src/main/java/io/ethan/pushgo/ui/screens/Settings*.kt", "app/src/main/java/io/ethan/pushgo/ui/screens/ConnectionDiagnosis*.kt", "app/src/main/java/io/ethan/pushgo/ui/screens/MessageDecryptionScreen.kt", "app/src/main/java/io/ethan/pushgo/ui/viewmodel/Settings*.kt", "app/src/main/java/io/ethan/pushgo/ui/viewmodel/ConnectionDiagnosis*.kt", "app/src/main/java/io/ethan/pushgo/ui/viewmodel/GatewayErrorUi.kt", "app/src/main/java/io/ethan/pushgo/util/SystemSettingsNavigator.kt", "app/src/main/java/io/ethan/pushgo/util/UrlValidators.kt"],
       "capabilities": ["channels", "gateway-settings", "decryption-settings", "page-visibility", "transport-selector"],
-      "minimum_evidence": ["validation/service/transport integration tests", "real Channel local-validation/remote-rejection/sheet-error ownership/create-compensation/reload/retry/rename/keep-history/delete-history/relaunch journey", "real Settings page-visibility action/destination and relaunch journey", "real server invalid/candidate-registration-failure/no-commit/retry/normalize/data-scope/relaunch journey", "real decryption invalid/status/no-echo/clear/relaunch journey", "real FCM/private selector rejection-preserves-active-route/local-commit-rollback/retry/commit/relaunch journey"],
+      "minimum_evidence": ["validation/service/transport integration tests", "real Channel local-validation/remote-rejection/sheet-error ownership/create-compensation/reload/retry/rename/keep-history/delete-history/relaunch journey", "real Settings page-visibility action/destination and relaunch journey", "real server invalid/candidate-registration-failure/no-commit/retry/normalize/data-scope/relaunch journey", "real server post-commit sync failure/pending-recovery/relaunch journey", "real decryption invalid/status/no-echo/clear/relaunch journey", "real FCM/private selector rejection-preserves-active-route/local-commit-rollback/retry/commit/relaunch journey"],
       "lane": "device",
       "known_evidence_gaps": ["Channel local validation, accepted creation and existing-channel subscription (created=false), remote password rejection, and remote compensation for an explicit created=true result after local persistence failure have real-control journeys, as do page visibility, gateway validation rejection, local commit failure with successful rollback/restart/retry, server scoping, decryption lifecycle, protected-write compensation, wrong-key correction, valid recovery, corrupt-ciphertext safe failure, and the FCM/private selector's prepare-before-commit plus local-commit rollback behavior through typed transport boundaries. Safe remote ownership/idempotency compensation after a created=false subscription's local commit fails, rollback itself failing after transport selection, real external FCM/private delivery, and physical system behavior remain missing."],
       "escalation_reasons": ["Credentials and remote/local reconciliation require failure and recovery evidence."]
@@ -125,7 +181,14 @@
       "id": "ingress-notifications-services-workers",
       "paths": ["app/src/main/java/io/ethan/pushgo/notifications/**", "app/src/main/java/io/ethan/pushgo/data/Inbound*.kt", "app/src/main/java/io/ethan/pushgo/data/Operation*.kt", "app/src/main/java/io/ethan/pushgo/data/PushTokenProvider.kt", "app/src/main/java/io/ethan/pushgo/util/FcmSupport.kt", "app/src/main/java/io/ethan/pushgo/util/JsonCompat.kt", "app/src/main/java/io/ethan/pushgo/util/PayloadTimeNormalizer.kt", "app/src/main/java/io/ethan/pushgo/util/ReminderSnoozeStore.kt", "app/src/main/AndroidManifest.xml"],
       "capabilities": ["ingress-ack", "notification-system-route", "notification-permission-doze", "private-foreground-service", "alert-playback", "background-workers"],
-      "minimum_evidence": ["idempotency/ACK/retry/service policy JVM tests", "device process/lifecycle boundaries", "durable direct ingress to real system notification/PendingIntent and exact detail/read/dedupe/relaunch journey", "final Room and UI state"],
+      "minimum_evidence": ["idempotency/ACK/retry/service policy JVM tests", "device process/lifecycle boundaries", "durable direct ingress to real system notification/PendingIntent and exact detail/read/dedupe/relaunch journey", "real Settings selection to Private foreground Service/system notification/persistence/stop journey", "final Room and UI state"],
+      "required_device_scopes": [
+        "io.ethan.pushgo.testing.QualitySystemNotificationJourneyInstrumentedTest#duplicateInboundDeliveryPostsOneSystemNotificationAndOpensAccurateReadDetail",
+        "io.ethan.pushgo.testing.QualityPrivateForegroundServiceJourneyInstrumentedTest#privateSelectionStartsDurableSystemServiceAndFcmSelectionStopsIt",
+        "io.ethan.pushgo.testing.RuntimeChannelSwitchInstrumentedTest#inboundAcrossSwitch_keepsCanonicalSingleMessage_andLateOldDoesNotOverride",
+        "io.ethan.pushgo.testing.RuntimePrivateChannelStateFlowInstrumentedTest#privateChannelClient_stateFlow_covers_session_ack_reconnect_and_fcm_switch",
+        "io.ethan.pushgo.ui.PendingLocalDeletionWorkBoundaryDeviceTest#durableRoomRow_isRecoveredThroughTheRealWorkerAfterStorageReopen"
+      ],
       "lane": "nightly",
       "known_evidence_gaps": ["real FCM/private transport, user permission denial/upgrade decisions, Doze, reboot, OEM behavior, process-death cold start, and physical audio remain NOT RUN."],
       "escalation_reasons": ["Ingress and services cross process, durable work, notification, and UI consumers."]
@@ -151,9 +214,9 @@
       "id": "update-install",
       "paths": ["app/src/main/java/io/ethan/pushgo/update/**", "scripts/*update*", ".github/workflows/android-release.yml"],
       "capabilities": ["update-ui-install"],
-      "minimum_evidence": ["feed/signature/policy JVM tests", "Release contract", "physical install/upgrade checklist"],
+      "minimum_evidence": ["feed/signature/policy JVM tests", "controlled PackageInstaller version advance and exact post-upgrade data", "Release contract", "production signing and physical/OEM install explicitly NOT RUN unless supplied"],
       "lane": "release",
-      "known_evidence_gaps": ["physical permission/install/upgrade/process-death evidence remains NOT RUN."],
+      "known_evidence_gaps": ["production-distributed signer/feed and physical/OEM permission/install/process-death evidence remain NOT RUN."],
       "escalation_reasons": ["Update changes cross signed feed, download, installer, and rollback boundaries."]
     },
     {
@@ -161,8 +224,24 @@
       "paths": ["app/src/main/java/io/ethan/pushgo/MainActivity.kt", "app/src/main/java/io/ethan/pushgo/data/AppCoroutineDispatchers.kt", "app/src/main/java/io/ethan/pushgo/data/AppConstants.kt", "app/src/main/java/io/ethan/pushgo/data/OpaqueId.kt", "app/src/main/java/io/ethan/pushgo/ui/PushGoAppRoot.kt", "app/src/main/java/io/ethan/pushgo/ui/PushGoViewModelFactory.kt", "app/src/main/java/io/ethan/pushgo/ui/MessageDetailViewModelFactory.kt", "app/src/main/java/io/ethan/pushgo/ui/EdgeToEdgeInsets.kt", "app/src/main/java/io/ethan/pushgo/ui/viewmodel/UiMessage.kt", "app/src/main/java/io/ethan/pushgo/ui/screens/AppEmptyState.kt", "app/src/main/java/io/ethan/pushgo/util/DiagnosticLogStore.kt", "app/src/main/java/io/ethan/pushgo/util/ExternalNavigation.kt", "app/src/main/java/io/ethan/pushgo/util/SilentSink.kt"],
       "capabilities": ["app-launch", "primary-navigation"],
       "minimum_evidence": ["App state/navigation JVM tests", "real control navigation UI journey including one applicable high-risk badge/loading/error/disabled state"],
+      "required_device_scopes": [
+        "io.ethan.pushgo.testing.QualityMessageJourneyInstrumentedTest#primaryNavigationUsesRealControlsAndReachesEveryProductScreen",
+        "io.ethan.pushgo.testing.QualityMessageJourneyInstrumentedTest#workflowFixtureLoadsSecondPageAndPersistsReadActions"
+      ],
       "lane": "pr-ui",
       "escalation_reasons": ["App composition/navigation affects reachability of every downstream capability."]
+    },
+    {
+      "id": "message-unavailable-target-route",
+      "paths": ["app/src/main/java/io/ethan/pushgo/ui/PushGoAppRoot.kt", "app/src/main/java/io/ethan/pushgo/ui/screens/EntityTargetUnavailableNotice.kt"],
+      "capabilities": ["messages", "message-detail", "notification-system-route"],
+      "minimum_evidence": ["a deleted message opened from a stale App notification returns to the usable Messages list with a clear unavailable-item explanation", "the deleted message must not revive or produce an empty detail, while a surviving message remains openable with its exact content"],
+      "required_device_scopes": [
+        "io.ethan.pushgo.testing.QualityMessageJourneyInstrumentedTest#deleteWithoutUndoPermanentlyRemovesOnlyTargetAcrossStorageRecreation"
+      ],
+      "lane": "pr-ui",
+      "known_evidence_gaps": ["This controlled App-owned Intent journey proves stale-target handling after local deletion. Delivery, system notification posting, physical-device notification permissions, and OEM process behavior remain separate evidence boundaries."],
+      "escalation_reasons": ["A notification that outlives local deletion can otherwise lead the user to a blank or misleading detail; the fallback must be verified from the actual notification-routing entry point."]
     },
     {
       "id": "shared-ui-accessibility-localization",

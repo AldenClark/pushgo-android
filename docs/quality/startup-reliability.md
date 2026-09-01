@@ -13,3 +13,5 @@ scripts/run_android_startup_reliability.sh
 Raw `am instrument` 失败由 `classify_android_instrument_log.py` 单独归因：只含精确 SnapshotStateObserver 签名才是 test-system flake，只含精确 `QUALITY_PRECONDITION` 才是 blocked；同一日志只要存在其他 `AssertionError/AssertionFailedError/ComparisonFailure`，产品断言优先，必须 `PRODUCT_FAILED` 且 issue ID 为空。
 
 2026-08-28 当前受控 `emulator-5554` 正式执行 50/50，product/test-system=`PASSED/PASSED`、issue ID 为空；观测耗时 p50=1901.5ms、p95=9073ms、max=15226ms，仅用于发现 Emulator/Instrumentation 异常，不作为物理设备产品 SLO。证据在 `build/quality-results/android-startup-reliability/20260828-205052/summary.json`。
+
+2026-08-31 在 `MainActivity`、composition root、Room 与 `QualityRuntime` 当前字节稳定后，使用同一 `Medium_Phone / emulator-5554`、同一功能 Oracle、零重试重新执行 50/50；product/test-system=`PASSED/PASSED`、issue ID 为空，p50=1351ms、p95=1516ms、max=1597ms。新鲜证据为 `build/quality-results/android-startup-reliability-current-byte/20260831-224148/summary.json`。它取代旧轮作为当前字节启动证据，但仍不关闭多旅程 Compose aggregate flake，也不外推物理设备性能。

@@ -208,6 +208,7 @@ fun ThingListScreen(
     var selectedRelatedUpdate by remember { mutableStateOf<ThingRelatedUpdate?>(null) }
     var closingRelatedEventId by remember { mutableStateOf<String?>(null) }
     var relatedEventCloseErrorMessage by remember { mutableStateOf<String?>(null) }
+    var targetUnavailableFeedback by remember { mutableStateOf<String?>(null) }
     
     var isPullRefreshing by remember { mutableStateOf(false) }
     var searchQuery by remember { mutableStateOf("") }
@@ -223,6 +224,7 @@ fun ThingListScreen(
     val closeEventStatusDefault = stringResource(R.string.event_status_closed_default)
     val closeEventBodyDefault = stringResource(R.string.event_message_closed_default)
     val missingChannelMessage = stringResource(R.string.error_event_missing_channel)
+    val targetUnavailableMessage = stringResource(R.string.error_gateway_resource_not_found)
     val closeEventSuccessMessage = stringResource(R.string.message_event_closed)
     val scope = rememberCoroutineScope()
     val listState = rememberLazyListState()
@@ -560,8 +562,14 @@ fun ThingListScreen(
 
     LaunchedEffect(openThingId, allThings, hasMoreThings, isLoadingMoreThings) {
         val target = openThingId?.trim()?.takeIf { it.isNotEmpty() } ?: return@LaunchedEffect
+        if (effectivePendingScope.suppressesThing(target, null)) {
+            targetUnavailableFeedback = targetUnavailableMessage
+            onOpenThingHandled()
+            return@LaunchedEffect
+        }
         val matched = allThings.firstOrNull { it.thingId == target }
         if (matched != null) {
+            targetUnavailableFeedback = null
             selectedThingInitialTab = ThingDetailTab.fromWireValue(openThingDetailTab)
             selectedThing = loadThingDetailModel(target) ?: matched
             onThingDetailOpened(matched.thingId)
@@ -570,6 +578,7 @@ fun ThingListScreen(
         }
         val detailThing = loadThingDetailModel(target)
         if (detailThing != null) {
+            targetUnavailableFeedback = null
             selectedThingInitialTab = ThingDetailTab.fromWireValue(openThingDetailTab)
             selectedThing = detailThing
             onThingDetailOpened(target)
@@ -578,6 +587,9 @@ fun ThingListScreen(
         }
         if (hasMoreThings && !isLoadingMoreThings) {
             loadMoreThingsIfNeeded()
+        } else if (hasLoadedOnce && !isLoadingMoreThings) {
+            targetUnavailableFeedback = targetUnavailableMessage
+            onOpenThingHandled()
         }
     }
 
@@ -618,10 +630,20 @@ fun ThingListScreen(
                 onSelectedTabChange = { selectedThingInitialTab = it },
                 channelNameMap = channelNameMap,
                 bottomGestureInset = bottomGestureInset,
-                onOpenRelatedEvent = {
+                onOpenRelatedEvent = { relatedEvent ->
                     closingRelatedEventId = null
                     relatedEventCloseErrorMessage = null
-                    selectedRelatedEvent = it
+                    scope.launch {
+                        selectedRelatedEvent = container.entityRepository
+                            .getEventProjectionDetail(relatedEvent.eventId)
+                            ?.let { detail ->
+                                buildEventCardFromProjectionDetailInternal(
+                                    detail = detail,
+                                    eventId = relatedEvent.eventId,
+                                )
+                            }
+                            ?: relatedEvent
+                    }
                 },
                 onOpenRelatedMessage = { selectedRelatedMessage = it },
                 onOpenRelatedUpdate = { selectedRelatedUpdate = it },
@@ -843,6 +865,11 @@ fun ThingListScreen(
                     Text(text = stringResource(R.string.label_send_type_thing), style = MaterialTheme.typography.headlineMedium.copy(fontWeight = FontWeight.SemiBold, letterSpacing = (-0.5).sp), color = uiColors.textPrimary, modifier = Modifier.padding(start = ScreenHorizontalPadding, top = 8.dp, bottom = 12.dp).semantics { heading() })
                 }
             }
+            targetUnavailableFeedback?.let { message ->
+                item {
+                    EntityTargetUnavailableNotice(message = message)
+                }
+            }
             if (filteredThings.isEmpty()) {
                 item {
                     AppEmptyState(
@@ -873,6 +900,7 @@ fun ThingListScreen(
                         thing = thing,
                         channelDisplayName = thing.channelId?.let { channelNameMap[it] ?: it },
                         onClick = {
+                            targetUnavailableFeedback = null
                             selectedThing = thing
                             onThingDetailOpened(thing.thingId)
                         },

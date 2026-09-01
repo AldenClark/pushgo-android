@@ -24,6 +24,7 @@ import io.ethan.pushgo.data.NotificationKeyValidationException
 import io.ethan.pushgo.data.NotificationKeyValidator
 import io.ethan.pushgo.data.PushTokenProvider
 import io.ethan.pushgo.data.SettingsRepository
+import io.ethan.pushgo.data.TransportSwitcher
 import io.ethan.pushgo.data.model.ChannelSubscription
 import io.ethan.pushgo.data.model.KeyEncoding
 import io.ethan.pushgo.notifications.MessageStateCoordinator
@@ -41,6 +42,7 @@ import io.ethan.pushgo.update.UpdateInstallUiEvents
 import io.ethan.pushgo.util.FcmSupport
 import io.ethan.pushgo.util.UrlValidators
 import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.cancelAndJoin
@@ -78,12 +80,7 @@ class SettingsViewModel(
     private val gatewayPrivateChannelEnabledFetcher: suspend () -> Boolean? = {
         privateChannelClient.gatewayPrivateChannelEnabled()
     },
-    private val switchToPrivateAndRetireProvider: suspend (String, String?) -> Unit =
-        privateChannelClient::switchToPrivateAndRetireProvider,
-    private val prepareFcmTransport: suspend (String) -> Unit = { providerToken ->
-        privateChannelClient.switchToProviderChannel("fcm", providerToken)
-        channelRepository.syncSubscriptionsIfNeeded(providerToken)
-    },
+    private val transportSwitcher: TransportSwitcher,
 ) : ViewModel() {
     companion object {
         private const val TAG = "SettingsViewModel"
@@ -161,6 +158,8 @@ class SettingsViewModel(
     var isRemovingChannel by mutableStateOf(false)
         private set
     var isRenamingChannel by mutableStateOf(false)
+        private set
+    var channelRenameErrorMessage by mutableStateOf<UiMessage?>(null)
         private set
 
     var isSavingGateway by mutableStateOf(false)
@@ -408,45 +407,24 @@ class SettingsViewModel(
         }
     }
 
-    private suspend fun enableFcmProvider(context: Context, keepEnabledWhenTokenMissing: Boolean) {
-        settingsRepository.setUseFcmChannel(true)
+    private suspend fun enableFcmProvider(context: Context): Boolean {
         isFcmSupported = true
-
-        val cachedToken = settingsRepository.getFcmToken()?.trim().takeUnless { it.isNullOrEmpty() }
-        if (cachedToken != null) {
-            privateChannelClient.setRuntime(fcmAvailable = true, systemToken = cachedToken)
-            runCatching {
-                channelRepository.syncProviderDeviceToken(cachedToken)
-            }.onFailure {
-                io.ethan.pushgo.util.SilentSink.w(TAG, "syncProviderDeviceToken failed with cached token: ${it.message}", it)
-            }.onSuccess {
-                runCatching {
-                    channelRepository.syncSubscriptionsIfNeeded(cachedToken)
-                }
-            }
-        } else {
-            // Keep private loop disabled while waiting for token.
-            privateChannelClient.setRuntime(fcmAvailable = true, systemToken = null)
-        }
-
-        val token = requireFcmToken(context) ?: run {
-            if (!keepEnabledWhenTokenMissing) {
-                settingsRepository.setUseFcmChannel(false)
-                privateChannelClient.setRuntime(fcmAvailable = false, systemToken = null)
-            }
+        val token = settingsRepository.getFcmToken()?.trim().takeUnless { it.isNullOrEmpty() }
+            ?: requireFcmToken(context)
+        if (token == null) {
             io.ethan.pushgo.util.SilentSink.w(TAG, "FCM enabled but token is unavailable now")
-            return
+            return false
         }
-        runCatching {
-            channelRepository.syncProviderDeviceToken(token)
-        }.onFailure {
-            io.ethan.pushgo.util.SilentSink.w(TAG, "syncProviderDeviceToken failed after token fetch: ${it.message}", it)
-        }.onSuccess {
-            runCatching {
-                channelRepository.syncSubscriptionsIfNeeded(token)
+        return runCatching { transportSwitcher.switchToFcm(token) }
+            .onSuccess { useFcmChannel = true }
+            .onFailure { error ->
+                io.ethan.pushgo.util.SilentSink.w(
+                    TAG,
+                    "FCM transport transition failed: ${error.message}",
+                    error,
+                )
             }
-        }
-        privateChannelClient.setRuntime(fcmAvailable = true, systemToken = token)
+            .isSuccess
     }
 
     fun ensurePrivateTransportWhenFcmUnsupported(context: Context) {
@@ -462,11 +440,16 @@ class SettingsViewModel(
                 errorMessage = ResMessage(R.string.error_private_disabled_and_fcm_unavailable)
                 return@launch
             }
-            settingsRepository.setUseFcmChannel(false)
-            settingsRepository.setFcmToken(null)
-            useFcmChannel = false
-            privateChannelClient.setRuntime(fcmAvailable = false, systemToken = null)
-            PrivateChannelServiceManager.refreshForMode(context, false)
+            runCatching { transportSwitcher.switchToPrivate() }
+                .onSuccess { useFcmChannel = false }
+                .onFailure { error ->
+                    io.ethan.pushgo.util.SilentSink.w(
+                        TAG,
+                        "automatic private transport transition failed: ${error.message}",
+                        error,
+                    )
+                    errorMessage = ResMessage(R.string.error_notification_transport_switch_failed)
+                }
         }
     }
 
@@ -512,181 +495,41 @@ class SettingsViewModel(
                 }
                 if (enabled) {
                     if (!isFcmSupported) {
-                        settingsRepository.setUseFcmChannel(false)
-                        privateChannelClient.setRuntime(fcmAvailable = false, systemToken = null)
-                        PrivateChannelServiceManager.refreshForMode(context, false)
                         transportErrorMessage = ResMessage(R.string.error_fcm_not_supported)
                         return@launch
                     }
                     val token = requireFcmToken(context) { message ->
                         transportErrorMessage = message
                     } ?: return@launch
-                    val previousToken = settingsRepository.getFcmToken()
-                    val previousDeviceKey = settingsRepository.getDeviceKey()
-                    val preparationResult = runCatching {
-                        prepareFcmTransport(token)
-                    }
-                    if (preparationResult.isFailure) {
-                        val failure = checkNotNull(preparationResult.exceptionOrNull())
-                        io.ethan.pushgo.util.SilentSink.w(
-                            TAG,
-                            "prepareFcmTransport failed: ${failure.message}",
-                            failure,
-                        )
-                        val compensationFailures = listOfNotNull(
-                            runCatching {
-                                switchToPrivateAndRetireProvider("fcm", token)
-                            }.exceptionOrNull(),
-                            runCatching {
-                                settingsRepository.setFcmToken(previousToken)
-                            }.exceptionOrNull(),
-                            runCatching {
-                                settingsRepository.setDeviceKey(previousDeviceKey)
-                            }.exceptionOrNull(),
-                        )
-                        compensationFailures.forEach { compensationFailure ->
-                            io.ethan.pushgo.util.SilentSink.e(
+                    runCatching { transportSwitcher.switchToFcm(token) }
+                        .onFailure { failure ->
+                            io.ethan.pushgo.util.SilentSink.w(
                                 TAG,
-                                "FCM transport compensation failed: " +
-                                    compensationFailure.message,
-                                compensationFailure,
+                                "FCM transport transition failed: ${failure.message}",
+                                failure,
                             )
+                            transportErrorMessage =
+                                ResMessage(R.string.error_notification_transport_fcm_switch_failed)
                         }
-                        transportErrorMessage = if (compensationFailures.isEmpty()) {
-                            ResMessage(R.string.error_notification_transport_fcm_switch_failed)
-                        } else {
-                            ResMessage(
-                                R.string.error_notification_transport_fcm_compensation_failed
-                            )
-                        }
-                        return@launch
-                    }
-                    val commitResult = runCatching {
-                        settingsRepository.setFcmToken(token)
-                        settingsRepository.setUseFcmChannel(true)
-                        QualityRuntime.afterTransportSelectionPersistence()
-                    }
-                    if (commitResult.isFailure) {
-                        val failure = checkNotNull(commitResult.exceptionOrNull())
-                        io.ethan.pushgo.util.SilentSink.w(
-                            TAG,
-                            "FCM transport local commit failed: ${failure.message}",
-                            failure,
-                        )
-                        val compensationFailures = listOfNotNull(
-                            runCatching {
-                                switchToPrivateAndRetireProvider("fcm", token)
-                            }.exceptionOrNull(),
-                            runCatching {
-                                settingsRepository.setFcmToken(previousToken)
-                            }.exceptionOrNull(),
-                            runCatching {
-                                settingsRepository.setDeviceKey(previousDeviceKey)
-                            }.exceptionOrNull(),
-                            runCatching {
-                                settingsRepository.setUseFcmChannel(previousUseFcmChannel)
-                            }.exceptionOrNull(),
-                        )
-                        privateChannelClient.setRuntime(
-                            fcmAvailable = previousUseFcmChannel,
-                            systemToken = previousToken,
-                        )
-                        PrivateChannelServiceManager.refreshForMode(
-                            context,
-                            previousUseFcmChannel,
-                        )
-                        compensationFailures.forEach { compensationFailure ->
-                            io.ethan.pushgo.util.SilentSink.e(
-                                TAG,
-                                "FCM local commit compensation failed: " +
-                                    compensationFailure.message,
-                                compensationFailure,
-                            )
-                        }
-                        transportErrorMessage = if (compensationFailures.isEmpty()) {
-                            ResMessage(R.string.error_notification_transport_fcm_switch_failed)
-                        } else {
-                            ResMessage(
-                                R.string.error_notification_transport_fcm_compensation_failed
-                            )
-                        }
-                        return@launch
-                    }
+                        .onSuccess { useFcmChannel = true }
+                    if (transportErrorMessage != null) return@launch
                     useFcmChannel = true
-                    privateChannelClient.setRuntime(fcmAvailable = true, systemToken = token)
-                    PrivateChannelServiceManager.refreshForMode(context, true)
                 } else {
-                    val oldToken = settingsRepository.getFcmToken()
-                    val oldDeviceKey = settingsRepository.getDeviceKey()
                     val switchResult = runCatching {
-                        switchToPrivateAndRetireProvider("fcm", oldToken)
+                        transportSwitcher.switchToPrivate()
                     }
                     if (switchResult.isFailure) {
                         val failure = checkNotNull(switchResult.exceptionOrNull())
                         io.ethan.pushgo.util.SilentSink.w(
                             TAG,
-                            "switchToPrivateAndRetireProvider failed: ${failure.message}",
+                            "private transport transition failed: ${failure.message}",
                             failure,
                         )
                         transportErrorMessage =
                             ResMessage(R.string.error_notification_transport_switch_failed)
                         return@launch
                     }
-                    val commitResult = runCatching {
-                        settingsRepository.setUseFcmChannel(false)
-                        QualityRuntime.afterTransportSelectionPersistence()
-                        settingsRepository.setFcmToken(null)
-                    }
-                    if (commitResult.isFailure) {
-                        val failure = checkNotNull(commitResult.exceptionOrNull())
-                        io.ethan.pushgo.util.SilentSink.w(
-                            TAG,
-                            "private transport local commit failed: ${failure.message}",
-                            failure,
-                        )
-                        val compensationFailures = buildList {
-                            if (!oldToken.isNullOrBlank()) {
-                                runCatching {
-                                    prepareFcmTransport(oldToken)
-                                }.exceptionOrNull()?.let(::add)
-                            }
-                            runCatching {
-                                settingsRepository.setFcmToken(oldToken)
-                            }.exceptionOrNull()?.let(::add)
-                            runCatching {
-                                settingsRepository.setDeviceKey(oldDeviceKey)
-                            }.exceptionOrNull()?.let(::add)
-                            runCatching {
-                                settingsRepository.setUseFcmChannel(previousUseFcmChannel)
-                            }.exceptionOrNull()?.let(::add)
-                        }
-                        privateChannelClient.setRuntime(
-                            fcmAvailable = previousUseFcmChannel,
-                            systemToken = oldToken,
-                        )
-                        PrivateChannelServiceManager.refreshForMode(
-                            context,
-                            previousUseFcmChannel,
-                        )
-                        compensationFailures.forEach { compensationFailure ->
-                            io.ethan.pushgo.util.SilentSink.e(
-                                TAG,
-                                "private local commit compensation failed: " +
-                                    compensationFailure.message,
-                                compensationFailure,
-                            )
-                        }
-                        transportErrorMessage = if (compensationFailures.isEmpty()) {
-                            ResMessage(R.string.error_notification_transport_switch_failed)
-                        } else {
-                            ResMessage(
-                                R.string.error_notification_transport_private_compensation_failed
-                            )
-                        }
-                        return@launch
-                    }
-                    privateChannelClient.setRuntime(fcmAvailable = false, systemToken = null)
-                    PrivateChannelServiceManager.refreshForMode(context, false)
+                    useFcmChannel = false
                     if (previousUseFcmChannel) {
                         shouldShowPrivateChannelWhitelistDialog = true
                     }
@@ -953,13 +796,15 @@ class SettingsViewModel(
                 if (
                     BuildConfig.DEBUG &&
                     QualityRuntime.currentSession()?.channelMutationScenario ==
-                    QualityChannelMutationScenario.ACCEPTED
+                    QualityChannelMutationScenario.ACCEPTED &&
+                    QualityRuntime.currentSession()?.faults?.failGatewayPostCommitSyncOnce != true
                 ) {
                     gatewayPrivateChannelEnabled = true
                     refreshChannelSubscriptions()
                     successMessage = ResMessage(R.string.message_gateway_saved)
                     return@launch
                 }
+                var gatewaySyncPending = false
                 gatewayPrivateChannelEnabled = gatewayPrivateChannelEnabledFetcher()
                 if (useProviderRoute) {
                     privateChannelClient.setRuntime(
@@ -969,32 +814,52 @@ class SettingsViewModel(
                 } else {
                     if (gatewayPrivateChannelEnabled == false) {
                         if (isFcmSupported(context)) {
-                            settingsRepository.setUseFcmChannel(true)
-                            useFcmChannel = true
-                            enableFcmProvider(context, keepEnabledWhenTokenMissing = true)
-                            PrivateChannelServiceManager.refreshForMode(context, true)
+                            if (!enableFcmProvider(context)) {
+                                gatewayErrorMessage =
+                                    ResMessage(R.string.error_notification_transport_fcm_switch_failed)
+                                return@launch
+                            }
                             gatewayErrorMessage = ResMessage(R.string.error_gateway_private_disabled_use_fcm)
                         } else {
                             gatewayErrorMessage = ResMessage(R.string.error_private_disabled_and_fcm_unavailable)
                         }
                         return@launch
                     }
-                    val previousFcmToken = settingsRepository.getFcmToken()
-                    settingsRepository.setFcmToken(null)
-                    privateChannelClient.setRuntime(fcmAvailable = false, systemToken = null)
                     runCatching {
-                        privateChannelClient.switchToPrivateAndRetireProvider("fcm", previousFcmToken)
+                        transportSwitcher.switchToPrivate()
                     }.onFailure {
                         io.ethan.pushgo.util.SilentSink.w(
                             TAG,
                             "saveGatewayConfig route reconcile failed: ${it.message}",
                             it,
                         )
+                        gatewayErrorMessage =
+                            ResMessage(R.string.error_notification_transport_switch_failed)
+                        return@launch
                     }
                 }
                 PrivateChannelServiceManager.refresh(context)
-                activeFcmToken?.let {
-                    channelRepository.syncSubscriptionsIfNeeded(it)
+                activeFcmToken?.let { token ->
+                    try {
+                        if (BuildConfig.DEBUG) {
+                            QualityRuntime.beforeGatewayPostCommitSync()
+                        }
+                        channelRepository.syncSubscriptionsIfNeeded(token)
+                    } catch (error: CancellationException) {
+                        throw error
+                    } catch (error: Exception) {
+                        // The candidate gateway has already been committed and
+                        // is now authoritative. Subscription reconciliation is
+                        // recoverable work handled again at launch/channel
+                        // entry; do not report a truthful gateway save as a
+                        // failed gateway switch.
+                        gatewaySyncPending = true
+                        io.ethan.pushgo.util.SilentSink.w(
+                            TAG,
+                            "gateway committed; subscription sync pending: ${error.message}",
+                            error,
+                        )
+                    }
                 }
                 if (oldIdentity != newIdentity) {
                     privateChannelClient.onGatewayConfigChanged()
@@ -1020,7 +885,13 @@ class SettingsViewModel(
                     }
                 }
                 refreshChannelSubscriptions()
-                successMessage = ResMessage(R.string.message_gateway_saved)
+                successMessage = ResMessage(
+                    if (gatewaySyncPending) {
+                        R.string.message_gateway_saved_sync_pending
+                    } else {
+                        R.string.message_gateway_saved
+                    }
+                )
             } catch (ex: Exception) {
                 gatewayErrorMessage = ex.toUiErrorMessage(R.string.error_request_failed)
             } finally {
@@ -1204,24 +1075,31 @@ class SettingsViewModel(
         channelEntryErrorMessage = null
     }
 
-    suspend fun renameChannel(channelId: String, alias: String) {
-        if (isRenamingChannel) return
+    suspend fun renameChannel(channelId: String, alias: String): Boolean {
+        if (isRenamingChannel) return false
         isRenamingChannel = true
+        channelRenameErrorMessage = null
         try {
             channelRepository.renameChannel(channelId, alias)
             refreshChannelSubscriptions()
             successMessage = ResMessage(R.string.message_channel_renamed)
+            return true
         } catch (ex: ChannelIdException) {
-            errorMessage = ResMessage(ex.resId)
+            channelRenameErrorMessage = ResMessage(ex.resId)
         } catch (ex: ChannelNameException) {
-            errorMessage = ResMessage(ex.resId, ex.args)
+            channelRenameErrorMessage = ResMessage(ex.resId, ex.args)
         } catch (ex: ChannelSubscriptionException) {
-            errorMessage = ex.toUiErrorMessage(R.string.error_request_failed)
+            channelRenameErrorMessage = ex.toUiErrorMessage(R.string.error_request_failed)
         } catch (ex: Exception) {
-            errorMessage = ex.toUiErrorMessage(R.string.error_request_failed)
+            channelRenameErrorMessage = ex.toUiErrorMessage(R.string.error_request_failed)
         } finally {
             isRenamingChannel = false
         }
+        return false
+    }
+
+    fun clearChannelRenameError() {
+        channelRenameErrorMessage = null
     }
 
     suspend fun unsubscribeChannel(context: Context, channelId: String): Boolean {
