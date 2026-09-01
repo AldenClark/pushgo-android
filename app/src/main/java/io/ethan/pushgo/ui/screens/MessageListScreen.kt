@@ -250,8 +250,22 @@ fun MessageListScreen(
                     .drop(1)
                     .first()
             }
+            // Start observing before the provider mutation. Room invalidation can create the
+            // replacement Paging generation before the provider call returns; subscribing later
+            // would mistake an already-terminal state for a completed refresh.
+            val nextPagingRefresh = async(start = CoroutineStart.UNDISPATCHED) {
+                awaitMessagePagingRefreshPresentation(
+                    presentationSignals = snapshotFlow {
+                        MessagePagingPresentationSignal(messages.loadState.refresh)
+                    },
+                )
+            }
             try {
                 val baselineStoreRevision = container.messageRepository.currentStoreRevision()
+                // Arm before the provider mutation can invalidate Room/Paging. The mutation may
+                // start the real refresh generation before `messages.refresh()` below is called;
+                // arming afterward races that generation and makes the slow-state Oracle flaky.
+                QualityRuntime.armMessageRefreshPresentationDelay()
                 QualityRuntime.beforeMessageRefresh()
                 ProviderIngressCoordinator.pullPersistAndDrainAcks(
                     context = context,
@@ -264,19 +278,20 @@ fun MessageListScreen(
                 )
                 val refreshedStoreRevision = container.messageRepository.currentStoreRevision()
                 channelNameMap = container.channelRepository.loadSubscriptionLookup(includeDeleted = true)
-                QualityRuntime.armMessageRefreshPresentationDelay()
-                awaitPresentedMessageRefresh(
-                    presentationSignals = snapshotFlow {
-                        MessagePagingPresentationSignal(messages.loadState.refresh)
-                    },
-                    requestRefresh = messages::refresh,
-                )
+                val messageStoreChanged = refreshedStoreRevision != baselineStoreRevision
+                if (!messageStoreChanged) {
+                    // A no-op provider pull has no Room invalidation to observe, so explicitly
+                    // request one refresh using the collector that was already armed above.
+                    messages.refresh()
+                }
+                nextPagingRefresh.await()
                 // A real message-store mutation must reach LazyPagingItems before refresh can
                 // succeed. Event/Thing-only pulls and duplicate/no-op pulls do not advance this
                 // revision and therefore do not wait on a message presentation that cannot change.
                 awaitRequiredMessagePagingSnapshotAdvance(
-                    messageStoreChanged = refreshedStoreRevision != baselineStoreRevision,
+                    messageStoreChanged = messageStoreChanged,
                     presentationAdvance = nextPagingPresentation,
+                    timeoutMillis = 8_000L,
                 )
                 didPullRefreshFail = false
                 refreshCompleted = true
@@ -291,6 +306,7 @@ fun MessageListScreen(
                 )
             } finally {
                 nextPagingPresentation.cancel()
+                nextPagingRefresh.cancel()
                 // Keep the visible refresh state until the successful result is actually at a
                 // user-operable position. Clearing it before this suspend point lets callers
                 // observe "complete" while LazyColumn still holds the old keyed anchor.
@@ -1098,30 +1114,34 @@ internal suspend fun awaitPresentedMessageRefresh(
     requestRefresh: () -> Unit,
     timeoutMillis: Long = 35_000L,
 ) = coroutineScope {
-    val result = withTimeoutOrNull(timeoutMillis) {
-        val completion = async(start = CoroutineStart.UNDISPATCHED) {
-            var sawTargetLoading = false
-            presentationSignals
-                .drop(1) // snapshotFlow's pre-request state
-                .first { signal ->
-                    when (signal.refreshState) {
-                        is LoadState.Error -> true
-                        is LoadState.Loading -> {
-                            sawTargetLoading = true
-                            false
-                        }
-                        is LoadState.NotLoading -> {
-                            sawTargetLoading
-                        }
-                    }
-                }
-        }
-        requestRefresh()
-        val result = completion.await()
-        (result.refreshState as? LoadState.Error)?.error?.let { throw it }
-        Unit
+    val completion = async(start = CoroutineStart.UNDISPATCHED) {
+        awaitMessagePagingRefreshPresentation(presentationSignals, timeoutMillis)
     }
-    if (result == null) throw MessageRefreshPresentationTimeoutException(timeoutMillis)
+    requestRefresh()
+    completion.await()
+}
+
+internal suspend fun awaitMessagePagingRefreshPresentation(
+    presentationSignals: Flow<MessagePagingPresentationSignal>,
+    timeoutMillis: Long = 35_000L,
+) {
+    val terminal = withTimeoutOrNull(timeoutMillis) {
+        var sawTargetLoading = false
+        presentationSignals
+            .drop(1) // snapshotFlow's pre-request state
+            .first { signal ->
+                when (signal.refreshState) {
+                    is LoadState.Error -> true
+                    is LoadState.Loading -> {
+                        sawTargetLoading = true
+                        false
+                    }
+                    is LoadState.NotLoading -> sawTargetLoading
+                }
+            }
+    }
+    if (terminal == null) throw MessageRefreshPresentationTimeoutException(timeoutMillis)
+    (terminal.refreshState as? LoadState.Error)?.error?.let { throw it }
 }
 
 internal data class MessagePagingPresentationSignal(

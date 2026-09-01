@@ -248,6 +248,16 @@ Doze 宿主脚本首次试跑 `build/quality-results/android-doze-positive-curre
 
 `run_android_update_install_positive.sh` 在受控 `Medium_Phone / emulator-5554` 上完成 v1.3.0→v1.3.1 的真实下载、SHA-256/archive package/version/signer 校验、一次 PackageInstaller 替换；更新后应用重新就绪，标准消息准确标题与正文仍可见。设备阶段 32 秒、产品 Install 动作 1 次、业务重试 0 次，收据 `build/quality-results/android-update-install-current-20260902/android-update-install/20260901-200315/evidence.json` 为 `status=PASSED`。测试结束后 benchmark 包已卸载；生产分发签名、公网 feed 与物理/OEM 安装策略仍 `NOT RUN`，不把受控机制证据外推为发布验收。
 
+### 2026-09-02 Android 慢刷新代际竞态修复与变更门禁
+
+本轮 `quality_changed` 首次执行在核心四个 App-owned UI 类的 33 条真实方法中发现 `QualityMessageJourneyInstrumentedTest#slowRefreshKeepsAccurateContentVisibleUntilCompletion` 失败（product=`FAILED`、test-system=`PASSED`），没有用重跑、放宽断言或增加无限等待掩盖。竞争假设核对确认：单测、单方法和无 fixture 的整类均可通过；带完整 fixture 的特定前缀顺序才复现。生产日志进一步证明 provider 拉取导致 Room invalidation 自动创建一个 Paging generation，而旧实现随后再次调用 `messages.refresh()`，`awaitPresentedMessageRefresh` 订阅到第二代 terminal 状态，可能在 5 秒 App-owned delay 之前误判完成。根因是生产刷新同步缺陷，不是设备、fixture 或 runner 污染。
+
+修复将 Paging refresh collector 以 `UNDISPATCHED` 在 provider mutation 前启动，并在同一点先 arm App-owned presentation delay；provider 改变消息存储时只等待 Room 自动 invalidation，只有无变化时才发起一次显式 `messages.refresh()`；所有 presentation/snapshot 等待仍有明确 8 秒上限，完成后取消 collector。测试保留真实用户目的：下拉前回到列表顶部、旧准确消息持续可见、slow 指示器实际出现并在真实刷新终点消失，最终行仍可点击；未把 tag、等待成功或进程返回码当作通过。
+
+修复后 fresh 证据：目标方法与标准方法配对 2/2，`QualityMessageJourneyInstrumentedTest` 完整 15/15，核心 Message/Entity/Channel/Settings 四类完整 33/33；随后 `QUALITY_RESULTS_ROOT=build/quality-results/android-quality-changed-after-generation-fix-20260902 ./scripts/quality_changed.sh` 返回 0，release 收据 `build/quality-results/android-quality-changed-after-generation-fix-20260902/android-release-summary.json` 为 product/test-system=`PASSED/PASSED`，selected claims 全部执行，无 incomplete claim。该收据执行时 `source_dirty=true`，提交后仍需干净 PR 复验；真实 Provider/FCM、物理设备/OEM 和长期观察不由 emulator 证据外推。
+
+同一变更顺手收口 update-install runner：每个 ADB 调用有 8 秒可配置上限并终止子进程组，按 serial 获取 15 秒有界锁，未持锁不触碰设备；失败在清理前保留 PID、窗口焦点、crash buffer、UI dump/失败原因，清理只移除本运行已改变的 benchmark 包。脚本合同新增静态约束，受控 v1.3.0→v1.3.1 真实安装回归仍为一次 Install 动作、设备阶段 31 秒、准确标题/正文保留，证据位于上述 release 目录的 `android-update-install/*/evidence.json`。这只改善测试系统可诊断性与隔离性，不增加日常 lane 的低价值矩阵。
+
 ## 增量规则
 
 新增或改变 Screen、Route、Action、Room 字段/索引、Service、Worker、Receiver、权限或性能敏感路径时更新相应行。`config/quality-impact.json` 只决定最低检查；未映射产品路径阻断，命中后 AI 仍必须继续追 caller、状态、数据和平台消费者。

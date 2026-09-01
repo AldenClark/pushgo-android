@@ -322,6 +322,14 @@ class QualityLaneCostContractTests(unittest.TestCase):
             'wait_for_node text "Seeded from fixture.seed_messages for UI validation."',
             update_runner,
         )
+        self.assertIn("adb_with_timeout()", update_runner)
+        self.assertIn("QUALITY_ADB_TIMEOUT_SECONDS", update_runner)
+        self.assertIn("capture_failure_evidence()", update_runner)
+        self.assertIn("failure-metadata.txt", update_runner)
+        self.assertIn("acquire_device_lock()", update_runner)
+        self.assertIn("device_lock_acquired", update_runner)
+        self.assertIn("isolated benchmark package is already installed", update_runner)
+        self.assertNotIn("adb -s ", update_runner)
         self.assertNotIn("B006 accepted", legacy_matrix)
         self.assertIn("guidance or installer handoff is not installation success", legacy_matrix)
         self.assertIn("archiveInfo.signingInfo ?: return false", installer)

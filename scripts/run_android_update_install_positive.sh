@@ -12,31 +12,166 @@ apk_output="$repo_root/app/build/outputs/apk/benchmark/app-benchmark.apk"
 metadata_output="$repo_root/app/build/outputs/apk/benchmark/output-metadata.json"
 quality_results_root="${QUALITY_RESULTS_ROOT:-$repo_root/build/quality-results}"
 results_root="$quality_results_root/android-update-install"
+adb_timeout_seconds="${QUALITY_ADB_TIMEOUT_SECONDS:-8}"
+lock_timeout_seconds="${QUALITY_ANDROID_DEVICE_LOCK_TIMEOUT_SECONDS:-15}"
+adb_binary="$(command -v adb || true)"
+device_lock_root="${QUALITY_ANDROID_LOCK_ROOT:-${TMPDIR:-/tmp}/pushgo-android-quality-locks}"
+device_lock_dir=""
+device_lock_acquired=0
+failure_evidence_saved=0
+package_state_changed=0
+last_dump_failure=""
+run_id="$(date -u +%Y%m%d-%H%M%S)-$$"
+run_dir="$results_root/$run_id"
+work_dir=""
+ui_dump="$run_dir/window.xml"
+device_ui_dump="/data/local/tmp/pushgo-update-install-$run_id.xml"
+server_log="$run_dir/http.log"
+logcat_file="$run_dir/logcat.txt"
+server_pid=""
+server_port=""
+device_phase_started_at=""
 
 blocked() {
   printf 'status=BLOCKED\nreason=%s\n' "$1" >&2
   exit 2
 }
 
+adb_with_timeout() {
+  python3 - "$adb_timeout_seconds" "$adb_binary" "$@" <<'PY'
+import os
+import signal
+import subprocess
+import sys
+
+timeout = float(sys.argv[1])
+command = sys.argv[2:]
+process = subprocess.Popen(
+    command,
+    stdin=subprocess.DEVNULL,
+    stdout=subprocess.PIPE,
+    stderr=subprocess.PIPE,
+    text=True,
+    start_new_session=True,
+)
+try:
+    stdout, stderr = process.communicate(timeout=timeout)
+except subprocess.TimeoutExpired as error:
+    stdout = error.stdout or ""
+    stderr = error.stderr or ""
+    if isinstance(stdout, bytes):
+        stdout = stdout.decode(errors="replace")
+    if isinstance(stderr, bytes):
+        stderr = stderr.decode(errors="replace")
+    if process.poll() is None:
+        try:
+            os.killpg(process.pid, signal.SIGTERM)
+        except ProcessLookupError:
+            pass
+        try:
+            process.wait(timeout=2)
+        except subprocess.TimeoutExpired:
+            try:
+                os.killpg(process.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            process.wait()
+    if stdout:
+        sys.stdout.write(stdout)
+    if stderr:
+        sys.stderr.write(stderr)
+    sys.stderr.write(f"adb command timed out after {timeout:g}s\n")
+    raise SystemExit(124)
+
+if stdout:
+    sys.stdout.write(stdout)
+if stderr:
+    sys.stderr.write(stderr)
+raise SystemExit(process.returncode)
+PY
+}
+
+acquire_device_lock() {
+  local safe_serial owner_pid deadline
+  safe_serial="$(printf '%s' "$device_serial" | tr -c 'A-Za-z0-9_.-' '_')"
+  device_lock_dir="$device_lock_root/$safe_serial"
+  mkdir -p "$device_lock_root"
+  deadline=$((SECONDS + lock_timeout_seconds))
+  while ! mkdir "$device_lock_dir" 2>/dev/null; do
+    owner_pid=""
+    [[ -f "$device_lock_dir/pid" ]] && owner_pid="$(<"$device_lock_dir/pid")"
+    if [[ "$owner_pid" =~ ^[0-9]+$ ]] && ! kill -0 "$owner_pid" >/dev/null 2>&1; then
+      rmdir "$device_lock_dir" 2>/dev/null || true
+      continue
+    fi
+    if (( SECONDS >= deadline )); then
+      device_lock_dir=""
+      blocked "selected Android device is busy: $device_serial"
+    fi
+    sleep 0.25
+  done
+  printf '%s\n' "$$" >"$device_lock_dir/pid"
+  device_lock_acquired=1
+}
+
+release_device_lock() {
+  local owner_pid=""
+  [[ -n "$device_lock_dir" ]] || return 0
+  [[ -f "$device_lock_dir/pid" ]] && owner_pid="$(<"$device_lock_dir/pid")"
+  if [[ "$owner_pid" == "$$" ]]; then
+    rm -f "$device_lock_dir/pid"
+    rmdir "$device_lock_dir" 2>/dev/null || true
+  fi
+  device_lock_dir=""
+  device_lock_acquired=0
+}
+
+capture_failure_evidence() {
+  local reason="${1:-unknown}"
+  [[ "$failure_evidence_saved" -eq 1 ]] && return 0
+  failure_evidence_saved=1
+  mkdir -p "$run_dir" || return 1
+  printf 'reason=%s\nserial=%s\nrun_id=%s\n' "$reason" "$device_serial" "$run_id" \
+    >"$run_dir/failure-metadata.txt"
+  adb_with_timeout -s "$device_serial" shell pidof "$package_name" \
+    >"$run_dir/failure-app-pid.txt" 2>&1 || true
+  adb_with_timeout -s "$device_serial" shell dumpsys window windows \
+    >"$run_dir/failure-window-focus.txt" 2>&1 || true
+  adb_with_timeout -s "$device_serial" logcat -b crash -d \
+    >"$run_dir/failure-crash-buffer.txt" 2>&1 || true
+  if dump_ui; then
+    cp "$ui_dump" "$run_dir/failure-window.xml"
+  else
+    printf '%s\n' "$last_dump_failure" >"$run_dir/failure-ui-dump.txt"
+  fi
+}
+
 failed() {
   printf 'status=FAILED\nreason=%s\n' "$1" >&2
+  if [[ "$device_lock_acquired" -eq 1 ]]; then
+    capture_failure_evidence "$1" || true
+  fi
   exit 1
 }
 
-command -v adb >/dev/null 2>&1 || blocked "adb is unavailable"
+[[ -n "$adb_binary" ]] || blocked "adb is unavailable"
 command -v python3 >/dev/null 2>&1 || blocked "python3 is unavailable"
+[[ "$adb_timeout_seconds" =~ ^[1-9][0-9]*$ ]] || blocked \
+  "QUALITY_ADB_TIMEOUT_SECONDS must be a positive integer"
+[[ "$lock_timeout_seconds" =~ ^[1-9][0-9]*$ ]] || blocked \
+  "QUALITY_ANDROID_DEVICE_LOCK_TIMEOUT_SECONDS must be a positive integer"
 
 if [[ -z "$device_serial" ]]; then
-  online_emulators="$(adb devices | awk 'NR > 1 && $2 == "device" && $1 ~ /^emulator-/ { print $1 }')"
+  online_emulators="$(adb_with_timeout devices | awk 'NR > 1 && $2 == "device" && $1 ~ /^emulator-/ { print $1 }')"
   online_emulator_count="$(printf '%s\n' "$online_emulators" | sed '/^$/d' | wc -l | tr -d ' ')"
   [[ "$online_emulator_count" == "1" ]] || blocked \
     "ANDROID_SERIAL is required unless exactly one emulator is online"
   device_serial="$online_emulators"
 fi
 
-[[ "$(adb -s "$device_serial" get-state 2>/dev/null || true)" == "device" ]] || blocked \
+[[ "$(adb_with_timeout -s "$device_serial" get-state 2>/dev/null || true)" == "device" ]] || blocked \
   "selected Android target is not online: $device_serial"
-[[ "$(adb -s "$device_serial" shell getprop ro.kernel.qemu | tr -d '\r')" == "1" ]] || blocked \
+[[ "$(adb_with_timeout -s "$device_serial" shell getprop ro.kernel.qemu | tr -d '\r')" == "1" ]] || blocked \
   "update-install mechanism evidence requires a controlled emulator"
 
 if [[ -z "$baseline_version" ]]; then
@@ -56,36 +191,41 @@ python3 "$repo_root/scripts/quality_disk_preflight.py" \
   --path "$results_root" \
   --minimum-free-bytes "${QUALITY_MIN_FREE_BYTES:-3221225472}" || exit 2
 
-run_id="$(date -u +%Y%m%d-%H%M%S)"
-run_dir="$results_root/$run_id"
 work_dir="$(mktemp -d -t pushgo-update-install.XXXXXX)"
 baseline_apk="$work_dir/baseline.apk"
 candidate_apk="$work_dir/candidate.apk"
-ui_dump="$run_dir/window.xml"
-device_ui_dump="/data/local/tmp/pushgo-update-install-$run_id.xml"
-server_log="$run_dir/http.log"
-logcat_file="$run_dir/logcat.txt"
-server_pid=""
-server_port=""
 mkdir -p "$run_dir"
-device_phase_started_at=""
 
 cleanup() {
   local status=$?
   trap - EXIT INT TERM
+  if [[ "$device_lock_acquired" -eq 1 && "$status" -ne 0 ]]; then
+    capture_failure_evidence "runner-exit-$status" || true
+  fi
   if [[ -n "$server_pid" ]]; then
     kill "$server_pid" >/dev/null 2>&1 || true
   fi
-  if [[ -n "$server_port" ]]; then
-    adb -s "$device_serial" reverse --remove "tcp:$server_port" >/dev/null 2>&1 || true
+  if [[ "$device_lock_acquired" -eq 1 ]]; then
+    if [[ -n "$server_port" ]]; then
+      adb_with_timeout -s "$device_serial" reverse --remove "tcp:$server_port" >/dev/null 2>&1 || true
+    fi
+    adb_with_timeout -s "$device_serial" logcat -d >"$logcat_file" 2>/dev/null || true
+    adb_with_timeout -s "$device_serial" shell rm -f "$device_ui_dump" >/dev/null 2>&1 || true
+    if [[ "$package_state_changed" -eq 1 ]]; then
+      adb_with_timeout -s "$device_serial" uninstall "$package_name" >/dev/null 2>&1 || true
+    fi
+    release_device_lock
   fi
-  adb -s "$device_serial" logcat -d >"$logcat_file" 2>/dev/null || true
-  adb -s "$device_serial" shell rm -f "$device_ui_dump" >/dev/null 2>&1 || true
-  adb -s "$device_serial" uninstall "$package_name" >/dev/null 2>&1 || true
-  rm -rf "$work_dir"
+  if [[ -n "$work_dir" ]]; then
+    rm -rf "$work_dir"
+  fi
+  if [[ ! -d "$run_dir" || -z "$(find "$run_dir" -mindepth 1 -maxdepth 1 -print -quit 2>/dev/null)" ]]; then
+    rmdir "$run_dir" 2>/dev/null || true
+  fi
   exit "$status"
 }
 trap cleanup EXIT INT TERM
+acquire_device_lock
 
 build_apk() {
   local version="$1"
@@ -143,15 +283,19 @@ PY
 python3 -m http.server "$server_port" --bind 127.0.0.1 --directory "$work_dir" \
   >"$server_log" 2>&1 &
 server_pid="$!"
-adb -s "$device_serial" reverse "tcp:$server_port" "tcp:$server_port" >/dev/null
+adb_with_timeout -s "$device_serial" reverse "tcp:$server_port" "tcp:$server_port" >/dev/null
 sleep 0.2
 kill -0 "$server_pid" >/dev/null 2>&1 || blocked "local APK server did not start"
 
-adb -s "$device_serial" uninstall "$package_name" >/dev/null 2>&1 || true
+if adb_with_timeout -s "$device_serial" shell pm path "$package_name" >/dev/null 2>&1; then
+  blocked "isolated benchmark package is already installed; refusing to remove another run's state"
+fi
+package_state_changed=1
+adb_with_timeout -s "$device_serial" uninstall "$package_name" >/dev/null 2>&1 || true
 device_phase_started_at="$(date +%s)"
-adb -s "$device_serial" install -t "$baseline_apk" >/dev/null || blocked \
+adb_with_timeout -s "$device_serial" install -t "$baseline_apk" >/dev/null || blocked \
   "baseline APK could not be installed"
-installed_baseline="$(adb -s "$device_serial" shell dumpsys package "$package_name" \
+installed_baseline="$(adb_with_timeout -s "$device_serial" shell dumpsys package "$package_name" \
   | sed -n 's/.*versionCode=\([0-9]*\).*/\1/p' | head -n 1)"
 [[ -n "$installed_baseline" && "$installed_baseline" != "$candidate_version_code" ]] || blocked \
   "baseline install did not establish an older package version"
@@ -181,7 +325,7 @@ print(base64.b64encode(json.dumps(payload, separators=(",", ":")).encode()).deco
 PY
 )"
 
-prepare_output="$(adb -s "$device_serial" shell content call \
+prepare_output="$(adb_with_timeout -s "$device_serial" shell content call \
   --uri "content://$package_name.quality-fixture" \
   --method prepare \
   --arg "$encoded_session" 2>&1)" || blocked \
@@ -190,9 +334,21 @@ rg -q 'status=ready' <<<"$prepare_output" || blocked \
   "App-owned update fixture did not report readiness: $prepare_output"
 
 dump_ui() {
-  adb -s "$device_serial" shell uiautomator dump "$device_ui_dump" >/dev/null 2>&1 || return 1
-  adb -s "$device_serial" exec-out cat "$device_ui_dump" >"$ui_dump" 2>/dev/null || return 1
-  rg -q '<hierarchy' "$ui_dump"
+  local dump_output=""
+  rm -f "$ui_dump"
+  if ! dump_output="$(adb_with_timeout -s "$device_serial" shell uiautomator dump "$device_ui_dump" 2>&1)"; then
+    last_dump_failure="uiautomator dump failed: $(printf '%s' "$dump_output" | tr '\n' ' ')"
+    return 1
+  fi
+  if ! adb_with_timeout -s "$device_serial" exec-out cat "$device_ui_dump" >"$ui_dump" 2>"$run_dir/ui-copy.stderr"; then
+    last_dump_failure="could not read UI dump from device: $(tr '\n' ' ' <"$run_dir/ui-copy.stderr")"
+    return 1
+  fi
+  if ! rg -q '<hierarchy' "$ui_dump"; then
+    last_dump_failure="UI dump did not contain a hierarchy: $(printf '%s' "$dump_output" | tr '\n' ' ')"
+    return 1
+  fi
+  last_dump_failure=""
 }
 
 node_center() {
@@ -245,27 +401,26 @@ tap_node() {
   local mode="$1"
   local query="$2"
   wait_for_node "$mode" "$query" 15 || failed "UI node was not reachable: $query"
-  dump_ui || failed "UI tree could not be captured before tapping $query"
   local center
   center="$(node_center "$mode" "$query")" || failed "UI node lost before tapping: $query"
-  adb -s "$device_serial" shell input tap "${center%,*}" "${center#*,}"
+  adb_with_timeout -s "$device_serial" shell input tap "${center%,*}" "${center#*,}"
 }
 
-adb -s "$device_serial" logcat -c
-adb -s "$device_serial" shell am force-stop "$package_name"
-adb -s "$device_serial" shell am start -n "$package_name/io.ethan.pushgo.MainActivity" >/dev/null
+adb_with_timeout -s "$device_serial" logcat -c
+adb_with_timeout -s "$device_serial" shell am force-stop "$package_name"
+adb_with_timeout -s "$device_serial" shell am start -n "$package_name/io.ethan.pushgo.MainActivity" >/dev/null
 wait_for_node text "Version $candidate_version is available" 20 || failed \
   "baseline app did not show the exact App-owned update candidate"
 wait_for_node text "Install now" 5 || failed \
   "the real update prompt did not expose its positive install action"
 
-adb -s "$device_serial" shell appops set "$package_name" REQUEST_INSTALL_PACKAGES allow
+adb_with_timeout -s "$device_serial" shell appops set "$package_name" REQUEST_INSTALL_PACKAGES allow
 tap_node text "Install now"
 
 installer_observed=0
 deadline=$((SECONDS + 75))
 while (( SECONDS < deadline )); do
-  installed_version="$(adb -s "$device_serial" shell dumpsys package "$package_name" \
+  installed_version="$(adb_with_timeout -s "$device_serial" shell dumpsys package "$package_name" \
     | sed -n 's/.*versionCode=\([0-9]*\).*/\1/p' | head -n 1)"
   if [[ "$installed_version" == "$candidate_version_code" ]]; then
     break
@@ -289,14 +444,14 @@ PY
       "更新" "安装" "更多详情" "仍要安装" "不扫描直接安装" \
       "繼續安裝" "安裝" "更多詳細資料" "仍要安裝"; do
       if center="$(node_center text "$label" 2>/dev/null)"; then
-        adb -s "$device_serial" shell input tap "${center%,*}" "${center#*,}"
+        adb_with_timeout -s "$device_serial" shell input tap "${center%,*}" "${center#*,}"
         clicked=1
         break
       fi
     done
     if (( clicked == 0 )); then
       if center="$(node_center text-bottom "Install without scanning" 2>/dev/null)"; then
-        adb -s "$device_serial" shell input tap "${center%,*}" "${center#*,}"
+        adb_with_timeout -s "$device_serial" shell input tap "${center%,*}" "${center#*,}"
         clicked=1
       fi
     fi
@@ -305,13 +460,13 @@ PY
   sleep 0.25
 done
 
-installed_version="$(adb -s "$device_serial" shell dumpsys package "$package_name" \
+installed_version="$(adb_with_timeout -s "$device_serial" shell dumpsys package "$package_name" \
   | sed -n 's/.*versionCode=\([0-9]*\).*/\1/p' | head -n 1)"
 [[ "$installed_version" == "$candidate_version_code" ]] || failed \
   "PackageInstaller did not install the candidate; installer_observed=$installer_observed baseline=$installed_baseline actual=${installed_version:-missing} expected=$candidate_version_code"
 
-adb -s "$device_serial" shell am force-stop "$package_name"
-adb -s "$device_serial" shell am start -n "$package_name/io.ethan.pushgo.MainActivity" >/dev/null
+adb_with_timeout -s "$device_serial" shell am force-stop "$package_name"
+adb_with_timeout -s "$device_serial" shell am start -n "$package_name/io.ethan.pushgo.MainActivity" >/dev/null
 wait_for_node resource "quality-runtime.ready" 20 || failed \
   "updated app did not become functionally ready"
 wait_for_node resource "message.row.quality-standard-message" 15 || failed \

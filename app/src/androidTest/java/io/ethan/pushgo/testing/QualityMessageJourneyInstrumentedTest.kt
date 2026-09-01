@@ -986,22 +986,33 @@ class QualityMessageJourneyInstrumentedTest : QualityAppJourneyTestCase() {
         configureAndLaunch(
             fixture = QualityFixture.MESSAGES_STANDARD,
             faults = QualityFaults(
-                messageRefreshPresentationDelayMs = 2_500,
+                // Leave scheduling headroom for a full multi-class device lane while
+                // retaining a bounded alert budget. The product threshold is 1 s;
+                // the injected presentation remains slow for 5 s so the Oracle can
+                // observe the real indicator before the refresh completes.
+                messageRefreshPresentationDelayMs = 5_000,
             ),
             messageRefreshScenario = QualityMessageRefreshScenario.NEW_MESSAGE,
         )
 
         composeRule.onNodeWithText("P2 Split Seed Message").assertIsDisplayed()
         assertUnreadNavigationBadge("1")
-        composeRule.onNodeWithTag("screen.messages.list").performTouchInput { swipeDown() }
+        val messageList = composeRule.onNodeWithTag("messages.list.scroll").assertIsDisplayed()
+        // Refresh is a top-of-list user gesture. Establish that real precondition explicitly
+        // so a restored LazyList anchor from an earlier activity cannot turn this into a
+        // silent no-op while the business Oracle still expects a refresh.
+        messageList.performScrollToIndex(0)
+        composeRule.waitForIdle()
+        messageList.performTouchInput { swipeDown() }
+        composeRule.waitForIdle()
         composeRule.onNodeWithText("P2 Split Seed Message").assertIsDisplayed()
-        composeRule.waitUntil(timeoutMillis = 2_500) {
+        composeRule.waitUntil(timeoutMillis = 3_000) {
             composeRule.onAllNodes(hasTestTag("state.messages.refresh.slow"))
                 .fetchSemanticsNodes().isNotEmpty()
         }
         composeRule.onNodeWithTag("state.messages.refresh.slow").assertIsDisplayed()
         composeRule.onNodeWithText("P2 Split Seed Message").assertIsDisplayed()
-        composeRule.waitUntil(timeoutMillis = 6_000) {
+        composeRule.waitUntil(timeoutMillis = 8_000) {
             composeRule.onAllNodes(hasTestTag("state.messages.refresh.slow"))
                 .fetchSemanticsNodes().isEmpty()
         }
