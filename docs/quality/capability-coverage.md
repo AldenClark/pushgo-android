@@ -140,6 +140,12 @@ Doze 宿主脚本首次试跑 `build/quality-results/android-doze-positive-curre
 
 提交 `02b228f` 的干净工作树在 `Medium_Phone / emulator-5554` fresh 执行 1/1，原生 failure/error/skip 均为 0；收据 `build/quality-results/android-slow-load-warning-current-20260902/android-focused-summary.json` 的 product/test-system=`PASSED/PASSED`、`source_dirty=false`，选择器与 `executed_claims` 完全一致。该证据证明受控 App-owned 慢加载状态能先于最终结果被用户看到；真实网络延迟、物理设备性能、Provider/FCM 和长期观测仍不由此外推。
 
+### 2026-09-02 Android 消息加载失败重试恢复回归
+
+继续同一 Messages 核心路径，执行 `QualityMessageJourneyInstrumentedTest#failedLoadShowsUsableRetryAndRecoversToTheRealEmptyResult`：首次真实加载失败时必须保留用户可操作的 Retry，不能把错误态或旧空态当作成功；点击 Retry 后，页面才应回到准确的真实空结果。Oracle 同时核对错误/重试交互和最终业务数据，不以错误文本、控件存在或等待超时替代目的结果。
+
+提交 `bd0835e` 的干净工作树在 `Medium_Phone / emulator-5554` fresh 执行 1/1，原生 failure/error/skip 均为 0；收据 `build/quality-results/android-message-load-failure-current-20260902/android-focused-summary.json` 的 product/test-system=`PASSED/PASSED`、`source_dirty=false`，选择器与 `executed_claims` 完全一致。该证据仅覆盖受控 App-owned 加载失败与重试恢复，不外推真实网络、Provider/FCM、物理设备或生产性能。
+
 ### 2026-09-02 Android 网关核心规则提交后干净复验
 
 针对“先验证/注册、再覆盖旧网关”的核心规则，提交后干净工作树分别复验三条最小充分旅程：`serverConfigurationRejectsInvalidInputAndScopesDataAfterRelaunch`（非法地址/候选注册拒绝、旧配置保持）、`gatewayLocalCommitFailureRollsBackBeforeRetryCommits`（本地提交中点失败回滚）和 `gatewaySyncFailureReportsCommittedGatewayAndPendingRecovery`（提交后同步待恢复）。三条均在 `Medium_Phone / emulator-5554` fresh 1/1、零 failure/error/skip，收据分别为 `build/quality-results/android-gateway-validation-clean-20260902/android-focused-summary.json`、`build/quality-results/android-gateway-local-rollback-clean-20260902/android-focused-summary.json`、`build/quality-results/android-gateway-sync-pending-clean-20260902/android-focused-summary.json`；均为 product/test-system=`PASSED/PASSED`、`source_dirty=false`，选择器和 `executed_claims` 一致。该组只证明受控 emulator 的真实 Settings/重开边界，不外推真实公网 Gateway、FCM/Private、物理设备/OEM、进程死亡或长期观察。
