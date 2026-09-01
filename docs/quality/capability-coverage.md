@@ -106,6 +106,8 @@ Doze 宿主脚本首次试跑 `build/quality-results/android-doze-positive-curre
 
 提交 `59db442` 后独立执行 `QUALITY_RESULTS_ROOT=build/quality-results/android-doze-runner-fix-pr-clean-20260902 ./scripts/quality_test.sh pr`，收据 `android-pr-summary.json` 为 `source_dirty=false`、product/test-system=`PASSED/PASSED`；它确认提交后的主机回归可复现，但仍不升级 Doze 以外的设备、真机或外部系统边界。
 
+本轮在上述修复基础上继续收口 runner 可靠性：实测发现 `uiautomator dump` 可能无限等待，旧 runner 会让一次转场失败卡住且在清理前丢失诊断。提交 `9cb62df` 为所有本 runner 的 ADB 操作增加有界超时和进程组终止；按 serial 建立有界设备锁，锁未取得时不触碰设备；失败退出先保存 PID、焦点、crash buffer 和 UI dump/失败原因到 `QUALITY_RESULTS_ROOT/failure-<run>`，再执行 session/权限/电池状态恢复；质量影响计划也不再把该 runner 当作忽略路径。`QUALITY_RESULTS_ROOT=build/quality-results/android-doze-runner-timeout-pr-clean-20260902 ./scripts/quality_test.sh pr` 在干净提交上实际执行 Python 162/162、JVM 298 项、本地化、androidTest 编译和 Debug 构建，均为 product/test-system=`PASSED/PASSED`；随后 `build/quality-results/android-doze-runner-timeout-device-clean-20260902.log` 在 `Medium_Phone / emulator-5554` 完整执行 Doze 说明→Settings→真实 unrestricted→返回刷新→snooze→activity relaunch→新 session 隔离链并为 `status=PASSED`，退出后权限仍为 `granted=false` 且 PushGo 不在 battery whitelist。该收据只证明受控 emulator 的用户目的和 runner 收尾，不外推物理设备、OEM、真实 Provider 或长期观察。
+
 ### 2026-09-02 Android 已有频道重订阅的名称与所有权回归
 
 本轮补充了一个之前缺失的真实用户目的：已有频道在本地提交失败后，远端订阅所有权不能被错误撤销；用户重试成功后，原有用户可读名称必须保留，并在重新打开页面后仍准确显示。首轮定向执行在重订阅成功后的名称终点观察到频道 ID 覆盖用户标签。直接检查 Room 初始快照和失败态 Sheet 均保持正确，进一步的运行日志定位到生产重试路径：远端已有频道 `subscribe` 响应没有用户名称，服务模型将缺省值归一为频道 ID，`commitRemoteSubscriptionLocally` 随后把这个 ID 写回本地投影。这是产品投影缺陷，不是 fixture、数据库准备或测试 runner 失败。
