@@ -194,6 +194,12 @@ Doze 宿主脚本首次试跑 `build/quality-results/android-doze-positive-curre
 
 提交 `3a00d3c` 的干净工作树在 `Medium_Phone / emulator-5554` fresh 执行 1/1，原生 failure/error/skip 均为 0；收据 `build/quality-results/android-history-cleanup-current-20260902/android-focused-summary.json` 的 product/test-system=`PASSED/PASSED`、`source_dirty=false`，选择器与 `executed_claims` 完全一致。该证据关闭受控 emulator 的代表性清理范围与持久化边界，不外推 DST、取消/失败组合、真实网络或物理设备。
 
+### 2026-09-02 Android 删除撤销正向回归
+
+执行 `QualityMessageJourneyInstrumentedTest#deleteUndoRestoresTheSameObjectAcrossActivityRelaunch`：从真实详情删除目标后，列表必须立即隐藏该目标并显示可操作 Undo；点击 Undo 后必须恢复同一对象的准确内容，Activity 重开后仍可见且可进入。Oracle 以对象身份、可见集合和重开后的业务结果为准，不以 pending 标记或 Worker 入队代替用户目的。
+
+提交 `763001d` 的干净工作树在 `Medium_Phone / emulator-5554` fresh 执行 1/1，原生 failure/error/skip 均为 0；收据 `build/quality-results/android-delete-undo-current-20260902/android-focused-summary.json` 的 product/test-system=`PASSED/PASSED`、`source_dirty=false`，选择器与 `executed_claims` 完全一致。该证据覆盖受控 emulator 的删除撤销与持久化边界，不外推进程死亡、通知或物理设备。
+
 ### 2026-09-02 Android 网关核心规则提交后干净复验
 
 针对“先验证/注册、再覆盖旧网关”的核心规则，提交后干净工作树分别复验三条最小充分旅程：`serverConfigurationRejectsInvalidInputAndScopesDataAfterRelaunch`（非法地址/候选注册拒绝、旧配置保持）、`gatewayLocalCommitFailureRollsBackBeforeRetryCommits`（本地提交中点失败回滚）和 `gatewaySyncFailureReportsCommittedGatewayAndPendingRecovery`（提交后同步待恢复）。三条均在 `Medium_Phone / emulator-5554` fresh 1/1、零 failure/error/skip，收据分别为 `build/quality-results/android-gateway-validation-clean-20260902/android-focused-summary.json`、`build/quality-results/android-gateway-local-rollback-clean-20260902/android-focused-summary.json`、`build/quality-results/android-gateway-sync-pending-clean-20260902/android-focused-summary.json`；均为 product/test-system=`PASSED/PASSED`、`source_dirty=false`，选择器和 `executed_claims` 一致。该组只证明受控 emulator 的真实 Settings/重开边界，不外推真实公网 Gateway、FCM/Private、物理设备/OEM、进程死亡或长期观察。
