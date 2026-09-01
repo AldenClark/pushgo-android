@@ -92,6 +92,8 @@ Gateway Settings 的目的级 Oracle 现在覆盖“候选验证/注册→本地
 
 同一提交上的固定 P0 Compose 正向集随后 fresh 执行 6/6：`QualityMessageJourneyInstrumentedTest` 的主导航、准确内容/重启和分页/已读链，`QualityEntityJourneyInstrumentedTest#eventClosePersistsAndOngoingFilterReflectsTheRealProjection`，`QualityChannelJourneyInstrumentedTest#createRenameAndBothUnsubscribeOutcomesReachAccuratePersistentUserResults`，以及 `QualitySettingsJourneyInstrumentedTest#serverConfigurationRejectsInvalidInputAndScopesDataAfterRelaunch`。`build/quality-results/android-pr-ui-after-channel-name-fix-20260902/android-pr-ui-summary.json` 绑定 `e190649` 且 `source_dirty=false`，product/test-system 均 `PASSED`，fresh XML 为 6 tests、failure/error/skip 均为 0；它验证真实入口、动作、准确业务数据与 activity relaunch 终点，不把控件存在或启动成功当作通过。该车道仍不覆盖真实 Provider/FCM/Private、物理设备、系统通知权限/Doze、生产性能和 14 天观察。
 
+同一修复提交后的高价值 `device` 正向扩展也已 fresh 完成：12 条 App-owned Compose 方法（新增 Markdown 结构、历史范围清理、频道/标签/未分组筛选、Thing 三个关系页签、解密恢复和页面可见性，其余复用 P0 主链）与 21 条核心 Room/ACK/迁移/待删除数据边界，均为实际执行、零 failure/error/skip。收据 `build/quality-results/android-device-after-channel-name-fix-20260902/android-device-summary.json` 绑定 `14b9944`、`source_dirty=false`，product/test-system 均 `PASSED`，选择器与 fresh XML 完全一致。该车道证明受控 `Medium_Phone / emulator-5554` 上的真实交互、数据终点和重启/重开语义；真实 Provider/FCM/Private、系统权限/Doze、物理设备/OEM、生产性能与 14 天观察仍不外推。
+
 ## 增量规则
 
 新增或改变 Screen、Route、Action、Room 字段/索引、Service、Worker、Receiver、权限或性能敏感路径时更新相应行。`config/quality-impact.json` 只决定最低检查；未映射产品路径阻断，命中后 AI 仍必须继续追 caller、状态、数据和平台消费者。
