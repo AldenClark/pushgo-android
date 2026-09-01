@@ -356,6 +356,14 @@ class RuntimeExtendedJourneyInstrumentedTest {{
         self.assertEqual("pr", plan["recommended_lane"])
         self.assertIn("quality-system-trustworthiness", plan["impacted_capabilities"])
 
+    def test_doze_runner_change_is_not_ignored_by_quality_impact(self):
+        plan = self.plan("scripts/run_android_doze_positive.sh")
+
+        self.assertEqual("READY", plan["plan_status"])
+        self.assertEqual("pr", plan["recommended_lane"])
+        self.assertIn("quality-system-trustworthiness", plan["impacted_capabilities"])
+        self.assertNotIn("scripts/run_android_doze_positive.sh", plan["ignored_paths"])
+
     def test_instrumented_test_change_requires_device_execution(self):
         plan = self.plan("app/src/androidTest/java/io/ethan/pushgo/testing/NewJourneyInstrumentedTest.kt")
 

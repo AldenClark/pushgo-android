@@ -431,6 +431,12 @@ class QualityLaneCostContractTests(unittest.TestCase):
         self.assertIn('wait_for_node leaves the last successful dump in ui_dump', journey)
         self.assertNotIn('dump_ui || failed "UI tree could not be captured before tapping', journey)
         self.assertIn('last_dump_failure', journey)
+        self.assertIn('adb_with_timeout()', journey)
+        self.assertIn('QUALITY_ADB_TIMEOUT_SECONDS', journey)
+        self.assertIn('capture_failure_evidence()', journey)
+        self.assertIn('failure_evidence_dir', journey)
+        self.assertIn('acquire_device_lock()', journey)
+        self.assertIn('device_lock_acquired', journey)
 
     def test_slow_load_performance_negative_control_runs_only_with_performance(self) -> None:
         runner = (REPO / "scripts/quality_test.sh").read_text()
