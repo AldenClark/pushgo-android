@@ -271,3 +271,7 @@ Doze 宿主脚本首次试跑 `build/quality-results/android-doze-positive-curre
 ### 2026-09-02 Android `pr-ui` 当前字节复验
 
 干净提交 `c9410df` 上执行 `QUALITY_RESULTS_ROOT=build/quality-results/android-pr-ui-current-20260902 ./scripts/quality_test.sh pr-ui`，受控 `Medium_Phone / emulator-5554` fresh XML 精确执行 6/6，failure/error/skip 均为 0，完整调用 `48s`。收据 `build/quality-results/android-pr-ui-current-20260902/android-pr-ui-summary.json` 为 `product_capability_status=PASSED`、`test_system_status=PASSED`、`source_dirty=false`、`incomplete_selected_claims=[]`，选择器与 `executed_claims` 一致。固定集合覆盖真实消息准确内容/Activity relaunch、分页/已读/徽标、五域主导航、Event 关闭投影、Channel 创建改名双退订和 Gateway 候选验证注册后换域；每条均以真实动作、准确数据状态及必要重开为终点，不以节点存在、版本、文件或构建成功代替功能通过。该证据仅关闭受控 emulator 的当前 PR UI 主链；真实 FCM/Private、物理设备/OEM、生产性能和 14 天观察仍 `NOT RUN/BLOCKED`。
+
+### 2026-09-02 Android `device` 当前字节正向扩展
+
+干净提交 `53184bc` 上执行 `QUALITY_RESULTS_ROOT=build/quality-results/android-device-current-20260902 ./scripts/quality_test.sh device`：JVM/本地化/`androidTest` 编译实际执行 298 项，受控 `Medium_Phone / emulator-5554` 另执行 12 条 App-owned UI 旅程与 21 条迁移、持久删除、Gateway-scoped ACK 数据边界；所有批次 failure/error/skip 均为 0。收据 `build/quality-results/android-device-current-20260902/android-device-summary.json` 的 `product_capability_status` 与 `test_system_status` 均为 `PASSED`，`source_dirty=false`，`incomplete_selected_claims=[]`。UI 集合从真实入口覆盖 Markdown、准确消息与 Activity relaunch、历史清理、分页/已读、频道/标签/未分组筛选、五域导航、Event/Thing 关系、Channel 生命周期、加密恢复、页面可见性和 Gateway 验证换域；数据集合保护迁移、持久删除与 ACK 作用域。结果只证明当前受控 emulator/host 的真实正向功能与数据边界，不外推真实 FCM/Private、物理设备/OEM、生产性能或 14 天观察。
