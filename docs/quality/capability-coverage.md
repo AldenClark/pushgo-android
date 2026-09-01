@@ -106,6 +106,14 @@ Doze 宿主脚本首次试跑 `build/quality-results/android-doze-positive-curre
 
 提交 `59db442` 后独立执行 `QUALITY_RESULTS_ROOT=build/quality-results/android-doze-runner-fix-pr-clean-20260902 ./scripts/quality_test.sh pr`，收据 `android-pr-summary.json` 为 `source_dirty=false`、product/test-system=`PASSED/PASSED`；它确认提交后的主机回归可复现，但仍不升级 Doze 以外的设备、真机或外部系统边界。
 
+### 2026-09-02 Android 已有频道重订阅的名称与所有权回归
+
+本轮补充了一个之前缺失的真实用户目的：已有频道在本地提交失败后，远端订阅所有权不能被错误撤销；用户重试成功后，原有用户可读名称必须保留，并在重新打开页面后仍准确显示。首轮定向执行在重订阅成功后的名称终点观察到频道 ID 覆盖用户标签。直接检查 Room 初始快照和失败态 Sheet 均保持正确，进一步的运行日志定位到生产重试路径：远端已有频道 `subscribe` 响应没有用户名称，服务模型将缺省值归一为频道 ID，`commitRemoteSubscriptionLocally` 随后把这个 ID 写回本地投影。这是产品投影缺陷，不是 fixture、数据库准备或测试 runner 失败。
+
+修复在已有频道提交前读取同 Gateway 的本地订阅（含已删除记录的重订阅），以非空本地 `displayName` 作为持久用户标签；只有新建频道继续使用远端创建结果的名称。该路径仍不对已有频道执行远端补偿，避免把幂等重订阅误判为新建。新增的 `QualityChannelJourneyInstrumentedTest#existingSubscribePersistenceFailureDoesNotRevokeRemoteOwnershipBeforeRetry` 通过真实 Channels→Add→Subscribe Sheet→提交→重试入口，依次核对：精确已有名称、一次性本地持久化故障、Sheet 内错误且宿主全局错误呈现计数不增加、失败后行仍存在、真实重试关闭 Sheet，以及 `recreateAppContainer=true` 后名称仍准确；没有把文件、版本、tag 或命令返回码当作功能通过。
+
+修复前同一频道类完整 4 条方法已在受控 `Medium_Phone / emulator-5554` fresh 执行 4/4；变更影响回归执行宿主 JVM 298 项、Python 脚本 161/161、androidTest 编译和受影响设备 4/4，均无 failure/error/skip（变更时工作树含未提交改动，故收据标记 `source_dirty=true`）。提交 `e6e34d3` 后，关键新用例在干净工作树下 fresh 执行 1/1：`build/quality-results/android-existing-subscribe-compensation-focused-clean-20260902/android-focused-summary.json`，product/test-system=`PASSED/PASSED`、`source_dirty=false`；同一提交的 PR 主机门禁 `build/quality-results/android-existing-subscribe-compensation-pr-clean-20260902/android-pr-summary.json` 实际执行 JVM 298 项及编译/本地化合同，亦为 `PASSED/PASSED`、`source_dirty=false`。这些收据只关闭已有频道重订阅这一项 Android 受控 emulator/host 边界；真实 FCM/Private、进程死亡、物理设备/OEM、生产性能和 14 天观察仍 `NOT RUN/BLOCKED`。
+
 ## 增量规则
 
 新增或改变 Screen、Route、Action、Room 字段/索引、Service、Worker、Receiver、权限或性能敏感路径时更新相应行。`config/quality-impact.json` 只决定最低检查；未映射产品路径阻断，命中后 AI 仍必须继续追 caller、状态、数据和平台消费者。
