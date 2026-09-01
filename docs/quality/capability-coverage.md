@@ -94,6 +94,8 @@ Gateway Settings 的目的级 Oracle 现在覆盖“候选验证/注册→本地
 
 同一修复提交后的高价值 `device` 正向扩展也已 fresh 完成：12 条 App-owned Compose 方法（新增 Markdown 结构、历史范围清理、频道/标签/未分组筛选、Thing 三个关系页签、解密恢复和页面可见性，其余复用 P0 主链）与 21 条核心 Room/ACK/迁移/待删除数据边界，均为实际执行、零 failure/error/skip。收据 `build/quality-results/android-device-after-channel-name-fix-20260902/android-device-summary.json` 绑定 `14b9944`、`source_dirty=false`，product/test-system 均 `PASSED`，选择器与 fresh XML 完全一致。该车道证明受控 `Medium_Phone / emulator-5554` 上的真实交互、数据终点和重启/重开语义；真实 Provider/FCM/Private、系统权限/Doze、物理设备/OEM、生产性能与 14 天观察仍不外推。
 
+在正向集之后，按事故价值定向执行频道风险集的两条已有方法：`QualityChannelJourneyInstrumentedTest#remoteRejectionStaysInSheetAndRetryPersists` 与 `#localPersistenceFailureCompensatesRemoteBeforeRetry`。`build/quality-results/android-channel-error-ownership-20260902.log` 对应的 fresh XML 为 2/2、failure/error/skip=0；前者证明远端拒绝只在当前 Sheet 呈现、输入与提交动作保留、宿主不增加错误且重试后出现准确行，后者证明本地持久化失败先完成远端补偿、关闭/重载不留下脏行，正式重试和 relaunch 才产生准确 canonical 行。该风险证据不扩展成每种错误码的设备笛卡尔积，公网 Gateway 与真实 Provider 仍保持未覆盖。
+
 ## 增量规则
 
 新增或改变 Screen、Route、Action、Room 字段/索引、Service、Worker、Receiver、权限或性能敏感路径时更新相应行。`config/quality-impact.json` 只决定最低检查；未映射产品路径阻断，命中后 AI 仍必须继续追 caller、状态、数据和平台消费者。
