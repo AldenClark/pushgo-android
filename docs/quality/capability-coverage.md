@@ -114,6 +114,12 @@ Doze 宿主脚本首次试跑 `build/quality-results/android-doze-positive-curre
 
 修复前同一频道类完整 4 条方法已在受控 `Medium_Phone / emulator-5554` fresh 执行 4/4；变更影响回归执行宿主 JVM 298 项、Python 脚本 161/161、androidTest 编译和受影响设备 4/4，均无 failure/error/skip（变更时工作树含未提交改动，故收据标记 `source_dirty=true`）。提交 `e6e34d3` 后，关键新用例在干净工作树下 fresh 执行 1/1：`build/quality-results/android-existing-subscribe-compensation-focused-clean-20260902/android-focused-summary.json`，product/test-system=`PASSED/PASSED`、`source_dirty=false`；同一提交的 PR 主机门禁 `build/quality-results/android-existing-subscribe-compensation-pr-clean-20260902/android-pr-summary.json` 实际执行 JVM 298 项及编译/本地化合同，亦为 `PASSED/PASSED`、`source_dirty=false`。这些收据只关闭已有频道重订阅这一项 Android 受控 emulator/host 边界；真实 FCM/Private、进程死亡、物理设备/OEM、生产性能和 14 天观察仍 `NOT RUN/BLOCKED`。
 
+### 2026-09-02 Android Event 关闭失败恢复回归
+
+在频道切片之后执行一条事故价值明确的 Event 故障恢复旅程：`QualityEntityJourneyInstrumentedTest#eventCloseFailureKeepsAccurateDetailBlocksDuplicateAndRetryPersists`。测试从真实 Events 列表进入准确详情，第一次关闭确认注入一次性失败；失败期间仍必须看到原始摘要与 ongoing 状态，关闭动作不能重复提交，错误只在 Event 详情 owner 内出现，真实重试后 Sheet 关闭，普通 Activity 重开仍显示同一 Event 为 closed。该 Oracle 以状态、动作可用性、错误归属和持久业务结果裁决，不以错误字符串、节点存在或 Gradle 成功代替用户目的。
+
+提交 `75de73c` 的干净工作树在 `Medium_Phone / emulator-5554` fresh 执行 1/1，原生 failure/error/skip 均为 0；收据 `build/quality-results/android-event-close-failure-current-20260902/android-focused-summary.json` 的 product/test-system=`PASSED/PASSED`、`source_dirty=false`，`executed_claims` 与选择器完全一致。该结果只关闭直接 Event 关闭失败→重试→重开的受控 emulator 边界；关联 Thing 入口、真实 Provider/FCM、物理设备/OEM、生产性能和 14 天观察不由此外推。
+
 ## 增量规则
 
 新增或改变 Screen、Route、Action、Room 字段/索引、Service、Worker、Receiver、权限或性能敏感路径时更新相应行。`config/quality-impact.json` 只决定最低检查；未映射产品路径阻断，命中后 AI 仍必须继续追 caller、状态、数据和平台消费者。
