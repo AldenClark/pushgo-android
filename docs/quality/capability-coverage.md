@@ -146,6 +146,12 @@ Doze 宿主脚本首次试跑 `build/quality-results/android-doze-positive-curre
 
 提交 `bd0835e` 的干净工作树在 `Medium_Phone / emulator-5554` fresh 执行 1/1，原生 failure/error/skip 均为 0；收据 `build/quality-results/android-message-load-failure-current-20260902/android-focused-summary.json` 的 product/test-system=`PASSED/PASSED`、`source_dirty=false`，选择器与 `executed_claims` 完全一致。该证据仅覆盖受控 App-owned 加载失败与重试恢复，不外推真实网络、Provider/FCM、物理设备或生产性能。
 
+### 2026-09-02 Android 消息分页与未读导航徽标回归
+
+执行 `QualityMessageJourneyInstrumentedTest#workflowFixtureLoadsSecondPageAndPersistsReadActions` 作为消息列表的高价值代表：真实 134 条工作流数据跨越 page size 50，分页慢加载先保留旧页，失败后 Retry 只追加一次且边界顺序准确；同时在未读数 100→99→0 的状态转换中核对导航标签“消息”和 `99+`/`99` 徽标均有可见几何、互不遮挡，点击真实消息入口与双击语义到达准确列表，读取与全部已读结果经 Activity 重开仍保持。
+
+提交 `5b6a61f` 的干净工作树在 `Medium_Phone / emulator-5554` fresh 执行 1/1，原生 failure/error/skip 均为 0；收据 `build/quality-results/android-workflow-badge-current-20260902/android-focused-summary.json` 的 product/test-system=`PASSED/PASSED`、`source_dirty=false`，选择器与 `executed_claims` 完全一致。该证据关闭受控 emulator 的分页/徽标/已读目的，不外推真实网络、Provider/FCM、物理设备或 OEM。
+
 ### 2026-09-02 Android 网关核心规则提交后干净复验
 
 针对“先验证/注册、再覆盖旧网关”的核心规则，提交后干净工作树分别复验三条最小充分旅程：`serverConfigurationRejectsInvalidInputAndScopesDataAfterRelaunch`（非法地址/候选注册拒绝、旧配置保持）、`gatewayLocalCommitFailureRollsBackBeforeRetryCommits`（本地提交中点失败回滚）和 `gatewaySyncFailureReportsCommittedGatewayAndPendingRecovery`（提交后同步待恢复）。三条均在 `Medium_Phone / emulator-5554` fresh 1/1、零 failure/error/skip，收据分别为 `build/quality-results/android-gateway-validation-clean-20260902/android-focused-summary.json`、`build/quality-results/android-gateway-local-rollback-clean-20260902/android-focused-summary.json`、`build/quality-results/android-gateway-sync-pending-clean-20260902/android-focused-summary.json`；均为 product/test-system=`PASSED/PASSED`、`source_dirty=false`，选择器和 `executed_claims` 一致。该组只证明受控 emulator 的真实 Settings/重开边界，不外推真实公网 Gateway、FCM/Private、物理设备/OEM、进程死亡或长期观察。
