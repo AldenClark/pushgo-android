@@ -263,3 +263,7 @@ Doze 宿主脚本首次试跑 `build/quality-results/android-doze-positive-curre
 新增或改变 Screen、Route、Action、Room 字段/索引、Service、Worker、Receiver、权限或性能敏感路径时更新相应行。`config/quality-impact.json` 只决定最低检查；未映射产品路径阻断，命中后 AI 仍必须继续追 caller、状态、数据和平台消费者。
 
 2026-09-02 Android 网关/频道错误归属当前字节复核：API 37 `Medium_Phone / emulator-5554` 真实执行 `QualityChannelJourneyInstrumentedTest#remoteRejectionStaysInSheetAndRetryPersists` 与 `QualitySettingsJourneyInstrumentedTest#serverConfigurationRejectsInvalidInputAndScopesDataAfterRelaunch`，各 1/1，`product_capability_status=PASSED`、`test_system_status=PASSED`、零失败/跳过；收据分别为 `build/quality-results/android-channel-gateway-ownership-current-20260902/android-focused-summary.json` 与 `build/quality-results/android-gateway-validation-ownership-current-20260902/android-focused-summary.json`。前者要求远端拒绝只在频道 Sheet 内显示、输入/重试仍可用且正式重试后 canonical 行准确；后者要求无效地址与未注册候选只在网关 Sheet 内反馈、宿主错误计数不增加、旧网关直到候选验证/注册成功前保持，随后换域数据和重启状态准确。该受控 emulator 证据不外推真实 Gateway、FCM/Private、OEM 或物理设备。
+
+### 2026-09-02 Android PR 主机门禁当前字节
+
+`QUALITY_RESULTS_ROOT=build/quality-results/android-pr-current-20260902 ./scripts/quality_test.sh pr` 在干净提交 `a9312d5` 上执行 JVM 298 项、本地化完整性合同、`compileDebugAndroidTestKotlin` 与 Debug 构建；执行计数与选择器完整，无 failure/error/skip，`build/quality-results/android-pr-current-20260902/android-pr-summary.json` 为 `product_capability_status=PASSED`、`test_system_status=PASSED`、`source_dirty=false`、无 incomplete claim。该 PR 车道只证明主机逻辑与设备测试编译门禁健康；Compose 设备旅程、真实 Provider/FCM/Private、物理设备/OEM 与发布性能不由主机绿色外推。
