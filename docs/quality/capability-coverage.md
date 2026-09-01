@@ -238,6 +238,10 @@ Doze 宿主脚本首次试跑 `build/quality-results/android-doze-positive-curre
 
 在本轮核心 UI/系统切片全部提交后执行 `QUALITY_RESULTS_ROOT=build/quality-results/android-pr-after-core-slices-20260902 ./scripts/quality_test.sh pr`，实际执行 JVM 298 项、本地化完整性合同、`compileDebugAndroidTestKotlin` 和 Debug 构建；无 failure/error/skip，收据 `build/quality-results/android-pr-after-core-slices-20260902/android-pr-summary.json` 为 product/test-system=`PASSED/PASSED`、`source_dirty=false`、无 incomplete claim。该收据只证明提交后主机与编译测试系统健康，不把 host 绿色外推为未运行的物理设备、真实 Provider/FCM 或发布证据。
 
+### 2026-09-02 Android UI 入口语义处置复核
+
+重新扫描 `app/src/main/java` 与 `app/src/androidTest/java` 的生产/测试入口后，共发现 58 个生产标识、12 个未字面引用、8 个测试侧动态标识；其中 5 个此前未登记的入口已补充处置：通知关闭说明确认、消息 Open URL、Doze 电池优化设置、Doze 会话稍后提醒和 Doze 风险警示卡，分别由宿主通知权限/进程浏览器/Doze 脚本的真实系统动作与用户可见终点覆盖。更新 `config/quality-ui-entrypoint-dispositions.json` 后，扫描收据 `build/quality-results/android-ui-entrypoints-final-20260902.json` 为 `review_status=READY_FOR_SEMANTIC_REVIEW`、未解析生产入口 0、未解析测试入口 0、陈旧处置 0；该扫描仍只是防遗漏审计，不将标识符存在本身当作产品通过。
+
 ## 增量规则
 
 新增或改变 Screen、Route、Action、Room 字段/索引、Service、Worker、Receiver、权限或性能敏感路径时更新相应行。`config/quality-impact.json` 只决定最低检查；未映射产品路径阻断，命中后 AI 仍必须继续追 caller、状态、数据和平台消费者。

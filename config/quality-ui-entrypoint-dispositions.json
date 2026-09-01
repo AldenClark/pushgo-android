@@ -93,6 +93,14 @@
     },
     "android": {
       "unreferenced_product_identifiers": {
+        "action.delivery_guard.confirm": {
+          "disposition": "SEMANTICALLY_COVERED_SHARED_SYSTEM_ACTION",
+          "reason": "The host-driven notification-permission journey reaches the real disabled-delivery explanation, confirms it once, opens Android's notification Settings, returns after the actual grant and requires the enabled App state; the Compose tag is not treated as a standalone success signal."
+        },
+        "action.message.open_url": {
+          "disposition": "SEMANTICALLY_COVERED_SHARED_SYSTEM_ACTION",
+          "reason": "The process-restart positive journey enters the exact persisted message detail, invokes the production Open URL action, requires the unique HTTPS handler and user-visible Chrome address bar value, then returns to the same detail; browser handoff is not reduced to an Intent call."
+        },
         "action.settings.update.install": {
           "disposition": "SEMANTICALLY_COVERED_NON_LITERAL_QUERY",
           "reason": "The controlled update-install runner reaches the real App-owned candidate prompt, requires the exact visible Install now action, invokes it once, observes the PackageInstaller boundary, and accepts only the exact installed version plus retained canonical data; the stable tag is not used as the success Oracle."
@@ -104,6 +112,14 @@
         "action.settings.open_notification_settings": {
           "disposition": "SEMANTICALLY_COVERED_SHARED_SYSTEM_ACTION",
           "reason": "The disabled card and persistent Settings row call the same openAppNotificationSettings adapter; the controlled permission journey proves the denied explanation, exact PushGo system page, real switch, return refresh and enabled App state."
+        },
+        "action.settings.open_battery_optimization_settings": {
+          "disposition": "SEMANTICALLY_COVERED_SHARED_SYSTEM_ACTION",
+          "reason": "The controlled Doze journey reaches the production battery-optimization Settings action, requires the real OS Allow page and whitelist transition, returns to PushGo and accepts only the refreshed risk-card state; no preference flag alone is accepted."
+        },
+        "action.settings.snooze_doze_reminder": {
+          "disposition": "SEMANTICALLY_COVERED_SHARED_SYSTEM_ACTION",
+          "reason": "The controlled Doze journey uses the production one-month snooze action only after the OS state is restored, verifies the reminder is hidden for that session without changing the OS whitelist, and starts a second session to prove the reminder is not globally suppressed."
         },
         "action.settings.update.skip": {
           "disposition": "DEFERRED",
@@ -120,6 +136,10 @@
         "row.settings.update.channel": {
           "disposition": "DEFERRED",
           "reason": "Stable/Beta candidate selection is residual P1-ANDROID-SETTINGS scope owned by the Android platform-settings quality owner, due 2026-11-09."
+        },
+        "banner.settings.doze_enabled": {
+          "disposition": "SEMANTICALLY_COVERED_SHARED_SYSTEM_ACTION",
+          "reason": "The controlled Doze journey requires the production banner to expose the accurate OS-restricted warning before opening Settings, then verifies the banner disappears after a real whitelist grant and returns in a new session after a scoped snooze."
         }
       },
       "test_only_identifiers": {
