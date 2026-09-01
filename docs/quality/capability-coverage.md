@@ -267,3 +267,7 @@ Doze 宿主脚本首次试跑 `build/quality-results/android-doze-positive-curre
 ### 2026-09-02 Android PR 主机门禁当前字节
 
 `QUALITY_RESULTS_ROOT=build/quality-results/android-pr-current-20260902 ./scripts/quality_test.sh pr` 在干净提交 `a9312d5` 上执行 JVM 298 项、本地化完整性合同、`compileDebugAndroidTestKotlin` 与 Debug 构建；执行计数与选择器完整，无 failure/error/skip，`build/quality-results/android-pr-current-20260902/android-pr-summary.json` 为 `product_capability_status=PASSED`、`test_system_status=PASSED`、`source_dirty=false`、无 incomplete claim。该 PR 车道只证明主机逻辑与设备测试编译门禁健康；Compose 设备旅程、真实 Provider/FCM/Private、物理设备/OEM 与发布性能不由主机绿色外推。
+
+### 2026-09-02 Android `pr-ui` 当前字节复验
+
+干净提交 `c9410df` 上执行 `QUALITY_RESULTS_ROOT=build/quality-results/android-pr-ui-current-20260902 ./scripts/quality_test.sh pr-ui`，受控 `Medium_Phone / emulator-5554` fresh XML 精确执行 6/6，failure/error/skip 均为 0，完整调用 `48s`。收据 `build/quality-results/android-pr-ui-current-20260902/android-pr-ui-summary.json` 为 `product_capability_status=PASSED`、`test_system_status=PASSED`、`source_dirty=false`、`incomplete_selected_claims=[]`，选择器与 `executed_claims` 一致。固定集合覆盖真实消息准确内容/Activity relaunch、分页/已读/徽标、五域主导航、Event 关闭投影、Channel 创建改名双退订和 Gateway 候选验证注册后换域；每条均以真实动作、准确数据状态及必要重开为终点，不以节点存在、版本、文件或构建成功代替功能通过。该证据仅关闭受控 emulator 的当前 PR UI 主链；真实 FCM/Private、物理设备/OEM、生产性能和 14 天观察仍 `NOT RUN/BLOCKED`。
