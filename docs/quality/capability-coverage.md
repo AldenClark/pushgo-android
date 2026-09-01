@@ -104,6 +104,8 @@ Doze 宿主脚本首次试跑 `build/quality-results/android-doze-positive-curre
 
 同一 runner 修复的变更影响回归首次被环境变量继承问题阻断：161 个脚本测试中的性能 runner preflight 用例继承外层 `ANDROID_SERIAL`，导致“必须显式设备”断言返回 0；这不是产品失败。测试 helper 现明确移除 `ANDROID_SERIAL` 后再运行，第二次 `scripts/quality_changed.sh` 实际执行 Python 161/161、Android PR 主机 JVM 298 项及编译/Debug 构建，均无 failure/error/skip；收据 `build/quality-results/android-doze-runner-fix-changed-20260902-rerun/android-pr-summary.json`。该主机收据因执行时工作树含未提交 runner 修复而标记 `source_dirty=true`，不外推设备或真实系统通过；修复后的 Doze 定向收据才是设备旅程证据。
 
+提交 `59db442` 后独立执行 `QUALITY_RESULTS_ROOT=build/quality-results/android-doze-runner-fix-pr-clean-20260902 ./scripts/quality_test.sh pr`，收据 `android-pr-summary.json` 为 `source_dirty=false`、product/test-system=`PASSED/PASSED`；它确认提交后的主机回归可复现，但仍不升级 Doze 以外的设备、真机或外部系统边界。
+
 ## 增量规则
 
 新增或改变 Screen、Route、Action、Room 字段/索引、Service、Worker、Receiver、权限或性能敏感路径时更新相应行。`config/quality-impact.json` 只决定最低检查；未映射产品路径阻断，命中后 AI 仍必须继续追 caller、状态、数据和平台消费者。
