@@ -222,6 +222,28 @@ class AppContainer(
                     return "quality-channel-device"
                 }
 
+                override suspend fun sync(
+                    gatewayUrl: String,
+                    channels: List<ChannelSyncItem>,
+                ): List<ChannelSyncResult> {
+                    requireExpectedGateway(gatewayUrl)
+                    return channels.map { item ->
+                        ChannelSyncResult(
+                            channelId = item.channelId,
+                            channelName = if (
+                                item.channelId == "01H00000000000000000000004"
+                            ) {
+                                "Quality Recovery Sync Completed"
+                            } else {
+                                null
+                            },
+                            subscribed = true,
+                            errorCode = null,
+                            error = null,
+                        )
+                    }
+                }
+
                 override suspend fun subscribe(
                     gatewayUrl: String,
                     channelId: String?,
@@ -641,6 +663,20 @@ class AppContainer(
                     "Quality Delete History",
                     "quality-channel-password",
                 )
+                session.expectedChannelMutationGatewayUrl
+                    ?.let(UrlValidators::normalizeGatewayBaseUrl)
+                    ?.let { candidateGateway ->
+                        // This hidden candidate-scoped credential gives the
+                        // post-restart recovery sync a concrete business
+                        // effect.  The UI later asserts its renamed row before
+                        // creating a separate channel.
+                        channelStore.upsertSubscription(
+                            candidateGateway,
+                            "01H00000000000000000000004",
+                            "Quality Recovery Sync Pending",
+                            "quality-channel-password",
+                        )
+                    }
             }
             else -> Unit
         }
@@ -648,6 +684,14 @@ class AppContainer(
         // check succeeds. Live row counts may legitimately change during the journey.
         QualityRuntime.recordFixtureInitialization(appContext.filesDir)
     }
+
+    /**
+     * The composition root owns the first settings read.  Resolve an
+     * interrupted gateway transition before UI, services, workers, or startup
+     * sync can observe a mixed address/token/device-key identity.
+     */
+    internal suspend fun recoverGatewayTransitionBeforeUse(): GatewayTransitionStartupRecovery =
+        settingsRepository.recoverGatewayTransitionAtStartup()
 
     private suspend fun seedQualityEventSubscription() {
         val rawGateway = settingsRepository.getServerAddress()

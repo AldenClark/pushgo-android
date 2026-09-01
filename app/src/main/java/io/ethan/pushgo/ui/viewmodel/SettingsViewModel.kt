@@ -31,7 +31,6 @@ import io.ethan.pushgo.notifications.MessageStateCoordinator
 import io.ethan.pushgo.notifications.EncryptedMessageRecoveryService
 import io.ethan.pushgo.notifications.PrivateChannelClient
 import io.ethan.pushgo.notifications.PrivateChannelServiceManager
-import io.ethan.pushgo.testing.QualityChannelMutationScenario
 import io.ethan.pushgo.testing.QualityRuntime
 import io.ethan.pushgo.update.UpdateCandidate
 import io.ethan.pushgo.update.UpdateCheckScheduler
@@ -91,6 +90,7 @@ class SettingsViewModel(
     private enum class GatewayRecoveryStatus {
         READY,
         SUBSCRIPTION_SYNC_PENDING,
+        PREVIOUS_ROUTE_CLEANUP_PENDING,
         PENDING,
     }
 
@@ -760,9 +760,6 @@ class SettingsViewModel(
                 val previousToken = settingsRepository.getGatewayToken()
                     ?.trim()
                     ?.ifEmpty { null }
-                val previousDeviceKey = settingsRepository.getDeviceKey()
-                    ?.trim()
-                    ?.ifEmpty { null }
                 val rawAddress = gatewayAddress.trim().ifBlank { AppConstants.defaultServerAddress }
                 val normalizedAddress = UrlValidators.normalizeGatewayBaseUrl(rawAddress)
                 if (normalizedAddress == null) {
@@ -820,18 +817,6 @@ class SettingsViewModel(
                 savedGatewayAddress = preparedGateway.address
                 gatewayToken = preparedGateway.gatewayToken.orEmpty()
                 savedGatewayToken = gatewayToken
-                if (
-                    BuildConfig.DEBUG &&
-                    QualityRuntime.currentSession()?.channelMutationScenario ==
-                    QualityChannelMutationScenario.ACCEPTED &&
-                    QualityRuntime.currentSession()?.faults?.failGatewayPostCommitSyncOnce != true
-                ) {
-                    gatewayPrivateChannelEnabled = true
-                    refreshChannelSubscriptions()
-                    settingsRepository.setGatewayRecoveryPending(false)
-                    successMessage = ResMessage(R.string.message_gateway_saved)
-                    return@launch
-                }
                 val recoveryStatus = reconcileCommittedGateway(
                     context = context,
                     preferredProviderToken = activeFcmToken,
@@ -840,32 +825,20 @@ class SettingsViewModel(
                 if (recoveryStatus != GatewayRecoveryStatus.READY) {
                     settingsRepository.setGatewayRecoveryPending(true)
                 }
-                if (oldIdentity != newIdentity && !previousDeviceKey.isNullOrBlank()) {
-                    val previousGatewayAddress = previousAddress
-                    val previousGatewayToken = previousToken
-                    val previousGatewayDeviceKey = previousDeviceKey
-                    viewModelScope.launch {
-                        runCatching {
-                            channelRepository.cleanupPreviousGatewayDeviceRoute(
-                                previousBaseUrl = previousGatewayAddress,
-                                previousToken = previousGatewayToken,
-                                previousDeviceKey = previousGatewayDeviceKey,
-                            )
-                        }.onFailure {
-                            io.ethan.pushgo.util.SilentSink.w(
-                                TAG,
-                                "previous gateway device cleanup failed: ${it.message}",
-                                it,
-                            )
-                        }
-                    }
+                val cleanupOutcome = channelRepository.cleanupCommittedGatewayTransition()
+                val finalRecoveryStatus = if (!cleanupOutcome.completed) {
+                    settingsRepository.setGatewayRecoveryPending(true)
+                    GatewayRecoveryStatus.PREVIOUS_ROUTE_CLEANUP_PENDING
+                } else {
+                    recoveryStatus
                 }
                 successMessage = ResMessage(
-                    when (recoveryStatus) {
+                    when (finalRecoveryStatus) {
                         GatewayRecoveryStatus.READY -> R.string.message_gateway_saved
                         GatewayRecoveryStatus.SUBSCRIPTION_SYNC_PENDING -> {
                             R.string.message_gateway_saved_sync_pending
                         }
+                        GatewayRecoveryStatus.PREVIOUS_ROUTE_CLEANUP_PENDING,
                         GatewayRecoveryStatus.PENDING -> {
                             R.string.message_gateway_saved_recovery_pending
                         }
@@ -932,12 +905,26 @@ class SettingsViewModel(
      * retry, not a hidden retry loop that can obscure a product failure.
      */
     private suspend fun reconcileGatewayRecoveryIfNeeded(context: Context) {
+        when (channelRepository.recoverGatewaySwitchIfNeeded()) {
+            ChannelSubscriptionRepository.GatewaySwitchRecovery.ROLLED_BACK -> {
+                refreshChannelSubscriptions()
+                return
+            }
+            ChannelSubscriptionRepository.GatewaySwitchRecovery.NONE,
+            ChannelSubscriptionRepository.GatewaySwitchRecovery.COMMITTED -> Unit
+        }
         if (!settingsRepository.getGatewayRecoveryPending()) return
-        reconcileCommittedGateway(
+        val recoveryStatus = reconcileCommittedGateway(
             context = context,
             preferredProviderToken = null,
             notifyGatewayChange = true,
         )
+        val cleanupOutcome = channelRepository.cleanupCommittedGatewayTransition()
+        if (recoveryStatus == GatewayRecoveryStatus.READY && cleanupOutcome.completed) {
+            settingsRepository.setGatewayRecoveryPending(false)
+        } else {
+            settingsRepository.setGatewayRecoveryPending(true)
+        }
     }
 
     /**

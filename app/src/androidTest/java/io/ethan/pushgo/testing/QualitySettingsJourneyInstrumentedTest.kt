@@ -551,6 +551,8 @@ class QualitySettingsJourneyInstrumentedTest : QualityAppJourneyTestCase() {
             false,
             app.container.settingsRepository.getGatewayRecoveryPending(),
         )
+        composeRule.onNodeWithTag("channel.row.01H00000000000000000000004")
+            .assertTextContains("Quality Recovery Sync Completed")
         composeRule.onNodeWithTag("action.channels.add").performClick()
         composeRule.onNodeWithTag("sheet.channels.entry").assertIsDisplayed()
         composeRule.onNodeWithTag("field.channels.create.name")

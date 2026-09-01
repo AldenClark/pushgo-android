@@ -292,6 +292,11 @@ class PushGoApp : Application(), SingletonImageLoader.Factory {
                     io.ethan.pushgo.ui.WorkManagerPendingLocalDeletionDrainScheduler(this)
                 },
             )
+            // Resolve any interrupted cross-store gateway write before the
+            // fixture, runtime, UI, services, or startup sync can consume
+            // settings.  A failure keeps the app out of normal operation and
+            // is surfaced by the existing composition-root error path.
+            runBlocking { container.recoverGatewayTransitionBeforeUse() }
             if (io.ethan.pushgo.testing.QualityRuntime.currentSession() != null) {
                 runBlocking { container.initializeQualityFixtureIfNeeded() }
             }
