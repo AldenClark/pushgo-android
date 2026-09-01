@@ -379,17 +379,30 @@ class QualitySettingsJourneyInstrumentedTest : QualityAppJourneyTestCase() {
         tokenField.assert(SemanticsMatcher.expectValue(SemanticsProperties.Password, Unit))
         addressField.performTextClearance()
         addressField.performTextInput("not a valid url")
+        val hostErrorPresentationBaseline = QualityRuntime.globalErrorPresentationCount()
         composeRule.onNodeWithTag("action.settings.gateway.save").performClick()
         waitForTag("feedback.settings.gateway")
         composeRule.onNodeWithTag("sheet.settings.gateway").assertIsDisplayed()
-        composeRule.onNodeWithTag("feedback.settings.root").assertDoesNotExist()
+        composeRule.onNodeWithTag("feedback.settings.gateway")
+            .assertTextEquals(app.getString(R.string.error_invalid_server_address))
+        assertEquals(
+            "Gateway validation feedback must remain owned by the Sheet.",
+            hostErrorPresentationBaseline,
+            QualityRuntime.globalErrorPresentationCount(),
+        )
 
         addressField.performTextClearance()
         addressField.performTextInput("$normalizedAddress/")
         composeRule.onNodeWithTag("action.settings.gateway.save").performClick()
         waitForTag("feedback.settings.gateway")
         composeRule.onNodeWithTag("sheet.settings.gateway").assertIsDisplayed()
-        composeRule.onNodeWithTag("feedback.settings.root").assertDoesNotExist()
+        composeRule.onNodeWithTag("feedback.settings.gateway")
+            .assertTextEquals(app.getString(R.string.error_request_failed))
+        assertEquals(
+            "Gateway candidate rejection feedback must remain owned by the Sheet.",
+            hostErrorPresentationBaseline,
+            QualityRuntime.globalErrorPresentationCount(),
+        )
         composeRule.onNodeWithTag("row.settings.gateway")
             .assertTextContains(io.ethan.pushgo.data.AppConstants.defaultServerAddress)
 
@@ -503,6 +516,7 @@ class QualitySettingsJourneyInstrumentedTest : QualityAppJourneyTestCase() {
             fixture = QualityFixture.CHANNELS_STANDARD,
             faults = QualityFaults(failGatewayPostCommitSyncOnce = true),
             channelMutationScenario = QualityChannelMutationScenario.ACCEPTED,
+            expectedChannelMutationGatewayUrl = candidateAddress,
         )
         openSettings()
         scrollTo("row.settings.gateway")
@@ -527,6 +541,26 @@ class QualitySettingsJourneyInstrumentedTest : QualityAppJourneyTestCase() {
             .assertTextContains(candidateAddress)
 
         relaunchCurrentQualitySessionWithFaults()
+        composeRule.onNodeWithTag("nav.item.channels").assertIsDisplayed().performClick()
+        composeRule.onNodeWithTag("screen.channels.list").assertIsDisplayed()
+        composeRule.waitUntil(timeoutMillis = 8_000) {
+            app.container.settingsRepository.getGatewayRecoveryPending().not()
+        }
+        assertEquals(
+            "A successful Channels-entry reconciliation must clear the durable marker.",
+            false,
+            app.container.settingsRepository.getGatewayRecoveryPending(),
+        )
+        composeRule.onNodeWithTag("action.channels.add").performClick()
+        composeRule.onNodeWithTag("sheet.channels.entry").assertIsDisplayed()
+        composeRule.onNodeWithTag("field.channels.create.name")
+            .performTextInput("Recovered Gateway Channel")
+        composeRule.onNodeWithTag("field.channels.create.password")
+            .performTextInput("quality-recovered")
+        composeRule.onNodeWithTag("action.channels.entry.submit").performClick()
+        waitForTag("channel.row.01H00000000000000000000003")
+        composeRule.onNodeWithTag("channel.row.01H00000000000000000000003")
+            .assertTextContains("Recovered Gateway Channel")
         openSettings()
         scrollTo("row.settings.gateway")
         composeRule.onNodeWithTag("row.settings.gateway")

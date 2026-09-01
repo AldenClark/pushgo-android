@@ -100,6 +100,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import io.ethan.pushgo.BuildConfig
 import io.ethan.pushgo.data.AppConstants
+import io.ethan.pushgo.testing.QualityRuntime
 import io.ethan.pushgo.update.UpdateCandidate
 import io.ethan.pushgo.update.UpdateInstallIntentLauncher
 import io.ethan.pushgo.util.isDozeReminderSnoozed
@@ -174,6 +175,10 @@ fun SettingsScreen(
     LaunchedEffect(uiState.errorMessage) {
         val message = uiState.errorMessage
         if (message != null) {
+            // Keep the presentation evidence after consumeError() clears the
+            // transient state. Gateway Sheet errors are intentionally rendered
+            // by GatewaySection and must never increment this host ledger.
+            QualityRuntime.recordGlobalErrorPresentation()
             val text = message.resolve(context)
             Toast.makeText(context, text, Toast.LENGTH_SHORT).show()
             announceForAccessibility(context, text)
@@ -188,6 +193,7 @@ fun SettingsScreen(
                 message.resId in setOf(
                     R.string.message_gateway_saved,
                     R.string.message_gateway_saved_sync_pending,
+                    R.string.message_gateway_saved_recovery_pending,
                 )
             ) {
                 showGatewaySheet = false
@@ -243,19 +249,7 @@ fun SettingsScreen(
             }
         },
     ) { scaffoldPadding ->
-        val settingsContentModifier = Modifier
-            .fillMaxSize()
-            .then(
-                if (uiState.errorMessage != null) {
-                    // Keep a host-level error state observable to purpose-level UI tests.
-                    // Gateway validation/rejection must never populate this state; its
-                    // explanation belongs to the open Gateway Sheet only.
-                    Modifier.testTag("feedback.settings.root")
-                } else {
-                    Modifier
-                },
-            )
-        Box(modifier = settingsContentModifier) {
+        Box(modifier = Modifier.fillMaxSize()) {
             LazyColumn(
                 modifier = Modifier
                     .fillMaxSize()

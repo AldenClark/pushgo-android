@@ -134,6 +134,7 @@
     <string name="label_send_type_thing">对象</string>
     <string name="message_gateway_saved">网关已保存</string>
     <string name="message_gateway_saved_sync_pending">网关已切换，频道同步待完成，稍后会自动重试。</string>
+    <string name="message_gateway_saved_recovery_pending">网关已切换，通知设置待完成，请稍后重试。</string>
     <string name="message_show_unread_only">只显示未读</string>
     <string name="dialog_private_channel_whitelist_title">请保持 PushGo 后台运行</string>
     <string name="dialog_private_channel_whitelist_body">私有通道依赖后台长连接。请将 PushGo 加入系统电池/后台白名单，并关闭激进省电清理，否则可能出现消息延迟或收不到消息。</string>

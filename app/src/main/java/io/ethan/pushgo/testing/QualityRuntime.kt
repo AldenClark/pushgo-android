@@ -190,11 +190,17 @@ object QualityRuntime {
     private val remainingGatewaySwitchValidationFailures = AtomicInteger(0)
     private val remainingGatewaySwitchCommitFailures = AtomicInteger(0)
     private val remainingGatewayPostCommitSyncFailures = AtomicInteger(0)
+    private val pendingGatewayPostCommitSyncFailure = AtomicBoolean(false)
     private val remainingNotificationKeyPersistenceFailures = AtomicInteger(0)
     private val pendingChannelSubscriptionPersistenceFailure = AtomicBoolean(false)
     private val remainingChannelSubscriptionPersistenceFailures = AtomicInteger(0)
     private val remainingTransportSelectionPersistenceFailures = AtomicInteger(0)
     private val messageRefreshScenarioAttempts = AtomicInteger(0)
+    // Durable-for-the-session presentation evidence. Compose state can be
+    // consumed immediately after a Toast is shown, so a test-visible ledger
+    // must outlive the transient errorMessage state instead of relying on a
+    // race-prone host marker.
+    private val globalErrorPresentationCount = AtomicInteger(0)
 
     fun allowsSystemCapability(capability: QualitySystemCapability): Boolean =
         currentSession()?.systemCapabilities?.contains(capability) == true
@@ -216,9 +222,8 @@ object QualityRuntime {
         remainingGatewaySwitchCommitFailures.set(
             if (faults?.failGatewaySwitchCommitOnce == true) 1 else 0
         )
-        remainingGatewayPostCommitSyncFailures.set(
-            if (faults?.failGatewayPostCommitSyncOnce == true) 1 else 0
-        )
+        remainingGatewayPostCommitSyncFailures.set(0)
+        pendingGatewayPostCommitSyncFailure.set(faults?.failGatewayPostCommitSyncOnce == true)
         remainingNotificationKeyPersistenceFailures.set(
             if (faults?.failNotificationKeyPersistenceOnce == true) 1 else 0
         )
@@ -230,8 +235,19 @@ object QualityRuntime {
             if (faults?.failTransportSelectionPersistenceOnce == true) 1 else 0
         )
         messageRefreshScenarioAttempts.set(0)
+        globalErrorPresentationCount.set(0)
         return configuredProfile
     }
+
+    /** Records a host-level error presentation for the active quality session. */
+    fun recordGlobalErrorPresentation() {
+        if (currentSession() != null) {
+            globalErrorPresentationCount.incrementAndGet()
+        }
+    }
+
+    /** Number of host-level error presentations observed in this session. */
+    fun globalErrorPresentationCount(): Int = globalErrorPresentationCount.get()
 
     suspend fun beforeMessageListLoad() {
         val faults = currentSession()?.faults ?: return
@@ -316,6 +332,17 @@ object QualityRuntime {
             } > 0
         ) {
             throw QualityGatewayPostCommitSyncException()
+        }
+    }
+
+    /**
+     * Arms the one-shot sync fault only after the gateway commit boundary.
+     * Startup/channel-entry sync must not consume a fault intended to model
+     * work that follows a user-confirmed gateway switch.
+     */
+    fun armGatewayPostCommitSyncFailure() {
+        if (pendingGatewayPostCommitSyncFailure.compareAndSet(true, false)) {
+            remainingGatewayPostCommitSyncFailures.set(1)
         }
     }
 
@@ -797,11 +824,13 @@ object QualityRuntime {
         remainingGatewaySwitchValidationFailures.set(0)
         remainingGatewaySwitchCommitFailures.set(0)
         remainingGatewayPostCommitSyncFailures.set(0)
+        pendingGatewayPostCommitSyncFailure.set(false)
         remainingNotificationKeyPersistenceFailures.set(0)
         pendingChannelSubscriptionPersistenceFailure.set(false)
         remainingChannelSubscriptionPersistenceFailures.set(0)
         remainingTransportSelectionPersistenceFailures.set(0)
         messageRefreshScenarioAttempts.set(0)
+        globalErrorPresentationCount.set(0)
     }
 }
 

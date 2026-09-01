@@ -88,6 +88,12 @@ class SettingsViewModel(
         private const val FCM_TOKEN_RETRY_BASE_DELAY_MS = 1_500L
     }
 
+    private enum class GatewayRecoveryStatus {
+        READY,
+        SUBSCRIPTION_SYNC_PENDING,
+        PENDING,
+    }
+
     var gatewayAddress by mutableStateOf("")
         private set
     var savedGatewayAddress by mutableStateOf("")
@@ -407,10 +413,13 @@ class SettingsViewModel(
         }
     }
 
-    private suspend fun enableFcmProvider(context: Context): Boolean {
+    private suspend fun enableFcmProvider(
+        context: Context,
+        errorSink: (UiMessage) -> Unit = { errorMessage = it },
+    ): Boolean {
         isFcmSupported = true
         val token = settingsRepository.getFcmToken()?.trim().takeUnless { it.isNullOrEmpty() }
-            ?: requireFcmToken(context)
+            ?: requireFcmToken(context, errorSink)
         if (token == null) {
             io.ethan.pushgo.util.SilentSink.w(TAG, "FCM enabled but token is unavailable now")
             return false
@@ -740,6 +749,7 @@ class SettingsViewModel(
         viewModelScope.launch {
             isSavingGateway = true
             gatewayErrorMessage = null
+            var gatewayCommitted = false
             try {
                 val previousAddress = UrlValidators.normalizeGatewayBaseUrl(
                     settingsRepository.getServerAddress()
@@ -789,6 +799,23 @@ class SettingsViewModel(
                     channelType = if (useProviderRoute) "fcm" else "private",
                 )
                 channelRepository.commitGatewaySwitch(preparedGateway)
+                gatewayCommitted = true
+                // A successful local commit is the authority boundary for a
+                // gateway switch. Everything below is recoverable delivery
+                // setup and must never turn a truthful committed switch into
+                // a Sheet-level "save failed" result.
+                // Keep the durable hand-off armed until every follow-up step
+                // finishes. If the process exits between commit and
+                // reconciliation, Channels must still offer recovery rather
+                // than silently treating the switch as fully settled.
+                settingsRepository.setGatewayRecoveryPending(true)
+                if (BuildConfig.DEBUG) {
+                    // Arm only after the local commit. The Channels screen
+                    // performs a normal sync during startup, and that work
+                    // must not consume a fault reserved for this post-commit
+                    // user journey.
+                    QualityRuntime.armGatewayPostCommitSyncFailure()
+                }
                 gatewayAddress = preparedGateway.address
                 savedGatewayAddress = preparedGateway.address
                 gatewayToken = preparedGateway.gatewayToken.orEmpty()
@@ -801,68 +828,17 @@ class SettingsViewModel(
                 ) {
                     gatewayPrivateChannelEnabled = true
                     refreshChannelSubscriptions()
+                    settingsRepository.setGatewayRecoveryPending(false)
                     successMessage = ResMessage(R.string.message_gateway_saved)
                     return@launch
                 }
-                var gatewaySyncPending = false
-                gatewayPrivateChannelEnabled = gatewayPrivateChannelEnabledFetcher()
-                if (useProviderRoute) {
-                    privateChannelClient.setRuntime(
-                        fcmAvailable = true,
-                        systemToken = activeFcmToken,
-                    )
-                } else {
-                    if (gatewayPrivateChannelEnabled == false) {
-                        if (isFcmSupported(context)) {
-                            if (!enableFcmProvider(context)) {
-                                gatewayErrorMessage =
-                                    ResMessage(R.string.error_notification_transport_fcm_switch_failed)
-                                return@launch
-                            }
-                            gatewayErrorMessage = ResMessage(R.string.error_gateway_private_disabled_use_fcm)
-                        } else {
-                            gatewayErrorMessage = ResMessage(R.string.error_private_disabled_and_fcm_unavailable)
-                        }
-                        return@launch
-                    }
-                    runCatching {
-                        transportSwitcher.switchToPrivate()
-                    }.onFailure {
-                        io.ethan.pushgo.util.SilentSink.w(
-                            TAG,
-                            "saveGatewayConfig route reconcile failed: ${it.message}",
-                            it,
-                        )
-                        gatewayErrorMessage =
-                            ResMessage(R.string.error_notification_transport_switch_failed)
-                        return@launch
-                    }
-                }
-                PrivateChannelServiceManager.refresh(context)
-                activeFcmToken?.let { token ->
-                    try {
-                        if (BuildConfig.DEBUG) {
-                            QualityRuntime.beforeGatewayPostCommitSync()
-                        }
-                        channelRepository.syncSubscriptionsIfNeeded(token)
-                    } catch (error: CancellationException) {
-                        throw error
-                    } catch (error: Exception) {
-                        // The candidate gateway has already been committed and
-                        // is now authoritative. Subscription reconciliation is
-                        // recoverable work handled again at launch/channel
-                        // entry; do not report a truthful gateway save as a
-                        // failed gateway switch.
-                        gatewaySyncPending = true
-                        io.ethan.pushgo.util.SilentSink.w(
-                            TAG,
-                            "gateway committed; subscription sync pending: ${error.message}",
-                            error,
-                        )
-                    }
-                }
-                if (oldIdentity != newIdentity) {
-                    privateChannelClient.onGatewayConfigChanged()
+                val recoveryStatus = reconcileCommittedGateway(
+                    context = context,
+                    preferredProviderToken = activeFcmToken,
+                    notifyGatewayChange = oldIdentity != newIdentity,
+                )
+                if (recoveryStatus != GatewayRecoveryStatus.READY) {
+                    settingsRepository.setGatewayRecoveryPending(true)
                 }
                 if (oldIdentity != newIdentity && !previousDeviceKey.isNullOrBlank()) {
                     val previousGatewayAddress = previousAddress
@@ -884,16 +860,34 @@ class SettingsViewModel(
                         }
                     }
                 }
-                refreshChannelSubscriptions()
                 successMessage = ResMessage(
-                    if (gatewaySyncPending) {
-                        R.string.message_gateway_saved_sync_pending
-                    } else {
-                        R.string.message_gateway_saved
+                    when (recoveryStatus) {
+                        GatewayRecoveryStatus.READY -> R.string.message_gateway_saved
+                        GatewayRecoveryStatus.SUBSCRIPTION_SYNC_PENDING -> {
+                            R.string.message_gateway_saved_sync_pending
+                        }
+                        GatewayRecoveryStatus.PENDING -> {
+                            R.string.message_gateway_saved_recovery_pending
+                        }
                     }
                 )
+            } catch (ex: CancellationException) {
+                throw ex
             } catch (ex: Exception) {
-                gatewayErrorMessage = ex.toUiErrorMessage(R.string.error_request_failed)
+                if (gatewayCommitted) {
+                    // The durable gateway data was committed before this
+                    // failure. Preserve that fact, persist a retry marker,
+                    // and close the Sheet with an honest recovery message.
+                    settingsRepository.setGatewayRecoveryPending(true)
+                    io.ethan.pushgo.util.SilentSink.w(
+                        TAG,
+                        "gateway committed; post-commit recovery pending: ${ex.message}",
+                        ex,
+                    )
+                    successMessage = ResMessage(R.string.message_gateway_saved_recovery_pending)
+                } else {
+                    gatewayErrorMessage = ex.toUiErrorMessage(R.string.error_request_failed)
+                }
             } finally {
                 isSavingGateway = false
             }
@@ -906,6 +900,7 @@ class SettingsViewModel(
 
     suspend fun syncSubscriptionsOnChannelListEntry(context: Context) {
         try {
+            reconcileGatewayRecoveryIfNeeded(context)
             if (shouldUseFcm(context)) {
                 val token = settingsRepository.getFcmToken()?.trim().takeUnless { it.isNullOrEmpty() }
                     ?: requireFcmToken(context)
@@ -922,10 +917,117 @@ class SettingsViewModel(
                 }
             }
             refreshChannelSubscriptions()
+        } catch (ex: CancellationException) {
+            throw ex
         } catch (ex: ChannelSubscriptionException) {
             errorMessage = ex.toUiErrorMessage(R.string.error_request_failed)
         } catch (ex: Exception) {
             errorMessage = ex.toUiErrorMessage(R.string.error_request_failed)
+        }
+    }
+
+    /**
+     * Restores delivery setup after a gateway was already committed. This is
+     * intentionally called from the Channels entry point: it is a user-facing
+     * retry, not a hidden retry loop that can obscure a product failure.
+     */
+    private suspend fun reconcileGatewayRecoveryIfNeeded(context: Context) {
+        if (!settingsRepository.getGatewayRecoveryPending()) return
+        reconcileCommittedGateway(
+            context = context,
+            preferredProviderToken = null,
+            notifyGatewayChange = true,
+        )
+    }
+
+    /**
+     * Applies the non-transactional work that follows a committed gateway
+     * switch. A false result means the active gateway remains authoritative
+     * but the user must be able to retry delivery setup from Channels.
+     */
+    private suspend fun reconcileCommittedGateway(
+        context: Context,
+        preferredProviderToken: String?,
+        notifyGatewayChange: Boolean,
+    ): GatewayRecoveryStatus {
+        return try {
+            val useProviderRoute = shouldUseFcm(context)
+            var providerToken = preferredProviderToken
+            if (useProviderRoute) {
+                providerToken = providerToken?.trim().takeUnless { it.isNullOrEmpty() }
+                    ?: settingsRepository.getFcmToken()?.trim().takeUnless { it.isNullOrEmpty() }
+                    ?: requireFcmToken(context) { message ->
+                        io.ethan.pushgo.util.SilentSink.w(
+                            TAG,
+                            "gateway committed; FCM recovery token unavailable: $message",
+                        )
+                    }
+                    ?: return GatewayRecoveryStatus.PENDING
+                privateChannelClient.setRuntime(
+                    fcmAvailable = true,
+                    systemToken = providerToken,
+                )
+            } else {
+                val privateEnabled = gatewayPrivateChannelEnabledFetcher()
+                gatewayPrivateChannelEnabled = privateEnabled
+                when (privateEnabled) {
+                    true -> transportSwitcher.switchToPrivate()
+                    false -> {
+                        if (!isFcmSupported(context)) return GatewayRecoveryStatus.PENDING
+                        if (!enableFcmProvider(context) { message ->
+                                io.ethan.pushgo.util.SilentSink.w(
+                                    TAG,
+                                    "gateway committed; FCM fallback pending: $message",
+                                )
+                            }
+                        ) {
+                            return GatewayRecoveryStatus.PENDING
+                        }
+                        providerToken = settingsRepository.getFcmToken()
+                            ?.trim()
+                            ?.ifEmpty { null }
+                            ?: return GatewayRecoveryStatus.PENDING
+                        privateChannelClient.setRuntime(
+                            fcmAvailable = true,
+                            systemToken = providerToken,
+                        )
+                    }
+                    null -> return GatewayRecoveryStatus.PENDING
+                }
+            }
+            PrivateChannelServiceManager.refresh(context)
+            try {
+                providerToken?.let { token ->
+                    channelRepository.syncProviderDeviceToken(token)
+                    channelRepository.syncSubscriptionsIfNeeded(token)
+                }
+            } catch (ex: CancellationException) {
+                throw ex
+            } catch (ex: Exception) {
+                io.ethan.pushgo.util.SilentSink.w(
+                    TAG,
+                    "gateway committed; subscription sync pending: ${ex.message}",
+                    ex,
+                )
+                settingsRepository.setGatewayRecoveryPending(true)
+                return GatewayRecoveryStatus.SUBSCRIPTION_SYNC_PENDING
+            }
+            if (notifyGatewayChange) {
+                privateChannelClient.onGatewayConfigChanged()
+            }
+            refreshChannelSubscriptions()
+            settingsRepository.setGatewayRecoveryPending(false)
+            GatewayRecoveryStatus.READY
+        } catch (ex: CancellationException) {
+            throw ex
+        } catch (ex: Exception) {
+            io.ethan.pushgo.util.SilentSink.w(
+                TAG,
+                "gateway committed; recovery attempt pending: ${ex.message}",
+                ex,
+            )
+            settingsRepository.setGatewayRecoveryPending(true)
+            GatewayRecoveryStatus.PENDING
         }
     }
 

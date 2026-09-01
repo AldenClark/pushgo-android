@@ -561,6 +561,13 @@ class ChannelSubscriptionRepository(
     suspend fun syncSubscriptionsIfNeeded(deviceToken: String): SyncOutcome {
         val normalizedToken = deviceToken.trim()
         if (normalizedToken.isEmpty()) return SyncOutcome()
+        // This is the real repository boundary for post-commit subscription
+        // reconciliation. Injecting here keeps the quality fault meaningful
+        // even when the candidate gateway has no local credentials yet, and
+        // avoids a ViewModel-only shortcut that production code never sees.
+        if (BuildConfig.DEBUG) {
+            QualityRuntime.beforeGatewayPostCommitSync()
+        }
         val config = resolveServerConfig()
         val credentials = store.loadActiveCredentials(config.address)
         if (credentials.isEmpty()) return SyncOutcome()

@@ -113,6 +113,7 @@
     <string name="label_update_install_manual_continue">手動繼續安裝</string>
     <string name="message_gateway_saved">網關已儲存</string>
     <string name="message_gateway_saved_sync_pending">網關已切換，頻道同步待完成，稍後會自動重試。</string>
+    <string name="message_gateway_saved_recovery_pending">網關已切換，通知設定待完成，請稍後重試。</string>
     <string name="message_decryption_saved">解密設定已儲存</string><string name="message_channel_created_and_subscribed">頻道已建立並訂閱</string>
     <string name="message_channel_subscribed">頻道已訂閱</string>
     <string name="message_channel_renamed">頻道已重新命名</string>

@@ -113,6 +113,26 @@ class QualityRuntimeTest {
     }
 
     @Test
+    fun globalErrorPresentationLedgerIsSessionScopedAndNotProductionState() {
+        assertEquals(0, QualityRuntime.globalErrorPresentationCount())
+
+        val session = QualitySessionDescriptor(
+            schemaVersion = 1,
+            sessionId = "host-error-ledger",
+            fixture = QualityFixture.EMPTY_CLEAN,
+            faults = QualityFaults(),
+        )
+        QualityRuntime.configure(QualityRuntime.encode(session))
+        QualityRuntime.recordGlobalErrorPresentation()
+        QualityRuntime.recordGlobalErrorPresentation()
+        assertEquals(2, QualityRuntime.globalErrorPresentationCount())
+
+        QualityRuntime.configure(null)
+        QualityRuntime.recordGlobalErrorPresentation()
+        assertEquals(0, QualityRuntime.globalErrorPresentationCount())
+    }
+
+    @Test
     fun unknownSystemCapabilityIsRejectedInsteadOfSilentlyBroadeningTheSession() {
         val encoded = encodeJson(
             JSONObject()
@@ -418,6 +438,10 @@ class QualityRuntimeTest {
         )
         QualityRuntime.configure(QualityRuntime.encode(session))
 
+        // The fault is armed only after the user-visible gateway commit;
+        // startup/channel-entry sync must not consume it first.
+        QualityRuntime.beforeGatewayPostCommitSync()
+        QualityRuntime.armGatewayPostCommitSyncFailure()
         assertThrows(QualityGatewayPostCommitSyncException::class.java) {
             QualityRuntime.beforeGatewayPostCommitSync()
         }

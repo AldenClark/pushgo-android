@@ -171,6 +171,7 @@
     <string name="label_send_type_thing">Objects</string>
     <string name="message_gateway_saved">Gateway saved</string>
     <string name="message_gateway_saved_sync_pending">Gateway saved; channel sync is pending and will retry automatically.</string>
+    <string name="message_gateway_saved_recovery_pending">Gateway switched; notification setup is pending. Please try again later.</string>
     <string name="dialog_private_channel_whitelist_title">Keep PushGo running in background</string>
     <string name="dialog_private_channel_whitelist_body">Private channel needs persistent background connectivity. Please add PushGo to your system battery/background whitelist and disable aggressive cleanup, otherwise messages may be delayed or missed.</string>
     <string name="message_decryption_saved">Decryption settings saved</string><string name="message_channel_created_and_subscribed">Channel created and subscribed</string>

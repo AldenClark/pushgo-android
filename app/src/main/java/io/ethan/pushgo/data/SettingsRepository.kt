@@ -271,6 +271,31 @@ class SettingsRepository(
         updateSettings { it.copy(useFcmChannel = enabled) }
     }
 
+    /**
+     * Indicates that the active gateway was committed but one or more
+     * post-commit delivery/reconciliation steps still need to be retried.
+     *
+     * This marker deliberately lives in the session-scoped settings cache:
+     * it is not gateway data and must survive a normal process restart while
+     * remaining isolated from the production preferences during a quality
+     * session.
+     */
+    fun getGatewayRecoveryPending(): Boolean =
+        settingsCache.getBoolean(KEY_GATEWAY_RECOVERY_PENDING, false)
+
+    fun setGatewayRecoveryPending(pending: Boolean) {
+        // This flag is the durable hand-off between the committed gateway and
+        // the next user-visible recovery attempt. Use a synchronous commit so
+        // a process death immediately after the save cannot lose the marker.
+        settingsCache.edit(commit = true) {
+            if (pending) {
+                putBoolean(KEY_GATEWAY_RECOVERY_PENDING, true)
+            } else {
+                remove(KEY_GATEWAY_RECOVERY_PENDING)
+            }
+        }
+    }
+
     suspend fun setMessagePageEnabled(enabled: Boolean) {
         updateSettings { it.copy(isMessagePageEnabled = enabled) }
     }
@@ -396,6 +421,7 @@ class SettingsRepository(
         cacheUseFcmChannel(defaults.useFcmChannel)
         cachePageVisibility(defaults)
         cacheUpdatePreferences(defaults)
+        setGatewayRecoveryPending(false)
     }
 
     companion object {
@@ -409,5 +435,6 @@ class SettingsRepository(
         private const val KEY_UPDATE_IMPATIENT_REMINDER_INTERVAL_SECONDS = "update_impatient_reminder_interval_seconds"
         private const val KEY_MESSAGE_LIST_SORT_MODE = "message_list_sort_mode"
         private const val KEY_MESSAGE_UNREAD_ONLY_FILTER = "message_unread_only_filter"
+        private const val KEY_GATEWAY_RECOVERY_PENDING = "gateway_recovery_pending"
     }
 }

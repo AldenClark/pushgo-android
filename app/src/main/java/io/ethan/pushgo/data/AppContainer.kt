@@ -397,7 +397,10 @@ class AppContainer(
         },
     )
     val fcmSupportChecker: (Context) -> Boolean =
-        if (qualityTransportScenario != QualityTransportSwitchScenario.NONE) {
+        if (
+            qualityTransportScenario != QualityTransportSwitchScenario.NONE ||
+            qualitySession?.channelMutationScenario != QualityChannelMutationScenario.NONE
+        ) {
             { true }
         } else {
             FcmSupport::isAvailable
@@ -620,6 +623,12 @@ class AppContainer(
                 val gateway = UrlValidators.normalizeGatewayBaseUrl(rawGateway)
                     ?: AppConstants.defaultServerAddress
                 settingsRepository.setFcmToken("quality-channel-provider-token")
+                if (session.faults.failGatewayPostCommitSyncOnce) {
+                    // The pending-recovery journey must exercise the same FCM
+                    // route used by production syncSubscriptionsIfNeeded(),
+                    // rather than silently taking the private-route branch.
+                    settingsRepository.setUseFcmChannel(true)
+                }
                 channelStore.upsertSubscription(
                     gateway,
                     "01H00000000000000000000001",
