@@ -114,6 +114,12 @@ Doze 宿主脚本首次试跑 `build/quality-results/android-doze-positive-curre
 
 修复前同一频道类完整 4 条方法已在受控 `Medium_Phone / emulator-5554` fresh 执行 4/4；变更影响回归执行宿主 JVM 298 项、Python 脚本 161/161、androidTest 编译和受影响设备 4/4，均无 failure/error/skip（变更时工作树含未提交改动，故收据标记 `source_dirty=true`）。提交 `e6e34d3` 后，关键新用例在干净工作树下 fresh 执行 1/1：`build/quality-results/android-existing-subscribe-compensation-focused-clean-20260902/android-focused-summary.json`，product/test-system=`PASSED/PASSED`、`source_dirty=false`；同一提交的 PR 主机门禁 `build/quality-results/android-existing-subscribe-compensation-pr-clean-20260902/android-pr-summary.json` 实际执行 JVM 298 项及编译/本地化合同，亦为 `PASSED/PASSED`、`source_dirty=false`。这些收据只关闭已有频道重订阅这一项 Android 受控 emulator/host 边界；真实 FCM/Private、进程死亡、物理设备/OEM、生产性能和 14 天观察仍 `NOT RUN/BLOCKED`。
 
+### 2026-09-02 Android 受保护 Key 持久化失败恢复
+
+在 Settings 的真实解密入口补跑一次高价值失败恢复：`QualitySettingsJourneyInstrumentedTest#protectedKeyPersistenceFailureDoesNotConfigureBeforeRetry`。一次性受保护材料写入失败时，用户输入和错误归属必须留在当前 Sheet，配置状态不得提前改变，普通 Activity 重开仍保持未配置；点击真实重试后才完成配置，并以同一 canonical 消息恢复结果作为终点。该 Oracle 关注秘密数据不会半提交、用户能够恢复和重开后的真实业务状态，不以 protected 文件存在、版本或控件存在判定通过。
+
+提交 `4f2dfee` 的干净工作树在 `Medium_Phone / emulator-5554` fresh 执行 1/1，原生 failure/error/skip 均为 0；收据 `build/quality-results/android-protected-key-failure-current-20260902/android-focused-summary.json` 的 product/test-system=`PASSED/PASSED`、`source_dirty=false`，选择器与 `executed_claims` 完全一致。该结果只关闭受控 emulator 的 Key 持久化失败恢复边界；真实 Keystore/Provider、物理设备/OEM、系统通知和长期观察不由此外推。
+
 ### 2026-09-02 Android Event 关闭失败恢复回归
 
 在频道切片之后执行一条事故价值明确的 Event 故障恢复旅程：`QualityEntityJourneyInstrumentedTest#eventCloseFailureKeepsAccurateDetailBlocksDuplicateAndRetryPersists`。测试从真实 Events 列表进入准确详情，第一次关闭确认注入一次性失败；失败期间仍必须看到原始摘要与 ongoing 状态，关闭动作不能重复提交，错误只在 Event 详情 owner 内出现，真实重试后 Sheet 关闭，普通 Activity 重开仍显示同一 Event 为 closed。该 Oracle 以状态、动作可用性、错误归属和持久业务结果裁决，不以错误字符串、节点存在或 Gradle 成功代替用户目的。
