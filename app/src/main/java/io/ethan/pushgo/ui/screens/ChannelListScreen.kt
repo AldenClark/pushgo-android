@@ -68,6 +68,7 @@ import io.ethan.pushgo.data.AppContainer
 import io.ethan.pushgo.data.PendingLocalDeletionOperation
 import io.ethan.pushgo.data.model.ChannelSubscription
 import io.ethan.pushgo.data.model.MessageChannelCount
+import io.ethan.pushgo.testing.QualityRuntime
 import io.ethan.pushgo.ui.PendingLocalDeletionCoordinator
 import io.ethan.pushgo.ui.accessibility.joinAccessibilitySummary
 import io.ethan.pushgo.ui.accessibility.pushGoMergedActionSemantics
@@ -130,6 +131,10 @@ fun ChannelListScreen(
     LaunchedEffect(viewModel.errorMessage) {
         val message = viewModel.errorMessage
         if (message != null) {
+            // Keep host-level Toast evidence separate from channel-entry Sheet
+            // errors. Quality UI journeys use this counter to prove a channel
+            // failure did not escape its owning surface.
+            QualityRuntime.recordGlobalErrorPresentation()
             val text = message.resolve(context)
             Toast.makeText(context, text, Toast.LENGTH_SHORT).show()
             announceForAccessibility(context, text)

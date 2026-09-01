@@ -210,6 +210,7 @@ class QualityChannelJourneyInstrumentedTest : QualityAppJourneyTestCase() {
             .performTextInput("Quality Retry Channel")
         composeRule.onNodeWithTag("field.channels.create.password")
             .performTextInput("q".repeat(8))
+        val hostErrorPresentationBaseline = QualityRuntime.globalErrorPresentationCount()
         composeRule.onNodeWithTag("action.channels.entry.submit").performClick()
 
         waitForNode("feedback.channels.entry")
@@ -221,6 +222,11 @@ class QualityChannelJourneyInstrumentedTest : QualityAppJourneyTestCase() {
             .assertTextContains("q".repeat(8))
         composeRule.onNodeWithTag("action.channels.entry.submit").assertIsEnabled()
         composeRule.onNodeWithTag("channel.row.01H00000000000000000000003").assertDoesNotExist()
+        assertEquals(
+            "Channel-entry failure must remain owned by the Sheet instead of becoming a host Toast.",
+            hostErrorPresentationBaseline,
+            QualityRuntime.globalErrorPresentationCount(),
+        )
         expectedFailureText?.let { expected ->
             composeRule.onNodeWithTag("feedback.channels.entry").assertTextEquals(expected)
         }
