@@ -243,13 +243,26 @@ fun SettingsScreen(
             }
         },
     ) { scaffoldPadding ->
-        LazyColumn(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(scaffoldPadding)
-                .testTag("screen.settings.content"),
-            contentPadding = PaddingValues(bottom = bottomGestureInset + 24.dp),
-        ) {
+        val settingsContentModifier = Modifier
+            .fillMaxSize()
+            .then(
+                if (uiState.errorMessage != null) {
+                    // Keep a host-level error state observable to purpose-level UI tests.
+                    // Gateway validation/rejection must never populate this state; its
+                    // explanation belongs to the open Gateway Sheet only.
+                    Modifier.testTag("feedback.settings.root")
+                } else {
+                    Modifier
+                },
+            )
+        Box(modifier = settingsContentModifier) {
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(scaffoldPadding)
+                    .testTag("screen.settings.content"),
+                contentPadding = PaddingValues(bottom = bottomGestureInset + 24.dp),
+            ) {
 
             if (!notificationsEnabled) {
                 item {
@@ -466,6 +479,7 @@ fun SettingsScreen(
                     subtitle = appVersionText,
                     onClick = null,
                 )
+            }
             }
         }
     }

@@ -78,6 +78,8 @@ P1-NAV 代表性已删除目标证据（2026-08-31）：继续复用 `thingFixtu
 
 Gateway Settings 的目的级 Oracle 现在覆盖“候选验证/注册→本地提交→同步失败”的真实结果：一次性故障发生在提交后的 subscription sync 边界时，新的 Gateway 必须仍为 active，用户看到明确的“网关已保存、同步待完成”提示，Sheet 关闭，activity relaunch 后新地址仍准确；不能把已经生效的新配置伪装成旧配置回滚。`QualitySettingsJourneyInstrumentedTest#gatewaySyncFailureReportsCommittedGatewayAndPendingRecovery` 已进入完整 Settings Journey class，单元 `QualityRuntimeTest` 与 Kotlin/androidTest 编译通过。本轮没有 Android serial，因此 Compose/Activity relaunch 仍 `NOT RUN`，不得用 host 绿灯替代；真实 FCM/Private、进程死亡恢复及其他 post-commit capability/cleanup 异常仍未关闭。
 
+同一 Settings Journey 现在还显式裁决错误归属：非法地址和候选注册拒绝必须在 `sheet.settings.gateway` 的 `feedback.settings.gateway` 可见，同时宿主级 `feedback.settings.root` 不得出现，Sheet 保持可编辑并允许真实重试。`SettingsScreen` 仅在全局 `uiState.errorMessage` 有值时挂载该宿主可观测点；网关保存链的异常继续写入 `gatewayErrorMessage`，因此该断言保护的是用户看到错误解释的位置和旧配置不被覆盖，而不是 tag/控件存在。由于当前无 `adb` serial，Android 设备上的该归属断言仍为 `NOT RUN`，恢复设备后与候选拒绝及 commit rollback 旅程一并执行。
+
 ## 增量规则
 
 新增或改变 Screen、Route、Action、Room 字段/索引、Service、Worker、Receiver、权限或性能敏感路径时更新相应行。`config/quality-impact.json` 只决定最低检查；未映射产品路径阻断，命中后 AI 仍必须继续追 caller、状态、数据和平台消费者。

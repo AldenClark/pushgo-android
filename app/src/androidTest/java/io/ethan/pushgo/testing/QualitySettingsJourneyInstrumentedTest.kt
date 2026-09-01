@@ -382,12 +382,14 @@ class QualitySettingsJourneyInstrumentedTest : QualityAppJourneyTestCase() {
         composeRule.onNodeWithTag("action.settings.gateway.save").performClick()
         waitForTag("feedback.settings.gateway")
         composeRule.onNodeWithTag("sheet.settings.gateway").assertIsDisplayed()
+        composeRule.onNodeWithTag("feedback.settings.root").assertDoesNotExist()
 
         addressField.performTextClearance()
         addressField.performTextInput("$normalizedAddress/")
         composeRule.onNodeWithTag("action.settings.gateway.save").performClick()
         waitForTag("feedback.settings.gateway")
         composeRule.onNodeWithTag("sheet.settings.gateway").assertIsDisplayed()
+        composeRule.onNodeWithTag("feedback.settings.root").assertDoesNotExist()
         composeRule.onNodeWithTag("row.settings.gateway")
             .assertTextContains(io.ethan.pushgo.data.AppConstants.defaultServerAddress)
 
