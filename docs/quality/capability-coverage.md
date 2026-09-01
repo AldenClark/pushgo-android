@@ -218,6 +218,12 @@ Doze 宿主脚本首次试跑 `build/quality-results/android-doze-positive-curre
 
 提交 `264c4e2` 的干净工作树在 `Medium_Phone / emulator-5554` fresh 执行 1/1，原生 failure/error/skip 均为 0；收据 `build/quality-results/android-primary-navigation-current-20260902/android-focused-summary.json` 的 product/test-system=`PASSED/PASSED`、`source_dirty=false`，选择器与 `executed_claims` 完全一致。该证据关闭受控 emulator 的主导航/空态可达性，不外推真实网络、Provider/FCM、物理设备或 OEM。
 
+### 2026-09-02 Android 系统通知去重与准确详情回归
+
+执行 `QualitySystemNotificationJourneyInstrumentedTest#duplicateInboundDeliveryPostsOneSystemNotificationAndOpensAccurateReadDetail`：从 App-owned 空会话启动真实 durable Worker，重复提交同一入站 delivery，要求 Room 只保留一条准确 canonical 消息、系统通知只出现一条，并通过系统通知栏真实 PendingIntent 打开对应详情；详情读取后未读计数、通知/告警服务和 Activity 重开结果均必须收敛。该 Oracle 覆盖 Worker→Room→NotificationManager→系统 shade→App 详情的真实用户路径，不以 WorkManager 成功或通知对象存在代替终点。
+
+提交 `fa9a78f` 的干净工作树在 `Medium_Phone / emulator-5554` fresh 执行 1/1，原生 failure/error/skip 均为 0；收据 `build/quality-results/android-system-notification-duplicate-current-20260902/android-focused-summary.json` 的 product/test-system=`PASSED/PASSED`、`source_dirty=false`，选择器与 `executed_claims` 完全一致。测试结束后 App 包、通知权限和服务状态已由受控清理恢复。该证据关闭受控 emulator 的系统通知去重/准确详情边界，不外推真实 FCM、物理设备、OEM 或生产告警。
+
 ### 2026-09-02 Android 网关核心规则提交后干净复验
 
 针对“先验证/注册、再覆盖旧网关”的核心规则，提交后干净工作树分别复验三条最小充分旅程：`serverConfigurationRejectsInvalidInputAndScopesDataAfterRelaunch`（非法地址/候选注册拒绝、旧配置保持）、`gatewayLocalCommitFailureRollsBackBeforeRetryCommits`（本地提交中点失败回滚）和 `gatewaySyncFailureReportsCommittedGatewayAndPendingRecovery`（提交后同步待恢复）。三条均在 `Medium_Phone / emulator-5554` fresh 1/1、零 failure/error/skip，收据分别为 `build/quality-results/android-gateway-validation-clean-20260902/android-focused-summary.json`、`build/quality-results/android-gateway-local-rollback-clean-20260902/android-focused-summary.json`、`build/quality-results/android-gateway-sync-pending-clean-20260902/android-focused-summary.json`；均为 product/test-system=`PASSED/PASSED`、`source_dirty=false`，选择器和 `executed_claims` 一致。该组只证明受控 emulator 的真实 Settings/重开边界，不外推真实公网 Gateway、FCM/Private、物理设备/OEM、进程死亡或长期观察。
