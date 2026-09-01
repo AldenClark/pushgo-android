@@ -291,3 +291,7 @@ Doze 宿主脚本首次试跑 `build/quality-results/android-doze-positive-curre
 ### 2026-09-02 Android 消息详情浏览器交接干净提交复验
 
 提交 `2fe9bb0` 的干净工作树上，`QualityMessageJourneyInstrumentedTest#standardFixtureShowsAccurateContentAndSurvivesActivityRelaunch` 在 `Medium_Phone / emulator-5554` fresh 执行 1/1，原生 failure/error/skip=0，`BUILD SUCCESSFUL in 37s`；收据 `build/quality-results/android-standard-open-url-current-20260902-r4/android-focused-summary.json` 为 `product_capability_status=PASSED`、`test_system_status=PASSED`、`source_dirty=false`、`incomplete_selected_claims=[]`，选择器与执行 claim 一致。真实生产打开 URL 后，前台浏览器地址栏保留 `pushgo.dev/quality-message`，返回后原消息详情和准确正文仍可见；这只关闭受控 emulator 的系统交接/返回边界，不外推其他浏览器/OEM、网络内容或物理设备。
+
+### 2026-09-02 Android 删除目标真实路由回落
+
+提交 `12230da` 的干净工作树上，`QualityMessageJourneyInstrumentedTest#deleteWithoutUndoPermanentlyRemovesOnlyTargetAcrossStorageRecreation` 在 `Medium_Phone / emulator-5554` fresh 执行 1/1，原生 failure/error/skip=0；收据 `build/quality-results/android-deleted-route-current-20260902/android-focused-summary.json` 为 `product_capability_status=PASSED`、`test_system_status=PASSED`、`source_dirty=false`、`incomplete_selected_claims=[]`。旅程以真实删除与 deadline 为起点，关闭/重开生产存储后通过真实通知目标打开入口，准确显示消息目标不可用的归属反馈、不复活已删除详情，同时保留幸存消息的准确正文与可操作性；不以 pending 标记、文件存在或 Activity 启动代替终点。该证据只关闭受控 emulator 的 Message deleted-target fallback，不外推其他非法目标、Event 路由、Provider 或物理设备。
