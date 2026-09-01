@@ -240,7 +240,7 @@ Doze 宿主脚本首次试跑 `build/quality-results/android-doze-positive-curre
 
 ### 2026-09-02 Android UI 入口语义处置复核
 
-重新扫描生产入口与全部测试消费者（`app/src/main/java`、`app/src/androidTest/java`、`app/src/test`、`scripts`）后，共发现 58 个生产标识、7 个未被测试消费者字面引用、8 个测试侧动态标识；宿主脚本已直接覆盖通知确认、消息 Open URL 和 Doze 动作，因此不把它们重复登记为陈旧处置。扫描收据 `build/quality-results/android-ui-entrypoints-with-scripts-20260902.json` 为 `review_status=READY_FOR_SEMANTIC_REVIEW`、未解析生产入口 0、未解析测试入口 0、陈旧处置 0；该扫描仍只是防遗漏审计，不将标识符存在本身当作产品通过。
+重新扫描生产入口与全部测试消费者（`app/src/main/java`、`app/src/androidTest/java`、`app/src/test`、`scripts`）后，共发现 58 个生产标识、7 个未被测试消费者字面引用、8 个测试侧动态标识；宿主脚本已直接覆盖通知确认、消息 Open URL 和 Doze 动作，因此不把它们重复登记为陈旧处置。扫描收据 `build/quality-results/android-ui-entrypoints-final-20260902.json` 为 `review_status=READY_FOR_SEMANTIC_REVIEW`、未解析生产入口 0、未解析测试入口 0、陈旧处置 0；该扫描仍只是防遗漏审计，不将标识符存在本身当作产品通过。
 
 ## 增量规则
 
