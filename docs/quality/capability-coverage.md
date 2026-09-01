@@ -96,6 +96,8 @@ Gateway Settings 的目的级 Oracle 现在覆盖“候选验证/注册→本地
 
 在正向集之后，按事故价值定向执行频道风险集的两条已有方法：`QualityChannelJourneyInstrumentedTest#remoteRejectionStaysInSheetAndRetryPersists` 与 `#localPersistenceFailureCompensatesRemoteBeforeRetry`。`build/quality-results/android-channel-error-ownership-20260902.log` 对应的 fresh XML 为 2/2、failure/error/skip=0；前者证明远端拒绝只在当前 Sheet 呈现、输入与提交动作保留、宿主不增加错误且重试后出现准确行，后者证明本地持久化失败先完成远端补偿、关闭/重载不留下脏行，正式重试和 relaunch 才产生准确 canonical 行。该风险证据不扩展成每种错误码的设备笛卡尔积，公网 Gateway 与真实 Provider 仍保持未覆盖。
 
+通知权限的系统交互也完成一次事故相关的正向验证：`scripts/run_android_notification_permission_positive.sh` 在 API 37 `Medium_Phone / emulator-5554` 上实际执行拒绝决定→App-owned 解释→真实 Android 设置页开启→返回后刷新并移除禁用提示，`QualityNotificationPermissionJourneyInstrumentedTest#enabledSystemDecisionRefreshesTheRealAppAndRemovesDisabledDeliveryState` 精确 1/1 且 `status=EXECUTED_IDENTITY`。脚本在退出时核对并恢复运行前的权限 granted/user flags（本轮恢复为 `granted=false`），清理失败会单独阻断；该证据只覆盖受控 emulator 的权限往返，不外推真实通知送达、Doze、物理设备或 OEM。
+
 ## 增量规则
 
 新增或改变 Screen、Route、Action、Room 字段/索引、Service、Worker、Receiver、权限或性能敏感路径时更新相应行。`config/quality-impact.json` 只决定最低检查；未映射产品路径阻断，命中后 AI 仍必须继续追 caller、状态、数据和平台消费者。
