@@ -287,3 +287,7 @@ Doze 宿主脚本首次试跑 `build/quality-results/android-doze-positive-curre
 ### 2026-09-02 Android 消息详情真实浏览器交接
 
 在当前未提交源码字节上，`QualityMessageJourneyInstrumentedTest#standardFixtureShowsAccurateContentAndSurvivesActivityRelaunch` 于 `Medium_Phone / emulator-5554` fresh 执行 1/1；原生 failure/error/skip=0，最终收据 `build/quality-results/android-standard-open-url-current-20260902-r3/android-focused-summary.json` 为 `product_capability_status=PASSED`、`test_system_status=PASSED`，严格 selector 与 executed count 一致。旅程从生产 `action.message.open_url` 点击，确认真实前台浏览器的地址栏包含准确安全主机与路径 `pushgo.dev/quality-message`，再返回原消息详情并重新核对准确正文；没有以内部 Intent、控件存在、Toast 或编译成功替代系统终点。该证据只关闭受控 emulator 的浏览器交接/返回边界，不外推默认浏览器/OEM 矩阵、离线网络、公网页面内容或物理设备；收据的 `source_dirty=true` 已保留，后续将以干净提交重新执行。
+
+### 2026-09-02 Android 消息详情浏览器交接干净提交复验
+
+提交 `2fe9bb0` 的干净工作树上，`QualityMessageJourneyInstrumentedTest#standardFixtureShowsAccurateContentAndSurvivesActivityRelaunch` 在 `Medium_Phone / emulator-5554` fresh 执行 1/1，原生 failure/error/skip=0，`BUILD SUCCESSFUL in 37s`；收据 `build/quality-results/android-standard-open-url-current-20260902-r4/android-focused-summary.json` 为 `product_capability_status=PASSED`、`test_system_status=PASSED`、`source_dirty=false`、`incomplete_selected_claims=[]`，选择器与执行 claim 一致。真实生产打开 URL 后，前台浏览器地址栏保留 `pushgo.dev/quality-message`，返回后原消息详情和准确正文仍可见；这只关闭受控 emulator 的系统交接/返回边界，不外推其他浏览器/OEM、网络内容或物理设备。
