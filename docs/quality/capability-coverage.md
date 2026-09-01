@@ -279,3 +279,7 @@ Doze 宿主脚本首次试跑 `build/quality-results/android-doze-positive-curre
 ### 2026-09-02 Android 性能车道当前字节
 
 干净提交 `50d947b` 上执行 `scripts/quality_test.sh performance`：受控 `Medium_Phone / emulator-5554` 实际完成真实 100k Room 搜索/分页 1/1、1k 冷启动/详情 Macrobenchmark 2/2，以及 Release/Profile 静态隔离合同；无 failure/error/skip。收据 `build/quality-results/android-performance-current-20260902/android-performance-summary.json` 为 product/test-system=`PASSED/PASSED`、`source_dirty=false`、无 incomplete claim。共享的慢加载负控在 1,000 条 canonical 数据、3,500ms 注入延迟下，准确标题可见耗时 4,103ms，2,000ms 预算被准确触发拒绝，负控结果为 product=`NOT_RUN`、test-system=`PASSED`，证明门禁可发现退化而不制造假绿。该结果只覆盖受控 emulator 的数据正确性和机制/粗性能边界，不外推物理设备 frame/startup/detail、真实网络延迟或生产 SLA。
+
+### 2026-09-02 Android Nightly 当前字节
+
+干净提交 `16219cc` 上执行 `QUALITY_RESULTS_ROOT=build/quality-results/android-nightly-current-20260902 ./scripts/quality_test.sh nightly`。主机 JVM/本地化/`androidTest` 编译实际执行 298 项；四个 App-owned UI 类实际执行 33/33；迁移、删除、ACK、Runtime data/channel/private 与 Worker 边界选择 56 项、执行 55 项，唯一 skipped 是显式 opt-in 的 `realRoomDaoSearchAndPaging_optIn100000`，100k 性能证据由独立 performance 车道负责，不将该 skipped 当作通过；通知权限、Doze、进程重启、系统通知/Private Service 以及 zh-CN 大字体旅程均实际完成。无 failure/error，收据 `build/quality-results/android-nightly-current-20260902/android-nightly-summary.json` 为 `product_capability_status=PASSED`、`test_system_status=PASSED`、`source_dirty=false`、`incomplete_selected_claims=[]`。这只关闭受控 `Medium_Phone / emulator-5554` 的精选跨层 P0/P1；真实 FCM/Private、reboot、生产分发/OEM、物理音频/无障碍、物理性能和长期观察仍 `NOT RUN/BLOCKED`，不得将 Nightly 绿灯外推为全平台完成。
