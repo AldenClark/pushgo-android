@@ -120,6 +120,8 @@ Doze 宿主脚本首次试跑 `build/quality-results/android-doze-positive-curre
 
 提交 `e6bff55` 的干净工作树在 `Medium_Phone / emulator-5554` fresh 执行 1/1，原生 failure/error/skip 均为 0；收据 `build/quality-results/android-transport-rejection-current-20260902/android-focused-summary.json` 的 product/test-system=`PASSED/PASSED`、`source_dirty=false`，选择器与 `executed_claims` 完全一致。该结果只关闭受控 emulator 的 Transport selector 拒绝→重试→重开边界；真实 Gateway/FCM/Private、进程死亡、物理设备/OEM、生产性能和 14 天观察仍不由此外推。
 
+同一 P0 事务的 Private 路由本地提交失败代表 `QualitySettingsJourneyInstrumentedTest#privateTransportLocalCommitFailureRollsBackBeforeRetryCommits` 也已在提交 `2188f66` 的干净工作树、`Medium_Phone / emulator-5554` 上 fresh 执行 1/1，收据 `build/quality-results/android-private-transport-rollback-current-20260902/android-focused-summary.json` 为 product/test-system=`PASSED/PASSED`、`source_dirty=false`，零 failure/error/skip。失败时旧 active route、候选 token 和持久状态不被半提交覆盖，真实重试才完成切换并可在重开后继续使用；这仍是受控 emulator 的本地事务证据，不外推真实 Gateway/FCM/Private 或进程死亡。
+
 ### 2026-09-02 Android 受保护 Key 持久化失败恢复
 
 在 Settings 的真实解密入口补跑一次高价值失败恢复：`QualitySettingsJourneyInstrumentedTest#protectedKeyPersistenceFailureDoesNotConfigureBeforeRetry`。一次性受保护材料写入失败时，用户输入和错误归属必须留在当前 Sheet，配置状态不得提前改变，普通 Activity 重开仍保持未配置；点击真实重试后才完成配置，并以同一 canonical 消息恢复结果作为终点。该 Oracle 关注秘密数据不会半提交、用户能够恢复和重开后的真实业务状态，不以 protected 文件存在、版本或控件存在判定通过。
