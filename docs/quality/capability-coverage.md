@@ -275,3 +275,7 @@ Doze 宿主脚本首次试跑 `build/quality-results/android-doze-positive-curre
 ### 2026-09-02 Android `device` 当前字节正向扩展
 
 干净提交 `53184bc` 上执行 `QUALITY_RESULTS_ROOT=build/quality-results/android-device-current-20260902 ./scripts/quality_test.sh device`：JVM/本地化/`androidTest` 编译实际执行 298 项，受控 `Medium_Phone / emulator-5554` 另执行 12 条 App-owned UI 旅程与 21 条迁移、持久删除、Gateway-scoped ACK 数据边界；所有批次 failure/error/skip 均为 0。收据 `build/quality-results/android-device-current-20260902/android-device-summary.json` 的 `product_capability_status` 与 `test_system_status` 均为 `PASSED`，`source_dirty=false`，`incomplete_selected_claims=[]`。UI 集合从真实入口覆盖 Markdown、准确消息与 Activity relaunch、历史清理、分页/已读、频道/标签/未分组筛选、五域导航、Event/Thing 关系、Channel 生命周期、加密恢复、页面可见性和 Gateway 验证换域；数据集合保护迁移、持久删除与 ACK 作用域。结果只证明当前受控 emulator/host 的真实正向功能与数据边界，不外推真实 FCM/Private、物理设备/OEM、生产性能或 14 天观察。
+
+### 2026-09-02 Android 性能车道当前字节
+
+干净提交 `50d947b` 上执行 `scripts/quality_test.sh performance`：受控 `Medium_Phone / emulator-5554` 实际完成真实 100k Room 搜索/分页 1/1、1k 冷启动/详情 Macrobenchmark 2/2，以及 Release/Profile 静态隔离合同；无 failure/error/skip。收据 `build/quality-results/android-performance-current-20260902/android-performance-summary.json` 为 product/test-system=`PASSED/PASSED`、`source_dirty=false`、无 incomplete claim。共享的慢加载负控在 1,000 条 canonical 数据、3,500ms 注入延迟下，准确标题可见耗时 4,103ms，2,000ms 预算被准确触发拒绝，负控结果为 product=`NOT_RUN`、test-system=`PASSED`，证明门禁可发现退化而不制造假绿。该结果只覆盖受控 emulator 的数据正确性和机制/粗性能边界，不外推物理设备 frame/startup/detail、真实网络延迟或生产 SLA。
