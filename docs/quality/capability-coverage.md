@@ -244,6 +244,10 @@ Doze 宿主脚本首次试跑 `build/quality-results/android-doze-positive-curre
 
 重新扫描生产入口与全部测试消费者（`app/src/main/java`、`app/src/androidTest/java`、`app/src/test`、`scripts`）后，共发现 58 个生产标识、7 个未被测试消费者字面引用、8 个测试侧动态标识；宿主脚本已直接覆盖通知确认、消息 Open URL 和 Doze 动作，因此不把它们重复登记为陈旧处置。扫描收据 `build/quality-results/android-ui-entrypoints-final-20260902.json` 为 `review_status=READY_FOR_SEMANTIC_REVIEW`、未解析生产入口 0、未解析测试入口 0、陈旧处置 0；该扫描仍只是防遗漏审计，不将标识符存在本身当作产品通过。
 
+### 2026-09-02 Android 更新安装当前字节
+
+`run_android_update_install_positive.sh` 在受控 `Medium_Phone / emulator-5554` 上完成 v1.3.0→v1.3.1 的真实下载、SHA-256/archive package/version/signer 校验、一次 PackageInstaller 替换；更新后应用重新就绪，标准消息准确标题与正文仍可见。设备阶段 32 秒、产品 Install 动作 1 次、业务重试 0 次，收据 `build/quality-results/android-update-install-current-20260902/android-update-install/20260901-200315/evidence.json` 为 `status=PASSED`。测试结束后 benchmark 包已卸载；生产分发签名、公网 feed 与物理/OEM 安装策略仍 `NOT RUN`，不把受控机制证据外推为发布验收。
+
 ## 增量规则
 
 新增或改变 Screen、Route、Action、Room 字段/索引、Service、Worker、Receiver、权限或性能敏感路径时更新相应行。`config/quality-impact.json` 只决定最低检查；未映射产品路径阻断，命中后 AI 仍必须继续追 caller、状态、数据和平台消费者。
