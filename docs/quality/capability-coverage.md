@@ -283,3 +283,7 @@ Doze 宿主脚本首次试跑 `build/quality-results/android-doze-positive-curre
 ### 2026-09-02 Android Nightly 当前字节
 
 干净提交 `16219cc` 上执行 `QUALITY_RESULTS_ROOT=build/quality-results/android-nightly-current-20260902 ./scripts/quality_test.sh nightly`。主机 JVM/本地化/`androidTest` 编译实际执行 298 项；四个 App-owned UI 类实际执行 33/33；迁移、删除、ACK、Runtime data/channel/private 与 Worker 边界选择 56 项、执行 55 项，唯一 skipped 是显式 opt-in 的 `realRoomDaoSearchAndPaging_optIn100000`，100k 性能证据由独立 performance 车道负责，不将该 skipped 当作通过；通知权限、Doze、进程重启、系统通知/Private Service 以及 zh-CN 大字体旅程均实际完成。无 failure/error，收据 `build/quality-results/android-nightly-current-20260902/android-nightly-summary.json` 为 `product_capability_status=PASSED`、`test_system_status=PASSED`、`source_dirty=false`、`incomplete_selected_claims=[]`。这只关闭受控 `Medium_Phone / emulator-5554` 的精选跨层 P0/P1；真实 FCM/Private、reboot、生产分发/OEM、物理音频/无障碍、物理性能和长期观察仍 `NOT RUN/BLOCKED`，不得将 Nightly 绿灯外推为全平台完成。
+
+### 2026-09-02 Android 消息详情真实浏览器交接
+
+在当前未提交源码字节上，`QualityMessageJourneyInstrumentedTest#standardFixtureShowsAccurateContentAndSurvivesActivityRelaunch` 于 `Medium_Phone / emulator-5554` fresh 执行 1/1；原生 failure/error/skip=0，最终收据 `build/quality-results/android-standard-open-url-current-20260902-r3/android-focused-summary.json` 为 `product_capability_status=PASSED`、`test_system_status=PASSED`，严格 selector 与 executed count 一致。旅程从生产 `action.message.open_url` 点击，确认真实前台浏览器的地址栏包含准确安全主机与路径 `pushgo.dev/quality-message`，再返回原消息详情并重新核对准确正文；没有以内部 Intent、控件存在、Toast 或编译成功替代系统终点。该证据只关闭受控 emulator 的浏览器交接/返回边界，不外推默认浏览器/OEM 矩阵、离线网络、公网页面内容或物理设备；收据的 `source_dirty=true` 已保留，后续将以干净提交重新执行。

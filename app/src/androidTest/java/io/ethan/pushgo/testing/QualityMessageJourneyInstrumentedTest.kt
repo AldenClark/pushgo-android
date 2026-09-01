@@ -203,6 +203,48 @@ class QualityMessageJourneyInstrumentedTest : QualityAppJourneyTestCase() {
                 clipboard.clearPrimaryClip()
             }
         }
+        val device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
+        composeRule.onNodeWithTag("action.message.open_url")
+            .performScrollTo()
+            .assertIsDisplayed()
+            .assertHasClickAction()
+            .performClick()
+        assertTrue(
+            "Opening the canonical message URL must leave PushGo for the resolved browser.",
+            device.wait(Until.gone(By.pkg(app.packageName).depth(0)), 10_000),
+        )
+        val browserPackage = device.currentPackageName
+        assertTrue(
+            "Opening the canonical message URL must foreground a non-PushGo system consumer; " +
+                "actualPackage=$browserPackage",
+            !browserPackage.isNullOrBlank() && browserPackage != app.packageName,
+        )
+        assertTrue(
+            "The resolved browser did not become the foreground system consumer.",
+            device.wait(Until.hasObject(By.pkg(checkNotNull(browserPackage)).depth(0)), 10_000),
+        )
+        val browserUrlBar = By.res(checkNotNull(browserPackage), "url_bar")
+        assertTrue(
+            "The browser did not expose its real address bar for the canonical URL.",
+            device.wait(Until.hasObject(browserUrlBar), 10_000),
+        )
+        val visibleBrowserTarget = device.findObject(browserUrlBar)?.let { urlBar ->
+            listOfNotNull(urlBar.text, urlBar.contentDescription)
+                .joinToString(" ")
+                .lowercase()
+        }.orEmpty()
+        assertTrue(
+            "The browser address bar did not retain the exact safe host/path; actual=$visibleBrowserTarget",
+            visibleBrowserTarget.contains("pushgo.dev") && visibleBrowserTarget.contains("quality-message"),
+        )
+        device.pressBack()
+        assertTrue(
+            "Dismissing the system browser must return to the existing PushGo message detail.",
+            device.wait(Until.hasObject(By.pkg(app.packageName).depth(0)), 8_000),
+        )
+        composeRule.onNodeWithTag("sheet.message.detail").assertIsDisplayed()
+        composeRule.onNodeWithTag("field.message.detail.body")
+            .assertTextContains("Seeded from fixture.seed_messages for UI validation.")
         val originalGalleryImageIds = pushGoGalleryImages().mapTo(mutableSetOf()) { it.id }
         val shareDirectory = File(app.cacheDir, "shared-images")
         val originalSharedImagePaths = shareDirectory.listFiles()
