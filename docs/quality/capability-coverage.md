@@ -118,7 +118,7 @@ Doze 宿主脚本首次试跑 `build/quality-results/android-doze-positive-curre
 
 在频道切片之后执行一条事故价值明确的 Event 故障恢复旅程：`QualityEntityJourneyInstrumentedTest#eventCloseFailureKeepsAccurateDetailBlocksDuplicateAndRetryPersists`。测试从真实 Events 列表进入准确详情，第一次关闭确认注入一次性失败；失败期间仍必须看到原始摘要与 ongoing 状态，关闭动作不能重复提交，错误只在 Event 详情 owner 内出现，真实重试后 Sheet 关闭，普通 Activity 重开仍显示同一 Event 为 closed。该 Oracle 以状态、动作可用性、错误归属和持久业务结果裁决，不以错误字符串、节点存在或 Gradle 成功代替用户目的。
 
-提交 `75de73c` 的干净工作树在 `Medium_Phone / emulator-5554` fresh 执行 1/1，原生 failure/error/skip 均为 0；收据 `build/quality-results/android-event-close-failure-current-20260902/android-focused-summary.json` 的 product/test-system=`PASSED/PASSED`、`source_dirty=false`，`executed_claims` 与选择器完全一致。该结果只关闭直接 Event 关闭失败→重试→重开的受控 emulator 边界；关联 Thing 入口、真实 Provider/FCM、物理设备/OEM、生产性能和 14 天观察不由此外推。
+提交 `75de73c` 的干净工作树在 `Medium_Phone / emulator-5554` fresh 执行直接 Event 旅程 1/1，原生 failure/error/skip 均为 0；收据 `build/quality-results/android-event-close-failure-current-20260902/android-focused-summary.json` 的 product/test-system=`PASSED/PASSED`、`source_dirty=false`，`executed_claims` 与选择器完全一致。随后提交 `3f54409` 的关联 Thing→Event 失败旅程 `QualityEntityJourneyInstrumentedTest#relatedEventCloseFailureStaysOwnedAndBlocksDuplicateSubmission` 也在同一设备 fresh 1/1，收据 `build/quality-results/android-related-event-close-failure-current-20260902/android-focused-summary.json` 同样为双 `PASSED`、干净来源；它证明关系入口不会改变错误归属或允许重复关闭。两条结果只关闭受控 emulator 的 Event owner/关系入口恢复边界；真实 Provider/FCM、物理设备/OEM、生产性能和 14 天观察不由此外推。
 
 ## 增量规则
 
