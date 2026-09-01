@@ -1043,12 +1043,30 @@ class ChannelSubscriptionRepository(
         password: String,
         lastSyncedAt: Long,
     ) {
+        // A subscribe response commonly omits a user-facing name and the
+        // service model normalizes that omission to the channel ID.  For an
+        // existing subscription, the local label is the durable user-owned
+        // projection and must survive a re-subscribe (including a retry after
+        // a local persistence failure).  Newly created channels still use the
+        // name returned by the remote create operation.
+        val effectiveDisplayName = if (requestedChannelId != null) {
+            store.loadSubscription(
+                gatewayUrl = gatewayUrl,
+                channelId = channelId,
+                includeDeleted = true,
+            )?.displayName
+                ?.trim()
+                ?.takeIf { it.isNotEmpty() }
+                ?: displayName
+        } else {
+            displayName
+        }
         try {
             QualityRuntime.armChannelSubscriptionPersistenceFailure()
             store.upsertSubscription(
                 gatewayUrl = gatewayUrl,
                 channelId = channelId,
-                displayName = displayName,
+                displayName = effectiveDisplayName,
                 password = password,
                 lastSyncedAt = lastSyncedAt,
             )

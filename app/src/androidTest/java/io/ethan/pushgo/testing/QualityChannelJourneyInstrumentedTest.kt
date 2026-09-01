@@ -37,6 +37,70 @@ class QualityChannelJourneyInstrumentedTest : QualityAppJourneyTestCase() {
     }
 
     @Test
+    fun existingSubscribePersistenceFailureDoesNotRevokeRemoteOwnershipBeforeRetry() {
+        configureAndLaunch(
+            fixture = QualityFixture.CHANNELS_STANDARD,
+            faults = QualityFaults(failChannelSubscriptionPersistenceOnce = true),
+            channelMutationScenario = QualityChannelMutationScenario.EXISTING_SUBSCRIBE_MUST_NOT_COMPENSATE,
+        )
+
+        val existingChannelId = "01H00000000000000000000001"
+        val existingChannelName = "Quality Keep History"
+        openChannels()
+        composeRule.waitUntil(timeoutMillis = 5_000) {
+            composeRule.onAllNodes(
+                hasTestTag("channel.row.$existingChannelId") and
+                    hasText(existingChannelName, substring = true),
+            ).fetchSemanticsNodes().isNotEmpty()
+        }
+        composeRule.onNodeWithTag("channel.row.$existingChannelId")
+            .assertIsDisplayed()
+            .assertTextContains(existingChannelName)
+
+        composeRule.onNodeWithTag("action.channels.add").performClick()
+        composeRule.onNodeWithTag("sheet.channels.entry").assertIsDisplayed()
+        composeRule.onNodeWithTag("mode.channels.entry.subscribe").performClick()
+        waitForNode("field.channels.subscribe.id")
+        waitForNode("field.channels.subscribe.password")
+        composeRule.onNodeWithTag("field.channels.subscribe.id")
+            .performTextInput(existingChannelId)
+        composeRule.onNodeWithTag("field.channels.subscribe.password")
+            .performTextInput("quality-channel-password")
+        val hostErrorPresentationBaseline = QualityRuntime.globalErrorPresentationCount()
+        composeRule.onNodeWithTag("action.channels.entry.submit").performClick()
+
+        waitForNode("feedback.channels.entry")
+        composeRule.onNodeWithTag("sheet.channels.entry").assertIsDisplayed()
+        composeRule.onNodeWithTag("channel.row.$existingChannelId")
+            .assertIsDisplayed()
+            .assertTextContains(existingChannelName)
+        assertEquals(
+            "Existing-channel commit failure must not be surfaced as a host error.",
+            hostErrorPresentationBaseline,
+            QualityRuntime.globalErrorPresentationCount(),
+        )
+
+        composeRule.onNodeWithText("Cancel").performClick()
+        composeRule.onNodeWithTag("action.channels.add").performClick()
+        composeRule.onNodeWithTag("mode.channels.entry.subscribe").performClick()
+        composeRule.onNodeWithTag("field.channels.subscribe.id")
+            .performTextInput(existingChannelId)
+        composeRule.onNodeWithTag("field.channels.subscribe.password")
+            .performTextInput("quality-channel-password")
+        composeRule.onNodeWithTag("action.channels.entry.submit").performClick()
+
+        composeRule.waitUntil(timeoutMillis = 8_000) {
+            composeRule.onAllNodesWithTag("sheet.channels.entry")
+                .fetchSemanticsNodes()
+                .isEmpty()
+        }
+        relaunchAndOpenChannels(recreateAppContainer = true)
+        composeRule.onNodeWithTag("channel.row.$existingChannelId")
+            .assertIsDisplayed()
+            .assertTextContains(existingChannelName)
+    }
+
+    @Test
     fun createRenameAndBothUnsubscribeOutcomesReachAccuratePersistentUserResults() {
         configureAndLaunch(
             fixture = QualityFixture.CHANNELS_STANDARD,

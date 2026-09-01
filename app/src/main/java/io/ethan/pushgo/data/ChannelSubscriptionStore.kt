@@ -43,6 +43,16 @@ class ChannelSubscriptionStore(
         return entities.map { it.asModel() }
     }
 
+    suspend fun loadSubscription(
+        gatewayUrl: String,
+        channelId: String,
+        includeDeleted: Boolean = false,
+    ): ChannelSubscription? {
+        val entity = dao.getById(gatewayUrl, channelId) ?: return null
+        if (!includeDeleted && entity.isDeleted) return null
+        return entity.asModel()
+    }
+
     suspend fun upsertSubscription(
         gatewayUrl: String,
         channelId: String,
