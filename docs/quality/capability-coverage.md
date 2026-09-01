@@ -224,6 +224,12 @@ Doze 宿主脚本首次试跑 `build/quality-results/android-doze-positive-curre
 
 提交 `fa9a78f` 的干净工作树在 `Medium_Phone / emulator-5554` fresh 执行 1/1，原生 failure/error/skip 均为 0；收据 `build/quality-results/android-system-notification-duplicate-current-20260902/android-focused-summary.json` 的 product/test-system=`PASSED/PASSED`、`source_dirty=false`，选择器与 `executed_claims` 完全一致。测试结束后 App 包、通知权限和服务状态已由受控清理恢复。该证据关闭受控 emulator 的系统通知去重/准确详情边界，不外推真实 FCM、物理设备、OEM 或生产告警。
 
+### 2026-09-02 Android Private 前台 Service 系统回归
+
+执行 `QualityPrivateForegroundServiceJourneyInstrumentedTest#privateSelectionStartsDurableSystemServiceAndFcmSelectionStopsIt`：从真实 Settings 选择 Private 后，必须完成持久 route、前台 Service 注册和系统通知；离开 App 后通知仍存在，点击系统通知 PendingIntent 返回 PushGo，Activity 重开仍保持 Private；切回 FCM 后旧 Service 与通知必须消失。Oracle 以系统 Service/通知、真实返回和持久 route 为准，不以设置值或 Service 启动调用本身代替用户终点。
+
+提交 `40981e2` 的干净工作树在 `Medium_Phone / emulator-5554` fresh 执行 1/1，原生 failure/error/skip 均为 0；收据 `build/quality-results/android-private-service-current-20260902/android-focused-summary.json` 的 product/test-system=`PASSED/PASSED`、`source_dirty=false`，选择器与 `executed_claims` 完全一致。测试后 App 包、Service 和权限状态已清理；该证据仅覆盖受控 emulator 系统边界，不外推真实 Private Provider、物理设备或 OEM。
+
 ### 2026-09-02 Android 网关核心规则提交后干净复验
 
 针对“先验证/注册、再覆盖旧网关”的核心规则，提交后干净工作树分别复验三条最小充分旅程：`serverConfigurationRejectsInvalidInputAndScopesDataAfterRelaunch`（非法地址/候选注册拒绝、旧配置保持）、`gatewayLocalCommitFailureRollsBackBeforeRetryCommits`（本地提交中点失败回滚）和 `gatewaySyncFailureReportsCommittedGatewayAndPendingRecovery`（提交后同步待恢复）。三条均在 `Medium_Phone / emulator-5554` fresh 1/1、零 failure/error/skip，收据分别为 `build/quality-results/android-gateway-validation-clean-20260902/android-focused-summary.json`、`build/quality-results/android-gateway-local-rollback-clean-20260902/android-focused-summary.json`、`build/quality-results/android-gateway-sync-pending-clean-20260902/android-focused-summary.json`；均为 product/test-system=`PASSED/PASSED`、`source_dirty=false`，选择器和 `executed_claims` 一致。该组只证明受控 emulator 的真实 Settings/重开边界，不外推真实公网 Gateway、FCM/Private、物理设备/OEM、进程死亡或长期观察。
