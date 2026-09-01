@@ -234,6 +234,10 @@ Doze 宿主脚本首次试跑 `build/quality-results/android-doze-positive-curre
 
 针对“先验证/注册、再覆盖旧网关”的核心规则，提交后干净工作树分别复验三条最小充分旅程：`serverConfigurationRejectsInvalidInputAndScopesDataAfterRelaunch`（非法地址/候选注册拒绝、旧配置保持）、`gatewayLocalCommitFailureRollsBackBeforeRetryCommits`（本地提交中点失败回滚）和 `gatewaySyncFailureReportsCommittedGatewayAndPendingRecovery`（提交后同步待恢复）。三条均在 `Medium_Phone / emulator-5554` fresh 1/1、零 failure/error/skip，收据分别为 `build/quality-results/android-gateway-validation-clean-20260902/android-focused-summary.json`、`build/quality-results/android-gateway-local-rollback-clean-20260902/android-focused-summary.json`、`build/quality-results/android-gateway-sync-pending-clean-20260902/android-focused-summary.json`；均为 product/test-system=`PASSED/PASSED`、`source_dirty=false`，选择器和 `executed_claims` 一致。该组只证明受控 emulator 的真实 Settings/重开边界，不外推真实公网 Gateway、FCM/Private、物理设备/OEM、进程死亡或长期观察。
 
+### 2026-09-02 Android 核心切片提交后宿主 PR 回归
+
+在本轮核心 UI/系统切片全部提交后执行 `QUALITY_RESULTS_ROOT=build/quality-results/android-pr-after-core-slices-20260902 ./scripts/quality_test.sh pr`，实际执行 JVM 298 项、本地化完整性合同、`compileDebugAndroidTestKotlin` 和 Debug 构建；无 failure/error/skip，收据 `build/quality-results/android-pr-after-core-slices-20260902/android-pr-summary.json` 为 product/test-system=`PASSED/PASSED`、`source_dirty=false`、无 incomplete claim。该收据只证明提交后主机与编译测试系统健康，不把 host 绿色外推为未运行的物理设备、真实 Provider/FCM 或发布证据。
+
 ## 增量规则
 
 新增或改变 Screen、Route、Action、Room 字段/索引、Service、Worker、Receiver、权限或性能敏感路径时更新相应行。`config/quality-impact.json` 只决定最低检查；未映射产品路径阻断，命中后 AI 仍必须继续追 caller、状态、数据和平台消费者。
