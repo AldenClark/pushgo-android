@@ -90,6 +90,8 @@ Gateway Settings 的目的级 Oracle 现在覆盖“候选验证/注册→本地
 
 网关同步故障的测试 Oracle 已改为可持久、可归因的业务结果：候选地址已 active、`gateway_recovery_pending` 已写入且 Sheet 已关闭；普通 activity relaunch 进入 Channels 后必须清除标记并显示准确的恢复频道名称，随后新建频道和再次进入 Settings 仍保持新地址。瞬时 Toast 仍可作为用户提示实现，但不再作为唯一通过条件；不延长等待、不重跑求绿，也不把“有 Toast surface”当作业务成功。变更影响宿主阶段同轮实际执行 JVM 298 项、本地化、androidTest 编译和 Debug 构建，全部通过；真实 FCM/Private、物理设备、进程死亡级恢复和 14 天观察继续 `NOT RUN/BLOCKED`。
 
+同一提交上的固定 P0 Compose 正向集随后 fresh 执行 6/6：`QualityMessageJourneyInstrumentedTest` 的主导航、准确内容/重启和分页/已读链，`QualityEntityJourneyInstrumentedTest#eventClosePersistsAndOngoingFilterReflectsTheRealProjection`，`QualityChannelJourneyInstrumentedTest#createRenameAndBothUnsubscribeOutcomesReachAccuratePersistentUserResults`，以及 `QualitySettingsJourneyInstrumentedTest#serverConfigurationRejectsInvalidInputAndScopesDataAfterRelaunch`。`build/quality-results/android-pr-ui-after-channel-name-fix-20260902/android-pr-ui-summary.json` 绑定 `e190649` 且 `source_dirty=false`，product/test-system 均 `PASSED`，fresh XML 为 6 tests、failure/error/skip 均为 0；它验证真实入口、动作、准确业务数据与 activity relaunch 终点，不把控件存在或启动成功当作通过。该车道仍不覆盖真实 Provider/FCM/Private、物理设备、系统通知权限/Doze、生产性能和 14 天观察。
+
 ## 增量规则
 
 新增或改变 Screen、Route、Action、Room 字段/索引、Service、Worker、Receiver、权限或性能敏感路径时更新相应行。`config/quality-impact.json` 只决定最低检查；未映射产品路径阻断，命中后 AI 仍必须继续追 caller、状态、数据和平台消费者。
