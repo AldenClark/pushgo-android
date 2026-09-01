@@ -427,6 +427,10 @@ class QualityLaneCostContractTests(unittest.TestCase):
         self.assertIn('restore_battery_optimization', journey)
         self.assertIn('prepare_session "android-doze-isolation-', journey)
         self.assertNotIn('run-as', journey)
+        self.assertIn('device_ui_dump="/data/local/tmp/pushgo-doze-positive-$run_id.xml"', journey)
+        self.assertIn('wait_for_node leaves the last successful dump in ui_dump', journey)
+        self.assertNotIn('dump_ui || failed "UI tree could not be captured before tapping', journey)
+        self.assertIn('last_dump_failure', journey)
 
     def test_slow_load_performance_negative_control_runs_only_with_performance(self) -> None:
         runner = (REPO / "scripts/quality_test.sh").read_text()

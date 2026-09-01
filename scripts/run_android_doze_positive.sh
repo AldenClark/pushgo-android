@@ -9,12 +9,14 @@ control_activity="$package_name/.testing.BenchmarkUnstopActivity"
 main_activity="$package_name/.MainActivity"
 run_dir="$(mktemp -d "${TMPDIR:-/tmp}/pushgo-doze-positive.XXXXXX")"
 ui_dump="$run_dir/window.xml"
-device_ui_dump="/sdcard/pushgo-doze-positive.xml"
+run_id="$(date -u +%Y%m%d-%H%M%S)-$$"
+device_ui_dump="/data/local/tmp/pushgo-doze-positive-$run_id.xml"
 prepared=0
 original_granted=false
 original_user_set=0
 original_user_fixed=0
 original_whitelisted=false
+last_dump_failure=""
 
 blocked() {
   echo "status=BLOCKED"
@@ -40,9 +42,17 @@ for node in root.iter("node"):
         if shown >= 80:
             break
 PY
+  elif [[ -n "$last_dump_failure" ]]; then
+    echo "ui_dump_failure=$last_dump_failure"
   fi
-  adb -s "$device_serial" shell dumpsys window windows \
-    | sed -n 's/.*mCurrentFocus=//p' | head -n 1 || true
+  failure_pid="$(adb -s "$device_serial" shell pidof "$package_name" 2>/dev/null | tr -d '\r' || true)"
+  failure_focus="$(adb -s "$device_serial" shell dumpsys window windows 2>/dev/null \
+    | sed -n 's/.*mCurrentFocus=//p' | head -n 1 | tr -d '\r' || true)"
+  failure_crash_hits="$(adb -s "$device_serial" logcat -b crash -d 2>/dev/null \
+    | rg -c "$package_name|AndroidRuntime" || true)"
+  echo "failure_app_pid=${failure_pid:-none}"
+  echo "failure_focus=${failure_focus:-unknown}"
+  echo "failure_crash_buffer_matches=$failure_crash_hits"
   exit 1
 }
 
@@ -139,9 +149,20 @@ permission_line="$(adb -s "$device_serial" shell dumpsys package "$package_name"
 is_whitelisted && original_whitelisted=true
 
 dump_ui() {
-  adb -s "$device_serial" shell uiautomator dump "$device_ui_dump" >/dev/null 2>&1 || return 1
-  adb -s "$device_serial" exec-out cat "$device_ui_dump" >"$ui_dump" 2>/dev/null || return 1
-  rg -q '<hierarchy' "$ui_dump"
+  local dump_output=""
+  if ! dump_output="$(adb -s "$device_serial" shell uiautomator dump "$device_ui_dump" 2>&1)"; then
+    last_dump_failure="uiautomator dump failed: $(printf '%s' "$dump_output" | tr '\n' ' ')"
+    return 1
+  fi
+  if ! adb -s "$device_serial" exec-out cat "$device_ui_dump" >"$ui_dump" 2>"$run_dir/ui-copy.stderr"; then
+    last_dump_failure="could not read UI dump from device: $(tr '\n' ' ' <"$run_dir/ui-copy.stderr")"
+    return 1
+  fi
+  if ! rg -q '<hierarchy' "$ui_dump"; then
+    last_dump_failure="UI dump did not contain a hierarchy: $(printf '%s' "$dump_output" | tr '\n' ' ')"
+    return 1
+  fi
+  last_dump_failure=""
 }
 
 node_center() {
@@ -212,7 +233,8 @@ wait_for_absent() {
 tap_node() {
   local resource_id="$1"
   wait_for_node "$resource_id" 15 || failed "UI node was not reachable: $resource_id"
-  dump_ui || failed "UI tree could not be captured before tapping $resource_id"
+  # wait_for_node leaves the last successful dump in ui_dump. Re-dumping here
+  # races with Compose/system-surface transitions and can hide a reachable node.
   local center
   center="$(node_center "$resource_id")" || failed "UI node disappeared before tapping: $resource_id"
   adb -s "$device_serial" shell input tap "${center%,*}" "${center#*,}"

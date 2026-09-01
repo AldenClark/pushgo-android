@@ -98,6 +98,12 @@ Gateway Settings 的目的级 Oracle 现在覆盖“候选验证/注册→本地
 
 通知权限的系统交互也完成一次事故相关的正向验证：`scripts/run_android_notification_permission_positive.sh` 在 API 37 `Medium_Phone / emulator-5554` 上实际执行拒绝决定→App-owned 解释→真实 Android 设置页开启→返回后刷新并移除禁用提示，`QualityNotificationPermissionJourneyInstrumentedTest#enabledSystemDecisionRefreshesTheRealAppAndRemovesDisabledDeliveryState` 精确 1/1 且 `status=EXECUTED_IDENTITY`。脚本在退出时核对并恢复运行前的权限 granted/user flags（本轮恢复为 `granted=false`），清理失败会单独阻断；该证据只覆盖受控 emulator 的权限往返，不外推真实通知送达、Doze、物理设备或 OEM。
 
+### 2026-09-02 Doze runner 时序修复与回归
+
+Doze 宿主脚本首次试跑 `build/quality-results/android-doze-positive-current-20260902.log` 在真实用户动作前失败：`tap_node` 等待到目标后又无条件二次抓取 UI 树，转场期间二次 `uiautomator dump` 失败；没有产品异常证据，归因为测试 runner 时序缺陷。脚本现复用 `wait_for_node` 已验证的同一份 UI 树，不再二次抓取；设备端 XML 使用每次运行唯一路径，并在失败时输出最近一次 UI dump 失败原因、App PID、当前焦点和 crash-buffer 摘要。修复后的当前源码安装包在 `Medium_Phone / emulator-5554` 完整执行受限说明→Settings 卡→真实系统 unrestricted→返回刷新→会话 snooze→activity relaunch→新会话隔离链，日志 `build/quality-results/android-doze-positive-runner-fix-20260902.log` 为 `status=PASSED`；退出后通知权限恢复为 `granted=false`、PushGo 不在 battery whitelist。该结果只证明受控 emulator 的脚本与产品 Doze 旅程，真实设备、OEM、真实 Provider 和长期到期观察仍未覆盖。
+
+同一 runner 修复的变更影响回归首次被环境变量继承问题阻断：161 个脚本测试中的性能 runner preflight 用例继承外层 `ANDROID_SERIAL`，导致“必须显式设备”断言返回 0；这不是产品失败。测试 helper 现明确移除 `ANDROID_SERIAL` 后再运行，第二次 `scripts/quality_changed.sh` 实际执行 Python 161/161、Android PR 主机 JVM 298 项及编译/Debug 构建，均无 failure/error/skip；收据 `build/quality-results/android-doze-runner-fix-changed-20260902-rerun/android-pr-summary.json`。该主机收据因执行时工作树含未提交 runner 修复而标记 `source_dirty=true`，不外推设备或真实系统通过；修复后的 Doze 定向收据才是设备旅程证据。
+
 ## 增量规则
 
 新增或改变 Screen、Route、Action、Room 字段/索引、Service、Worker、Receiver、权限或性能敏感路径时更新相应行。`config/quality-impact.json` 只决定最低检查；未映射产品路径阻断，命中后 AI 仍必须继续追 caller、状态、数据和平台消费者。

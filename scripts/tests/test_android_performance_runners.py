@@ -11,6 +11,7 @@ class AndroidPerformanceRunnerPreflightTests(unittest.TestCase):
     def run_script(self, name, env=None):
         clean_env = os.environ.copy()
         for key in (
+            "ANDROID_SERIAL",
             "ANDROID_PERFORMANCE_DEVICE_SERIAL",
             "ANDROID_BASELINE_PROFILE_DEVICE_SERIAL",
             "PUSHGO_ANDROID_PHYSICAL_MAX_STARTUP_MS",
