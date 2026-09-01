@@ -755,11 +755,15 @@ class ChannelSubscriptionRepository(
             val passwordMismatchChannels = mutableListOf<String>()
             results.forEach { result ->
                 if (result.subscribed) {
-                    store.updateDisplayName(
-                        config.address,
-                        result.channelId,
-                        result.channelName?.ifEmpty { null } ?: result.channelId,
-                    )
+                    // A sync response may intentionally omit channel_name. The
+                    // locally committed label is the user's durable projection;
+                    // only replace it when the gateway supplies a real name.
+                    result.channelName
+                        ?.trim()
+                        ?.takeIf { it.isNotEmpty() }
+                        ?.let { displayName ->
+                            store.updateDisplayName(config.address, result.channelId, displayName)
+                        }
                     store.updateLastSynced(config.address, result.channelId, now)
                 } else {
                     when (result.resolvedErrorCode?.lowercase()) {
@@ -804,8 +808,15 @@ class ChannelSubscriptionRepository(
         val passwordMismatchChannels = mutableListOf<String>()
         payload.channels.forEach { result ->
             if (result.subscribed) {
-                val displayName = result.channelName?.ifEmpty { null } ?: result.channelId
-                store.updateDisplayName(config.address, result.channelId, displayName)
+                // Do not turn a missing remote name into the channel ID: that
+                // would overwrite a user-created or user-renamed local label
+                // during the next launch/reconciliation.
+                result.channelName
+                    ?.trim()
+                    ?.takeIf { it.isNotEmpty() }
+                    ?.let { displayName ->
+                        store.updateDisplayName(config.address, result.channelId, displayName)
+                    }
                 store.updateLastSynced(config.address, result.channelId, now)
                 return@forEach
             }

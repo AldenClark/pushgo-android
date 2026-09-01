@@ -82,6 +82,14 @@ Gateway Settings 的目的级 Oracle 现在覆盖“候选验证/注册→本地
 
 同一 Settings Journey 现在还显式裁决错误归属：非法地址和候选注册拒绝必须在 `sheet.settings.gateway` 的 `feedback.settings.gateway` 可见，同时宿主级 `feedback.settings.root` 不得出现，Sheet 保持可编辑并允许真实重试。`SettingsScreen` 仅在全局 `uiState.errorMessage` 有值时挂载该宿主可观测点；网关保存链的异常继续写入 `gatewayErrorMessage`，因此该断言保护的是用户看到错误解释的位置和旧配置不被覆盖，而不是 tag/控件存在。由于当前无 `adb` serial，Android 设备上的该归属断言仍为 `NOT RUN`，恢复设备后与候选拒绝及 commit rollback 旅程一并执行。
 
+### 2026-09-02 Android P0 UI 回归：频道名称持久化与网关待恢复
+
+首次在 `Medium_Phone / emulator-5554` 执行 6 条 Android P0 Compose 旅程时，`build/quality-results/android-pr-ui-current-20260902/android-pr-ui-summary.json` 可信地暴露出两类不同问题：频道创建/改名和网关换域在重新进入页面后均只显示频道 ID，而不是用户刚提交的名称；另一个网关同步故障用例等待的瞬时 Toast 文本在 API 37 的 UiAutomator 中不可见。前者是产品投影错误，不是测试脆弱性：`ChannelSubscriptionRepository` 在远端响应缺少 `channel_name` 时用 ID 覆盖本地持久名称。
+
+产品修复在生产同步的两条路径统一为“只有远端返回非空名称才更新 `displayName`，缺失名称则保留本地标签，同时照常更新 `lastSyncedAt`”。原有真实用户目的和精确名称/relaunch Oracle 未放宽；针对该缺陷的定向回归 2/2 通过（`build/quality-results/android-focus-channel-name-fix-20260902.log`）。随后 `scripts/quality_changed.sh` 按影响计划执行宿主 PR 与 10 条受影响 Settings 设备旅程，fresh XML 为 10/10、零 failure/error/skip，收据 `build/quality-results/android-channel-name-fix-changed-20260902-rerun/android-planned-device-summary.json` 的 product/test-system 均为 `PASSED`，`executed_claims` 与选择器完全一致。
+
+网关同步故障的测试 Oracle 已改为可持久、可归因的业务结果：候选地址已 active、`gateway_recovery_pending` 已写入且 Sheet 已关闭；普通 activity relaunch 进入 Channels 后必须清除标记并显示准确的恢复频道名称，随后新建频道和再次进入 Settings 仍保持新地址。瞬时 Toast 仍可作为用户提示实现，但不再作为唯一通过条件；不延长等待、不重跑求绿，也不把“有 Toast surface”当作业务成功。变更影响宿主阶段同轮实际执行 JVM 298 项、本地化、androidTest 编译和 Debug 构建，全部通过；真实 FCM/Private、物理设备、进程死亡级恢复和 14 天观察继续 `NOT RUN/BLOCKED`。
+
 ## 增量规则
 
 新增或改变 Screen、Route、Action、Room 字段/索引、Service、Worker、Receiver、权限或性能敏感路径时更新相应行。`config/quality-impact.json` 只决定最低检查；未映射产品路径阻断，命中后 AI 仍必须继续追 caller、状态、数据和平台消费者。
