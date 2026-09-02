@@ -2,6 +2,8 @@
 
 此索引防遗漏，不计算覆盖分，不是测试 Oracle。`testTag`、Manifest 组件、Worker 或测试方法存在均不能单独证明用户能力。
 
+2026-09-03 Android search side-index recovery current byte：在干净提交 `3f75f8923678ba9b0972f14e5a62d32f1425a7a7`、专用 `Medium_Phone / emulator-5554` 上精确执行三条 `RuntimeDataLayerInstrumentedTest`：规范化旧数据回填与空消息 ready sentinel、陈旧 sentinel 修复且不改写消息、单条缺失 search row 的局部修复。原生 3/3、Gradle 43 秒，零 failure/error/skip；收据 `build/quality-results/android-search-index-recovery-current-20260903/android-focused-summary.json` 为 product/test-system=`PASSED/PASSED`、`source_dirty=false`、选择与执行一致、无 issue。触发器与准确查询/元数据终点证明修复范围，不以索引表存在或状态字段替代业务结果；UI 可见 rebuild、10k/100k、Provider/物理与整体 `P1-SEARCH` 仍保持 `DEFERRED`。
+
 2026-09-03 Android pending-deletion recovery current byte：专用 `Medium_Phone / emulator-5554` 上定向执行 `PendingLocalDeletionRoomDeviceTest` 全部 6/6，Gradle `BUILD SUCCESSFUL in 59s`，原生无 failure/error/skip，收据 `build/quality-results/android-pending-deletion-current-20260903/android-focused-summary.json` 为 product/test-system=`PASSED/PASSED`、`source_dirty=false`、选择与执行一致、无 issue。真实 Room/通知终点覆盖 pending/committing 重开恢复、取消持久化、首次 claim 后不可撤销、永久失败不阻塞下一意图、通知清理重开重放和按活动 group 元数据精确清理；这不是 UI Undo 或实际进程 kill 证据，不外推 Provider、物理设备、并发多 pending 或 backoff/冲突边界，`P1-PENDING-DELETE` 继续 `DEFERRED`。
 
 ## App-owned 准备合同

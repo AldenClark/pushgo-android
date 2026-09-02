@@ -1,5 +1,7 @@
 # Android 当前 device 测试处置清单
 
+2026-09-03 Android search side-index recovery current byte：在干净提交 `3f75f8923678ba9b0972f14e5a62d32f1425a7a7`、专用 `Medium_Phone / emulator-5554` 上执行 `RuntimeDataLayerInstrumentedTest` 的三条索引恢复用例 3/3；原生 `tests=3 failures=0 errors=0 skipped=0`、Gradle 43 秒。收据 `build/quality-results/android-search-index-recovery-current-20260903/android-focused-summary.json` 为 product/test-system=`PASSED/PASSED`、`source_dirty=false`、选择与执行一致。测试以准确搜索结果、规范化 metadata 和触发器保护的未改写消息/摘要为终点；不把 Room 表存在、ready 标记或测试标签当作 UI 功能通过，UI rebuild、10k/100k、Provider 和物理边界仍未运行。
+
 2026-09-03 Android pending-deletion recovery current byte：专用 `Medium_Phone / emulator-5554` 定向执行 `PendingLocalDeletionRoomDeviceTest` 6/6，Gradle `BUILD SUCCESSFUL in 59s`，原生 `tests=6 failures=0 errors=0 skipped=0`；收据 `build/quality-results/android-pending-deletion-current-20260903/android-focused-summary.json` 为 product/test-system=`PASSED/PASSED`、`source_dirty=false`、选择与执行一致、无 issue。测试验证 Room 重开后的 pending/committing 恢复、取消/永久失败状态、claim 后重试不可取消，以及通知重开重放的准确目标清理；不把数据库存在、测试标签或通知 ID 当作 UI Undo 通过，实际进程 kill、backoff/冲突、多 pending 并发、Provider 和物理设备边界仍未运行。
 
 基线日期：2026-08-27；截至 2026-09-02 当前 `androidTest` 共 114 个 `@Test`（早期 101 项快照已过时）。此文件是 WP0 迁移清单，不是产品通过 Manifest。
