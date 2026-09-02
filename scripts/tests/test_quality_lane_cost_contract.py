@@ -532,6 +532,14 @@ class QualityLaneCostContractTests(unittest.TestCase):
         self.assertIn('QUALITY_ORACLE_NEGATIVE_CONTROL', host_journey)
         self.assertNotIn('QUALITY_PROCESS_RESTART_EXPECTED_BODY', host_journey)
         self.assertIn('CLEAR_SESSION', host_journey)
+        self.assertIn('adb_with_timeout()', host_journey)
+        self.assertIn('QUALITY_ADB_TIMEOUT_SECONDS', host_journey)
+        self.assertIn('acquire_device_lock()', host_journey)
+        self.assertIn('QUALITY_ANDROID_DEVICE_LOCK_TIMEOUT_SECONDS', host_journey)
+        self.assertIn('/data/local/tmp/pushgo-process-restart-$run_id.xml', host_journey)
+        self.assertIn('capture_failure_evidence()', host_journey)
+        self.assertIn('last_dump_failure', host_journey)
+        self.assertNotIn('dump_ui || failed "UI tree could not be captured before tapping', host_journey)
         self.assertNotIn('run_android_process_restart_positive.sh', runner.split('  pr-ui)', 1)[1].split('    ;;', 1)[0])
 
     def test_changed_device_workflow_consumes_structured_profiled_scopes(self) -> None:
