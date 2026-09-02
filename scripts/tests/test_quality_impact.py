@@ -135,6 +135,33 @@ class RuntimeExtendedJourneyInstrumentedTest {{
         self.assertEqual("exact-method", deletion["selection"])
         self.assertEqual(expected, deletion["scopes"])
 
+    def test_adjacent_method_hunk_selects_every_covered_method(self):
+        path = "app/src/androidTest/java/io/ethan/pushgo/testing/RuntimeExtendedJourneyInstrumentedTest.kt"
+        old_source = self.kotlin_test_source("before")
+        new_source = old_source.replace(
+            '        check("before".isNotEmpty())\n',
+            '        check("before".isNotEmpty())\n'
+            '        check("new assertion".isNotEmpty())\n'
+            '    }\n\n'
+            '    @Test\n'
+            '    fun newAdjacentJourney() {\n'
+            '        check("new".isNotEmpty())\n',
+        )
+        impact = QUALITY_IMPACT.resolve_kotlin_instrumented_test_change(
+            path,
+            old_source,
+            new_source,
+            "@@ -15,0 +15,7 @@\n+adjacent methods\n",
+        )
+        self.assertEqual("exact-method", impact["selection"])
+        self.assertEqual(
+            [
+                "io.ethan.pushgo.testing.RuntimeExtendedJourneyInstrumentedTest#extendedRiskRecovery",
+                "io.ethan.pushgo.testing.RuntimeExtendedJourneyInstrumentedTest#newAdjacentJourney",
+            ],
+            impact["scopes"],
+        )
+
     def test_removed_test_method_and_deleted_source_block_before_execution(self):
         path = "app/src/androidTest/java/io/ethan/pushgo/testing/RuntimeExtendedJourneyInstrumentedTest.kt"
         old_source = self.kotlin_test_source()

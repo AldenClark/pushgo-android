@@ -242,9 +242,10 @@ def changed_hunk_ranges(patch: str) -> tuple[list[tuple[int, int]], list[tuple[i
 
 def methods_covering_changes(
     methods: dict[str, tuple[int, int]], changed_ranges: list[tuple[int, int]]
-) -> tuple[set[str], bool]:
+) -> tuple[set[str], bool, bool]:
     selected: set[str] = set()
     has_unowned_change = False
+    has_ambiguous_change = False
     for changed_start, changed_end in changed_ranges:
         covering = {
             name
@@ -252,11 +253,15 @@ def methods_covering_changes(
             if changed_start <= method_end and changed_end >= method_start
         }
         if len(covering) > 1:
-            return set(), True
+            # A zero-context diff can combine adjacent method additions or
+            # edits into one hunk. Keep every covered method so the caller can
+            # run the exact affected methods instead of silently retaining
+            # only the first pre-existing method.
+            has_ambiguous_change = True
         if not covering:
             has_unowned_change = True
         selected.update(covering)
-    return selected, has_unowned_change
+    return selected, has_unowned_change, has_ambiguous_change
 
 
 def resolve_kotlin_instrumented_test_change(
@@ -303,8 +308,8 @@ def resolve_kotlin_instrumented_test_change(
             "expected_test_count": 0,
             "blocker": f"unable to attribute changed instrumented test source safely: {path}",
         }
-    old_selected, old_unowned = methods_covering_changes(old_methods, ranges[0])
-    new_selected, new_unowned = methods_covering_changes(new_methods, ranges[1])
+    old_selected, old_unowned, old_ambiguous = methods_covering_changes(old_methods, ranges[0])
+    new_selected, new_unowned, new_ambiguous = methods_covering_changes(new_methods, ranges[1])
     removed_methods = old_selected - set(new_methods)
     if removed_methods:
         return {
@@ -345,6 +350,23 @@ def resolve_kotlin_instrumented_test_change(
     if added_methods_only or same_existing_methods or one_sided_existing_method_change:
         selected = new_selected or old_selected
         scopes = [f"{new_class}#{name}" for name in sorted(selected)]
+        return {
+            "selection": "exact-method",
+            "scopes": scopes,
+            "expected_test_count": len(scopes),
+            "blocker": None,
+        }
+    if (
+        (old_ambiguous or new_ambiguous)
+        and not old_unowned
+        and not new_unowned
+        and new_selected
+        and all(name in new_methods for name in old_selected)
+    ):
+        # Adjacent runnable methods may share one diff hunk. The hunk is still
+        # safely attributable when every changed line is inside a runnable
+        # method; execute the union, never the first method only.
+        scopes = [f"{new_class}#{name}" for name in sorted(new_selected)]
         return {
             "selection": "exact-method",
             "scopes": scopes,
