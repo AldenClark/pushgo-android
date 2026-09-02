@@ -307,3 +307,7 @@ Doze 宿主脚本首次试跑 `build/quality-results/android-doze-positive-curre
 ### 2026-09-02 Android Settings/Gateway/加密/传输核心全类复验
 
 提交 `dd3268e` 的干净工作树在 `Medium_Phone / emulator-5554` 以 `QualitySettingsJourneyInstrumentedTest` 精确执行 10/10，`BUILD SUCCESSFUL in 1m 3s`，零 failure/error/skip；收据 `build/quality-results/android-settings-core-current-20260902/android-focused-summary.json` 为 `product/test-system=PASSED/PASSED`、`source_dirty=false`、`incomplete_selected_claims=[]`，executed selectors 与十个方法完全一致。一次启动覆盖加密错误/正确 Key 恢复、页面显隐、非法/未注册 Gateway 候选、提交回滚与提交后待恢复、Transport 拒绝/Private 本地回滚，以及 Activity relaunch 后准确数据/路由；不以设置字段或控件存在替代用户终点。该证据只加强受控 emulator 的 P0 Settings/Gateway 与 P1 transport/crypto 子 claim，不外推真实 Keystore、Provider/FCM/Private、物理设备/OEM、reboot 或长期观察。
+
+### 2026-09-02 Android Event/Thing 实体核心全类复验
+
+提交 `715f48a` 的干净工作树在 `Medium_Phone / emulator-5554` 以 `QualityEntityJourneyInstrumentedTest` 精确执行 4/4，`BUILD SUCCESSFUL in 45s`，零 failure/error/skip；收据 `build/quality-results/android-entity-core-current-20260902/android-focused-summary.json` 为 `product/test-system=PASSED/PASSED`、`source_dirty=false`、`incomplete_selected_claims=[]`，executed selectors 与四个方法完全一致。一次启动覆盖 Event 取消/确认关闭、ongoing 筛选与 Thing 投影、直接及关系入口的失败归属/重复提交保护，以及 Thing 删除回落、干扰项排除、Events/Messages/Updates 真实关联详情和 Activity relaunch；不以设置字段或控件存在替代用户终点。该证据只加强受控 emulator 的 P0 Event/Thing 与 P1 实体关系恢复子 claim，不外推真实 Provider/FCM/Private、物理设备/OEM、批量并发或长期观察。
