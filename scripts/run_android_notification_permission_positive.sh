@@ -12,7 +12,12 @@ permission="android.permission.POST_NOTIFICATIONS"
 run_dir="$(mktemp -d "${TMPDIR:-/tmp}/pushgo-notification-permission.XXXXXX")"
 ui_dump="$run_dir/window.xml"
 device_ui_dump="/sdcard/pushgo-notification-permission.xml"
+lock_timeout_seconds="${QUALITY_ANDROID_DEVICE_LOCK_TIMEOUT_SECONDS:-15}"
+device_lock_root="${QUALITY_ANDROID_LOCK_ROOT:-${TMPDIR:-/tmp}/pushgo-android-quality-locks}"
+device_lock_dir=""
+device_lock_acquired=0
 prepared=0
+baseline_captured=0
 original_granted="false"
 original_user_set=0
 original_user_fixed=0
@@ -53,7 +58,44 @@ test_system_failed() {
   exit 3
 }
 
+acquire_device_lock() {
+  local safe_serial owner_pid deadline
+  safe_serial="$(printf '%s' "$device_serial" | tr -c 'A-Za-z0-9_.-' '_')"
+  device_lock_dir="$device_lock_root/$safe_serial"
+  mkdir -p "$device_lock_root"
+  deadline=$((SECONDS + lock_timeout_seconds))
+  while ! mkdir "$device_lock_dir" 2>/dev/null; do
+    owner_pid=""
+    [[ -f "$device_lock_dir/pid" ]] && owner_pid="$(<"$device_lock_dir/pid")"
+    if [[ "$owner_pid" =~ ^[0-9]+$ ]] && ! kill -0 "$owner_pid" >/dev/null 2>&1; then
+      rmdir "$device_lock_dir" 2>/dev/null || true
+      continue
+    fi
+    if (( SECONDS >= deadline )); then
+      device_lock_dir=""
+      blocked "selected Android device is busy: $device_serial"
+    fi
+    sleep 0.25
+  done
+  printf '%s\n' "$$" >"$device_lock_dir/pid"
+  device_lock_acquired=1
+}
+
+release_device_lock() {
+  local owner_pid=""
+  [[ "$device_lock_acquired" -eq 1 && -n "$device_lock_dir" ]] || return 0
+  [[ -f "$device_lock_dir/pid" ]] && owner_pid="$(<"$device_lock_dir/pid")"
+  if [[ "$owner_pid" == "$$" ]]; then
+    rm -f "$device_lock_dir/pid"
+    rmdir "$device_lock_dir" 2>/dev/null || true
+  fi
+  device_lock_dir=""
+  device_lock_acquired=0
+}
+
 [[ -n "$device_serial" ]] || blocked "ANDROID_SERIAL is required"
+[[ "$lock_timeout_seconds" =~ ^[1-9][0-9]*$ ]] || \
+  blocked "QUALITY_ANDROID_DEVICE_LOCK_TIMEOUT_SECONDS must be a positive integer"
 [[ "$(adb -s "$device_serial" shell getprop ro.kernel.qemu | tr -d '\r')" == "1" ]] || \
   blocked "notification permission journey is destructive to permission state and requires a controlled emulator"
 api_level="$(adb -s "$device_serial" shell getprop ro.build.version.sdk | tr -d '\r')"
@@ -92,30 +134,35 @@ restore_permission() {
 cleanup() {
   local status=$?
   local clear_output=""
-  adb -s "$device_serial" shell am force-stop "$package_name" >/dev/null 2>&1 || true
-  if [[ "$prepared" -eq 1 ]]; then
-    adb -s "$device_serial" logcat -c >/dev/null 2>&1 || true
-    clear_output="$(adb -s "$device_serial" shell am start -W \
-      -n "$package_name/.testing.BenchmarkUnstopActivity" \
-      --ez io.ethan.pushgo.testing.CLEAR_SESSION true 2>&1)" || true
-    if [[ "$clear_output" != *"Status: ok"* ]] || \
-      adb -s "$device_serial" logcat -d -s PushGoQualityControl:E '*:S' | rg -q 'quality control failed'; then
+  if [[ "$device_lock_acquired" -eq 1 ]]; then
+    adb -s "$device_serial" shell am force-stop "$package_name" >/dev/null 2>&1 || true
+    if [[ "$prepared" -eq 1 ]]; then
+      adb -s "$device_serial" logcat -c >/dev/null 2>&1 || true
+      clear_output="$(adb -s "$device_serial" shell am start -W \
+        -n "$package_name/.testing.BenchmarkUnstopActivity" \
+        --ez io.ethan.pushgo.testing.CLEAR_SESSION true 2>&1)" || true
+      if [[ "$clear_output" != *"Status: ok"* ]] || \
+        adb -s "$device_serial" logcat -d -s PushGoQualityControl:E '*:S' | rg -q 'quality control failed'; then
+        echo "cleanup_status=FAILED"
+        echo "cleanup_reason=App-owned notification permission session was not cleared"
+        [[ "$status" -ne 0 ]] || status=1
+      fi
+    fi
+    if [[ "$baseline_captured" -eq 1 ]] && ! restore_permission; then
       echo "cleanup_status=FAILED"
-      echo "cleanup_reason=App-owned notification permission session was not cleared"
+      echo "cleanup_reason=original notification permission state was not restored"
       [[ "$status" -ne 0 ]] || status=1
     fi
+    adb -s "$device_serial" shell am force-stop "$package_name" >/dev/null 2>&1 || true
+    adb -s "$device_serial" shell rm -f "$device_ui_dump" >/dev/null 2>&1 || true
+    release_device_lock
   fi
-  if ! restore_permission; then
-    echo "cleanup_status=FAILED"
-    echo "cleanup_reason=original notification permission state was not restored"
-    [[ "$status" -ne 0 ]] || status=1
-  fi
-  adb -s "$device_serial" shell am force-stop "$package_name" >/dev/null 2>&1 || true
-  adb -s "$device_serial" shell rm -f "$device_ui_dump" >/dev/null 2>&1 || true
   rm -rf "$run_dir"
   exit "$status"
 }
 trap cleanup EXIT
+
+acquire_device_lock
 
 "$repo_root/gradlew" :app:installDebug :app:installDebugAndroidTest
 permission_line="$(adb -s "$device_serial" shell dumpsys package "$package_name" \
@@ -123,6 +170,7 @@ permission_line="$(adb -s "$device_serial" shell dumpsys package "$package_name"
 [[ "$permission_line" == *"granted=true"* ]] && original_granted="true"
 [[ "$permission_line" == *"USER_SET"* ]] && original_user_set=1
 [[ "$permission_line" == *"USER_FIXED"* ]] && original_user_fixed=1
+baseline_captured=1
 
 session_id="android-notification-permission-$(date +%s)"
 payload="$(python3 - "$session_id" <<'PY'
