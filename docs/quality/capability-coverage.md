@@ -328,11 +328,15 @@ Doze 宿主脚本首次试跑 `build/quality-results/android-doze-positive-curre
 
 按正式消费者范围 `app/src/androidTest`、`app/src/test`、`scripts` 运行 `quality_ui_entrypoints.py`，生产标识 58、测试引用 59；7 个未字面引用和 8 个动态/间接标识均有有效处置，未解析生产/测试入口与陈旧处置均为 0，`review_status=READY_FOR_SEMANTIC_REVIEW`。把宿主脚本纳入扫描后，权限确认与 Doze 动作不再被误报为未覆盖。该结果只证明入口防遗漏审计完成，不替代真实业务 Oracle。
 
-### 2026-09-02 Android Nightly 当前字节复验（c41c064）
+### 2026-09-02 Android Nightly 历史字节复验（c41c064）
 
-干净提交 `c41c064` 上执行 `QUALITY_RESULTS_ROOT=build/quality-results/android-nightly-current-byte-20260902 ANDROID_SERIAL=emulator-5554 ./scripts/quality_test.sh nightly`。受控 `Medium_Phone / emulator-5554` 上主机 JVM/本地化/`androidTest` 编译实际执行 298 项；精选 App-owned UI 33/33；迁移、删除、ACK、传输与 Worker 数据边界执行 55/56，唯一 skipped 为显式 opt-in 的 100k 规模性能用例（由独立 performance 车道负责，未将 skipped 计为通过）；权限、Doze 恢复/会话 snooze、进程重开与真实浏览器交接、系统通知/Private Service、zh-CN 大字体旅程均执行并通过。全程无 failure/error，收据 `build/quality-results/android-nightly-current-byte-20260902/android-nightly-summary.json` 为 `product_capability_status=PASSED`、`test_system_status=PASSED`、`source_dirty=false`、`incomplete_selected_claims=[]`。
+干净提交 `c41c064` 上执行的旧 Nightly 在 56 项选择中包含一个显式 opt-in 的 100k 规模性能用例 skipped；该 bundle 仅保留为历史背景，不再作为当前默认 Nightly 的完整执行证据。现行 runner 从默认 Nightly 排除该 opt-in 项，对新鲜 XML 中任何 skipped 直接判为 `FAILED_TEST_SYSTEM`，并为每个设备批次绑定源码解析的精确 selector/count；100k 仅由独立 performance 车道显式执行，未为验证门禁重复消耗完整 Nightly。
 
-该证据证明当前测试系统字节下受控 emulator 的精选 P0/P1 跨层主链仍可执行且结果可信；不把 opt-in 性能项、真实 FCM/Private、物理设备/OEM、reboot、生产分发或长期观察外推为完成。
+该历史 bundle 只能证明当时已执行的受控 emulator 精选 P0/P1 跨层主链；不能把 opt-in 性能项、真实 FCM/Private、物理设备/OEM、reboot、生产分发或长期观察外推为完成。当前默认 Nightly 的完整执行仍需在新 runner 上重新产生 fresh receipt。
+
+### 2026-09-02 Android 精确执行门禁与可恢复准备当前字节（8bf40a6）
+
+提交 `8bf40a6` 新增源码驱动的 selector/count 解析：`focused`、`device`、`system-notification`、`performance`、`accessibility` 及 Release 设备批次都在执行前绑定预期方法集合；新鲜 XML 含任何 skipped 时直接归类测试系统失败，避免部分执行伪装为通过，默认 Nightly 则排除显式 opt-in 的 100k 方法。干净提交上，已有频道重订阅恢复旅程精确执行 1/1，收据 `build/quality-results/android-existing-subscribe-selector-gate-clean-20260902/android-focused-summary.json` 为 product/test-system=`PASSED/PASSED`、`source_dirty=false`、无 incomplete claim；无障碍旅程精确执行 1/1，收据 `build/quality-results/android-accessibility-baseline-trap-clean-20260902/android-accessibility-summary.json` 为双 `PASSED`、`source_dirty=false`，XML 为 `tests=1`, `failures=0`, `errors=0`, `skipped=0`。无障碍 runner 在进入应用前捕获字号/语言基线，退出 trap 恢复并验证字号；即使 Gradle 清掉应用包也不会把恢复失败误报成产品失败，本轮字号恢复为 `1.0`、serial 租约已释放。此前首次恢复失败被正确归类为 test-system failure，随后才以同一真实旅程完成干净复验；没有重跑业务失败来求绿。该切片只关闭受控 emulator 的执行完整性和准备隔离，不外推真实 Provider/FCM/Private、真机/OEM、TalkBack/物理无障碍、生产性能或整体 Gate。
 
 ### 2026-09-02 Android Accessibility 当前字节
 
