@@ -156,6 +156,14 @@ class QualityLaneCostContractTests(unittest.TestCase):
             "RuntimeDataLayerInstrumentedTest#realRoomDaoSearchAndPaging_optIn100000",
             runner,
         )
+        self.assertIn(
+            'instrumentation_scope="$expected_selectors"',
+            runner,
+        )
+        self.assertIn(
+            '"-Pandroid.testInstrumentationRunnerArguments.class=$instrumentation_scope"',
+            runner,
+        )
         nightly_body = runner.split("  nightly)", 1)[1].split("    ;;", 1)[0]
         self.assertIn("excluding opt-in 100k performance", nightly_body)
 

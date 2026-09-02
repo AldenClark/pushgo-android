@@ -433,6 +433,7 @@ run_device_classes() {
   local device_serial
   local expected_selectors
   local expected_count
+  local instrumentation_scope="$classes"
   local -a selector_args=()
   [[ -z "$excluded_selectors" ]] || selector_args+=(--exclude-selector "$excluded_selectors")
   # Bash expands an empty local array as unset when this snapshot script is
@@ -456,6 +457,14 @@ run_device_classes() {
     echo "reason=unable_to_resolve_android_expected_selectors"
     exit 2
   fi
+  # A class-level instrumentation filter still discovers every @Test method,
+  # including opt-in methods that the lane deliberately excluded; those appear
+  # as skipped in the fresh XML and must remain a test-system failure.  When an
+  # exclusion is requested, pass the resolved method selectors themselves so
+  # the excluded method never enters the native report.
+  if [[ -n "$excluded_selectors" ]]; then
+    instrumentation_scope="$expected_selectors"
+  fi
   expected_count="$(expected_selector_count "$expected_selectors")"
   selected_claims+=("$claim")
   doctor_output="$("$repo_root/scripts/quality_doctor.sh")"
@@ -472,7 +481,7 @@ run_device_classes() {
   QUALITY_EXPECTED_ANDROID_TEST_SELECTORS="$expected_selectors"
   QUALITY_EXPECTED_ANDROID_TEST_COUNT="$expected_count"
   ANDROID_SERIAL="$device_serial" "$repo_root/gradlew" connectedDebugAndroidTest \
-    "-Pandroid.testInstrumentationRunnerArguments.class=$classes"
+    "-Pandroid.testInstrumentationRunnerArguments.class=$instrumentation_scope"
   verify_device_tests_executed "$device_test_started_at" "$repo_root/app/build/outputs/androidTest-results/connected"
   release_android_device_lock
   claims+=("$claim")
