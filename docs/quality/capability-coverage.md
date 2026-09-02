@@ -356,3 +356,6 @@ Doze 宿主脚本首次试跑 `build/quality-results/android-doze-positive-curre
 ### 2026-09-02 Android device runner 空排除参数修复与干净复验（ec9a526）
 
 首轮 device 扩展已真实执行 12 条核心 UI 方法，但在进入数据边界前，runner 在 stdin 重执行与 `set -u` 下无条件展开空可选参数数组，正确记录为测试系统 `BLOCKED`，不计产品通过。提交 `ec9a526` 将 selector 解析改为有/无排除参数的安全分支，并增加回归合同；脚本/合同测试当前 173/173。随后在干净工作树、`Medium_Phone / emulator-5554` 重跑 `QUALITY_RESULTS_ROOT=build/quality-results/android-execution-gate-device-clean-20260902 ANDROID_SERIAL=emulator-5554 ./scripts/quality_test.sh device`：主机 JVM/本地化/`androidTest` 编译 298 项、UI 12/12、迁移/待删除/ACK 数据 21/21，均零 failure/error/skip；`android-device-summary.json` 为 product/test-system=`PASSED/PASSED`、`source_dirty=false`、无 incomplete claim。该证据仅限受控 emulator/host 的当前正向扩展，不外推真实 FCM/Private、物理设备/OEM、生产性能或长期观察。
+### 2026-09-02 Android 频道错误归属影响链当前字节（0d4db0c）
+
+影响规则新增的 `QualityChannelJourneyInstrumentedTest#remoteRejectionStaysInSheetAndRetryPersists` 在专用 `Medium_Phone / emulator-5554` 上精确执行 1/1，真实验证远端拒绝只显示在创建 Sheet、宿主无错误，Retry 后准确频道创建并在普通重开后保持。收据 `build/quality-results/android-channel-impact-current-20260902/android-focused-summary.json` 为 product/test-system=`PASSED/PASSED`、`source_dirty=false`、`selected_claims == executed_claims`、无 incomplete claim 或 issue，原生执行无 failure/error/skip。该结果关闭受控 Android 的频道错误归属与影响选择端到端子 claim，不外推真实 Provider、物理/OEM 或整体 Gate。
