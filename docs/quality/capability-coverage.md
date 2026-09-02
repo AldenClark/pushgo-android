@@ -392,3 +392,7 @@ Doze 宿主脚本首次试跑 `build/quality-results/android-doze-positive-curre
 ### 2026-09-02 Android `performance` 当前字节（`66c8133`）
 
 专用 `Medium_Phone / emulator-5554`（API 37）真实执行 100k Room 正确性 1/1、1k 启动/详情 Macrobenchmark 2/2，以及 Release/Profile 隔离合同，均无 failure/error/skip；收据 `build/quality-results/android-performance-followup-20260902/android-performance-summary.json` 为 product/test-system=`PASSED/PASSED`、`source_dirty=false`、selected 与 executed claim 一致。慢加载负控在准确 canonical 标题可见后测得 4499ms，超过 2000ms 预算，独立收据为 product=`NOT_RUN`、test-system=`PASSED`，证明预警机制对真实慢加载敏感而非把超时直接当产品通过。该条只支持受控 emulator 的性能/数据正确性与门禁机制，不外推物理设备、真实网络或发布性能。
+
+### 2026-09-03 Android 派生索引写入失败后的 canonical 恢复当前字节（`604a5a8`）
+
+在干净提交 `604a5a8`、专用 `Medium_Phone / emulator-5554` 上，`RuntimeDataLayerInstrumentedTest#canonicalMessageSurvivesDerivedIndexWriteFailureAndRepairsBeforeSearch` focused 精确执行 1/1；Gradle `BUILD SUCCESSFUL in 54s`，原生执行无 failure/error/skip，收据 `build/quality-results/android-derived-write-recovery-clean-20260903/android-focused-summary.json` 为 product/test-system=`PASSED/PASSED`、`source_dirty=false`、`selected_claims == executed_claims`、`incomplete_selected_claims=[]`、无 issue。真实 App-owned Room 触发器只阻断该消息的 `search_text` 派生写入，随后验证 canonical title/body、总数和列表仍准确可读；解除故障后真实搜索命中唯一消息、列表投影恢复且缺失 search/summary 投影为 0。该证据关闭受控 Android lower-layer“派生写入失败不丢 canonical、恢复后自修复”子 claim；进程终止、磁盘耗尽、UI 可见 rebuild、多 pending 并发、Provider、物理/OEM 和 Release 仍未运行，`P1-STORE`/`P1-SEARCH` 继续保持 `DEFERRED`。
