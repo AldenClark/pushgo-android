@@ -311,3 +311,9 @@ Doze 宿主脚本首次试跑 `build/quality-results/android-doze-positive-curre
 ### 2026-09-02 Android Event/Thing 实体核心全类复验
 
 提交 `715f48a` 的干净工作树在 `Medium_Phone / emulator-5554` 以 `QualityEntityJourneyInstrumentedTest` 精确执行 4/4，`BUILD SUCCESSFUL in 45s`，零 failure/error/skip；收据 `build/quality-results/android-entity-core-current-20260902/android-focused-summary.json` 为 `product/test-system=PASSED/PASSED`、`source_dirty=false`、`incomplete_selected_claims=[]`，executed selectors 与四个方法完全一致。一次启动覆盖 Event 取消/确认关闭、ongoing 筛选与 Thing 投影、直接及关系入口的失败归属/重复提交保护，以及 Thing 删除回落、干扰项排除、Events/Messages/Updates 真实关联详情和 Activity relaunch；不以设置字段或控件存在替代用户终点。该证据只加强受控 emulator 的 P0 Event/Thing 与 P1 实体关系恢复子 claim，不外推真实 Provider/FCM/Private、物理设备/OEM、批量并发或长期观察。
+
+### 2026-09-02 Android `pr-ui` 当前字节复验（f00ad40）
+
+干净提交 `f00ad40` 上执行 `QUALITY_RESULTS_ROOT=build/quality-results/pr-ui-current-20260902 ./scripts/quality_test.sh pr-ui`。受控 `Medium_Phone / emulator-5554` 的固定最低充分正向集合 fresh 执行 6/6，`BUILD SUCCESSFUL in 50s`，failure/error/skip 均为 0；`verify_android_test_execution.py` 以本轮报告时间窗复核 `status=EXECUTED`、`executed_test_count=6`，六个 Class#method selector 与计划完全一致。收据 `build/quality-results/pr-ui-current-20260902/android-pr-ui-summary.json` 为 `product_capability_status=PASSED`、`test_system_status=PASSED`、`source_dirty=false`、`incomplete_selected_claims=[]`。
+
+这 6 条旅程从真实入口验证标准消息准确内容与 Activity 重开、分页/已读/未读徽标、五域主导航、Event 关闭投影、Channel 创建/改名/双退订和 Gateway 候选验证/注册后换域；每条都以准确业务状态或重开后的可用结果为终点，不以启动、控件存在、版本或结果文件生成替代功能通过。该证据只刷新受控 emulator 的当前 PR-UI 主链，不外推真实 FCM/Private、物理设备/OEM、生产性能或长期观察。
