@@ -293,3 +293,5 @@ Gateway 的正向终点不再停在地址持久化或旧行消失：现有 `serv
 2026-09-02 Android 构建缓存处置：Gateway 事务 2/2 结束且确认无 Gradle/测试进程后，按授权仅删除 PushGo `app/build` 下可重建的 APK、中间产物、generated/kotlin/KSP/tmp/reports（约 614 MiB）；当前 instrumentation XML、`build/quality-results` 收据、源码、`Medium_Phone / emulator-5554` 状态和其他任务资源均保留。
 
 2026-09-02 低磁盘安全处置：复核数据卷可用空间一度降至约 116 MiB；未触碰 Android 设备状态或当前 Gradle 9.4.1/依赖缓存。确认旧 Gradle 9.6.1 缓存（约 1.2 GiB）没有打开句柄、当前守护进程命令行未引用后，按授权删除该精确可重建缓存；保留 `build/quality-results`、源码、`Medium_Phone / emulator-5554`、当前版本缓存和其他任务资源，清理后数据卷可用空间约 3.8 GiB。该环境操作不改变 Android 产品 Oracle 或既有执行结论。
+
+2026-09-02 Android 影响计划证据描述校准：`channels-settings-transport` 的 `known_evidence_gaps` 曾把四条必需 Gateway/Settings Compose 旅程描述为“未运行/无授权设备”，与当前 `Medium_Phone / emulator-5554` 的干净提交证据（Settings 10/10，以及 Gateway 事务 2/2）不一致。配置现改为明确区分：四条受控 emulator 旅程已具备真实 UI/数据/relaunch 证据；跨 store/process-death/旧路由清理、真实 Gateway/FCM/Private、物理设备/OEM 等边界仍保持未关闭。该校准只修正证据归属文字，不把受控 emulator 结果外推为真实外部系统或发布通过。
