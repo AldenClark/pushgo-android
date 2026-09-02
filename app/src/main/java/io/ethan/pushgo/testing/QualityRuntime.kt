@@ -11,6 +11,7 @@ import java.net.URI
 import java.util.Base64
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.delay
 import org.json.JSONArray
 import org.json.JSONObject
@@ -130,6 +131,7 @@ data class QualityFaults(
     val failMessageSearchOnce: Boolean = false,
     val failGatewaySwitchValidationOnce: Boolean = false,
     val failGatewaySwitchCommitOnce: Boolean = false,
+    val pauseGatewaySwitchBeforeCommit: Boolean = false,
     val failGatewayPostCommitSyncOnce: Boolean = false,
     val failNotificationKeyPersistenceOnce: Boolean = false,
     val failChannelSubscriptionPersistenceOnce: Boolean = false,
@@ -145,6 +147,7 @@ data class QualitySessionDescriptor(
     val eventCloseScenario: QualityEventCloseScenario = QualityEventCloseScenario.NONE,
     val channelMutationScenario: QualityChannelMutationScenario = QualityChannelMutationScenario.NONE,
     val expectedChannelMutationGatewayUrl: String? = null,
+    val expectedGatewayPreparationUrl: String? = null,
     val transportSwitchScenario: QualityTransportSwitchScenario = QualityTransportSwitchScenario.NONE,
     val updateScenario: QualityUpdateScenario = QualityUpdateScenario.NONE,
     val updateArtifact: QualityUpdateArtifact? = null,
@@ -190,6 +193,9 @@ object QualityRuntime {
     private val remainingMessageSearchFailures = AtomicInteger(0)
     private val remainingGatewaySwitchValidationFailures = AtomicInteger(0)
     private val remainingGatewaySwitchCommitFailures = AtomicInteger(0)
+    private val gatewaySwitchPreCommitPaused = AtomicBoolean(false)
+    @Volatile
+    private var gatewaySwitchPreCommitBarrier: CompletableDeferred<Unit>? = null
     private val remainingGatewayPostCommitSyncFailures = AtomicInteger(0)
     private val pendingGatewayPostCommitSyncFailure = AtomicBoolean(false)
     private val remainingNotificationKeyPersistenceFailures = AtomicInteger(0)
@@ -223,6 +229,13 @@ object QualityRuntime {
         remainingGatewaySwitchCommitFailures.set(
             if (faults?.failGatewaySwitchCommitOnce == true) 1 else 0
         )
+        gatewaySwitchPreCommitBarrier?.cancel()
+        gatewaySwitchPreCommitPaused.set(false)
+        gatewaySwitchPreCommitBarrier = if (faults?.pauseGatewaySwitchBeforeCommit == true) {
+            CompletableDeferred()
+        } else {
+            null
+        }
         remainingGatewayPostCommitSyncFailures.set(0)
         pendingGatewayPostCommitSyncFailure.set(faults?.failGatewayPostCommitSyncOnce == true)
         remainingNotificationKeyPersistenceFailures.set(
@@ -325,6 +338,27 @@ object QualityRuntime {
         ) {
             throw QualityGatewaySwitchCommitException()
         }
+    }
+
+    /**
+     * Quality-only observation seam after candidate registration and before
+     * any active-Gateway write. Tests release it explicitly; there is no
+     * timer, retry, or production behavior involved.
+     */
+    suspend fun awaitGatewaySwitchPreCommitPhase() {
+        val barrier = gatewaySwitchPreCommitBarrier ?: return
+        gatewaySwitchPreCommitPaused.set(true)
+        try {
+            barrier.await()
+        } finally {
+            gatewaySwitchPreCommitPaused.set(false)
+        }
+    }
+
+    fun isGatewaySwitchPreCommitPaused(): Boolean = gatewaySwitchPreCommitPaused.get()
+
+    fun continueGatewaySwitchPreCommitPhase() {
+        gatewaySwitchPreCommitBarrier?.complete(Unit)
     }
 
     fun beforeGatewayPostCommitSync() {
@@ -504,6 +538,10 @@ object QualityRuntime {
             .optString("expected_channel_mutation_gateway_url")
             .trim()
             .ifEmpty { null }
+        val expectedGatewayPreparationUrl = payload
+            .optString("expected_gateway_preparation_url")
+            .trim()
+            .ifEmpty { null }
         val transportSwitchScenarioValue = payload.optString("transport_switch_scenario", "none").trim()
         val transportSwitchScenario = requireNotNull(
             QualityTransportSwitchScenario.fromWireValue(transportSwitchScenarioValue)
@@ -621,6 +659,10 @@ object QualityRuntime {
                     "fail_gateway_switch_commit_once",
                     false,
                 ) ?: false,
+                pauseGatewaySwitchBeforeCommit = faultsJson?.optBoolean(
+                    "pause_gateway_switch_before_commit",
+                    false,
+                ) ?: false,
                 failGatewayPostCommitSyncOnce = faultsJson?.optBoolean(
                     "fail_gateway_post_commit_sync_once",
                     false,
@@ -642,6 +684,7 @@ object QualityRuntime {
             eventCloseScenario = eventCloseScenario,
             channelMutationScenario = channelMutationScenario,
             expectedChannelMutationGatewayUrl = expectedChannelMutationGatewayUrl,
+            expectedGatewayPreparationUrl = expectedGatewayPreparationUrl,
             transportSwitchScenario = transportSwitchScenario,
             updateScenario = updateScenario,
             updateArtifact = updateArtifact,
@@ -662,6 +705,10 @@ object QualityRuntime {
             .put(
                 "fail_gateway_switch_commit_once",
                 session.faults.failGatewaySwitchCommitOnce,
+            )
+            .put(
+                "pause_gateway_switch_before_commit",
+                session.faults.pauseGatewaySwitchBeforeCommit,
             )
             .put(
                 "fail_gateway_post_commit_sync_once",
@@ -702,6 +749,7 @@ object QualityRuntime {
             .put("event_close_scenario", session.eventCloseScenario.wireValue)
             .put("channel_mutation_scenario", session.channelMutationScenario.wireValue)
             .put("expected_channel_mutation_gateway_url", session.expectedChannelMutationGatewayUrl)
+            .put("expected_gateway_preparation_url", session.expectedGatewayPreparationUrl)
             .put("transport_switch_scenario", session.transportSwitchScenario.wireValue)
             .put("update_scenario", session.updateScenario.wireValue)
             .put(
@@ -824,6 +872,9 @@ object QualityRuntime {
         remainingMessageSearchFailures.set(0)
         remainingGatewaySwitchValidationFailures.set(0)
         remainingGatewaySwitchCommitFailures.set(0)
+        gatewaySwitchPreCommitBarrier?.cancel()
+        gatewaySwitchPreCommitBarrier = null
+        gatewaySwitchPreCommitPaused.set(false)
         remainingGatewayPostCommitSyncFailures.set(0)
         pendingGatewayPostCommitSyncFailure.set(false)
         remainingNotificationKeyPersistenceFailures.set(0)

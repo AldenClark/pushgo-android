@@ -226,10 +226,10 @@ class RuntimeExtendedJourneyInstrumentedTest {{
             for run in plan["required_device_runs"]
         }
         self.assertEqual(
-            {"accessibility": 1, "app-owned": 33, "system-notification": 3},
+            {"accessibility": 1, "app-owned": 34, "system-notification": 3},
             profiles,
         )
-        self.assertEqual(37, len(plan["required_device_scopes"]))
+        self.assertEqual(38, len(plan["required_device_scopes"]))
 
     def test_unknown_changed_instrumented_class_forces_full_lane(self):
         path = "app/src/androidTest/java/io/ethan/pushgo/testing/Unknown.kt"
@@ -482,6 +482,18 @@ class RuntimeExtendedJourneyInstrumentedTest {{
         self.assertEqual("focused", plan["device_scope_selection"])
         self.assertIn(
             "io.ethan.pushgo.testing.QualityChannelJourneyInstrumentedTest#remoteRejectionStaysInSheetAndRetryPersists",
+            plan["required_device_scopes"],
+        )
+
+    def test_gateway_save_lifecycle_change_selects_inflight_dismiss_journey(self):
+        plan = self.plan(
+            "app/src/main/java/io/ethan/pushgo/ui/screens/SettingsScreen.kt"
+        )
+
+        self.assertEqual("device", plan["recommended_lane"])
+        self.assertEqual("focused", plan["device_scope_selection"])
+        self.assertIn(
+            "io.ethan.pushgo.testing.QualitySettingsJourneyInstrumentedTest#savingGatewayKeepsEditorOpenUntilPreparedSwitchCommitsAndPersists",
             plan["required_device_scopes"],
         )
 

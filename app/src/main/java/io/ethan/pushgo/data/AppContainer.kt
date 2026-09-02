@@ -204,8 +204,11 @@ class AppContainer(
                 private val activeCreatedChannelIds = mutableSetOf<String>()
                 private var existingSubscriptionWasCompensated = false
 
-                private fun requireExpectedGateway(gatewayUrl: String) {
-                    val expected = qualitySession?.expectedChannelMutationGatewayUrl ?: return
+                private fun requireExpectedGateway(
+                    gatewayUrl: String,
+                    expectedGatewayUrl: String? = qualitySession?.expectedChannelMutationGatewayUrl,
+                ) {
+                    val expected = expectedGatewayUrl ?: return
                     check(
                         UrlValidators.normalizeGatewayBaseUrl(gatewayUrl) ==
                             UrlValidators.normalizeGatewayBaseUrl(expected)
@@ -218,7 +221,10 @@ class AppContainer(
                     gatewayUrl: String,
                     providerToken: String,
                 ): String {
-                    requireExpectedGateway(gatewayUrl)
+                    requireExpectedGateway(
+                        gatewayUrl,
+                        qualitySession?.expectedGatewayPreparationUrl,
+                    )
                     check(providerToken.isNotBlank()) { "quality channel route requires a provider token" }
                     return "quality-channel-device"
                 }

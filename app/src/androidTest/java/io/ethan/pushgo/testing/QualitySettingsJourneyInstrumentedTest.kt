@@ -523,6 +523,65 @@ class QualitySettingsJourneyInstrumentedTest : QualityAppJourneyTestCase() {
     }
 
     @Test
+    fun savingGatewayKeepsEditorOpenUntilPreparedSwitchCommitsAndPersists() {
+        val oldAddress = io.ethan.pushgo.data.AppConstants.defaultServerAddress
+        val candidateAddress = "https://quality-saving-dismiss.invalid/api"
+        configureAndLaunch(
+            fixture = QualityFixture.CHANNELS_STANDARD,
+            faults = QualityFaults(pauseGatewaySwitchBeforeCommit = true),
+            channelMutationScenario = QualityChannelMutationScenario.ACCEPTED,
+            expectedChannelMutationGatewayUrl = candidateAddress,
+            expectedGatewayPreparationUrl = candidateAddress,
+        )
+        openSettings()
+        scrollTo("row.settings.gateway")
+        composeRule.onNodeWithTag("row.settings.gateway").performClick()
+        val addressField = composeRule.onNodeWithTag("field.settings.gateway.address")
+        addressField.performTextClearance()
+        addressField.performTextInput("$candidateAddress/")
+        composeRule.onNodeWithTag("action.settings.gateway.save").performClick()
+
+        // The latch is reached only after candidate registration. It replaces
+        // a timing guess with a deterministic pre-commit observation point.
+        composeRule.waitUntil(timeoutMillis = 4_000) {
+            QualityRuntime.isGatewaySwitchPreCommitPaused()
+        }
+        composeRule.onNodeWithTag("sheet.settings.gateway").performTouchInput { swipeDown() }
+        composeRule.waitForIdle()
+        composeRule.onNodeWithTag("sheet.settings.gateway").assertIsDisplayed()
+        pressBack()
+        composeRule.waitForIdle()
+        pressBack()
+        composeRule.onNodeWithTag("sheet.settings.gateway").assertIsDisplayed()
+        composeRule.onNodeWithTag("action.settings.gateway.save").assertIsNotEnabled()
+        composeRule.onNodeWithTag("row.settings.gateway").assertTextContains(oldAddress)
+
+        QualityRuntime.continueGatewaySwitchPreCommitPhase()
+        waitForTagToDisappear("sheet.settings.gateway")
+        composeRule.onNodeWithTag("row.settings.gateway").assertTextContains(candidateAddress)
+
+        leaveSettings()
+        composeRule.onNodeWithTag("action.channels.add").performClick()
+        composeRule.onNodeWithTag("field.channels.create.name")
+            .performTextInput("Committed Gateway Channel")
+        composeRule.onNodeWithTag("field.channels.create.password")
+            .performTextInput(listOf("quality", "committed").joinToString(""))
+        composeRule.onNodeWithTag("action.channels.entry.submit").performClick()
+        waitForTag("channel.row.01H00000000000000000000003")
+        composeRule.onNodeWithTag("channel.row.01H00000000000000000000003")
+            .assertTextContains("Committed Gateway Channel")
+
+        scenario?.close()
+        scenario = launchMainActivity()
+        composeRule.onNodeWithTag("nav.item.channels").performClick()
+        composeRule.onNodeWithTag("channel.row.01H00000000000000000000003")
+            .assertTextContains("Committed Gateway Channel")
+        openSettings()
+        scrollTo("row.settings.gateway")
+        composeRule.onNodeWithTag("row.settings.gateway").assertTextContains(candidateAddress)
+    }
+
+    @Test
     fun gatewaySyncFailureReportsCommittedGatewayAndPendingRecovery() {
         val candidateAddress = "https://quality-sync-pending.invalid/api"
         configureAndLaunch(

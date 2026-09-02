@@ -51,6 +51,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SheetValue
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -512,13 +513,23 @@ fun SettingsScreen(
     }
 
     if (showGatewaySheet) {
-        val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+        val sheetState = rememberModalBottomSheetState(
+            skipPartiallyExpanded = true,
+            confirmValueChange = { targetValue ->
+                targetValue != SheetValue.Hidden || !uiState.isSavingGateway
+            },
+        )
         PushGoModalBottomSheet(
             modifier = Modifier.testTag("sheet.settings.gateway"),
             onDismissRequest = {
-                viewModel.cancelGatewayEdit()
-                showGatewayToken = false
-                showGatewaySheet = false
+                // A candidate may already have a remote identity. Keep the
+                // editor visible until the active-Gateway transaction reaches
+                // its truthful terminal result rather than implying cancel.
+                if (!uiState.isSavingGateway) {
+                    viewModel.cancelGatewayEdit()
+                    showGatewayToken = false
+                    showGatewaySheet = false
+                }
             },
             sheetState = sheetState,
             paneTitle = stringResource(R.string.a11y_pane_gateway_settings),

@@ -38,6 +38,7 @@ class QualityRuntimeTest {
                 failMessageSearchOnce = true,
                 failGatewaySwitchValidationOnce = true,
                 failGatewaySwitchCommitOnce = true,
+                pauseGatewaySwitchBeforeCommit = true,
                 failGatewayPostCommitSyncOnce = true,
                 failNotificationKeyPersistenceOnce = true,
                 failChannelSubscriptionPersistenceOnce = true,
@@ -47,6 +48,7 @@ class QualityRuntimeTest {
             eventCloseScenario = QualityEventCloseScenario.FAIL_ONCE_THEN_ACCEPTED_AND_DELIVERED,
             channelMutationScenario = QualityChannelMutationScenario.ACCEPTED,
             expectedChannelMutationGatewayUrl = "https://quality-settings.invalid/api",
+            expectedGatewayPreparationUrl = "https://quality-candidate.invalid/api",
             transportSwitchScenario = QualityTransportSwitchScenario.REJECT_ONCE_THEN_ACCEPTED,
             updateScenario = QualityUpdateScenario.AVAILABLE_STABLE,
             updateArtifact = QualityUpdateArtifact(
@@ -79,6 +81,10 @@ class QualityRuntimeTest {
         assertEquals(
             "https://quality-settings.invalid/api",
             decoded.expectedChannelMutationGatewayUrl,
+        )
+        assertEquals(
+            "https://quality-candidate.invalid/api",
+            decoded.expectedGatewayPreparationUrl,
         )
         assertEquals(
             QualityTransportSwitchScenario.REJECT_ONCE_THEN_ACCEPTED,

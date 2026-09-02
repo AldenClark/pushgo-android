@@ -795,6 +795,12 @@ class SettingsViewModel(
                     providerToken = activeFcmToken,
                     channelType = if (useProviderRoute) "fcm" else "private",
                 )
+                if (BuildConfig.DEBUG) {
+                    // This is intentionally between candidate registration
+                    // and the irreversible local commit. It is a quality-only
+                    // observable seam, never a production delay.
+                    QualityRuntime.awaitGatewaySwitchPreCommitPhase()
+                }
                 channelRepository.commitGatewaySwitch(preparedGateway)
                 gatewayCommitted = true
                 // A successful local commit is the authority boundary for a
