@@ -420,24 +420,37 @@ class QualityMessageJourneyInstrumentedTest : QualityAppJourneyTestCase() {
 
         composeRule.onNodeWithTag("field.message.search")
             .assertIsDisplayed()
-            .performTextInput("not-present-in-any-message")
-        composeRule.onNodeWithTag("state.messages.search.loading").assertIsDisplayed()
-        composeRule.waitUntil(timeoutMillis = 8_000) {
-            composeRule.onAllNodes(hasTestTag("state.messages.search.empty"))
-                .fetchSemanticsNodes().isNotEmpty()
+            .performTextInput("P2 Split")
+        composeRule.waitUntil(timeoutMillis = 4_000) {
+            composeRule.onAllNodes(hasTestTag("state.messages.search.loading.slow"))
+                .fetchSemanticsNodes()
+                .isNotEmpty()
         }
-        composeRule.onNodeWithText("P2 Split Seed Message").assertDoesNotExist()
-        composeRule.onNodeWithTag("field.message.search").performTextClearance()
-        composeRule.onNodeWithTag("field.message.search").performTextInput("P2 Split")
+        composeRule.onNodeWithTag("state.messages.search.loading.slow")
+            .assertIsDisplayed()
+        composeRule.onNodeWithText(app.getString(R.string.message_loading_slow))
+            .assertIsDisplayed()
         composeRule.waitUntil(timeoutMillis = 8_000) {
             composeRule.onAllNodes(hasText("P2 Split Seed Message"))
                 .fetchSemanticsNodes().isNotEmpty()
         }
+        composeRule.onNodeWithTag("state.messages.search.loading.slow").assertDoesNotExist()
         composeRule.onNodeWithTag("state.messages.search.empty").assertDoesNotExist()
+        composeRule.onAllNodesWithText("P2 Split Seed Message").assertCountEquals(1)
         composeRule.onNodeWithText("P2 Split Seed Message").performClick()
         composeRule.onNodeWithTag("sheet.message.detail").assertIsDisplayed()
         composeRule.onNodeWithTag("field.message.detail.body")
             .assertTextContains("Seeded from fixture.seed_messages for UI validation.")
+        pressBack()
+
+        composeRule.onNodeWithTag("field.message.search").performTextClearance()
+        composeRule.onNodeWithTag("field.message.search").performTextInput("not-present-in-any-message")
+        composeRule.waitUntil(timeoutMillis = 8_000) {
+            composeRule.onAllNodes(hasTestTag("state.messages.search.empty"))
+                .fetchSemanticsNodes().isNotEmpty()
+        }
+        composeRule.onNodeWithTag("field.message.search").performTextClearance()
+        composeRule.onNodeWithText("P2 Split Seed Message").assertIsDisplayed()
     }
 
     @Test

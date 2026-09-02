@@ -135,6 +135,7 @@ fun MessageListScreen(
     val uiColors = PushGoThemeExtras.colors
     val messages = viewModel.messages.collectAsLazyPagingItems()
     var isMessageLoadSlow by remember { mutableStateOf(false) }
+    var isSearchLoadSlow by remember { mutableStateOf(false) }
     var observedInitialMessageLoad by remember {
         mutableStateOf(messages.loadState.refresh is LoadState.Loading)
     }
@@ -178,6 +179,16 @@ fun MessageListScreen(
             delay(1_000)
             if (messages.loadState.refresh is LoadState.Loading) {
                 isMessageLoadSlow = true
+            }
+        }
+    }
+
+    LaunchedEffect(searchResults.loadState.refresh, query) {
+        isSearchLoadSlow = false
+        if (query.isNotBlank() && searchResults.loadState.refresh is LoadState.Loading) {
+            delay(1_000)
+            if (query.isNotBlank() && searchResults.loadState.refresh is LoadState.Loading) {
+                isSearchLoadSlow = true
             }
         }
     }
@@ -772,15 +783,17 @@ fun MessageListScreen(
                     when (searchResults.loadState.refresh) {
                         is LoadState.Loading -> {
                             item {
-                                Box(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(vertical = 48.dp)
-                                        .testTag("state.messages.search.loading"),
-                                    contentAlignment = Alignment.Center,
-                                ) {
-                                    CircularProgressIndicator()
-                                }
+                                MessageLoadStatePanel(
+                                    message = stringResource(
+                                        if (isSearchLoadSlow) R.string.message_loading_slow
+                                        else R.string.label_loading,
+                                    ),
+                                    stateTag = if (isSearchLoadSlow) {
+                                        "state.messages.search.loading.slow"
+                                    } else {
+                                        "state.messages.search.loading"
+                                    },
+                                )
                             }
                         }
                         is LoadState.Error -> {
