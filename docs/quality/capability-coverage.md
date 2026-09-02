@@ -70,8 +70,6 @@ Gateway 后续请求补充证据：既有 Server 正向旅程现在将精确新 
 
 The AI-history blind snapshot now removes the task corpus, evaluation document and prior result assets after exporting the parent commit. Its retained tests materialize a real task, compare changed-file bytes to the parent rather than target, require no `.git`/answer assets, and reject an existing output directory. Android's 10-task replay is `READY_FOR_RECORDED_SEMANTIC_REVIEW`; an independent reviewer and the 14-day observation window are still required, so this does not remove `common-mode-risk`.
 
-Gate 10 is an independent AI-native delivery objective. The Android `scripts/quality_ai_native_acceptance.py` contract binds an answer-hidden packet, real product/test diff, schema v2 native receipt, independent blind-before-reveal review, and later real-change calibration; it is not a product UI pass or an impact-rule substitute. The current seven contract tests pass, but no isolated real AI implementation bundle exists yet, so the objective remains `PARTIAL`.
-
 P1-NAV 当前证据刷新：最终对抗审查发现 280ms single 提交早于 320ms double 窗口结束，会让 280–320ms 内的有效第二击产生 unread→top 抖动。当前仅在完整窗口之后的 340ms 提交 single；同一条分页/已读/重启主链在 `Medium_Phone / emulator-5554` 当前字节重新 1/1，收据仍为 `build/quality-results/android-focused-summary.json`。
 
 Android 设备准备合同补强（2026-08-31）：刷新主链首次运行时 emulator 已报告 `boot_completed`，但 `mWakefulness=Asleep`，导致 Compose hierarchy 为空；这不是消息功能失败。`quality_doctor` 现在仅对 controlled emulator 定向 wake、dismiss keyguard，并轮询验证 `Awake + unlocked` 后才交给产品测试；若同样状态发生在 physical device，必须 `BLOCKED` 等待人工处理，禁止自动解锁或把无 hierarchy 记成产品红灯。新增宿主敏感性测试 2/2 覆盖 emulator 自愈与 physical 阻断两个方向；当前设备功能结论仍只代表 `Medium_Phone / emulator-5554`，不外推物理设备、OEM 或生产通知环境。
