@@ -39,6 +39,9 @@ android_device_lock_dir=""
 android_device_lock_acquired=0
 android_adb_timeout="${QUALITY_ADB_TIMEOUT_SECONDS:-8}"
 android_adb_binary="$(command -v adb || true)"
+accessibility_baseline_captured=0
+accessibility_baseline_locale=""
+accessibility_baseline_font_scale=""
 
 adb_with_timeout() {
   python3 - "$android_adb_timeout" "$android_adb_binary" "$@" <<'PY'
@@ -142,6 +145,81 @@ release_android_device_lock() {
   android_device_lock_acquired=0
 }
 
+android_test_selectors_for_scopes() {
+  local scopes="$1"
+  shift || true
+  python3 "$repo_root/scripts/android_expected_selectors.py" \
+    --source-root "$repo_root/app/src/androidTest" \
+    --scopes "$scopes" "$@"
+}
+
+expected_selector_count() {
+  local selectors="$1"
+  awk -F',' '{ print NF }' <<< "$selectors"
+}
+
+ensure_android_test_package_installed() {
+  local device_serial="$1"
+  local package_path
+  package_path="$(adb_with_timeout -s "$device_serial" shell pm path io.ethan.pushgo 2>/dev/null || true)"
+  if [[ "$package_path" == package:* ]]; then
+    return 0
+  fi
+  ANDROID_SERIAL="$device_serial" "$repo_root/gradlew" \
+    :app:installDebug :app:installDebugAndroidTest --console=plain
+}
+
+normalize_app_locale_tags() {
+  local raw="$1"
+  raw="${raw//$'\r'/}"
+  if [[ "$raw" == *"["* ]]; then
+    raw="${raw##*[}"
+    raw="${raw%%]*}"
+  fi
+  tr -d '[:space:]' <<< "$raw"
+}
+
+capture_accessibility_baseline() {
+  local device_serial="$1"
+  local raw_locale
+  accessibility_baseline_font_scale="$(adb_with_timeout -s "$device_serial" shell settings get system font_scale | tr -d '\r' | tail -n 1)"
+  [[ "$accessibility_baseline_font_scale" =~ ^[0-9]+([.][0-9]+)?$ ]] || return 1
+  raw_locale="$(adb_with_timeout -s "$device_serial" shell cmd locale get-app-locales io.ethan.pushgo --user 0)" || return 1
+  accessibility_baseline_locale="$(normalize_app_locale_tags "$raw_locale")"
+  accessibility_baseline_captured=1
+}
+
+restore_accessibility_baseline() {
+  local device_serial="${android_device_lock_dir##*/}"
+  local -a locale_command=(cmd locale set-app-locales io.ethan.pushgo --user 0)
+  local restored_locale restored_font_scale package_path
+  [[ "$accessibility_baseline_captured" -eq 1 ]] || return 0
+  [[ -n "$device_serial" && "$device_serial" != "$android_device_lock_dir" ]] || return 1
+  package_path="$(adb_with_timeout -s "$device_serial" shell pm path io.ethan.pushgo 2>/dev/null || true)"
+  if [[ "$package_path" == package:* ]]; then
+    if [[ -n "$accessibility_baseline_locale" ]]; then
+      locale_command+=(--locales "$accessibility_baseline_locale")
+    fi
+    adb_with_timeout -s "$device_serial" shell "${locale_command[@]}" >/dev/null 2>&1 || return 1
+  fi
+  adb_with_timeout -s "$device_serial" shell settings put system font_scale \
+    "$accessibility_baseline_font_scale" >/dev/null 2>&1 || return 1
+  if [[ "$package_path" == package:* ]]; then
+    restored_locale="$(adb_with_timeout -s "$device_serial" shell cmd locale get-app-locales io.ethan.pushgo --user 0)" || return 1
+    [[ "$(normalize_app_locale_tags "$restored_locale")" == "$accessibility_baseline_locale" ]] || return 1
+  fi
+  restored_font_scale="$(adb_with_timeout -s "$device_serial" shell settings get system font_scale | tr -d '\r' | tail -n 1)"
+  python3 - "$accessibility_baseline_font_scale" "$restored_font_scale" <<'PY'
+import sys
+try:
+    expected = float(sys.argv[1])
+    actual = float(sys.argv[2])
+except (IndexError, ValueError):
+    raise SystemExit(1)
+raise SystemExit(0 if abs(expected - actual) <= 0.001 else 1)
+PY
+}
+
 write_result() {
   local product_status="$1"
   local test_system_status="$2"
@@ -198,6 +276,11 @@ on_exit() {
   local issue_ids=""
   local issue_id=""
   local -a classified_ids=()
+  if [[ "$accessibility_baseline_captured" -eq 1 ]] && ! restore_accessibility_baseline; then
+    echo "status=FAILED_TEST_SYSTEM"
+    echo "reason=android_accessibility_baseline_restore_failed"
+    status=5
+  fi
   release_android_device_lock || true
   if [[ $status -eq 0 ]]; then
     write_result PASSED PASSED
@@ -207,6 +290,8 @@ on_exit() {
     write_result NOT_RUN FAILED "fresh Android execution did not exactly match every selected scope; no product claim was completed"
   elif [[ $status -eq 4 ]]; then
     write_result NOT_RUN FAILED "a required test-system sensitivity control did not reject the deliberately broken behavior"
+  elif [[ $status -eq 5 ]]; then
+    write_result NOT_RUN FAILED "Android accessibility locale/font baseline could not be restored"
   elif classification="$(classify_current_test_system_failure)"; then
     printf '%s\n' "$classification"
     issue_ids="$(printf '%s\n' "$classification" | sed -n 's/^classification_issue_ids=//p')"
@@ -343,8 +428,19 @@ system_notification_classes="io.ethan.pushgo.testing.QualitySystemNotificationJo
 run_device_classes() {
   local classes="$1"
   local claim="${2:-Android migration/deletion/ACK/transport data boundaries: $classes}"
+  local excluded_selectors="${3:-}"
   local doctor_output
   local device_serial
+  local expected_selectors
+  local expected_count
+  local -a selector_args=()
+  [[ -z "$excluded_selectors" ]] || selector_args+=(--exclude-selector "$excluded_selectors")
+  expected_selectors="$(android_test_selectors_for_scopes "$classes" "${selector_args[@]}")" || {
+    echo "status=BLOCKED"
+    echo "reason=unable_to_resolve_android_expected_selectors"
+    exit 2
+  }
+  expected_count="$(expected_selector_count "$expected_selectors")"
   selected_claims+=("$claim")
   doctor_output="$("$repo_root/scripts/quality_doctor.sh")"
   printf '%s\n' "$doctor_output"
@@ -357,6 +453,8 @@ run_device_classes() {
   acquire_android_device_lock "$device_serial"
   local device_test_started_at
   device_test_started_at="$(python3 -c 'import time; print(time.time())')"
+  QUALITY_EXPECTED_ANDROID_TEST_SELECTORS="$expected_selectors"
+  QUALITY_EXPECTED_ANDROID_TEST_COUNT="$expected_count"
   ANDROID_SERIAL="$device_serial" "$repo_root/gradlew" connectedDebugAndroidTest \
     "-Pandroid.testInstrumentationRunnerArguments.class=$classes"
   verify_device_tests_executed "$device_test_started_at" "$repo_root/app/build/outputs/androidTest-results/connected"
@@ -370,6 +468,14 @@ run_quality_device_classes() {
   local payload
   local doctor_output
   local device_serial
+  local expected_selectors
+  local expected_count
+  expected_selectors="$(android_test_selectors_for_scopes "$classes")" || {
+    echo "status=BLOCKED"
+    echo "reason=unable_to_resolve_android_expected_selectors"
+    exit 2
+  }
+  expected_count="$(expected_selector_count "$expected_selectors")"
   payload="$(printf '{"schema_version":1,"session_id":"%s","fixture":"empty.clean","faults":{}}' "$session_id" | base64 | tr -d '\n')"
   selected_claims+=("Android selected App-owned UI journeys: $classes")
   doctor_output="$("$repo_root/scripts/quality_doctor.sh")"
@@ -383,6 +489,8 @@ run_quality_device_classes() {
   acquire_android_device_lock "$device_serial"
   local device_test_started_at
   device_test_started_at="$(python3 -c 'import time; print(time.time())')"
+  QUALITY_EXPECTED_ANDROID_TEST_SELECTORS="$expected_selectors"
+  QUALITY_EXPECTED_ANDROID_TEST_COUNT="$expected_count"
   ANDROID_SERIAL="$device_serial" "$repo_root/gradlew" connectedDebugAndroidTest \
     "-Pandroid.testInstrumentationRunnerArguments.class=$classes" \
     "-Pandroid.testInstrumentationRunnerArguments.pushgoQualitySessionBase64=$payload"
@@ -435,6 +543,8 @@ mark_planned_controlled_system_profile() {
 run_system_notification_journeys() {
   local doctor_output
   local device_serial
+  local expected_selectors
+  local expected_count
   local permission_selector="io.ethan.pushgo.testing.QualityNotificationPermissionJourneyInstrumentedTest#enabledSystemDecisionRefreshesTheRealAppAndRemovesDisabledDeliveryState"
   selected_claims+=("Android notification permission, Doze recovery/snooze isolation, real process restart persistence with exact HTTPS browser handoff/return, critical alert playback, exact Message/Event/Thing cold-warm notification routes, and Private foreground Service system journeys: denied/settings/return plus restricted/system-unrestricted/return/session-snooze plus unread/read/no-PID/new-PID/exact-data/browser-url/detail-return plus durable inbound/audio/PendingIntent/read/dedupe and Settings/start/persist/stop")
   doctor_output="$("$repo_root/scripts/quality_doctor.sh")"
@@ -453,6 +563,14 @@ run_system_notification_journeys() {
   local device_test_started_at
   device_test_started_at="$(python3 -c 'import time; print(time.time())')"
   acquire_android_device_lock "$device_serial"
+  expected_selectors="$(android_test_selectors_for_scopes "$system_notification_classes")" || {
+    echo "status=BLOCKED"
+    echo "reason=unable_to_resolve_android_expected_selectors"
+    exit 2
+  }
+  expected_count="$(expected_selector_count "$expected_selectors")"
+  QUALITY_EXPECTED_ANDROID_TEST_SELECTORS="$expected_selectors"
+  QUALITY_EXPECTED_ANDROID_TEST_COUNT="$expected_count"
   ANDROID_SERIAL="$device_serial" "$repo_root/gradlew" connectedDebugAndroidTest \
     --rerun-tasks \
     "-Pandroid.testInstrumentationRunnerArguments.class=$system_notification_classes"
@@ -481,6 +599,8 @@ run_performance() {
   local doctor_output
   local device_serial
   local device_log="$results_root/android-performance-device.log"
+  local expected_selectors
+  local expected_count
 
   selected_claims+=("Android 100k real Room correctness and provisional selected-emulator search ceiling")
   doctor_output="$("$repo_root/scripts/quality_doctor.sh")"
@@ -509,6 +629,10 @@ run_performance() {
   }
   local device_test_started_at
   device_test_started_at="$(python3 -c 'import time; print(time.time())')"
+  expected_selectors="io.ethan.pushgo.testing.RuntimeDataLayerInstrumentedTest#realRoomDaoSearchAndPaging_optIn100000"
+  expected_count=1
+  QUALITY_EXPECTED_ANDROID_TEST_SELECTORS="$expected_selectors"
+  QUALITY_EXPECTED_ANDROID_TEST_COUNT="$expected_count"
   ANDROID_SERIAL="$device_serial" "$repo_root/gradlew" \
     connectedDebugAndroidTest \
     --rerun-tasks \
@@ -520,6 +644,10 @@ run_performance() {
 
   selected_claims+=("Release-like Macrobenchmark mechanics with exact 1k startup/detail product Oracle on controlled emulator")
   device_test_started_at="$(python3 -c 'import time; print(time.time())')"
+  expected_selectors="io.ethan.pushgo.macrobenchmark.PushGoMacrobenchmark#coldStartupReachesAccurateLargeStoreContent,io.ethan.pushgo.macrobenchmark.PushGoMacrobenchmark#openAccurateMessageDetailStaysWithinFrameAndPurposeBudget"
+  expected_count=2
+  QUALITY_EXPECTED_ANDROID_TEST_SELECTORS="$expected_selectors"
+  QUALITY_EXPECTED_ANDROID_TEST_COUNT="$expected_count"
   ANDROID_SERIAL="$device_serial" "$repo_root/gradlew" \
     :macrobenchmark:connectedBenchmarkBenchmarkAndroidTest \
     --rerun-tasks \
@@ -563,6 +691,8 @@ run_accessibility_localization() {
   local doctor_output
   local device_serial
   local device_api
+  local expected_selectors
+  local expected_count
   selected_claims+=("Android zh-CN large-font real message-detail and add-channel journey")
   python3 "$repo_root/scripts/verify_android_localizations.py"
   doctor_output="$("$repo_root/scripts/quality_doctor.sh")"
@@ -582,10 +712,34 @@ run_accessibility_localization() {
   local device_test_started_at
   device_test_started_at="$(python3 -c 'import time; print(time.time())')"
   acquire_android_device_lock "$device_serial"
+  if ! ensure_android_test_package_installed "$device_serial"; then
+    echo "status=FAILED_TEST_SYSTEM"
+    echo "reason=accessibility_baseline_package_install_failed"
+    exit 3
+  fi
+  if ! capture_accessibility_baseline "$device_serial"; then
+    echo "status=FAILED_TEST_SYSTEM"
+    echo "reason=accessibility_baseline_capture_failed"
+    exit 3
+  fi
+  expected_selectors="$(android_test_selectors_for_scopes "io.ethan.pushgo.testing.QualityAccessibilityLocalizationJourneyInstrumentedTest")" || {
+    echo "status=BLOCKED"
+    echo "reason=unable_to_resolve_android_expected_selectors"
+    exit 2
+  }
+  expected_count="$(expected_selector_count "$expected_selectors")"
+  QUALITY_EXPECTED_ANDROID_TEST_SELECTORS="$expected_selectors"
+  QUALITY_EXPECTED_ANDROID_TEST_COUNT="$expected_count"
   ANDROID_SERIAL="$device_serial" "$repo_root/gradlew" connectedDebugAndroidTest \
     --rerun-tasks \
     "-Pandroid.testInstrumentationRunnerArguments.class=io.ethan.pushgo.testing.QualityAccessibilityLocalizationJourneyInstrumentedTest"
   verify_device_tests_executed "$device_test_started_at" "$repo_root/app/build/outputs/androidTest-results/connected"
+  if ! restore_accessibility_baseline; then
+    echo "status=FAILED_TEST_SYSTEM"
+    echo "reason=android_accessibility_baseline_restore_failed"
+    exit 5
+  fi
+  accessibility_baseline_captured=0
   release_android_device_lock
   claims+=("Android zh-CN large-font real message-detail and add-channel journey")
 }
@@ -685,8 +839,16 @@ case "$lane" in
         exit 2
       }
       selected_claims+=("Android focused device behavior: $ANDROID_TEST_CLASS")
+      expected_selectors="$(android_test_selectors_for_scopes "$ANDROID_TEST_CLASS")" || {
+        echo "status=BLOCKED"
+        echo "reason=unable_to_resolve_android_expected_selectors"
+        exit 2
+      }
+      expected_count="$(expected_selector_count "$expected_selectors")"
       device_test_started_at="$(python3 -c 'import time; print(time.time())')"
       acquire_android_device_lock "$device_serial"
+      QUALITY_EXPECTED_ANDROID_TEST_SELECTORS="$expected_selectors"
+      QUALITY_EXPECTED_ANDROID_TEST_COUNT="$expected_count"
       ANDROID_SERIAL="$device_serial" "$repo_root/gradlew" connectedDebugAndroidTest \
         --rerun-tasks \
         "-Pandroid.testInstrumentationRunnerArguments.class=$ANDROID_TEST_CLASS"
@@ -746,14 +908,18 @@ case "$lane" in
   nightly)
     run_jvm_and_compile_device_tests
     run_quality_device_classes
-    run_device_classes "$nightly_data_classes"
+    run_device_classes "$nightly_data_classes" \
+      "Android migration/deletion/ACK/transport data boundaries excluding opt-in 100k performance" \
+      "io.ethan.pushgo.testing.RuntimeDataLayerInstrumentedTest#realRoomDaoSearchAndPaging_optIn100000"
     run_system_notification_journeys
     run_accessibility_localization
     ;;
   release)
     run_jvm_and_compile_device_tests
     run_quality_device_classes
-    run_device_classes "$nightly_data_classes"
+    run_device_classes "$nightly_data_classes" \
+      "Android migration/deletion/ACK/transport data boundaries excluding opt-in 100k performance" \
+      "io.ethan.pushgo.testing.RuntimeDataLayerInstrumentedTest#realRoomDaoSearchAndPaging_optIn100000"
     run_system_notification_journeys
     run_accessibility_localization
     run_performance

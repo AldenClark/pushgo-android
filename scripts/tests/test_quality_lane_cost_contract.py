@@ -143,6 +143,35 @@ class QualityLaneCostContractTests(unittest.TestCase):
             sum(1 for line in runner.splitlines() if line.strip() == "release_android_device_lock"),
         )
 
+    def test_curated_device_lanes_bind_exact_selectors_and_reject_default_opt_in_skip(self) -> None:
+        runner = (REPO / "scripts/quality_test.sh").read_text()
+        verifier = (REPO / "scripts/verify_android_test_execution.py").read_text()
+
+        self.assertIn("android_test_selectors_for_scopes()", runner)
+        self.assertIn('QUALITY_EXPECTED_ANDROID_TEST_SELECTORS="$expected_selectors"', runner)
+        self.assertIn('QUALITY_EXPECTED_ANDROID_TEST_COUNT="$expected_count"', runner)
+        self.assertIn("skipped_test_selectors", verifier)
+        self.assertIn("fresh_android_test_report_contains_skipped_tests", verifier)
+        self.assertIn(
+            "RuntimeDataLayerInstrumentedTest#realRoomDaoSearchAndPaging_optIn100000",
+            runner,
+        )
+        nightly_body = runner.split("  nightly)", 1)[1].split("    ;;", 1)[0]
+        self.assertIn("excluding opt-in 100k performance", nightly_body)
+
+    def test_accessibility_lane_has_host_baseline_recovery_even_after_instrumentation_abort(self) -> None:
+        runner = (REPO / "scripts/quality_test.sh").read_text()
+        self.assertIn("capture_accessibility_baseline()", runner)
+        self.assertIn("restore_accessibility_baseline()", runner)
+        self.assertIn('trap on_exit EXIT', runner)
+        self.assertIn('accessibility_baseline_captured=0', runner)
+        accessibility_body = runner.split("run_accessibility_localization() {", 1)[1].split(
+            "run_planned_device_evidence() {", 1
+        )[0]
+        self.assertIn("ensure_android_test_package_installed", accessibility_body)
+        self.assertIn("capture_accessibility_baseline", accessibility_body)
+        self.assertIn("restore_accessibility_baseline", accessibility_body)
+
     def test_ci_receipts_outlive_the_full_observation_window(self) -> None:
         workflow = (REPO / ".github/workflows/android-quality.yml").read_text()
         compact_uploads = re.findall(

@@ -39,6 +39,26 @@ def executed_test_count(report_root: Path, started_at_epoch: float) -> tuple[int
     return len(selectors), reports
 
 
+def skipped_test_selectors(report_root: Path, started_at_epoch: float) -> tuple[list[str], list[Path]]:
+    reports = sorted(
+        path
+        for path in report_root.rglob("TEST-*.xml")
+        if path.is_file() and path.stat().st_mtime >= started_at_epoch
+    )
+    selectors: list[str] = []
+    for report in reports:
+        root = ET.parse(report).getroot()
+        for testcase in root.iter("testcase"):
+            if testcase.find("skipped") is None:
+                continue
+            classname = testcase.attrib.get("classname", "").strip()
+            name = testcase.attrib.get("name", "").strip()
+            if not classname or not name:
+                raise ValueError(f"testcase missing classname or name in {report}")
+            selectors.append(f"{classname}#{name}")
+    return selectors, reports
+
+
 def test_count_matches_selection(count: int, expected: int | None) -> bool:
     return expected is None or count == expected
 
@@ -57,6 +77,7 @@ def main() -> int:
 
     try:
         selectors, reports = executed_test_selectors(args.report_root, args.started_at_epoch)
+        skipped, _ = skipped_test_selectors(args.report_root, args.started_at_epoch)
     except (OSError, ValueError, ET.ParseError) as error:
         print("status=FAILED_TEST_SYSTEM")
         print(f"reason=invalid_fresh_android_test_report:{error}")
@@ -65,6 +86,13 @@ def main() -> int:
     if not reports:
         print("status=FAILED_TEST_SYSTEM")
         print("reason=no_fresh_android_test_report")
+        return 1
+    if skipped:
+        print("status=FAILED_TEST_SYSTEM")
+        print(
+            "reason=fresh_android_test_report_contains_skipped_tests:"
+            + ",".join(sorted(skipped))
+        )
         return 1
     total = len(selectors)
     if total <= 0:

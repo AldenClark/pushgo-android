@@ -6,7 +6,7 @@
 
 外部质量控制按 `session.decode → fixture.allowlist → storage.reset → session.persist → storage.open → fixture.seed → fixture.verify` 输出稳定阶段；失败后回收该 Session 的 Room、secure/settings preferences、目录和持久控制，不得启动业务 UI 或重试产品断言。独立 `preparation` Lane 当前在 API 37 受控 emulator 上以 2.488 秒归因非法 schema 为 `session.decode`，并以 1.245 秒归因注入的本地存储打开失败为 `storage.open`；两者均零重试且 `business_ui_started=false`，后者完成回收后能继续运行正向控制。正常 `empty.clean` 准备 1.221 秒，并同时观察 `quality-runtime.ready` 与准确功能空态，产品/测试系统双 `PASSED`（`build/quality-results/android-preparation-contract/20260830-143742/summary.json`）。它只在 Runtime/准备边界变更或定向验证时付费，不外推真机启动性能。
 
-Android PR 主机层当前字节回归（2026-09-02）：在干净提交 `b0d0b21` 上，磁盘预检可用 89.85 GiB（要求 3 GiB），执行完整本地化合同、`testDebugUnitTest --rerun-tasks`、`compileDebugAndroidTestKotlin` 与 `assembleDebug`；实际执行 JVM 298 项，`status=EXECUTED`，零失败/错误/跳过，结果收据 `build/quality-results/android-pr-current-after-audit/android-pr-summary.json` 的 `product_capability_status=PASSED`、`test_system_status=PASSED`、`source_dirty=false`、无 incomplete claim。该收据只负责主机行为/资源/编译与 Debug 构建，不包含 Compose UI 或设备 claim；当前 `adb` 无 serial，Android UI、真机、真实 Provider 仍分别保持 `NOT RUN/BLOCKED`，不把主机绿色外推为端到端通过。
+Android PR 主机层当前字节回归（2026-09-02）：在干净提交 `b0d0b21` 上，磁盘预检可用 89.85 GiB（要求 3 GiB），执行完整本地化合同、`testDebugUnitTest --rerun-tasks`、`compileDebugAndroidTestKotlin` 与 `assembleDebug`；实际执行 JVM 298 项，`status=EXECUTED`，零失败/错误/跳过，结果收据 `build/quality-results/android-pr-current-after-audit/android-pr-summary.json` 的 `product_capability_status=PASSED`、`test_system_status=PASSED`、`source_dirty=false`、无 incomplete claim。该段是历史主机快照；受控 `Medium_Phone / emulator-5554` 的当前 UI 证据见下方同日条目，真机与真实 Provider 仍分别保持 `NOT RUN/BLOCKED`，不把主机绿色外推为端到端通过。
 
 | 真实入口 | 用户目的 | 关键状态/分支 | 数据/系统终点 | 最低证据 | Lane/当前状态 | 主要 owner |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -337,3 +337,7 @@ Doze 宿主脚本首次试跑 `build/quality-results/android-doze-positive-curre
 ### 2026-09-02 Android Accessibility 当前字节
 
 `accessibility` lane 在受控 `Medium_Phone / emulator-5554` 上精确执行 `QualityAccessibilityLocalizationJourneyInstrumentedTest#simplifiedChineseAtLargeFontCompletesMessageDetailAndAddChannelJourney` 1/1。真实 zh-CN 大字号环境中，消息标题与未读徽标保持可读，详情打开/返回、频道入口、中文输入及创建后的准确频道行全部通过；Gradle/XML 为 `tests=1`, `failures=0`, `errors=0`, `skipped=0`，收据 `build/quality-results/android-accessibility-current-20260902/android-accessibility-summary.json` 为 product/test-system=`PASSED/PASSED`、`source_dirty=false`、`incomplete_selected_claims=[]`。该证据只更新受控 emulator 的代表性无障碍/本地化用户目的，不外推 TalkBack、物理设备、其他语言/字号或完整页面矩阵。
+
+### 2026-09-02 Android 已有频道重订阅恢复当前字节
+
+在干净提交 `1da4a25` 上，定向 Focused 复验 `QualityChannelJourneyInstrumentedTest#existingSubscribePersistenceFailureDoesNotRevokeRemoteOwnershipBeforeRetry` 于 `Medium_Phone / emulator-5554` 精确执行 1/1，XML 为 `tests=1 failures=0 errors=0 skipped=0`，收据 `build/quality-results/android-existing-subscribe-rerun-20260902/android-focused-summary.json` 为 product/test-system=`PASSED/PASSED`、`source_dirty=false`、无 incomplete claim。真实已有频道 Sheet 提交、远端 ownership 保持、本地一次性失败后的重试以及 App 容器重建后的准确用户名称均通过；不外推真实 Gateway/FCM/Private、真机/OEM 或整体 Gate。

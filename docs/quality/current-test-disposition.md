@@ -1,6 +1,6 @@
 # Android 当前 device 测试处置清单
 
-基线日期：2026-08-27；2026-08-28 退役并完成本轮 Event 失败恢复增量后，当前 `androidTest` 共 101 个 `@Test`。此文件是 WP0 迁移清单，不是产品通过 Manifest。
+基线日期：2026-08-27；截至 2026-09-02 当前 `androidTest` 共 114 个 `@Test`（早期 101 项快照已过时）。此文件是 WP0 迁移清单，不是产品通过 Manifest。
 
 ## 按文件逐测试处置
 
@@ -278,3 +278,5 @@ Gateway 的正向终点不再停在地址持久化或旧行消失：现有 `serv
 2026-09-02 Android 测试系统合同再验证：当前干净提交 `6e30cb9` 上运行 `python3 -m unittest discover -s scripts/tests -p 'test_*.py'`，166 项脚本/合同测试在 5.084s 内全部通过；这是对文档提交后的当前 runner、设备边界、影响选择与结果解释合同复验，不新增产品能力结论，也不把合同数量当作 Compose/UI 通过。
 
 2026-09-02 Android Accessibility 当前字节：`accessibility` lane 在专用 `Medium_Phone / emulator-5554` 上精确执行 `QualityAccessibilityLocalizationJourneyInstrumentedTest#simplifiedChineseAtLargeFontCompletesMessageDetailAndAddChannelJourney` 1/1；Gradle/XML 实际 `tests=1`, `failures=0`, `errors=0`, `skipped=0`，收据 `build/quality-results/android-accessibility-current-20260902/android-accessibility-summary.json` 为 product/test-system=`PASSED/PASSED`、`source_dirty=false`、`incomplete_selected_claims=[]`。真实 zh-CN 大字号消息标题/徽标、详情与返回、频道入口、中文输入和创建后准确频道行均通过；本条只更新受控 emulator 的代表性无障碍/本地化用户目的，不外推 TalkBack、物理设备、其他语言/字号或完整页面矩阵。
+
+2026-09-02 Android 已有频道重订阅恢复当前字节：在干净提交 `1da4a25` 上，`QUALITY_RESULTS_ROOT=build/quality-results/android-existing-subscribe-rerun-20260902 ANDROID_SERIAL=emulator-5554 ./scripts/quality_test.sh focused` 对 `QualityChannelJourneyInstrumentedTest#existingSubscribePersistenceFailureDoesNotRevokeRemoteOwnershipBeforeRetry` 形成新鲜原生结果。首次尝试未形成执行证据，未被计入通过；不改变业务断言的定向复验在 `Medium_Phone / emulator-5554` 精确执行 1/1，XML 为 `tests=1 failures=0 errors=0 skipped=0`，收据 `android-focused-summary.json` 的 product/test-system=`PASSED/PASSED`、`source_dirty=false`、`incomplete_selected_claims=[]`。真实 Sheet 提交、已有频道名称/所有权保持、一次性本地失败后的重试、关闭并重新创建 App 容器后的准确名称均通过；该证据只覆盖受控 emulator，不外推真实 Gateway/FCM/Private、真机/OEM 或整体 Gate。
