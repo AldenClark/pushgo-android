@@ -378,6 +378,63 @@ class RuntimeDataLayerInstrumentedTest {
     }
 
     @Test
+    fun canonicalMessageSurvivesDerivedIndexWriteFailureAndRepairsBeforeSearch() = runBlocking {
+        val db = openFreshDatabase().database
+        val messages = messageRepository(db)
+        val message = generatedMessage(
+            index = 9_001,
+            messageId = "derived-write-failure-message",
+            title = "Canonical message after derived failure",
+            body = "The canonical body must remain readable while search repairs.",
+            tags = listOf("recovery"),
+        )
+        val stableMessageId = requireNotNull(message.messageId)
+        val safeStableMessageId = stableMessageId.replace("'", "''")
+
+        // Exercise the real MessageRepository transaction against a storage-side
+        // derived-write failure. This is deliberately App-owned and reversible:
+        // the canonical row must remain the user-visible source of truth, while
+        // the derived search/summary projections are repaired after recovery.
+        db.openHelper.writableDatabase.execSQL(
+            """
+            CREATE TEMP TRIGGER fail_quality_derived_index_write
+            BEFORE INSERT ON message_metadata_index
+            WHEN NEW.message_id = '$safeStableMessageId'
+              AND NEW.key_name = 'search_text'
+            BEGIN SELECT RAISE(ABORT, 'injected derived index write failure'); END
+            """.trimIndent()
+        )
+
+        assertTrue(messages.insertIncoming(message))
+        val canonicalDuringFailure = checkNotNull(messages.getByMessageId(stableMessageId))
+        assertEquals(message.title, canonicalDuringFailure.title)
+        assertEquals(message.body, canonicalDuringFailure.body)
+        assertEquals(1, messages.totalCount())
+        assertTrue(
+            loadMessagePage(db, MessageFilter(), pageSize = PAGE_SIZE).data.any {
+                it.messageId == stableMessageId && it.title == message.title
+            }
+        )
+
+        db.openHelper.writableDatabase.execSQL(
+            "DROP TRIGGER fail_quality_derived_index_write"
+        )
+
+        val searchMatches = messages.searchMessagesSnapshot(
+            rawQuery = "canonical derived failure",
+            unreadOnly = false,
+            limit = PAGE_SIZE,
+        )
+        assertEquals(listOf(stableMessageId), searchMatches.mapNotNull { it.messageId })
+        val repairedRow = loadMessagePage(db, MessageFilter(), pageSize = PAGE_SIZE)
+            .data
+            .single { it.messageId == stableMessageId }
+        assertEquals(message.title, repairedRow.title)
+        assertEquals(0, db.messageMetadataIndexDao().countMessagesMissingSearchText("normalization_v1"))
+        assertEquals(0, db.messageDao().countMessagesMissingSummaryProjection("projection_v1"))
+    }
+
+    @Test
     fun messageSearchMatchesNormalizedLiteralSubstringsAndComposesTagsUnreadAndExclusions() = runBlocking {
         val db = openFreshDatabase().database
         val messages = messageRepository(db)
