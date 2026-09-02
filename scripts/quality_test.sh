@@ -33,6 +33,59 @@ if [[ "$lane" != "performance" && "$lane" != "release" ]]; then
   not_run+=("Release-like Macrobenchmark mechanics and physical-device performance evidence")
 fi
 
+android_device_lock_timeout="${QUALITY_ANDROID_DEVICE_LOCK_TIMEOUT_SECONDS:-15}"
+android_device_lock_root="${QUALITY_ANDROID_LOCK_ROOT:-${TMPDIR:-/tmp}/pushgo-android-quality-locks}"
+android_device_lock_dir=""
+android_device_lock_acquired=0
+
+acquire_android_device_lock() {
+  local device_serial="$1"
+  local safe_serial owner_pid deadline
+  [[ "$android_device_lock_timeout" =~ ^[1-9][0-9]*$ ]] || {
+    echo "status=BLOCKED"
+    echo "reason=QUALITY_ANDROID_DEVICE_LOCK_TIMEOUT_SECONDS must be a positive integer"
+    return 2
+  }
+  safe_serial="$(printf '%s' "$device_serial" | tr -c 'A-Za-z0-9_.-' '_')"
+  android_device_lock_dir="$android_device_lock_root/$safe_serial"
+  if ! mkdir -p "$android_device_lock_root"; then
+    android_device_lock_dir=""
+    echo "status=FAILED_TEST_SYSTEM"
+    echo "reason=android_device_lock_root_unavailable:$android_device_lock_root"
+    return 3
+  fi
+  deadline=$((SECONDS + android_device_lock_timeout))
+  while ! mkdir "$android_device_lock_dir" 2>/dev/null; do
+    owner_pid=""
+    [[ -f "$android_device_lock_dir/pid" ]] && owner_pid="$(<"$android_device_lock_dir/pid")"
+    if [[ "$owner_pid" =~ ^[0-9]+$ ]] && ! kill -0 "$owner_pid" >/dev/null 2>&1; then
+      rmdir "$android_device_lock_dir" 2>/dev/null || true
+      continue
+    fi
+    if (( SECONDS >= deadline )); then
+      android_device_lock_dir=""
+      echo "status=BLOCKED"
+      echo "reason=selected Android device is busy: $device_serial"
+      return 2
+    fi
+    sleep 0.25
+  done
+  printf '%s\n' "$$" >"$android_device_lock_dir/pid"
+  android_device_lock_acquired=1
+}
+
+release_android_device_lock() {
+  local owner_pid=""
+  [[ "$android_device_lock_acquired" -eq 1 && -n "$android_device_lock_dir" ]] || return 0
+  [[ -f "$android_device_lock_dir/pid" ]] && owner_pid="$(<"$android_device_lock_dir/pid")"
+  if [[ "$owner_pid" == "$$" ]]; then
+    rm -f "$android_device_lock_dir/pid"
+    rmdir "$android_device_lock_dir" 2>/dev/null || true
+  fi
+  android_device_lock_dir=""
+  android_device_lock_acquired=0
+}
+
 write_result() {
   local product_status="$1"
   local test_system_status="$2"
@@ -89,6 +142,7 @@ on_exit() {
   local issue_ids=""
   local issue_id=""
   local -a classified_ids=()
+  release_android_device_lock || true
   if [[ $status -eq 0 ]]; then
     write_result PASSED PASSED
   elif [[ $status -eq 2 ]]; then
@@ -244,11 +298,13 @@ run_device_classes() {
     echo "reason=quality_doctor_missing_device_serial"
     exit 2
   }
+  acquire_android_device_lock "$device_serial"
   local device_test_started_at
   device_test_started_at="$(python3 -c 'import time; print(time.time())')"
   ANDROID_SERIAL="$device_serial" "$repo_root/gradlew" connectedDebugAndroidTest \
     "-Pandroid.testInstrumentationRunnerArguments.class=$classes"
   verify_device_tests_executed "$device_test_started_at" "$repo_root/app/build/outputs/androidTest-results/connected"
+  release_android_device_lock
   claims+=("$claim")
 }
 
@@ -268,12 +324,14 @@ run_quality_device_classes() {
     echo "reason=quality_doctor_missing_device_serial"
     exit 2
   }
+  acquire_android_device_lock "$device_serial"
   local device_test_started_at
   device_test_started_at="$(python3 -c 'import time; print(time.time())')"
   ANDROID_SERIAL="$device_serial" "$repo_root/gradlew" connectedDebugAndroidTest \
     "-Pandroid.testInstrumentationRunnerArguments.class=$classes" \
     "-Pandroid.testInstrumentationRunnerArguments.pushgoQualitySessionBase64=$payload"
   verify_device_tests_executed "$device_test_started_at" "$repo_root/app/build/outputs/androidTest-results/connected"
+  release_android_device_lock
   claims+=("Android selected App-owned UI journeys: $classes")
 }
 
@@ -338,10 +396,12 @@ run_system_notification_journeys() {
     "$repo_root/scripts/run_android_process_restart_positive.sh"
   local device_test_started_at
   device_test_started_at="$(python3 -c 'import time; print(time.time())')"
+  acquire_android_device_lock "$device_serial"
   ANDROID_SERIAL="$device_serial" "$repo_root/gradlew" connectedDebugAndroidTest \
     --rerun-tasks \
     "-Pandroid.testInstrumentationRunnerArguments.class=$system_notification_classes"
   verify_device_tests_executed "$device_test_started_at" "$repo_root/app/build/outputs/androidTest-results/connected"
+  release_android_device_lock
   claims+=("Android notification permission, Doze recovery/snooze isolation, real process restart persistence with exact HTTPS browser handoff/return, critical alert playback, exact Message/Event/Thing cold-warm notification routes, and Private foreground Service system journeys: denied/settings/return plus restricted/system-unrestricted/return/session-snooze plus unread/read/no-PID/new-PID/exact-data/browser-url/detail-return plus durable inbound/audio/PendingIntent/read/dedupe and Settings/start/persist/stop")
 }
 
@@ -375,6 +435,7 @@ run_performance() {
     echo "reason=quality_doctor_missing_device_serial"
     exit 2
   }
+  acquire_android_device_lock "$device_serial"
   [[ "$device_serial" == emulator-* ]] && [[ "$(adb -s "$device_serial" shell getprop ro.kernel.qemu | tr -d '\r')" == "1" ]] || {
     echo "status=BLOCKED"
     echo "reason=hosted_performance_lane_requires_controlled_emulator:$device_serial"
@@ -408,6 +469,7 @@ run_performance() {
   # This expected-failure control is test-system evidence, not a product claim. It deliberately
   # slows the same 1k App-owned load and must trip the existing startup-to-accurate-content budget.
   ANDROID_SERIAL="$device_serial" "$repo_root/scripts/run_android_performance_negative_control.sh"
+  release_android_device_lock
 
   selected_claims+=("Filtered Baseline/Startup Profile and Release APK quality-control isolation")
   "$repo_root/gradlew" :app:assembleRelease --console=plain
@@ -453,10 +515,12 @@ run_accessibility_localization() {
   }
   local device_test_started_at
   device_test_started_at="$(python3 -c 'import time; print(time.time())')"
+  acquire_android_device_lock "$device_serial"
   ANDROID_SERIAL="$device_serial" "$repo_root/gradlew" connectedDebugAndroidTest \
     --rerun-tasks \
     "-Pandroid.testInstrumentationRunnerArguments.class=io.ethan.pushgo.testing.QualityAccessibilityLocalizationJourneyInstrumentedTest"
   verify_device_tests_executed "$device_test_started_at" "$repo_root/app/build/outputs/androidTest-results/connected"
+  release_android_device_lock
   claims+=("Android zh-CN large-font real message-detail and add-channel journey")
 }
 
@@ -556,10 +620,12 @@ case "$lane" in
       }
       selected_claims+=("Android focused device behavior: $ANDROID_TEST_CLASS")
       device_test_started_at="$(python3 -c 'import time; print(time.time())')"
+      acquire_android_device_lock "$device_serial"
       ANDROID_SERIAL="$device_serial" "$repo_root/gradlew" connectedDebugAndroidTest \
         --rerun-tasks \
         "-Pandroid.testInstrumentationRunnerArguments.class=$ANDROID_TEST_CLASS"
       verify_device_tests_executed "$device_test_started_at" "$repo_root/app/build/outputs/androidTest-results/connected"
+      release_android_device_lock
       claims+=("Android focused device behavior: $ANDROID_TEST_CLASS")
     else
       focused_jvm_output=""

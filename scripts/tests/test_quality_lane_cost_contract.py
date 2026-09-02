@@ -116,6 +116,33 @@ class QualityLaneCostContractTests(unittest.TestCase):
                 nested_runner,
             )
 
+    def test_top_level_device_gradle_lanes_share_a_bounded_serial_lease(self) -> None:
+        runner = (REPO / "scripts/quality_test.sh").read_text()
+
+        self.assertIn(
+            'android_device_lock_timeout="${QUALITY_ANDROID_DEVICE_LOCK_TIMEOUT_SECONDS:-15}"',
+            runner,
+        )
+        self.assertIn(
+            'android_device_lock_root="${QUALITY_ANDROID_LOCK_ROOT:-${TMPDIR:-/tmp}/pushgo-android-quality-locks}"',
+            runner,
+        )
+        self.assertIn("acquire_android_device_lock()", runner)
+        self.assertIn("release_android_device_lock()", runner)
+        self.assertIn("release_android_device_lock || true", runner)
+        self.assertIn("selected Android device is busy", runner)
+        self.assertIn("connectedBenchmarkBenchmarkAndroidTest", runner)
+
+        # Every direct device Gradle invocation is protected by the same serial-scoped
+        # lease. Count the executable call sites so a new path cannot silently bypass
+        # isolation without updating this contract and its corresponding lock block.
+        self.assertEqual(6, runner.count("connectedDebugAndroidTest"))
+        self.assertEqual(6, runner.count('acquire_android_device_lock "$device_serial"'))
+        self.assertEqual(
+            6,
+            sum(1 for line in runner.splitlines() if line.strip() == "release_android_device_lock"),
+        )
+
     def test_ci_receipts_outlive_the_full_observation_window(self) -> None:
         workflow = (REPO / ".github/workflows/android-quality.yml").read_text()
         compact_uploads = re.findall(
