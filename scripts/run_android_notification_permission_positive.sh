@@ -9,6 +9,8 @@ test_class="$package_name.testing.QualityNotificationPermissionJourneyInstrument
 test_method="enabledSystemDecisionRefreshesTheRealAppAndRemovesDisabledDeliveryState"
 test_selector="$test_class#$test_method"
 permission="android.permission.POST_NOTIFICATIONS"
+adb_timeout_seconds="${QUALITY_ADB_TIMEOUT_SECONDS:-8}"
+adb_binary="$(command -v adb || true)"
 run_dir="$(mktemp -d "${TMPDIR:-/tmp}/pushgo-notification-permission.XXXXXX")"
 ui_dump="$run_dir/window.xml"
 device_ui_dump="/sdcard/pushgo-notification-permission.xml"
@@ -21,6 +23,60 @@ baseline_captured=0
 original_granted="false"
 original_user_set=0
 original_user_fixed=0
+
+adb_with_timeout() {
+  python3 - "$adb_timeout_seconds" "$adb_binary" "$@" <<'PY'
+import os
+import signal
+import subprocess
+import sys
+
+timeout = float(sys.argv[1])
+command = sys.argv[2:]
+process = subprocess.Popen(
+    command,
+    stdin=subprocess.DEVNULL,
+    stdout=subprocess.PIPE,
+    stderr=subprocess.PIPE,
+    text=True,
+    start_new_session=True,
+)
+try:
+    stdout, stderr = process.communicate(timeout=timeout)
+except subprocess.TimeoutExpired as error:
+    stdout = error.stdout or ""
+    stderr = error.stderr or ""
+    if isinstance(stdout, bytes):
+        stdout = stdout.decode(errors="replace")
+    if isinstance(stderr, bytes):
+        stderr = stderr.decode(errors="replace")
+    if process.poll() is None:
+        try:
+            os.killpg(process.pid, signal.SIGTERM)
+        except ProcessLookupError:
+            pass
+        try:
+            process.wait(timeout=2)
+        except subprocess.TimeoutExpired:
+            try:
+                os.killpg(process.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            process.wait()
+    if stdout:
+        sys.stdout.write(stdout)
+    if stderr:
+        sys.stderr.write(stderr)
+    sys.stderr.write(f"adb command timed out after {timeout:g}s\n")
+    raise SystemExit(124)
+
+if stdout:
+    sys.stdout.write(stdout)
+if stderr:
+    sys.stderr.write(stderr)
+raise SystemExit(process.returncode)
+PY
+}
 
 blocked() {
   echo "status=BLOCKED"
@@ -47,7 +103,7 @@ for node in root.iter("node"):
             break
 PY
   fi
-  adb -s "$device_serial" shell dumpsys window windows \
+  adb_with_timeout -s "$device_serial" shell dumpsys window windows \
     | sed -n 's/.*mCurrentFocus=//p' | head -n 1 || true
   exit 1
 }
@@ -94,33 +150,37 @@ release_device_lock() {
 }
 
 [[ -n "$device_serial" ]] || blocked "ANDROID_SERIAL is required"
+[[ -n "$adb_binary" ]] || blocked "adb is unavailable"
+command -v python3 >/dev/null 2>&1 || blocked "python3 is unavailable"
+[[ "$adb_timeout_seconds" =~ ^[1-9][0-9]*$ ]] || \
+  blocked "QUALITY_ADB_TIMEOUT_SECONDS must be a positive integer"
 [[ "$lock_timeout_seconds" =~ ^[1-9][0-9]*$ ]] || \
   blocked "QUALITY_ANDROID_DEVICE_LOCK_TIMEOUT_SECONDS must be a positive integer"
-[[ "$(adb -s "$device_serial" shell getprop ro.kernel.qemu | tr -d '\r')" == "1" ]] || \
+[[ "$(adb_with_timeout -s "$device_serial" shell getprop ro.kernel.qemu | tr -d '\r')" == "1" ]] || \
   blocked "notification permission journey is destructive to permission state and requires a controlled emulator"
-api_level="$(adb -s "$device_serial" shell getprop ro.build.version.sdk | tr -d '\r')"
+api_level="$(adb_with_timeout -s "$device_serial" shell getprop ro.build.version.sdk | tr -d '\r')"
 [[ "$api_level" =~ ^[0-9]+$ && "$api_level" -ge 33 ]] || \
   blocked "notification permission journey requires Android 13 or newer"
 
 restore_permission() {
   local restore_failed=0
   local restored_line=""
-  adb -s "$device_serial" shell pm clear-permission-flags \
+  adb_with_timeout -s "$device_serial" shell pm clear-permission-flags \
     "$package_name" "$permission" user-set user-fixed >/dev/null 2>&1 || restore_failed=1
   if [[ "$original_granted" == "true" ]]; then
-    adb -s "$device_serial" shell pm grant "$package_name" "$permission" >/dev/null 2>&1 || restore_failed=1
+    adb_with_timeout -s "$device_serial" shell pm grant "$package_name" "$permission" >/dev/null 2>&1 || restore_failed=1
   else
-    adb -s "$device_serial" shell pm revoke "$package_name" "$permission" >/dev/null 2>&1 || restore_failed=1
+    adb_with_timeout -s "$device_serial" shell pm revoke "$package_name" "$permission" >/dev/null 2>&1 || restore_failed=1
   fi
   if [[ "$original_user_set" -eq 1 ]]; then
-    adb -s "$device_serial" shell pm set-permission-flags \
+    adb_with_timeout -s "$device_serial" shell pm set-permission-flags \
       "$package_name" "$permission" user-set >/dev/null 2>&1 || restore_failed=1
   fi
   if [[ "$original_user_fixed" -eq 1 ]]; then
-    adb -s "$device_serial" shell pm set-permission-flags \
+    adb_with_timeout -s "$device_serial" shell pm set-permission-flags \
       "$package_name" "$permission" user-fixed >/dev/null 2>&1 || restore_failed=1
   fi
-  restored_line="$(adb -s "$device_serial" shell dumpsys package "$package_name" \
+  restored_line="$(adb_with_timeout -s "$device_serial" shell dumpsys package "$package_name" \
     | awk '/android.permission.POST_NOTIFICATIONS: granted=/{print; exit}')"
   [[ "$original_granted" == "true" && "$restored_line" == *"granted=true"* ]] || \
     [[ "$original_granted" == "false" && "$restored_line" == *"granted=false"* ]] || restore_failed=1
@@ -135,14 +195,14 @@ cleanup() {
   local status=$?
   local clear_output=""
   if [[ "$device_lock_acquired" -eq 1 ]]; then
-    adb -s "$device_serial" shell am force-stop "$package_name" >/dev/null 2>&1 || true
+    adb_with_timeout -s "$device_serial" shell am force-stop "$package_name" >/dev/null 2>&1 || true
     if [[ "$prepared" -eq 1 ]]; then
-      adb -s "$device_serial" logcat -c >/dev/null 2>&1 || true
-      clear_output="$(adb -s "$device_serial" shell am start -W \
+      adb_with_timeout -s "$device_serial" logcat -c >/dev/null 2>&1 || true
+      clear_output="$(adb_with_timeout -s "$device_serial" shell am start -W \
         -n "$package_name/.testing.BenchmarkUnstopActivity" \
         --ez io.ethan.pushgo.testing.CLEAR_SESSION true 2>&1)" || true
       if [[ "$clear_output" != *"Status: ok"* ]] || \
-        adb -s "$device_serial" logcat -d -s PushGoQualityControl:E '*:S' | rg -q 'quality control failed'; then
+        adb_with_timeout -s "$device_serial" logcat -d -s PushGoQualityControl:E '*:S' | rg -q 'quality control failed'; then
         echo "cleanup_status=FAILED"
         echo "cleanup_reason=App-owned notification permission session was not cleared"
         [[ "$status" -ne 0 ]] || status=1
@@ -153,8 +213,8 @@ cleanup() {
       echo "cleanup_reason=original notification permission state was not restored"
       [[ "$status" -ne 0 ]] || status=1
     fi
-    adb -s "$device_serial" shell am force-stop "$package_name" >/dev/null 2>&1 || true
-    adb -s "$device_serial" shell rm -f "$device_ui_dump" >/dev/null 2>&1 || true
+    adb_with_timeout -s "$device_serial" shell am force-stop "$package_name" >/dev/null 2>&1 || true
+    adb_with_timeout -s "$device_serial" shell rm -f "$device_ui_dump" >/dev/null 2>&1 || true
     release_device_lock
   fi
   rm -rf "$run_dir"
@@ -165,7 +225,7 @@ trap cleanup EXIT
 acquire_device_lock
 
 "$repo_root/gradlew" :app:installDebug :app:installDebugAndroidTest
-permission_line="$(adb -s "$device_serial" shell dumpsys package "$package_name" \
+permission_line="$(adb_with_timeout -s "$device_serial" shell dumpsys package "$package_name" \
   | awk '/android.permission.POST_NOTIFICATIONS: granted=/{print; exit}')"
 [[ "$permission_line" == *"granted=true"* ]] && original_granted="true"
 [[ "$permission_line" == *"USER_SET"* ]] && original_user_set=1
@@ -188,21 +248,21 @@ payload = {
 print(base64.b64encode(json.dumps(payload, separators=(",", ":")).encode()).decode())
 PY
 )"
-adb -s "$device_serial" logcat -c
-prepare_output="$(adb -s "$device_serial" shell am start -W \
+adb_with_timeout -s "$device_serial" logcat -c
+prepare_output="$(adb_with_timeout -s "$device_serial" shell am start -W \
   -n "$package_name/.testing.BenchmarkUnstopActivity" \
   --es io.ethan.pushgo.testing.SESSION_BASE64 "$payload" 2>&1)" || \
   blocked "App-owned notification permission fixture could not be prepared: $prepare_output"
 [[ "$prepare_output" == *"Status: ok"* ]] || \
   blocked "App-owned notification permission control did not launch: $prepare_output"
 prepared=1
-if adb -s "$device_serial" logcat -d -s PushGoQualityControl:E '*:S' | rg -q 'quality control failed'; then
+if adb_with_timeout -s "$device_serial" logcat -d -s PushGoQualityControl:E '*:S' | rg -q 'quality control failed'; then
   blocked "App-owned notification permission fixture failed inside the app"
 fi
 
 dump_ui() {
-  adb -s "$device_serial" shell uiautomator dump "$device_ui_dump" >/dev/null 2>&1 || return 1
-  adb -s "$device_serial" exec-out cat "$device_ui_dump" >"$ui_dump" 2>/dev/null || return 1
+  adb_with_timeout -s "$device_serial" shell uiautomator dump "$device_ui_dump" >/dev/null 2>&1 || return 1
+  adb_with_timeout -s "$device_serial" exec-out cat "$device_ui_dump" >"$ui_dump" 2>/dev/null || return 1
   rg -q '<hierarchy' "$ui_dump"
 }
 
@@ -247,14 +307,14 @@ tap_node() {
   dump_ui || failed "UI tree could not be captured before tapping $resource_id"
   local center
   center="$(node_center "$resource_id")" || failed "UI node disappeared before tapping: $resource_id"
-  adb -s "$device_serial" shell input tap "${center%,*}" "${center#*,}"
+  adb_with_timeout -s "$device_serial" shell input tap "${center%,*}" "${center#*,}"
 }
 
-adb -s "$device_serial" shell pm revoke "$package_name" "$permission"
-adb -s "$device_serial" shell pm clear-permission-flags \
+adb_with_timeout -s "$device_serial" shell pm revoke "$package_name" "$permission"
+adb_with_timeout -s "$device_serial" shell pm clear-permission-flags \
   "$package_name" "$permission" user-set user-fixed
-adb -s "$device_serial" shell am force-stop "$package_name"
-adb -s "$device_serial" shell am start -W -n "$package_name/.MainActivity" >/dev/null
+adb_with_timeout -s "$device_serial" shell am force-stop "$package_name"
+adb_with_timeout -s "$device_serial" shell am start -W -n "$package_name/.MainActivity" >/dev/null
 
 tap_node "permission_deny_button"
 wait_for_node "field.delivery_guard.title" 10 || \
@@ -270,7 +330,7 @@ wait_for_node "main_switch_bar" 10 || \
 tap_node "main_switch_bar"
 deadline=$((SECONDS + 10))
 while (( SECONDS < deadline )); do
-  permission_line="$(adb -s "$device_serial" shell dumpsys package "$package_name" \
+  permission_line="$(adb_with_timeout -s "$device_serial" shell dumpsys package "$package_name" \
     | awk '/android.permission.POST_NOTIFICATIONS: granted=/{print; exit}')"
   [[ "$permission_line" == *"granted=true"* ]] && break
   sleep 0.25
@@ -278,14 +338,14 @@ done
 [[ "$permission_line" == *"granted=true"* ]] || \
   failed "Android notification permission did not become granted after the real switch action"
 
-adb -s "$device_serial" shell input keyevent KEYCODE_BACK
+adb_with_timeout -s "$device_serial" shell input keyevent KEYCODE_BACK
 wait_for_node "nav.item.channels" 10 || failed "PushGo did not resume after Android notification settings"
 if wait_for_node "action.delivery_guard.confirm" 2; then
   failed "PushGo kept the disabled-notification prompt after permission was enabled"
 fi
 
-adb -s "$device_serial" shell am force-stop "$package_name"
-instrumentation_output="$(adb -s "$device_serial" shell am instrument -w -r \
+adb_with_timeout -s "$device_serial" shell am force-stop "$package_name"
+instrumentation_output="$(adb_with_timeout -s "$device_serial" shell am instrument -w -r \
   -e class "$test_selector" "$test_runner" 2>&1)" || true
 printf '%s\n' "$instrumentation_output"
 printf '%s\n' "$instrumentation_output" | python3 \
