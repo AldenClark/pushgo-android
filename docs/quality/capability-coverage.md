@@ -66,7 +66,7 @@ Gateway 后续请求补充证据：既有 Server 正向旅程现在将精确新 
 
 ## Stable UI entrypoint semantic review
 
-`scripts/quality_ui_entrypoints.py` now treats only production `testTag` attachments (including named component tag parameters) as UI entrypoints; route aliases and Automation `visibleScreen` strings are diagnostics, not product capabilities. `config/quality-ui-entrypoint-dispositions.json` reviews the current Android discovery differences: 58 stable production identifiers, 59 test references, 7 source-only and 8 test-only differences, with zero unresolved or stale entries. The remaining differences are shared purpose paths, dynamic/indirect IDs, component-only tags, a non-actionable version row, or dated P1 update work. A new or stale difference returns `REVIEW_REQUIRED` in the repository's own static suite. `READY_FOR_SEMANTIC_REVIEW` is not product `PASSED`; identifier overlap remains non-semantic discovery, and the final Oracle still comes from the exact data/system/relaunch result described above.
+`scripts/quality_ui_entrypoints.py` now treats only production `testTag` attachments (including named component tag parameters) as UI entrypoints; route aliases and Automation `visibleScreen` strings are diagnostics, not product capabilities. `config/quality-ui-entrypoint-dispositions.json` reviews the current Android discovery differences: 58 stable production identifiers, 60 test references, 6 source-only and 8 test-only differences, with zero unresolved or stale entries. The stable update Skip action is now referenced by a real user-purpose journey; remaining differences are shared purpose paths, dynamic/indirect IDs, component-only tags, a non-actionable version row, or other dated P1 update/system work. A new or stale difference returns `REVIEW_REQUIRED` in the repository's own static suite. `READY_FOR_SEMANTIC_REVIEW` is not product `PASSED`; identifier overlap remains non-semantic discovery, and the final Oracle still comes from the exact data/system/relaunch result described above.
 
 The AI-history blind snapshot now removes the task corpus, evaluation document and prior result assets after exporting the parent commit. Its retained tests materialize a real task, compare changed-file bytes to the parent rather than target, require no `.git`/answer assets, and reject an existing output directory. Android's 10-task replay is `READY_FOR_RECORDED_SEMANTIC_REVIEW`; an independent reviewer and the 14-day observation window are still required, so this does not remove `common-mode-risk`.
 
@@ -326,7 +326,7 @@ Doze 宿主脚本首次试跑 `build/quality-results/android-doze-positive-curre
 
 ### 2026-09-02 Android UI 入口—消费者完整映射复核（当前字节）
 
-按正式消费者范围 `app/src/androidTest`、`app/src/test`、`scripts` 运行 `quality_ui_entrypoints.py`，生产标识 58、测试引用 59；7 个未字面引用和 8 个动态/间接标识均有有效处置，未解析生产/测试入口与陈旧处置均为 0，`review_status=READY_FOR_SEMANTIC_REVIEW`。把宿主脚本纳入扫描后，权限确认与 Doze 动作不再被误报为未覆盖。该结果只证明入口防遗漏审计完成，不替代真实业务 Oracle。
+按正式消费者范围 `app/src/androidTest`、`app/src/test`、`scripts` 运行 `quality_ui_entrypoints.py`，生产标识 58、测试引用 60；6 个未字面引用和 8 个动态/间接标识均有有效处置，未解析生产/测试入口与陈旧处置均为 0，`review_status=READY_FOR_SEMANTIC_REVIEW`。Skip 旅程使稳定版本跳过动作从 source-only 差异变为真实测试消费者引用；把宿主脚本纳入扫描后，权限确认与 Doze 动作也不再被误报为未覆盖。该结果只证明入口防遗漏审计完成，不替代真实业务 Oracle。
 
 ### 2026-09-02 Android Nightly 历史字节复验（c41c064）
 

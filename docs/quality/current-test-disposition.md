@@ -271,7 +271,7 @@ Gateway 的正向终点不再停在地址持久化或旧行消失：现有 `serv
 
 2026-09-02 Android `device` 当前字节正向扩展（f57ff2e）：干净提交上执行 `QUALITY_RESULTS_ROOT=build/quality-results/device-current-20260902 ./scripts/quality_test.sh device`，受控 `Medium_Phone / emulator-5554` 的主机 JVM/本地化/`androidTest` 编译执行 298 项，固定正向 UI 集合 12/12，迁移/待删除/ACK 数据边界 21/21，三阶段均无 failure/error/skip。收据 `build/quality-results/device-current-20260902/android-device-summary.json` 为 product/test-system=`PASSED/PASSED`、`source_dirty=false`、`incomplete_selected_claims=[]`；各阶段的严格执行验证均在 lane 内完成。扩展覆盖 Markdown、准确消息/Activity 重开、历史清理、分页已读、筛选、五域导航、Event/Thing 关系、Channel 生命周期、加密恢复、页面显隐和 Gateway 验证换域，并以真实业务状态与必要重开为终点；本证据只限受控 emulator/host，不外推真实 FCM/Private、物理设备/OEM、生产性能或长期观察。
 
-2026-09-02 Android UI 入口—消费者完整映射当前字节复核：按 `app/src/androidTest`、`app/src/test`、`scripts` 运行 `quality_ui_entrypoints.py`，生产标识 58、测试引用 59；未解析生产/测试入口与陈旧处置均为 0，`READY_FOR_SEMANTIC_REVIEW`。这修正了只扫描 Kotlin 测试会误报宿主权限/Doze 入口的审计边界；不把入口标识或审计 READY 当作功能通过。
+2026-09-02 Android UI 入口—消费者完整映射当前字节复核：按 `app/src/androidTest`、`app/src/test`、`scripts` 运行 `quality_ui_entrypoints.py`，生产标识 58、测试引用 60、source-only 6、test-only 8；未解析生产/测试入口与陈旧处置均为 0，`READY_FOR_SEMANTIC_REVIEW`。稳定版本 Skip 旅程使该动作从 source-only 差异变为真实测试消费者引用；这修正了只扫描 Kotlin 测试会误报宿主权限/Doze 入口的审计边界，不把入口标识或审计 READY 当作功能通过。
 
 2026-09-02 Android Nightly 历史字节复验（c41c064）：旧收据在 `Medium_Phone / emulator-5554` 上选择 56 项但有一个显式 opt-in 的 100k 性能项 skipped，因此不再作为当前默认 Nightly 的完整执行证据。当前 runner 已改为从默认 Nightly 选择集中排除该 opt-in 项，并对任何新鲜 skipped 直接判为 `FAILED_TEST_SYSTEM`，同时为每个设备批次绑定源码解析的精确 selector/count；100k 仅由独立 performance 车道显式执行。未重新消耗完整 Nightly 成本，保留旧 bundle 仅作历史背景，不能将其 `PASSED` 外推为当前 Nightly 全量通过。
 
