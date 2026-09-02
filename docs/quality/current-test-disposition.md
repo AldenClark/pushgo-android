@@ -1,5 +1,7 @@
 # Android 当前 device 测试处置清单
 
+2026-09-03 Android pending-deletion recovery current byte：专用 `Medium_Phone / emulator-5554` 定向执行 `PendingLocalDeletionRoomDeviceTest` 6/6，Gradle `BUILD SUCCESSFUL in 59s`，原生 `tests=6 failures=0 errors=0 skipped=0`；收据 `build/quality-results/android-pending-deletion-current-20260903/android-focused-summary.json` 为 product/test-system=`PASSED/PASSED`、`source_dirty=false`、选择与执行一致、无 issue。测试验证 Room 重开后的 pending/committing 恢复、取消/永久失败状态、claim 后重试不可取消，以及通知重开重放的准确目标清理；不把数据库存在、测试标签或通知 ID 当作 UI Undo 通过，实际进程 kill、backoff/冲突、多 pending 并发、Provider 和物理设备边界仍未运行。
+
 基线日期：2026-08-27；截至 2026-09-02 当前 `androidTest` 共 114 个 `@Test`（早期 101 项快照已过时）。此文件是 WP0 迁移清单，不是产品通过 Manifest。
 
 ## 按文件逐测试处置

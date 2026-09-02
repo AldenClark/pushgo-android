@@ -2,6 +2,8 @@
 
 此索引防遗漏，不计算覆盖分，不是测试 Oracle。`testTag`、Manifest 组件、Worker 或测试方法存在均不能单独证明用户能力。
 
+2026-09-03 Android pending-deletion recovery current byte：专用 `Medium_Phone / emulator-5554` 上定向执行 `PendingLocalDeletionRoomDeviceTest` 全部 6/6，Gradle `BUILD SUCCESSFUL in 59s`，原生无 failure/error/skip，收据 `build/quality-results/android-pending-deletion-current-20260903/android-focused-summary.json` 为 product/test-system=`PASSED/PASSED`、`source_dirty=false`、选择与执行一致、无 issue。真实 Room/通知终点覆盖 pending/committing 重开恢复、取消持久化、首次 claim 后不可撤销、永久失败不阻塞下一意图、通知清理重开重放和按活动 group 元数据精确清理；这不是 UI Undo 或实际进程 kill 证据，不外推 Provider、物理设备、并发多 pending 或 backoff/冲突边界，`P1-PENDING-DELETE` 继续 `DEFERRED`。
+
 ## App-owned 准备合同
 
 外部质量控制按 `session.decode → fixture.allowlist → storage.reset → session.persist → storage.open → fixture.seed → fixture.verify` 输出稳定阶段；失败后回收该 Session 的 Room、secure/settings preferences、目录和持久控制，不得启动业务 UI 或重试产品断言。独立 `preparation` Lane 当前在 API 37 受控 emulator 上以 2.488 秒归因非法 schema 为 `session.decode`，并以 1.245 秒归因注入的本地存储打开失败为 `storage.open`；两者均零重试且 `business_ui_started=false`，后者完成回收后能继续运行正向控制。正常 `empty.clean` 准备 1.221 秒，并同时观察 `quality-runtime.ready` 与准确功能空态，产品/测试系统双 `PASSED`（`build/quality-results/android-preparation-contract/20260830-143742/summary.json`）。它只在 Runtime/准备边界变更或定向验证时付费，不外推真机启动性能。
