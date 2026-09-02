@@ -327,3 +327,9 @@ Doze 宿主脚本首次试跑 `build/quality-results/android-doze-positive-curre
 ### 2026-09-02 Android UI 入口—消费者完整映射复核（当前字节）
 
 按正式消费者范围 `app/src/androidTest`、`app/src/test`、`scripts` 运行 `quality_ui_entrypoints.py`，生产标识 58、测试引用 59；7 个未字面引用和 8 个动态/间接标识均有有效处置，未解析生产/测试入口与陈旧处置均为 0，`review_status=READY_FOR_SEMANTIC_REVIEW`。把宿主脚本纳入扫描后，权限确认与 Doze 动作不再被误报为未覆盖。该结果只证明入口防遗漏审计完成，不替代真实业务 Oracle。
+
+### 2026-09-02 Android Nightly 当前字节复验（c41c064）
+
+干净提交 `c41c064` 上执行 `QUALITY_RESULTS_ROOT=build/quality-results/android-nightly-current-byte-20260902 ANDROID_SERIAL=emulator-5554 ./scripts/quality_test.sh nightly`。受控 `Medium_Phone / emulator-5554` 上主机 JVM/本地化/`androidTest` 编译实际执行 298 项；精选 App-owned UI 33/33；迁移、删除、ACK、传输与 Worker 数据边界执行 55/56，唯一 skipped 为显式 opt-in 的 100k 规模性能用例（由独立 performance 车道负责，未将 skipped 计为通过）；权限、Doze 恢复/会话 snooze、进程重开与真实浏览器交接、系统通知/Private Service、zh-CN 大字体旅程均执行并通过。全程无 failure/error，收据 `build/quality-results/android-nightly-current-byte-20260902/android-nightly-summary.json` 为 `product_capability_status=PASSED`、`test_system_status=PASSED`、`source_dirty=false`、`incomplete_selected_claims=[]`。
+
+该证据证明当前测试系统字节下受控 emulator 的精选 P0/P1 跨层主链仍可执行且结果可信；不把 opt-in 性能项、真实 FCM/Private、物理设备/OEM、reboot、生产分发或长期观察外推为完成。
