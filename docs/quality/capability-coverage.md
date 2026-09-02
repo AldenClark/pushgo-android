@@ -303,3 +303,7 @@ Doze 宿主脚本首次试跑 `build/quality-results/android-doze-positive-curre
 ### 2026-09-02 Android 频道核心事务全类复验
 
 提交 `31fdabb` 的干净工作树在 `Medium_Phone / emulator-5554` 以 `QualityChannelJourneyInstrumentedTest` 精确执行 4/4，`BUILD SUCCESSFUL in 49s`，零 failure/error/skip；收据 `build/quality-results/android-channel-core-current-20260902/android-focused-summary.json` 为 product/test-system=`PASSED/PASSED`、`source_dirty=false`、`incomplete_selected_claims=[]`，executed selectors 与四个方法完全一致。一次启动覆盖远端拒绝只留在频道 Sheet、普通新建本地失败补偿、既有订阅失败不错误撤销远端关系、以及创建/改名/双退订后的准确 canonical 数据与 Activity relaunch；不以控件存在、fixture 或命令返回替代业务终点。该证据只加强受控 emulator 的 P1-CHANNELS 核心正向/恢复子 claim，不外推真实公网 Gateway、FCM/Private、物理设备/OEM、并发竞态全矩阵或长期观察。
+
+### 2026-09-02 Android Settings/Gateway/加密/传输核心全类复验
+
+提交 `dd3268e` 的干净工作树在 `Medium_Phone / emulator-5554` 以 `QualitySettingsJourneyInstrumentedTest` 精确执行 10/10，`BUILD SUCCESSFUL in 1m 3s`，零 failure/error/skip；收据 `build/quality-results/android-settings-core-current-20260902/android-focused-summary.json` 为 `product/test-system=PASSED/PASSED`、`source_dirty=false`、`incomplete_selected_claims=[]`，executed selectors 与十个方法完全一致。一次启动覆盖加密错误/正确 Key 恢复、页面显隐、非法/未注册 Gateway 候选、提交回滚与提交后待恢复、Transport 拒绝/Private 本地回滚，以及 Activity relaunch 后准确数据/路由；不以设置字段或控件存在替代用户终点。该证据只加强受控 emulator 的 P0 Settings/Gateway 与 P1 transport/crypto 子 claim，不外推真实 Keystore、Provider/FCM/Private、物理设备/OEM、reboot 或长期观察。
