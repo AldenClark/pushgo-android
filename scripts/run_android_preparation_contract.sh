@@ -12,16 +12,134 @@ mkdir -p "$run_dir"
 summary="$run_dir/summary.json"
 prepared=0
 device_serial=""
+adb_timeout_seconds="${QUALITY_ADB_TIMEOUT_SECONDS:-15}"
+lock_timeout_seconds="${QUALITY_ANDROID_DEVICE_LOCK_TIMEOUT_SECONDS:-15}"
+adb_binary="$(command -v adb || true)"
+device_lock_root="${QUALITY_ANDROID_LOCK_ROOT:-${TMPDIR:-/tmp}/pushgo-android-quality-locks}"
+device_lock_dir=""
+device_lock_acquired=0
+
+blocked() {
+  echo "status=BLOCKED"
+  echo "reason=$1"
+  exit 2
+}
+
+adb_with_timeout() {
+  python3 - "$adb_timeout_seconds" "$adb_binary" "$@" <<'PY'
+import os
+import signal
+import subprocess
+import sys
+
+timeout = float(sys.argv[1])
+command = sys.argv[2:]
+process = subprocess.Popen(
+    command,
+    stdin=subprocess.DEVNULL,
+    stdout=subprocess.PIPE,
+    stderr=subprocess.PIPE,
+    text=True,
+    start_new_session=True,
+)
+try:
+    stdout, stderr = process.communicate(timeout=timeout)
+except subprocess.TimeoutExpired as error:
+    stdout = error.stdout or ""
+    stderr = error.stderr or ""
+    if isinstance(stdout, bytes):
+        stdout = stdout.decode(errors="replace")
+    if isinstance(stderr, bytes):
+        stderr = stderr.decode(errors="replace")
+    if process.poll() is None:
+        try:
+            os.killpg(process.pid, signal.SIGTERM)
+        except ProcessLookupError:
+            pass
+        try:
+            process.wait(timeout=2)
+        except subprocess.TimeoutExpired:
+            try:
+                os.killpg(process.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            process.wait()
+    if stdout:
+        sys.stdout.write(stdout)
+    if stderr:
+        sys.stderr.write(stderr)
+    sys.stderr.write(f"adb command timed out after {timeout:g}s\n")
+    raise SystemExit(124)
+
+if stdout:
+    sys.stdout.write(stdout)
+if stderr:
+    sys.stderr.write(stderr)
+raise SystemExit(process.returncode)
+PY
+}
+
+acquire_device_lock() {
+  local safe_serial owner_pid deadline
+  safe_serial="$(printf '%s' "$device_serial" | tr -c 'A-Za-z0-9_.-' '_')"
+  device_lock_dir="$device_lock_root/$safe_serial"
+  mkdir -p "$device_lock_root" || {
+    device_lock_dir=""
+    echo "status=FAILED_TEST_SYSTEM"
+    echo "reason=android_device_lock_root_unavailable:$device_lock_root"
+    return 3
+  }
+  [[ "$lock_timeout_seconds" =~ ^[1-9][0-9]*$ ]] || {
+    device_lock_dir=""
+    echo "status=BLOCKED"
+    echo "reason=QUALITY_ANDROID_DEVICE_LOCK_TIMEOUT_SECONDS must be a positive integer"
+    return 2
+  }
+  deadline=$((SECONDS + lock_timeout_seconds))
+  while ! mkdir "$device_lock_dir" 2>/dev/null; do
+    owner_pid=""
+    [[ -f "$device_lock_dir/pid" ]] && owner_pid="$(<"$device_lock_dir/pid")"
+    if [[ "$owner_pid" =~ ^[0-9]+$ ]] && ! kill -0 "$owner_pid" >/dev/null 2>&1; then
+      rmdir "$device_lock_dir" 2>/dev/null || true
+      continue
+    fi
+    if (( SECONDS >= deadline )); then
+      device_lock_dir=""
+      echo "status=BLOCKED"
+      echo "reason=selected Android device is busy: $device_serial"
+      return 2
+    fi
+    sleep 0.25
+  done
+  printf '%s\n' "$$" >"$device_lock_dir/pid"
+  device_lock_acquired=1
+}
+
+release_device_lock() {
+  local owner_pid=""
+  [[ "$device_lock_acquired" -eq 1 && -n "$device_lock_dir" ]] || return 0
+  [[ -f "$device_lock_dir/pid" ]] && owner_pid="$(<"$device_lock_dir/pid")"
+  if [[ "$owner_pid" == "$$" ]]; then
+    rm -f "$device_lock_dir/pid"
+    rmdir "$device_lock_dir" 2>/dev/null || true
+  fi
+  device_lock_dir=""
+  device_lock_acquired=0
+}
 
 cleanup() {
   if [[ -n "$device_serial" && $prepared -eq 1 ]]; then
-    adb -s "$device_serial" shell content call \
+    adb_with_timeout -s "$device_serial" shell content call \
       --uri "content://$package_name.quality-fixture" \
       --method clear >/dev/null 2>&1 || true
-    adb -s "$device_serial" shell am force-stop "$package_name" >/dev/null 2>&1 || true
+    adb_with_timeout -s "$device_serial" shell am force-stop "$package_name" >/dev/null 2>&1 || true
   fi
+  release_device_lock
 }
 trap cleanup EXIT
+
+[[ -n "$adb_binary" ]] || blocked "adb is unavailable"
+[[ "$adb_timeout_seconds" =~ ^[1-9][0-9]*$ ]] || blocked "QUALITY_ADB_TIMEOUT_SECONDS must be a positive integer"
 
 doctor_output="$("$repo_root/scripts/quality_doctor.sh")"
 printf '%s\n' "$doctor_output"
@@ -32,6 +150,8 @@ if [[ -z "$device_serial" ]]; then
   exit 2
 fi
 
+acquire_device_lock || exit "$?"
+
 if [[ "${QUALITY_ANDROID_SKIP_INSTALL:-0}" != "1" ]]; then
   "$repo_root/gradlew" assembleDebug
   apk="$repo_root/app/build/outputs/apk/debug/app-universal-debug.apk"
@@ -40,14 +160,14 @@ if [[ "${QUALITY_ANDROID_SKIP_INSTALL:-0}" != "1" ]]; then
     echo "reason=current_debug_apk_missing"
     exit 2
   }
-  adb -s "$device_serial" install -r "$apk" >/dev/null
+  adb_with_timeout -s "$device_serial" install -r "$apk" >/dev/null
 fi
 
 invalid_payload="$(printf '%s' '{"schema_version":999,"session_id":"invalid-preparation","fixture":"empty.clean"}' | base64 | tr -d '\n')"
 invalid_log="$run_dir/invalid-session.log"
 started_ns="$(python3 -c 'import time; print(time.monotonic_ns())')"
 set +e
-adb -s "$device_serial" shell content call \
+adb_with_timeout -s "$device_serial" shell content call \
   --uri "content://$package_name.quality-fixture" \
   --method prepare \
   --arg "$invalid_payload" >"$invalid_log" 2>&1
@@ -86,7 +206,7 @@ PY
 storage_failure_log="$run_dir/storage-open-failure.log"
 started_ns="$(python3 -c 'import time; print(time.monotonic_ns())')"
 set +e
-adb -s "$device_serial" shell content call \
+adb_with_timeout -s "$device_serial" shell content call \
   --uri "content://$package_name.quality-fixture" \
   --method prepare \
   --arg "$storage_failure_payload" >"$storage_failure_log" 2>&1
@@ -124,7 +244,7 @@ PY
 )"
 positive_log="$run_dir/positive-session.log"
 started_ns="$(python3 -c 'import time; print(time.monotonic_ns())')"
-adb -s "$device_serial" shell content call \
+adb_with_timeout -s "$device_serial" shell content call \
   --uri "content://$package_name.quality-fixture" \
   --method prepare \
   --arg "$valid_payload" >"$positive_log" 2>&1
@@ -138,14 +258,14 @@ rg -q 'status=ready' "$positive_log" || {
 }
 prepared=1
 
-adb -s "$device_serial" shell am force-stop "$package_name" >/dev/null
-adb -s "$device_serial" shell am start -W -n "$package_name/.MainActivity" >/dev/null
+adb_with_timeout -s "$device_serial" shell am force-stop "$package_name" >/dev/null
+adb_with_timeout -s "$device_serial" shell am start -W -n "$package_name/.MainActivity" >/dev/null
 ui_dump="$run_dir/window.xml"
 deadline=$((SECONDS + 15))
 functional_ready=0
 while (( SECONDS < deadline )); do
-  if adb -s "$device_serial" shell uiautomator dump /data/local/tmp/pushgo-preparation.xml >/dev/null 2>&1 \
-    && adb -s "$device_serial" exec-out cat /data/local/tmp/pushgo-preparation.xml >"$ui_dump" 2>/dev/null \
+  if adb_with_timeout -s "$device_serial" shell uiautomator dump /data/local/tmp/pushgo-preparation.xml >/dev/null 2>&1 \
+    && adb_with_timeout -s "$device_serial" exec-out cat /data/local/tmp/pushgo-preparation.xml >"$ui_dump" 2>/dev/null \
     && rg -q 'resource-id="quality-runtime.ready"' "$ui_dump" \
     && rg -q 'resource-id="state.messages.empty"' "$ui_dump"; then
     functional_ready=1

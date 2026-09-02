@@ -36,6 +36,14 @@ class QualityPreparationContractTest(unittest.TestCase):
         self.assertIn('resource-id="quality-runtime.ready"', runner)
         self.assertIn('resource-id="state.messages.empty"', runner)
         self.assertNotIn("retry", runner.split("invalid_payload=", 1)[1].split("valid_payload=", 1)[0])
+        self.assertIn("adb_with_timeout()", runner)
+        self.assertIn('adb_timeout_seconds="${QUALITY_ADB_TIMEOUT_SECONDS:-15}"', runner)
+        self.assertIn("QUALITY_ADB_TIMEOUT_SECONDS must be a positive integer", runner)
+        self.assertIn("acquire_device_lock()", runner)
+        self.assertIn("release_device_lock()", runner)
+        self.assertIn("QUALITY_ANDROID_DEVICE_LOCK_TIMEOUT_SECONDS", runner)
+        self.assertIn("selected Android device is busy", runner)
+        self.assertNotIn("adb -s ", runner)
 
 
 if __name__ == "__main__":
