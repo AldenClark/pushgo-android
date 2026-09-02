@@ -396,3 +396,13 @@ Doze 宿主脚本首次试跑 `build/quality-results/android-doze-positive-curre
 ### 2026-09-03 Android 派生索引写入失败后的 canonical 恢复当前字节（`604a5a8`）
 
 在干净提交 `604a5a8`、专用 `Medium_Phone / emulator-5554` 上，`RuntimeDataLayerInstrumentedTest#canonicalMessageSurvivesDerivedIndexWriteFailureAndRepairsBeforeSearch` focused 精确执行 1/1；Gradle `BUILD SUCCESSFUL in 54s`，原生执行无 failure/error/skip，收据 `build/quality-results/android-derived-write-recovery-clean-20260903/android-focused-summary.json` 为 product/test-system=`PASSED/PASSED`、`source_dirty=false`、`selected_claims == executed_claims`、`incomplete_selected_claims=[]`、无 issue。真实 App-owned Room 触发器只阻断该消息的 `search_text` 派生写入，随后验证 canonical title/body、总数和列表仍准确可读；解除故障后真实搜索命中唯一消息、列表投影恢复且缺失 search/summary 投影为 0。该证据关闭受控 Android lower-layer“派生写入失败不丢 canonical、恢复后自修复”子 claim；进程终止、磁盘耗尽、UI 可见 rebuild、多 pending 并发、Provider、物理/OEM 和 Release 仍未运行，`P1-STORE`/`P1-SEARCH` 继续保持 `DEFERRED`。
+
+### 2026-09-03 Android 派生投影事务修复与变更分发完整回归（`b0c7538`）
+
+对上一条用例补做负控后，先确认旧测试存在真实假绿风险：`TEMP TRIGGER` 只在单一 SQLite 连接生效，且错误地用稳定 `messageId` 匹配派生表的本地 `entity.id`，故障根本没有命中。改用生产本地键和跨连接的 schema trigger 后，原实现暴露为产品失败：派生写入 `RAISE(ABORT)` 位于外层 Room 事务内，虽被 Kotlin 捕获，canonical 行与派生行仍一起回滚。该失败保留在历史结果中，没有通过重跑或放宽断言掩盖。
+
+提交 `4a6143a` 将 `insertIncoming`、`insert`、`insertAll`、`updateRawPayload`、`replaceEncryptedRecoveryCandidate` 的 canonical/幂等账本提交与派生投影提交拆开；搜索索引、列表摘要在独立事务内彼此原子，失败只记录 `message_derived_state=stale` 及错误游标，由应用启动 backfill 重新生成。三条真实受控模拟器用例均已独立 focused 通过：加密恢复、批量插入/更新/单条插入和单条入站恢复；每条都核对 canonical 准确值、派生缺口与错误证据、修复后的搜索/列表、去重及数据库重开状态。
+
+随后对 `f004706e5a41b72f9d34e5f7e7478617260a6b57...b0c7538` 运行 `scripts/quality_changed.sh`。主机 PR 实际执行 JVM/本地化/`androidTest` 编译 298 项，受控 `Medium_Phone / emulator-5554` 按影响计划执行 `QualityMessageJourneyInstrumentedTest#workflowFixtureLoadsSecondPageAndPersistsReadActions` 1 条 App-owned 旅程及上述 3 条 `RuntimeDataLayerInstrumentedTest` 方法，合计 4/4、原生 failure/error/skip=0；收据 `build/quality-results/android-derived-projection-selector-fixed-20260903/android-pr-summary.json` 与 `android-planned-device-summary.json` 均为 product/test-system=`PASSED/PASSED`、`source_dirty=false`、选择与执行完全一致、`incomplete_selected_claims=[]`、无 issue。
+
+同一回归还发现并修复了选择器缺陷：相邻测试方法被一个零上下文 diff hunk 合并时，旧逻辑可能只保留旧方法；`b0c7538` 增加合同并改为执行 hunk 覆盖的全部方法。本次影响计划从漏选 1 条校准为准确 3 条，脚本/合同测试为 175/175。该证据只关闭受控 Android canonical/派生恢复和变更分发子 claim；进程 kill、磁盘耗尽、可见 UI rebuild、多 pending 并发、真实 FCM/Private/Provider、物理设备/OEM、Release 与长期观察仍未运行，`P1-STORE`/`P1-SEARCH` 不升级为整体完成。
