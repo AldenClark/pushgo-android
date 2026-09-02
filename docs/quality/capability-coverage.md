@@ -333,3 +333,7 @@ Doze 宿主脚本首次试跑 `build/quality-results/android-doze-positive-curre
 干净提交 `c41c064` 上执行 `QUALITY_RESULTS_ROOT=build/quality-results/android-nightly-current-byte-20260902 ANDROID_SERIAL=emulator-5554 ./scripts/quality_test.sh nightly`。受控 `Medium_Phone / emulator-5554` 上主机 JVM/本地化/`androidTest` 编译实际执行 298 项；精选 App-owned UI 33/33；迁移、删除、ACK、传输与 Worker 数据边界执行 55/56，唯一 skipped 为显式 opt-in 的 100k 规模性能用例（由独立 performance 车道负责，未将 skipped 计为通过）；权限、Doze 恢复/会话 snooze、进程重开与真实浏览器交接、系统通知/Private Service、zh-CN 大字体旅程均执行并通过。全程无 failure/error，收据 `build/quality-results/android-nightly-current-byte-20260902/android-nightly-summary.json` 为 `product_capability_status=PASSED`、`test_system_status=PASSED`、`source_dirty=false`、`incomplete_selected_claims=[]`。
 
 该证据证明当前测试系统字节下受控 emulator 的精选 P0/P1 跨层主链仍可执行且结果可信；不把 opt-in 性能项、真实 FCM/Private、物理设备/OEM、reboot、生产分发或长期观察外推为完成。
+
+### 2026-09-02 Android Accessibility 当前字节
+
+`accessibility` lane 在受控 `Medium_Phone / emulator-5554` 上精确执行 `QualityAccessibilityLocalizationJourneyInstrumentedTest#simplifiedChineseAtLargeFontCompletesMessageDetailAndAddChannelJourney` 1/1。真实 zh-CN 大字号环境中，消息标题与未读徽标保持可读，详情打开/返回、频道入口、中文输入及创建后的准确频道行全部通过；Gradle/XML 为 `tests=1`, `failures=0`, `errors=0`, `skipped=0`，收据 `build/quality-results/android-accessibility-current-20260902/android-accessibility-summary.json` 为 product/test-system=`PASSED/PASSED`、`source_dirty=false`、`incomplete_selected_claims=[]`。该证据只更新受控 emulator 的代表性无障碍/本地化用户目的，不外推 TalkBack、物理设备、其他语言/字号或完整页面矩阵。
