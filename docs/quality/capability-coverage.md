@@ -317,3 +317,9 @@ Doze 宿主脚本首次试跑 `build/quality-results/android-doze-positive-curre
 干净提交 `f00ad40` 上执行 `QUALITY_RESULTS_ROOT=build/quality-results/pr-ui-current-20260902 ./scripts/quality_test.sh pr-ui`。受控 `Medium_Phone / emulator-5554` 的固定最低充分正向集合 fresh 执行 6/6，`BUILD SUCCESSFUL in 50s`，failure/error/skip 均为 0；`verify_android_test_execution.py` 以本轮报告时间窗复核 `status=EXECUTED`、`executed_test_count=6`，六个 Class#method selector 与计划完全一致。收据 `build/quality-results/pr-ui-current-20260902/android-pr-ui-summary.json` 为 `product_capability_status=PASSED`、`test_system_status=PASSED`、`source_dirty=false`、`incomplete_selected_claims=[]`。
 
 这 6 条旅程从真实入口验证标准消息准确内容与 Activity 重开、分页/已读/未读徽标、五域主导航、Event 关闭投影、Channel 创建/改名/双退订和 Gateway 候选验证/注册后换域；每条都以准确业务状态或重开后的可用结果为终点，不以启动、控件存在、版本或结果文件生成替代功能通过。该证据只刷新受控 emulator 的当前 PR-UI 主链，不外推真实 FCM/Private、物理设备/OEM、生产性能或长期观察。
+
+### 2026-09-02 Android `device` 当前字节正向扩展（f57ff2e）
+
+干净提交 `f57ff2e` 上执行 `QUALITY_RESULTS_ROOT=build/quality-results/device-current-20260902 ./scripts/quality_test.sh device`。在受控 `Medium_Phone / emulator-5554` 上，主机 JVM/本地化/`androidTest` 编译实际执行 298 项；随后固定正向 UI 集合执行 12/12，迁移、待删除和 ACK 数据边界执行 21/21，三个阶段均无 failure/error/skip，结果收据 `build/quality-results/device-current-20260902/android-device-summary.json` 为 `product_capability_status=PASSED`、`test_system_status=PASSED`、`source_dirty=false`、`incomplete_selected_claims=[]`。
+
+这次扩展覆盖 Markdown、准确消息/Activity 重开、历史清理、分页/已读、频道/标签/未分组筛选、五域导航、Event/Thing 关系、Channel 生命周期、加密恢复、页面显隐和 Gateway 验证/注册后换域，并用真实 Room/迁移/持久删除/ACK 边界保护数据安全；每条 UI 旅程都落到准确业务结果或必要重开，不以构建、节点存在或结果文件替代用户目的。该证据仅限受控 emulator/host 的当前正向集，不外推真实 FCM/Private、物理设备/OEM、生产性能或长期观察。
