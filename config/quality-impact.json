@@ -134,6 +134,18 @@
       "escalation_reasons": ["Search presentation and query-owner changes can otherwise ship a plausible empty or stale list while the user cannot recover to the requested canonical message."]
     },
     {
+      "id": "message-list-load-recovery-ui",
+      "paths": ["app/src/main/java/io/ethan/pushgo/ui/viewmodel/MessageListViewModel.kt", "app/src/main/java/io/ethan/pushgo/ui/screens/MessageListScreen.kt"],
+      "capabilities": ["messages", "message-detail"],
+      "minimum_evidence": ["Android initial message-load failure shows page-owned Retry; Retry reaches one exact canonical message and matching detail rather than an empty state"],
+      "required_device_scopes": [
+        "io.ethan.pushgo.testing.QualityMessageJourneyInstrumentedTest#failedLoadShowsUsableRetryAndRecoversToTheCanonicalMessageDetail"
+      ],
+      "lane": "device",
+      "known_evidence_gaps": ["This focused recovery path does not claim pagination, provider-refresh, search, real external delivery, or physical-device behavior."],
+      "escalation_reasons": ["Message list load/error/retry changes can otherwise present a plausible empty state after Retry while failing to recover the user's canonical messages."]
+    },
+    {
       "id": "events-things-data",
       "paths": ["app/src/main/java/io/ethan/pushgo/data/CanonicalEntityType.kt", "app/src/main/java/io/ethan/pushgo/data/Entity*.kt"],
       "capabilities": ["events", "things"],

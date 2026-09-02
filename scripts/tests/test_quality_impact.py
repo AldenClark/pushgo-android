@@ -272,6 +272,10 @@ class RuntimeExtendedJourneyInstrumentedTest {{
         self.assertEqual("device", plan["recommended_lane"])
         self.assertIn("messages", plan["impacted_capabilities"])
         self.assertIn("Android accurate content/search/delete/relaunch UI journeys", plan["minimum_evidence"])
+        self.assertIn(
+            "io.ethan.pushgo.testing.QualityMessageJourneyInstrumentedTest#failedLoadShowsUsableRetryAndRecoversToTheCanonicalMessageDetail",
+            plan["required_device_scopes"],
+        )
 
     def test_search_viewmodel_selects_exact_recovery_device_oracle(self):
         plan = self.plan("app/src/main/java/io/ethan/pushgo/ui/viewmodel/MessageSearchViewModel.kt")
@@ -569,7 +573,7 @@ class RuntimeExtendedJourneyInstrumentedTest {{
         self.assertEqual("performance", plan["recommended_lane"])
         self.assertIn("baseline-profile", plan["impacted_capabilities"])
 
-    def test_message_list_ui_change_keeps_focused_device_scope(self):
+    def test_message_list_ui_change_keeps_workflow_and_load_recovery_scopes(self):
         plan = self.plan(
             "app/src/main/java/io/ethan/pushgo/ui/screens/MessageListScreen.kt"
         )
@@ -579,6 +583,7 @@ class RuntimeExtendedJourneyInstrumentedTest {{
         self.assertEqual("focused", plan["device_scope_selection"])
         self.assertEqual(
             [
+                "io.ethan.pushgo.testing.QualityMessageJourneyInstrumentedTest#failedLoadShowsUsableRetryAndRecoversToTheCanonicalMessageDetail",
                 "io.ethan.pushgo.testing.QualityMessageJourneyInstrumentedTest#workflowFixtureLoadsSecondPageAndPersistsReadActions"
             ],
             plan["required_device_scopes"],

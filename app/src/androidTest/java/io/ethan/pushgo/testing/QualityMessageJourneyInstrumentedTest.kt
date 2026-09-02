@@ -1118,9 +1118,9 @@ class QualityMessageJourneyInstrumentedTest : QualityAppJourneyTestCase() {
     }
 
     @Test
-    fun failedLoadShowsUsableRetryAndRecoversToTheRealEmptyResult() {
+    fun failedLoadShowsUsableRetryAndRecoversToTheCanonicalMessageDetail() {
         configureAndLaunch(
-            fixture = QualityFixture.EMPTY_CLEAN,
+            fixture = QualityFixture.MESSAGES_STANDARD,
             faults = QualityFaults(failMessageLoad = true),
         )
 
@@ -1130,13 +1130,22 @@ class QualityMessageJourneyInstrumentedTest : QualityAppJourneyTestCase() {
             ).fetchSemanticsNodes().isNotEmpty()
         }
         composeRule.onNodeWithTag("state.messages.load_failed").assertIsDisplayed()
-        composeRule.onNodeWithTag("action.messages.retry").assertIsDisplayed().performClick()
-        composeRule.waitUntil(timeoutMillis = 5_000) {
+        composeRule.onNodeWithTag("action.messages.retry")
+            .assertIsDisplayed()
+            .assertHasClickAction()
+            .performClick()
+        composeRule.waitUntil(timeoutMillis = 8_000) {
             composeRule.onAllNodes(
-                hasTestTag("state.messages.empty")
+                hasText("P2 Split Seed Message")
             ).fetchSemanticsNodes().isNotEmpty()
         }
-        composeRule.onNodeWithTag("state.messages.empty").assertIsDisplayed()
+        composeRule.onNodeWithTag("state.messages.load_failed").assertDoesNotExist()
+        composeRule.onNodeWithTag("state.messages.empty").assertDoesNotExist()
+        composeRule.onAllNodesWithText("P2 Split Seed Message").assertCountEquals(1)
+        composeRule.onNodeWithText("P2 Split Seed Message").assertIsDisplayed().performClick()
+        composeRule.onNodeWithTag("sheet.message.detail").assertIsDisplayed()
+        composeRule.onNodeWithTag("field.message.detail.body")
+            .assertTextEquals("Seeded from fixture.seed_messages for UI validation.")
     }
 
     @Test
