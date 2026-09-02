@@ -349,6 +349,10 @@ Doze 宿主脚本首次试跑 `build/quality-results/android-doze-positive-curre
 
 在干净提交 `1da4a25` 上，定向 Focused 复验 `QualityChannelJourneyInstrumentedTest#existingSubscribePersistenceFailureDoesNotRevokeRemoteOwnershipBeforeRetry` 于 `Medium_Phone / emulator-5554` 精确执行 1/1，XML 为 `tests=1 failures=0 errors=0 skipped=0`，收据 `build/quality-results/android-existing-subscribe-rerun-20260902/android-focused-summary.json` 为 product/test-system=`PASSED/PASSED`、`source_dirty=false`、无 incomplete claim。真实已有频道 Sheet 提交、远端 ownership 保持、本地一次性失败后的重试以及 App 容器重建后的准确用户名称均通过；不外推真实 Gateway/FCM/Private、真机/OEM 或整体 Gate。
 
+### 2026-09-02 Android 频道 Sheet 错误归属的选择覆盖修正
+
+频道远端拒绝/Retry 的真实旅程原本只存在于完整 Journey/Nightly 类中，`channels-settings-transport` 的变更影响计划未将其作为最低 required device scope；这会让频道/设置 UI 变更只跑正向网关链而遗漏错误归属。现已把 `QualityChannelJourneyInstrumentedTest#remoteRejectionStaysInSheetAndRetryPersists` 加入规则，并用 `scripts/tests/test_quality_impact.py` 固定该映射。新鲜计划 `build/quality-results/android-channel-owner-impact-current-20260902.json` 为 READY/device/focused，`unmapped_product_paths=[]`，并列出该 scope 与三个网关事务 scope。40 项影响合同和 174 项脚本/合同测试全部通过；因当前磁盘约 304 MiB 低于 1 GiB 设备车道门槛，本轮没有伪造或强行执行 Android UI，故本条是选择完整性修正而非新的产品通过证据。
+
 ### 2026-09-02 Android device runner 空排除参数修复与干净复验（ec9a526）
 
 首轮 device 扩展已真实执行 12 条核心 UI 方法，但在进入数据边界前，runner 在 stdin 重执行与 `set -u` 下无条件展开空可选参数数组，正确记录为测试系统 `BLOCKED`，不计产品通过。提交 `ec9a526` 将 selector 解析改为有/无排除参数的安全分支，并增加回归合同；脚本/合同测试当前 173/173。随后在干净工作树、`Medium_Phone / emulator-5554` 重跑 `QUALITY_RESULTS_ROOT=build/quality-results/android-execution-gate-device-clean-20260902 ANDROID_SERIAL=emulator-5554 ./scripts/quality_test.sh device`：主机 JVM/本地化/`androidTest` 编译 298 项、UI 12/12、迁移/待删除/ACK 数据 21/21，均零 failure/error/skip；`android-device-summary.json` 为 product/test-system=`PASSED/PASSED`、`source_dirty=false`、无 incomplete claim。该证据仅限受控 emulator/host 的当前正向扩展，不外推真实 FCM/Private、物理设备/OEM、生产性能或长期观察。

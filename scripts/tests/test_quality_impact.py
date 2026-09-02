@@ -442,6 +442,18 @@ class RuntimeExtendedJourneyInstrumentedTest {{
             }.issubset(plan["impacted_capabilities"])
         )
 
+    def test_channel_screen_change_selects_sheet_error_owner_journey(self):
+        plan = self.plan(
+            "app/src/main/java/io/ethan/pushgo/ui/screens/ChannelListScreen.kt"
+        )
+
+        self.assertEqual("device", plan["recommended_lane"])
+        self.assertEqual("focused", plan["device_scope_selection"])
+        self.assertIn(
+            "io.ethan.pushgo.testing.QualityChannelJourneyInstrumentedTest#remoteRejectionStaysInSheetAndRetryPersists",
+            plan["required_device_scopes"],
+        )
+
     def test_notification_product_change_requires_system_route_evidence(self):
         plan = self.plan(
             "app/src/main/java/io/ethan/pushgo/notifications/NotificationHelper.kt"
