@@ -323,3 +323,7 @@ Doze 宿主脚本首次试跑 `build/quality-results/android-doze-positive-curre
 干净提交 `f57ff2e` 上执行 `QUALITY_RESULTS_ROOT=build/quality-results/device-current-20260902 ./scripts/quality_test.sh device`。在受控 `Medium_Phone / emulator-5554` 上，主机 JVM/本地化/`androidTest` 编译实际执行 298 项；随后固定正向 UI 集合执行 12/12，迁移、待删除和 ACK 数据边界执行 21/21，三个阶段均无 failure/error/skip，结果收据 `build/quality-results/device-current-20260902/android-device-summary.json` 为 `product_capability_status=PASSED`、`test_system_status=PASSED`、`source_dirty=false`、`incomplete_selected_claims=[]`。
 
 这次扩展覆盖 Markdown、准确消息/Activity 重开、历史清理、分页/已读、频道/标签/未分组筛选、五域导航、Event/Thing 关系、Channel 生命周期、加密恢复、页面显隐和 Gateway 验证/注册后换域，并用真实 Room/迁移/持久删除/ACK 边界保护数据安全；每条 UI 旅程都落到准确业务结果或必要重开，不以构建、节点存在或结果文件替代用户目的。该证据仅限受控 emulator/host 的当前正向集，不外推真实 FCM/Private、物理设备/OEM、生产性能或长期观察。
+
+### 2026-09-02 Android UI 入口—消费者完整映射复核（当前字节）
+
+按正式消费者范围 `app/src/androidTest`、`app/src/test`、`scripts` 运行 `quality_ui_entrypoints.py`，生产标识 58、测试引用 59；7 个未字面引用和 8 个动态/间接标识均有有效处置，未解析生产/测试入口与陈旧处置均为 0，`review_status=READY_FOR_SEMANTIC_REVIEW`。把宿主脚本纳入扫描后，权限确认与 Doze 动作不再被误报为未覆盖。该结果只证明入口防遗漏审计完成，不替代真实业务 Oracle。
