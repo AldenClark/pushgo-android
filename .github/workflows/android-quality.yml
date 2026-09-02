@@ -20,6 +20,7 @@ on:
           - nightly
           - accessibility
           - performance
+          - release-isolation
           - release
 
 permissions:
@@ -31,9 +32,11 @@ concurrency:
 
 jobs:
   fast-regression:
-    if: github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'workflow_dispatch' && inputs.lane == 'pr')
+    if: github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'workflow_dispatch' && (inputs.lane == 'pr' || inputs.lane == 'release-isolation'))
     runs-on: ubuntu-latest
     timeout-minutes: 60
+    env:
+      QUALITY_LANE: ${{ github.event_name == 'workflow_dispatch' && inputs.lane || 'pr' }}
     steps:
       - name: Checkout
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
@@ -59,6 +62,8 @@ jobs:
           impact_lane="$(python3 -c 'import json; print(json.load(open("build/quality-results/android-impact-plan.json"))["recommended_lane"])')"
           if [[ "$impact_lane" == "not-run" ]]; then
             echo "QUALITY_SKIP_FAST=1" >> "$GITHUB_ENV"
+          else
+            echo "QUALITY_LANE=$impact_lane" >> "$GITHUB_ENV"
           fi
 
       - name: Set up Java
@@ -86,7 +91,7 @@ jobs:
 
       - name: Run fast product regression
         if: env.QUALITY_SKIP_FAST != '1'
-        run: ./scripts/quality_test.sh pr
+        run: ./scripts/quality_test.sh "$QUALITY_LANE"
 
       - name: Record intentional no-product host run
         if: env.QUALITY_SKIP_FAST == '1'
@@ -122,7 +127,7 @@ jobs:
           path: build/quality-results/*-summary.json
 
   device-regression:
-    if: github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref == 'refs/heads/main') || github.event_name == 'schedule' || startsWith(github.ref, 'refs/tags/') || (github.event_name == 'workflow_dispatch' && inputs.lane != 'pr')
+    if: github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref == 'refs/heads/main') || github.event_name == 'schedule' || startsWith(github.ref, 'refs/tags/') || (github.event_name == 'workflow_dispatch' && inputs.lane != 'pr' && inputs.lane != 'release-isolation')
     runs-on: ubuntu-latest
     timeout-minutes: 120
     env:

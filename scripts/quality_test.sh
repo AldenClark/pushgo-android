@@ -32,6 +32,9 @@ if [[ "$lane" != "performance" && "$lane" != "release" ]]; then
   not_run+=("opt-in 100k production Room performance evidence")
   not_run+=("Release-like Macrobenchmark mechanics and physical-device performance evidence")
 fi
+if [[ "$lane" == "release-isolation" ]]; then
+  not_run+=("Android functional UI, system notification, Provider/FCM, physical-device, and update-install evidence")
+fi
 
 android_device_lock_timeout="${QUALITY_ANDROID_DEVICE_LOCK_TIMEOUT_SECONDS:-15}"
 android_device_lock_root="${QUALITY_ANDROID_LOCK_ROOT:-${TMPDIR:-/tmp}/pushgo-android-quality-locks}"
@@ -620,6 +623,21 @@ run_update_install_positive() {
   claims+=("Android positive update replaces the real package and preserves exact canonical data")
 }
 
+run_release_isolation_checks() {
+  local isolation_root="${QUALITY_RELEASE_ISOLATION_ROOT:-$results_root/android-release-isolation}"
+  local build_log="$isolation_root/assemble-release.log"
+  local contract_log="$isolation_root/verify-performance-contract.log"
+  mkdir -p "$isolation_root"
+  "$repo_root/gradlew" :app:assembleRelease --console=plain 2>&1 | tee "$build_log"
+  python3 "$repo_root/scripts/verify_android_performance_contract.py" 2>&1 | tee "$contract_log"
+}
+
+run_release_isolation() {
+  selected_claims+=("Android Release APK quality-runtime activation isolation")
+  run_release_isolation_checks
+  claims+=("Android Release APK quality-runtime activation isolation")
+}
+
 run_performance() {
   local doctor_output
   local device_serial
@@ -691,8 +709,7 @@ run_performance() {
   release_android_device_lock
 
   selected_claims+=("Filtered Baseline/Startup Profile and Release APK quality-control isolation")
-  "$repo_root/gradlew" :app:assembleRelease --console=plain
-  python3 "$repo_root/scripts/verify_android_performance_contract.py"
+  run_release_isolation_checks
   claims+=("Filtered Baseline/Startup Profile and Release APK quality-control isolation")
 
   local physical_serial="${ANDROID_PERFORMANCE_DEVICE_SERIAL:-}"
@@ -912,6 +929,9 @@ case "$lane" in
     ;;
   performance)
     run_performance
+    ;;
+  release-isolation)
+    run_release_isolation
     ;;
   update-install)
     run_update_install_positive
