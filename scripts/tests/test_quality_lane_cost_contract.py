@@ -159,6 +159,14 @@ class QualityLaneCostContractTests(unittest.TestCase):
         nightly_body = runner.split("  nightly)", 1)[1].split("    ;;", 1)[0]
         self.assertIn("excluding opt-in 100k performance", nightly_body)
 
+    def test_device_scope_resolution_is_safe_for_empty_optional_exclusions(self) -> None:
+        # The runner is re-executed from stdin with nounset enabled.  An empty
+        # local array cannot be expanded directly in that mode, so the generic
+        # data lane must take the no-options branch explicitly.
+        runner = (REPO / "scripts/quality_test.sh").read_text()
+        self.assertIn("if (( ${#selector_args[@]} > 0 )); then", runner)
+        self.assertIn('android_test_selectors_for_scopes "$classes")', runner)
+
     def test_accessibility_lane_has_host_baseline_recovery_even_after_instrumentation_abort(self) -> None:
         runner = (REPO / "scripts/quality_test.sh").read_text()
         self.assertIn("capture_accessibility_baseline()", runner)

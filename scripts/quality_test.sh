@@ -435,11 +435,27 @@ run_device_classes() {
   local expected_count
   local -a selector_args=()
   [[ -z "$excluded_selectors" ]] || selector_args+=(--exclude-selector "$excluded_selectors")
-  expected_selectors="$(android_test_selectors_for_scopes "$classes" "${selector_args[@]}")" || {
+  # Bash expands an empty local array as unset when this snapshot script is
+  # re-executed from stdin under `set -u`.  Pass no optional arguments through
+  # the empty branch instead of expanding `${selector_args[@]}` unconditionally.
+  if (( ${#selector_args[@]} > 0 )); then
+    if ! expected_selectors="$(android_test_selectors_for_scopes "$classes" "${selector_args[@]}")"; then
+      echo "status=BLOCKED"
+      echo "reason=unable_to_resolve_android_expected_selectors"
+      exit 2
+    fi
+  else
+    if ! expected_selectors="$(android_test_selectors_for_scopes "$classes")"; then
+      echo "status=BLOCKED"
+      echo "reason=unable_to_resolve_android_expected_selectors"
+      exit 2
+    fi
+  fi
+  if [[ -z "$expected_selectors" ]]; then
     echo "status=BLOCKED"
     echo "reason=unable_to_resolve_android_expected_selectors"
     exit 2
-  }
+  fi
   expected_count="$(expected_selector_count "$expected_selectors")"
   selected_claims+=("$claim")
   doctor_output="$("$repo_root/scripts/quality_doctor.sh")"
