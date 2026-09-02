@@ -299,3 +299,7 @@ Doze 宿主脚本首次试跑 `build/quality-results/android-doze-positive-curre
 ### 2026-09-02 Android 进程恢复真实正向
 
 提交 `f67a5a0` 的干净工作树在 `Medium_Phone / emulator-5554` 运行 `QUALITY_ANDROID_SKIP_INSTALL=1 ANDROID_SERIAL=emulator-5554 ./scripts/run_android_process_restart_positive.sh`，实际完成 unread canonical message→真实详情/已读变更→强制结束→新 PID→准确持久详情→真实 HTTPS 浏览器交接/返回→Settings 文档入口→浏览器交接/返回；`first_pid=21936`、`second_pid=22139`，输出 `status=PASSED`，无业务重试。runner 的 ADB 调用均有 8 秒上限，设备按 serial 15 秒互斥，UI dump 使用本轮唯一路径，失败会在清理前保存 PID、窗口焦点、crash buffer 和 UI 失败原因；相关合同/脚本测试 162/162 通过。该证据只关闭受控 emulator 的进程死亡/重开持久化和系统浏览器返回子 claim，不外推 reboot、真实 Provider/FCM、物理设备/OEM 或长期观察；P1-ANDROID-LIFECYCLE 仍为 `DEFERRED`。
+
+### 2026-09-02 Android 频道核心事务全类复验
+
+提交 `31fdabb` 的干净工作树在 `Medium_Phone / emulator-5554` 以 `QualityChannelJourneyInstrumentedTest` 精确执行 4/4，`BUILD SUCCESSFUL in 49s`，零 failure/error/skip；收据 `build/quality-results/android-channel-core-current-20260902/android-focused-summary.json` 为 product/test-system=`PASSED/PASSED`、`source_dirty=false`、`incomplete_selected_claims=[]`，executed selectors 与四个方法完全一致。一次启动覆盖远端拒绝只留在频道 Sheet、普通新建本地失败补偿、既有订阅失败不错误撤销远端关系、以及创建/改名/双退订后的准确 canonical 数据与 Activity relaunch；不以控件存在、fixture 或命令返回替代业务终点。该证据只加强受控 emulator 的 P1-CHANNELS 核心正向/恢复子 claim，不外推真实公网 Gateway、FCM/Private、物理设备/OEM、并发竞态全矩阵或长期观察。
