@@ -295,3 +295,7 @@ Doze 宿主脚本首次试跑 `build/quality-results/android-doze-positive-curre
 ### 2026-09-02 Android 删除目标真实路由回落
 
 提交 `12230da` 的干净工作树上，`QualityMessageJourneyInstrumentedTest#deleteWithoutUndoPermanentlyRemovesOnlyTargetAcrossStorageRecreation` 在 `Medium_Phone / emulator-5554` fresh 执行 1/1，原生 failure/error/skip=0；收据 `build/quality-results/android-deleted-route-current-20260902/android-focused-summary.json` 为 `product_capability_status=PASSED`、`test_system_status=PASSED`、`source_dirty=false`、`incomplete_selected_claims=[]`。旅程以真实删除与 deadline 为起点，关闭/重开生产存储后通过真实通知目标打开入口，准确显示消息目标不可用的归属反馈、不复活已删除详情，同时保留幸存消息的准确正文与可操作性；不以 pending 标记、文件存在或 Activity 启动代替终点。该证据只关闭受控 emulator 的 Message deleted-target fallback，不外推其他非法目标、Event 路由、Provider 或物理设备。
+
+### 2026-09-02 Android 进程恢复真实正向
+
+提交 `f67a5a0` 的干净工作树在 `Medium_Phone / emulator-5554` 运行 `QUALITY_ANDROID_SKIP_INSTALL=1 ANDROID_SERIAL=emulator-5554 ./scripts/run_android_process_restart_positive.sh`，实际完成 unread canonical message→真实详情/已读变更→强制结束→新 PID→准确持久详情→真实 HTTPS 浏览器交接/返回→Settings 文档入口→浏览器交接/返回；`first_pid=21936`、`second_pid=22139`，输出 `status=PASSED`，无业务重试。runner 的 ADB 调用均有 8 秒上限，设备按 serial 15 秒互斥，UI dump 使用本轮唯一路径，失败会在清理前保存 PID、窗口焦点、crash buffer 和 UI 失败原因；相关合同/脚本测试 162/162 通过。该证据只关闭受控 emulator 的进程死亡/重开持久化和系统浏览器返回子 claim，不外推 reboot、真实 Provider/FCM、物理设备/OEM 或长期观察；P1-ANDROID-LIFECYCLE 仍为 `DEFERRED`。
