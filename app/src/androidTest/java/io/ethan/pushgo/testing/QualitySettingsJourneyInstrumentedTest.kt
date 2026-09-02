@@ -202,6 +202,20 @@ class QualitySettingsJourneyInstrumentedTest : QualityAppJourneyTestCase() {
 
     @Test
     fun dataPageVisibilityUsesRealControlsAndPersistsAcrossRelaunch() {
+        fun waitForUpdateStatus(expected: String, timeoutMillis: Long = 8_000) {
+            composeRule.waitUntil(timeoutMillis = timeoutMillis) {
+                composeRule.onAllNodes(hasTestTag("row.settings.update.check_now"))
+                    .fetchSemanticsNodes()
+                    .any { node ->
+                        runCatching { node.config[SemanticsProperties.Text] }
+                            .getOrNull()
+                            ?.any { text -> text.text.contains(expected) } == true
+                    }
+            }
+            composeRule.onNodeWithTag("row.settings.update.check_now")
+                .assertTextContains(expected)
+        }
+
         configureAndLaunch(
             fixture = QualityFixture.MESSAGES_STANDARD,
             updateScenario = QualityUpdateScenario.AVAILABLE_STABLE_AND_BETA,
@@ -215,6 +229,11 @@ class QualitySettingsJourneyInstrumentedTest : QualityAppJourneyTestCase() {
             .assertTextContains(
                 app.getString(R.string.label_update_status_available, "9.9.9-quality"),
             )
+        composeRule.onNodeWithTag("action.settings.update.skip")
+            .assertIsDisplayed()
+            .performClick()
+        waitForTagToDisappear("card.settings.update.available")
+        waitForUpdateStatus(app.getString(R.string.label_update_status_skipped))
         composeRule.onNodeWithTag("switch.settings.update.auto_check")
             .assertUpdateToggleEnabled(true)
             .performClick()
@@ -267,15 +286,13 @@ class QualitySettingsJourneyInstrumentedTest : QualityAppJourneyTestCase() {
         composeRule.onNodeWithTag("row.settings.update.check_now")
             .assertTextContains(app.getString(R.string.label_update_status_cooldown))
         composeRule.onNodeWithTag("card.settings.update.available").assertDoesNotExist()
-        composeRule.onNodeWithTag("row.settings.update.check_now").performClick()
-        waitForTag("card.settings.update.available")
-        composeRule.onNodeWithTag("row.settings.update.check_now")
-            .assertTextContains(
-                app.getString(R.string.label_update_status_available, "10.0.0-beta-quality"),
-            )
         composeRule.onNodeWithTag("option.settings.update.channel.stable")
             .performClick()
             .assertIsSelected()
+        waitForUpdateStatus(app.getString(R.string.label_update_status_skipped))
+        composeRule.onNodeWithTag("card.settings.update.available").assertDoesNotExist()
+        composeRule.onNodeWithTag("row.settings.update.check_now").performClick()
+        waitForTag("card.settings.update.available")
         composeRule.onNodeWithTag("row.settings.update.check_now")
             .assertTextContains(
                 app.getString(R.string.label_update_status_available, "9.9.9-quality"),
