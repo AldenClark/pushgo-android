@@ -9,12 +9,135 @@ test_method="${TEST_METHOD:-emptyFixtureShowsTheFunctionalEmptyStateInAnAppOwned
 app_id="${APP_ID:-io.ethan.pushgo}"
 test_package="${TEST_PACKAGE:-io.ethan.pushgo.test}"
 instrumentation="${TEST_INSTRUMENTATION_COMPONENT:-$test_package/.PushGoAndroidJUnitRunner}"
+adb_timeout_seconds="${QUALITY_ADB_TIMEOUT_SECONDS:-8}"
+lock_timeout_seconds="${QUALITY_ANDROID_DEVICE_LOCK_TIMEOUT_SECONDS:-15}"
+adb_binary="$(command -v adb || true)"
+device_lock_root="${QUALITY_ANDROID_LOCK_ROOT:-${TMPDIR:-/tmp}/pushgo-android-quality-locks}"
+device_lock_dir=""
+device_lock_acquired=0
+
+blocked() {
+  echo "status=BLOCKED"
+  echo "reason=$1"
+  exit 2
+}
+
+adb_with_timeout() {
+  python3 - "$adb_timeout_seconds" "$adb_binary" "$@" <<'PY'
+import os
+import signal
+import subprocess
+import sys
+
+timeout = float(sys.argv[1])
+command = sys.argv[2:]
+process = subprocess.Popen(
+    command,
+    stdin=subprocess.DEVNULL,
+    stdout=subprocess.PIPE,
+    stderr=subprocess.PIPE,
+    text=True,
+    start_new_session=True,
+)
+try:
+    stdout, stderr = process.communicate(timeout=timeout)
+except subprocess.TimeoutExpired as error:
+    stdout = error.stdout or ""
+    stderr = error.stderr or ""
+    if isinstance(stdout, bytes):
+        stdout = stdout.decode(errors="replace")
+    if isinstance(stderr, bytes):
+        stderr = stderr.decode(errors="replace")
+    if process.poll() is None:
+        try:
+            os.killpg(process.pid, signal.SIGTERM)
+        except ProcessLookupError:
+            pass
+        try:
+            process.wait(timeout=2)
+        except subprocess.TimeoutExpired:
+            try:
+                os.killpg(process.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            process.wait()
+    if stdout:
+        sys.stdout.write(stdout)
+    if stderr:
+        sys.stderr.write(stderr)
+    sys.stderr.write(f"adb command timed out after {timeout:g}s\n")
+    raise SystemExit(124)
+
+if stdout:
+    sys.stdout.write(stdout)
+if stderr:
+    sys.stderr.write(stderr)
+raise SystemExit(process.returncode)
+PY
+}
+
+acquire_device_lock() {
+  local safe_serial owner_pid deadline
+  safe_serial="$(printf '%s' "$device_serial" | tr -c 'A-Za-z0-9_.-' '_')"
+  device_lock_dir="$device_lock_root/$safe_serial"
+  mkdir -p "$device_lock_root" || {
+    device_lock_dir=""
+    echo "status=FAILED_TEST_SYSTEM"
+    echo "reason=android_device_lock_root_unavailable:$device_lock_root"
+    return 3
+  }
+  [[ "$lock_timeout_seconds" =~ ^[1-9][0-9]*$ ]] || {
+    device_lock_dir=""
+    echo "status=BLOCKED"
+    echo "reason=QUALITY_ANDROID_DEVICE_LOCK_TIMEOUT_SECONDS must be a positive integer"
+    return 2
+  }
+  deadline=$((SECONDS + lock_timeout_seconds))
+  while ! mkdir "$device_lock_dir" 2>/dev/null; do
+    owner_pid=""
+    [[ -f "$device_lock_dir/pid" ]] && owner_pid="$(<"$device_lock_dir/pid")"
+    if [[ "$owner_pid" =~ ^[0-9]+$ ]] && ! kill -0 "$owner_pid" >/dev/null 2>&1; then
+      rmdir "$device_lock_dir" 2>/dev/null || true
+      continue
+    fi
+    if (( SECONDS >= deadline )); then
+      device_lock_dir=""
+      echo "status=BLOCKED"
+      echo "reason=selected Android device is busy: $device_serial"
+      return 2
+    fi
+    sleep 0.25
+  done
+  printf '%s\n' "$$" >"$device_lock_dir/pid"
+  device_lock_acquired=1
+}
+
+release_device_lock() {
+  local owner_pid=""
+  [[ "$device_lock_acquired" -eq 1 && -n "$device_lock_dir" ]] || return 0
+  [[ -f "$device_lock_dir/pid" ]] && owner_pid="$(<"$device_lock_dir/pid")"
+  if [[ "$owner_pid" == "$$" ]]; then
+    rm -f "$device_lock_dir/pid"
+    rmdir "$device_lock_dir" 2>/dev/null || true
+  fi
+  device_lock_dir=""
+  device_lock_acquired=0
+}
+
+cleanup() {
+  release_device_lock
+}
+trap cleanup EXIT
 
 if [[ ! "$iterations" =~ ^[0-9]+$ ]] || (( iterations < 1 || iterations > 100 )); then
   echo "status=BLOCKED"
   echo "reason=iterations_must_be_between_1_and_100:$iterations"
   exit 2
 fi
+
+[[ -n "$adb_binary" ]] || blocked "adb is unavailable"
+[[ "$adb_timeout_seconds" =~ ^[1-9][0-9]*$ ]] || blocked "QUALITY_ADB_TIMEOUT_SECONDS must be a positive integer"
+[[ "$lock_timeout_seconds" =~ ^[1-9][0-9]*$ ]] || blocked "QUALITY_ANDROID_DEVICE_LOCK_TIMEOUT_SECONDS must be a positive integer"
 
 python3 "$repo_root/scripts/quality_test_system_issues.py" --check \
   --require-id android-compose-snapshot-observer-runtime
@@ -43,9 +166,10 @@ if [[ ! -f "$app_apk" || ! -f "$test_apk" ]]; then
   echo "reason=current_debug_or_test_apk_missing"
   exit 2
 fi
-adb -s "$device_serial" install -r "$app_apk"
-adb -s "$device_serial" install -r "$test_apk"
-if ! adb -s "$device_serial" shell pm list instrumentation | grep -Fq "instrumentation:$instrumentation (target=$app_id)"; then
+acquire_device_lock || exit "$?"
+adb_with_timeout -s "$device_serial" install -r "$app_apk"
+adb_with_timeout -s "$device_serial" install -r "$test_apk"
+if ! adb_with_timeout -s "$device_serial" shell pm list instrumentation | grep -Fq "instrumentation:$instrumentation (target=$app_id)"; then
   echo "status=BLOCKED"
   echo "reason=installed_instrumentation_contract_missing:$instrumentation"
   exit 2
@@ -53,10 +177,10 @@ fi
 
 for ((iteration = 1; iteration <= iterations; iteration++)); do
   log_file="$campaign_root/logs/iteration-${iteration}.log"
-  adb -s "$device_serial" shell am force-stop "$app_id" >/dev/null
+  adb_with_timeout -s "$device_serial" shell am force-stop "$app_id" >/dev/null
   started_ns="$(python3 -c 'import time; print(time.monotonic_ns())')"
   set +e
-  adb -s "$device_serial" shell am instrument -w -r \
+  adb_with_timeout -s "$device_serial" shell am instrument -w -r \
     -e class "$test_class#$test_method" \
     "$instrumentation" >"$log_file" 2>&1
   command_status=$?

@@ -62,6 +62,20 @@ class AndroidPerformanceRunnerPreflightTests(unittest.TestCase):
         self.assertEqual(2, result.returncode)
         self.assertIn("ANDROID_SERIAL is required", result.stderr)
 
+    def test_startup_reliability_bounds_adb_and_serializes_the_campaign(self):
+        runner = (REPO / "scripts/run_android_startup_reliability.sh").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertIn("adb_with_timeout()", runner)
+        self.assertIn('adb_timeout_seconds="${QUALITY_ADB_TIMEOUT_SECONDS:-8}"', runner)
+        self.assertIn("QUALITY_ADB_TIMEOUT_SECONDS must be a positive integer", runner)
+        self.assertIn("acquire_device_lock()", runner)
+        self.assertIn("release_device_lock()", runner)
+        self.assertIn("QUALITY_ANDROID_DEVICE_LOCK_TIMEOUT_SECONDS", runner)
+        self.assertIn("selected Android device is busy", runner)
+        self.assertNotIn("adb -s ", runner)
+
 
 if __name__ == "__main__":
     unittest.main()
