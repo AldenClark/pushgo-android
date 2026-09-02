@@ -337,6 +337,7 @@ Doze 宿主脚本首次试跑 `build/quality-results/android-doze-positive-curre
 ### 2026-09-02 Android 精确执行门禁与可恢复准备当前字节（8bf40a6）
 
 提交 `8bf40a6` 新增源码驱动的 selector/count 解析：`focused`、`device`、`system-notification`、`performance`、`accessibility` 及 Release 设备批次都在执行前绑定预期方法集合；新鲜 XML 含任何 skipped 时直接归类测试系统失败，避免部分执行伪装为通过，默认 Nightly 则排除显式 opt-in 的 100k 方法。干净提交上，已有频道重订阅恢复旅程精确执行 1/1，收据 `build/quality-results/android-existing-subscribe-selector-gate-clean-20260902/android-focused-summary.json` 为 product/test-system=`PASSED/PASSED`、`source_dirty=false`、无 incomplete claim；无障碍旅程精确执行 1/1，收据 `build/quality-results/android-accessibility-baseline-trap-clean-20260902/android-accessibility-summary.json` 为双 `PASSED`、`source_dirty=false`，XML 为 `tests=1`, `failures=0`, `errors=0`, `skipped=0`。无障碍 runner 在进入应用前捕获字号/语言基线，退出 trap 恢复并验证字号；即使 Gradle 清掉应用包也不会把恢复失败误报成产品失败，本轮字号恢复为 `1.0`、serial 租约已释放。此前同一改造批次的首次恢复失败被正确归类为 test-system failure，随后才以同一真实旅程完成干净复验；没有重跑业务失败来求绿。该切片只关闭受控 emulator 的执行完整性和准备隔离，不外推真实 Provider/FCM/Private、真机/OEM、TalkBack/物理无障碍、生产性能或整体 Gate。
+提交后的低成本 PR 回归（`e10af5a`）运行 `QUALITY_RESULTS_ROOT=build/quality-results/android-execution-gate-pr-clean-20260902 ./scripts/quality_test.sh pr`，JVM 298 项、本地化完整性、`compileDebugAndroidTestKotlin` 与 Debug 构建均实际完成，选择器/计数完整且无 failure/error/skip；收据 `build/quality-results/android-execution-gate-pr-clean-20260902/android-pr-summary.json` 为 product/test-system=`PASSED/PASSED`、`source_dirty=false`、无 incomplete claim。该结果仅确认执行门禁与主机/编译链在提交后可复现，不升级设备 UI 或外部系统覆盖。
 
 ### 2026-09-02 Android Accessibility 当前字节
 
