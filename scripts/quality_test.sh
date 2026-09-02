@@ -37,6 +37,62 @@ android_device_lock_timeout="${QUALITY_ANDROID_DEVICE_LOCK_TIMEOUT_SECONDS:-15}"
 android_device_lock_root="${QUALITY_ANDROID_LOCK_ROOT:-${TMPDIR:-/tmp}/pushgo-android-quality-locks}"
 android_device_lock_dir=""
 android_device_lock_acquired=0
+android_adb_timeout="${QUALITY_ADB_TIMEOUT_SECONDS:-8}"
+android_adb_binary="$(command -v adb || true)"
+
+adb_with_timeout() {
+  python3 - "$android_adb_timeout" "$android_adb_binary" "$@" <<'PY'
+import os
+import signal
+import subprocess
+import sys
+
+timeout = float(sys.argv[1])
+command = sys.argv[2:]
+process = subprocess.Popen(
+    command,
+    stdin=subprocess.DEVNULL,
+    stdout=subprocess.PIPE,
+    stderr=subprocess.PIPE,
+    text=True,
+    start_new_session=True,
+)
+try:
+    stdout, stderr = process.communicate(timeout=timeout)
+except subprocess.TimeoutExpired as error:
+    stdout = error.stdout or ""
+    stderr = error.stderr or ""
+    if isinstance(stdout, bytes):
+        stdout = stdout.decode(errors="replace")
+    if isinstance(stderr, bytes):
+        stderr = stderr.decode(errors="replace")
+    if process.poll() is None:
+        try:
+            os.killpg(process.pid, signal.SIGTERM)
+        except ProcessLookupError:
+            pass
+        try:
+            process.wait(timeout=2)
+        except subprocess.TimeoutExpired:
+            try:
+                os.killpg(process.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            process.wait()
+    if stdout:
+        sys.stdout.write(stdout)
+    if stderr:
+        sys.stderr.write(stderr)
+    sys.stderr.write(f"adb command timed out after {timeout:g}s\n")
+    raise SystemExit(124)
+
+if stdout:
+    sys.stdout.write(stdout)
+if stderr:
+    sys.stderr.write(stderr)
+raise SystemExit(process.returncode)
+PY
+}
 
 acquire_android_device_lock() {
   local device_serial="$1"
@@ -436,7 +492,17 @@ run_performance() {
     exit 2
   }
   acquire_android_device_lock "$device_serial"
-  [[ "$device_serial" == emulator-* ]] && [[ "$(adb -s "$device_serial" shell getprop ro.kernel.qemu | tr -d '\r')" == "1" ]] || {
+  [[ -n "$android_adb_binary" ]] || {
+    echo "status=BLOCKED"
+    echo "reason=adb_is_unavailable_for_performance_device_check"
+    exit 2
+  }
+  [[ "$android_adb_timeout" =~ ^[1-9][0-9]*$ ]] || {
+    echo "status=BLOCKED"
+    echo "reason=QUALITY_ADB_TIMEOUT_SECONDS must be a positive integer"
+    exit 2
+  }
+  [[ "$device_serial" == emulator-* ]] && [[ "$(adb_with_timeout -s "$device_serial" shell getprop ro.kernel.qemu | tr -d '\r')" == "1" ]] || {
     echo "status=BLOCKED"
     echo "reason=hosted_performance_lane_requires_controlled_emulator:$device_serial"
     exit 2

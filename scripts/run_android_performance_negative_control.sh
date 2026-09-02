@@ -9,6 +9,62 @@ results_root="${QUALITY_RESULTS_ROOT:-$repo_root/build/quality-results}"
 result_file="$results_root/android-performance-slow-load-negative-control.json"
 run_dir="$(mktemp -d "${TMPDIR:-/tmp}/pushgo-performance-negative.XXXXXX")"
 gradle_log="$run_dir/gradle.log"
+adb_timeout_seconds="${QUALITY_ADB_TIMEOUT_SECONDS:-8}"
+adb_binary="$(command -v adb || true)"
+
+adb_with_timeout() {
+  python3 - "$adb_timeout_seconds" "$adb_binary" "$@" <<'PY'
+import os
+import signal
+import subprocess
+import sys
+
+timeout = float(sys.argv[1])
+command = sys.argv[2:]
+process = subprocess.Popen(
+    command,
+    stdin=subprocess.DEVNULL,
+    stdout=subprocess.PIPE,
+    stderr=subprocess.PIPE,
+    text=True,
+    start_new_session=True,
+)
+try:
+    stdout, stderr = process.communicate(timeout=timeout)
+except subprocess.TimeoutExpired as error:
+    stdout = error.stdout or ""
+    stderr = error.stderr or ""
+    if isinstance(stdout, bytes):
+        stdout = stdout.decode(errors="replace")
+    if isinstance(stderr, bytes):
+        stderr = stderr.decode(errors="replace")
+    if process.poll() is None:
+        try:
+            os.killpg(process.pid, signal.SIGTERM)
+        except ProcessLookupError:
+            pass
+        try:
+            process.wait(timeout=2)
+        except subprocess.TimeoutExpired:
+            try:
+                os.killpg(process.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            process.wait()
+    if stdout:
+        sys.stdout.write(stdout)
+    if stderr:
+        sys.stderr.write(stderr)
+    sys.stderr.write(f"adb command timed out after {timeout:g}s\n")
+    raise SystemExit(124)
+
+if stdout:
+    sys.stdout.write(stdout)
+if stderr:
+    sys.stderr.write(stderr)
+raise SystemExit(process.returncode)
+PY
+}
 
 cleanup() {
   rm -rf "$run_dir"
@@ -26,11 +82,12 @@ failed_test_system() {
 }
 
 [[ -n "$device_serial" ]] || blocked "ANDROID_SERIAL is required; no performance device is selected implicitly"
-command -v adb >/dev/null 2>&1 || blocked "adb is unavailable"
-[[ "$(adb -s "$device_serial" get-state 2>/dev/null || true)" == "device" ]] || \
+[[ -n "$adb_binary" ]] || blocked "adb is unavailable"
+[[ "$adb_timeout_seconds" =~ ^[1-9][0-9]*$ ]] || blocked "QUALITY_ADB_TIMEOUT_SECONDS must be a positive integer"
+[[ "$(adb_with_timeout -s "$device_serial" get-state 2>/dev/null || true)" == "device" ]] || \
   blocked "requested performance device is not connected and online: $device_serial"
 [[ "$device_serial" == emulator-* ]] || blocked "slow-load negative control requires a controlled emulator"
-[[ "$(adb -s "$device_serial" shell getprop ro.kernel.qemu | tr -d '\r')" == "1" ]] || \
+[[ "$(adb_with_timeout -s "$device_serial" shell getprop ro.kernel.qemu | tr -d '\r')" == "1" ]] || \
   blocked "slow-load negative control requires a qemu target"
 
 set +e

@@ -511,6 +511,13 @@ class QualityLaneCostContractTests(unittest.TestCase):
             r'elif \[\[ \$status -eq 4 \]\]; then\n'
             r'\s+write_result NOT_RUN FAILED "a required test-system sensitivity control',
         )
+        performance_function = runner.split("run_performance() {", 1)[1].split(
+            "run_accessibility_localization() {", 1
+        )[0]
+        self.assertIn("adb_with_timeout()", runner)
+        self.assertIn('android_adb_timeout="${QUALITY_ADB_TIMEOUT_SECONDS:-8}"', runner)
+        self.assertIn("adb_with_timeout -s \"$device_serial\" shell getprop ro.kernel.qemu", performance_function)
+        self.assertNotIn("adb -s ", runner)
 
     def test_system_lanes_do_not_report_their_controlled_doze_journey_as_not_run(self) -> None:
         runner = (REPO / "scripts/quality_test.sh").read_text()
