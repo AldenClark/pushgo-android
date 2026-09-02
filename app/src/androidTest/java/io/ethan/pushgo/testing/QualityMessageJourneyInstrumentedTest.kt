@@ -119,6 +119,20 @@ class QualityMessageJourneyInstrumentedTest : QualityAppJourneyTestCase() {
             ).fetchSemanticsNodes().isNotEmpty()
         }
         composeRule.onNodeWithTag("state.messages.empty").assertIsDisplayed()
+
+        // The database name is only a preparation/isolation fact.  The user
+        // purpose is a usable empty Messages screen, so prove a real
+        // Channels -> Settings -> back -> Messages round trip and require the
+        // same functional empty state after returning.
+        composeRule.onNodeWithTag("nav.item.channels").assertIsDisplayed().performClick()
+        composeRule.onNodeWithTag("action.channels.settings").assertIsDisplayed().performClick()
+        composeRule.onNodeWithTag("screen.settings.content").assertIsDisplayed()
+        pressBack()
+        composeRule.onNodeWithTag("screen.channels.list").assertIsDisplayed()
+        composeRule.onNodeWithTag("nav.item.messages").assertIsDisplayed().performClick()
+        composeRule.onNodeWithTag("screen.messages.list").assertIsDisplayed()
+        composeRule.onNodeWithTag("state.messages.empty").assertIsDisplayed()
+
         val databaseName = checkNotNull(
             checkNotNull(app.containerOrNull()).database.openHelper.databaseName
         )
