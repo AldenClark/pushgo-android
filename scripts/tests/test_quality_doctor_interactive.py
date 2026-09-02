@@ -10,6 +10,17 @@ REPO = Path(__file__).resolve().parents[2]
 
 
 class QualityDoctorInteractiveTests(unittest.TestCase):
+    def test_doctor_bounds_all_adb_queries(self):
+        doctor = (REPO / "scripts/quality_doctor.sh").read_text(encoding="utf-8")
+
+        self.assertIn("adb_with_timeout()", doctor)
+        self.assertIn('adb_timeout_seconds="${QUALITY_ADB_TIMEOUT_SECONDS:-8}"', doctor)
+        self.assertIn("QUALITY_ADB_TIMEOUT_SECONDS must be a positive integer", doctor)
+        self.assertIn("adb_devices_query_failed_or_timed_out", doctor)
+        self.assertIn('<<< "$power_dump"', doctor)
+        self.assertIn('<<< "$window_policy_dump"', doctor)
+        self.assertNotIn("adb -s ", doctor)
+
     def run_doctor(self, *, qemu: bool) -> tuple[subprocess.CompletedProcess[str], str]:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
