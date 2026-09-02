@@ -380,53 +380,60 @@ class MessageRepository(
     suspend fun replaceEncryptedRecoveryCandidate(
         existingId: String,
         reparsed: PushMessage,
-    ): Boolean = database.withTransaction {
-        val existingEntity = dao.getById(existingId) ?: return@withTransaction false
-        if (existingEntity.decryptionState !in setOf(
+    ): Boolean {
+        var committedReplacement: Pair<String, PushMessage>? = null
+        val replaced = database.withTransaction {
+            val existingEntity = dao.getById(existingId) ?: return@withTransaction false
+            if (existingEntity.decryptionState !in setOf(
                 DecryptionState.NOT_CONFIGURED.name,
                 DecryptionState.ALG_MISMATCH.name,
                 DecryptionState.DECRYPT_FAILED.name,
             )
-        ) {
-            return@withTransaction false
+            ) {
+                return@withTransaction false
+            }
+            val existing = existingEntity.asModel()
+            val stableMessageId = existing.messageId?.trim()?.takeIf(String::isNotEmpty)
+            if (stableMessageId == null || reparsed.messageId?.trim() != stableMessageId) {
+                return@withTransaction false
+            }
+            if (!hasSameEncryptedRecoveryProvenance(existing, reparsed)) {
+                return@withTransaction false
+            }
+            val replacement = reparsed.copy(
+                id = existing.id,
+                messageId = existing.messageId,
+                isRead = existing.isRead,
+                receivedAt = existing.receivedAt,
+                status = existing.status,
+                notificationId = existing.notificationId,
+                serverId = existing.serverId,
+            )
+            val replacementEntity = MessageEntity.fromModel(replacement)
+            val changed = existingEntity.title != replacementEntity.title ||
+                existingEntity.body != replacementEntity.body ||
+                existingEntity.channel != replacementEntity.channel ||
+                existingEntity.url != replacementEntity.url ||
+                existingEntity.rawPayloadJson != replacementEntity.rawPayloadJson ||
+                existingEntity.decryptionState != replacementEntity.decryptionState ||
+                existingEntity.bodyPreview != replacementEntity.bodyPreview
+            if (!changed) {
+                return@withTransaction false
+            }
+            if (dao.update(replacementEntity) != 1) {
+                return@withTransaction false
+            }
+            committedReplacement = existing.id to replacement
+            true
         }
-        val existing = existingEntity.asModel()
-        val stableMessageId = existing.messageId?.trim()?.takeIf(String::isNotEmpty)
-        if (stableMessageId == null || reparsed.messageId?.trim() != stableMessageId) {
-            return@withTransaction false
+        committedReplacement?.let { (messageId, replacement) ->
+            upsertRealtimeDerivedDataSafely(
+                messageId = messageId,
+                message = replacement,
+                updateListPayload = true,
+            )
         }
-        if (!hasSameEncryptedRecoveryProvenance(existing, reparsed)) {
-            return@withTransaction false
-        }
-        val replacement = reparsed.copy(
-            id = existing.id,
-            messageId = existing.messageId,
-            isRead = existing.isRead,
-            receivedAt = existing.receivedAt,
-            status = existing.status,
-            notificationId = existing.notificationId,
-            serverId = existing.serverId,
-        )
-        val replacementEntity = MessageEntity.fromModel(replacement)
-        val changed = existingEntity.title != replacementEntity.title ||
-            existingEntity.body != replacementEntity.body ||
-            existingEntity.channel != replacementEntity.channel ||
-            existingEntity.url != replacementEntity.url ||
-            existingEntity.rawPayloadJson != replacementEntity.rawPayloadJson ||
-            existingEntity.decryptionState != replacementEntity.decryptionState ||
-            existingEntity.bodyPreview != replacementEntity.bodyPreview
-        if (!changed) {
-            return@withTransaction false
-        }
-        if (dao.update(replacementEntity) != 1) {
-            return@withTransaction false
-        }
-        upsertRealtimeDerivedDataSafely(
-            messageId = existing.id,
-            message = replacement,
-            updateListPayload = true,
-        )
-        true
+        return replaced
     }
 
     suspend fun getIdsBefore(readState: Boolean?, cutoff: Long): List<String> {
@@ -480,7 +487,12 @@ class MessageRepository(
             return false
         }
         val canonicalMessage = canonicalMessage(message)
-        return database.withTransaction {
+        // The canonical message and its idempotency claims are durable user data.
+        // Keep the optional search/summary projections outside this transaction:
+        // a projection failure must mark those projections stale, never roll back
+        // a successfully accepted notification.
+        var committedTopLevel: Pair<String, PushMessage>? = null
+        val accepted = database.withTransaction {
             val deliveryClaimed = claimInboundDelivery(
                 inboundDeliveryLedgerDao = inboundDeliveryLedgerDao,
                 channelId = canonicalMessage.channel,
@@ -543,9 +555,16 @@ class MessageRepository(
             if (!inserted) {
                 return@withTransaction false
             }
-            upsertRealtimeDerivedDataSafely(entity.id, canonicalMessage)
+            committedTopLevel = entity.id to canonicalMessage
             true
         }
+        if (!accepted) {
+            return false
+        }
+        committedTopLevel?.let { (messageId, committedMessage) ->
+            upsertRealtimeDerivedDataSafely(messageId, committedMessage)
+        }
+        return true
     }
 
     suspend fun insert(message: PushMessage) {
@@ -553,6 +572,7 @@ class MessageRepository(
             return
         }
         val canonicalMessage = canonicalMessage(message)
+        var committedTopLevel: Pair<String, PushMessage>? = null
         database.withTransaction {
             val deliveryClaimed = claimInboundDelivery(
                 inboundDeliveryLedgerDao = inboundDeliveryLedgerDao,
@@ -613,12 +633,16 @@ class MessageRepository(
             if (!inserted) {
                 return@withTransaction
             }
-            upsertRealtimeDerivedDataSafely(entity.id, canonicalMessage)
+            committedTopLevel = entity.id to canonicalMessage
+        }
+        committedTopLevel?.let { (messageId, committedMessage) ->
+            upsertRealtimeDerivedDataSafely(messageId, committedMessage)
         }
     }
 
     suspend fun insertAll(messages: List<PushMessage>) {
         if (messages.isEmpty()) return
+        val committedTopLevel = mutableListOf<Pair<String, PushMessage>>()
         database.withTransaction {
             val topLevelMessages = mutableListOf<PushMessage>()
             val thingScopedMessages = mutableListOf<PushMessage>()
@@ -717,7 +741,7 @@ class MessageRepository(
                     if (!persisted) {
                         return@forEach
                     }
-                    upsertRealtimeDerivedDataSafely(entity.id, message)
+                    committedTopLevel += entity.id to message
                 }
             }
             if (thingScopedMessages.isNotEmpty()) {
@@ -772,6 +796,9 @@ class MessageRepository(
                 }
             }
         }
+        committedTopLevel.forEach { (messageId, committedMessage) ->
+            upsertRealtimeDerivedDataSafely(messageId, committedMessage)
+        }
     }
 
     suspend fun markRead(id: String) {
@@ -806,12 +833,16 @@ class MessageRepository(
     }
 
     suspend fun updateRawPayload(id: String, rawPayloadJson: String) {
+        var committedUpdate: PushMessage? = null
         database.withTransaction {
             val existing = dao.getById(id) ?: return@withTransaction
             dao.updateRawPayload(id, rawPayloadJson)
+            committedUpdate = existing.asModel().copy(rawPayloadJson = rawPayloadJson)
+        }
+        committedUpdate?.let { updatedMessage ->
             upsertRealtimeDerivedDataSafely(
                 messageId = id,
-                message = existing.asModel().copy(rawPayloadJson = rawPayloadJson),
+                message = updatedMessage,
                 updateListPayload = true,
             )
         }
@@ -970,14 +1001,20 @@ class MessageRepository(
         updateListPayload: Boolean = false,
     ) {
         try {
-            if (updateListPayload) {
-                metadataIndexDao.deleteSummaryProjectionMarker(messageId)
-                dao.updateListPayload(messageId, MessageEntity.buildListPayloadJson(message.rawPayloadJson))
+            // Keep the derived consumers atomic with one another, but separate
+            // from the canonical transaction. A partial projection must not be
+            // observable as a successful update, and a projection failure must
+            // never roll back the already-committed canonical row.
+            database.withTransaction {
+                if (updateListPayload) {
+                    metadataIndexDao.deleteSummaryProjectionMarker(messageId)
+                    dao.updateListPayload(messageId, MessageEntity.buildListPayloadJson(message.rawPayloadJson))
+                }
+                upsertMetadataIndex(messageId, message)
+                metadataIndexDao.insertAll(
+                    listOf(summaryProjectionMarker(messageId, message.receivedAt.toEpochMilli()))
+                )
             }
-            upsertMetadataIndex(messageId, message)
-            metadataIndexDao.insertAll(
-                listOf(summaryProjectionMarker(messageId, message.receivedAt.toEpochMilli()))
-            )
         } catch (error: CancellationException) {
             throw error
         } catch (error: Exception) {

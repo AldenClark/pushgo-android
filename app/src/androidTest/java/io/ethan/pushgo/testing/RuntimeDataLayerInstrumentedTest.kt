@@ -114,6 +114,17 @@ class RuntimeDataLayerInstrumentedTest {
         val persistedBeforeRecovery = checkNotNull(messages.getById(original.id))
         assertEquals(DecryptionState.NOT_CONFIGURED, persistedBeforeRecovery.decryptionState)
 
+        val safeLocalMessageId = original.id.replace("'", "''")
+        db.openHelper.writableDatabase.execSQL(
+            """
+            CREATE TRIGGER fail_quality_recovery_derived_write
+            BEFORE INSERT ON message_metadata_index
+            WHEN NEW.message_id = '$safeLocalMessageId'
+              AND NEW.key_name = 'search_text'
+            BEGIN SELECT RAISE(ABORT, 'injected recovery derived index failure'); END
+            """.trimIndent()
+        )
+
         val failedReport = EncryptedMessageRecoveryService(messages).recover(
             ByteArray(16) { 0x5A.toByte() },
         )
@@ -129,6 +140,20 @@ class RuntimeDataLayerInstrumentedTest {
         assertEquals(NotificationIngressParser.AUTHENTICATION_FAILED_BODY, failed.body)
         assertEquals(DecryptionState.DECRYPT_FAILED, failed.decryptionState)
         assertEquals(encodedCiphertext, JSONObject(failed.rawPayloadJson).getString("ciphertext"))
+        db.openHelper.readableDatabase.query(
+            "SELECT status, cursor_local_message_id, last_error " +
+                "FROM message_derived_state WHERE component = 'message_metadata_index'"
+        ).use { cursor ->
+            assertTrue(cursor.moveToFirst())
+            assertEquals("stale", cursor.getString(0))
+            assertEquals(original.id, cursor.getString(1))
+            assertTrue(cursor.getString(2).contains("injected recovery derived index failure"))
+        }
+
+        db.openHelper.writableDatabase.execSQL(
+            "DROP TRIGGER fail_quality_recovery_derived_write"
+        )
+        messages.backfillTagMetadataIndexIfNeeded(context)
 
         val report = EncryptedMessageRecoveryService(messages).recover(keyBytes)
         val recovered = checkNotNull(messages.getById(original.id))
@@ -389,7 +414,8 @@ class RuntimeDataLayerInstrumentedTest {
             tags = listOf("recovery"),
         )
         val stableMessageId = requireNotNull(message.messageId)
-        val safeStableMessageId = stableMessageId.replace("'", "''")
+        val localMessageId = message.id
+        val safeLocalMessageId = message.id.replace("'", "''")
 
         // Exercise the real MessageRepository transaction against a storage-side
         // derived-write failure. This is deliberately App-owned and reversible:
@@ -397,15 +423,18 @@ class RuntimeDataLayerInstrumentedTest {
         // the derived search/summary projections are repaired after recovery.
         db.openHelper.writableDatabase.execSQL(
             """
-            CREATE TEMP TRIGGER fail_quality_derived_index_write
+            CREATE TRIGGER fail_quality_derived_index_write
             BEFORE INSERT ON message_metadata_index
-            WHEN NEW.message_id = '$safeStableMessageId'
+            WHEN NEW.message_id = '$safeLocalMessageId'
               AND NEW.key_name = 'search_text'
             BEGIN SELECT RAISE(ABORT, 'injected derived index write failure'); END
             """.trimIndent()
         )
 
         assertTrue(messages.insertIncoming(message))
+        val canonicalByLocalId = checkNotNull(messages.getById(localMessageId))
+        assertEquals(message.title, canonicalByLocalId.title)
+        assertEquals(message.body, canonicalByLocalId.body)
         val canonicalDuringFailure = checkNotNull(messages.getByMessageId(stableMessageId))
         assertEquals(message.title, canonicalDuringFailure.title)
         assertEquals(message.body, canonicalDuringFailure.body)
@@ -415,11 +444,29 @@ class RuntimeDataLayerInstrumentedTest {
                 it.messageId == stableMessageId && it.title == message.title
             }
         )
+        // Prove the injected failure actually removed only the derived
+        // projections before recovery. Without this negative control the test
+        // could pass even if the trigger never matched the production write.
+        assertEquals(1, db.messageMetadataIndexDao().countMessagesMissingSearchText("normalization_v1"))
+        assertEquals(1, db.messageDao().countMessagesMissingSummaryProjection("projection_v1"))
+        db.openHelper.readableDatabase.query(
+            "SELECT status, cursor_local_message_id, last_error " +
+                "FROM message_derived_state WHERE component = 'message_metadata_index'"
+        ).use { cursor ->
+            assertTrue(cursor.moveToFirst())
+            assertEquals("stale", cursor.getString(0))
+            assertEquals(localMessageId, cursor.getString(1))
+            assertTrue(cursor.getString(2).contains("injected derived index write failure"))
+        }
 
         db.openHelper.writableDatabase.execSQL(
             "DROP TRIGGER fail_quality_derived_index_write"
         )
 
+        // This is the same recovery boundary the app invokes at startup. It
+        // restores both derived consumers; search below then proves the
+        // repaired index serves the exact canonical message.
+        messages.backfillTagMetadataIndexIfNeeded(context)
         val searchMatches = messages.searchMessagesSnapshot(
             rawQuery = "canonical derived failure",
             unreadOnly = false,
@@ -432,6 +479,157 @@ class RuntimeDataLayerInstrumentedTest {
         assertEquals(message.title, repairedRow.title)
         assertEquals(0, db.messageMetadataIndexDao().countMessagesMissingSearchText("normalization_v1"))
         assertEquals(0, db.messageDao().countMessagesMissingSummaryProjection("projection_v1"))
+        assertFalse(messages.insertIncoming(message))
+        assertEquals(1, messages.totalCount())
+
+        db.close()
+        database = null
+        val reopened = openExistingDatabase()
+        val reopenedMessages = messageRepository(reopened.database)
+        val canonicalAfterReopen = checkNotNull(reopenedMessages.getByMessageId(stableMessageId))
+        assertEquals(message.title, canonicalAfterReopen.title)
+        assertEquals(message.body, canonicalAfterReopen.body)
+        assertEquals(listOf(stableMessageId), reopenedMessages.searchMessagesSnapshot(
+            rawQuery = "canonical derived failure",
+            unreadOnly = false,
+            limit = PAGE_SIZE,
+        ).mapNotNull { it.messageId })
+        assertEquals(
+            message.title,
+            loadMessagePage(reopened.database, MessageFilter(), pageSize = PAGE_SIZE)
+                .data
+                .single { it.messageId == stableMessageId }
+                .title,
+        )
+    }
+
+    @Test
+    fun canonicalBatchAndPostProcessUpdatesSurviveDerivedProjectionFailure() = runBlocking {
+        val db = openFreshDatabase().database
+        val messages = messageRepository(db)
+        fun sqlLiteral(value: String) = value.replace("'", "''")
+        fun assertStaleState(expectedIds: Set<String>, expectedError: String) {
+            db.openHelper.readableDatabase.query(
+                "SELECT status, cursor_local_message_id, last_error " +
+                    "FROM message_derived_state WHERE component = 'message_metadata_index'"
+            ).use { cursor ->
+                assertTrue(cursor.moveToFirst())
+                assertEquals("stale", cursor.getString(0))
+                assertTrue(expectedIds.contains(cursor.getString(1)))
+                assertTrue(cursor.getString(2).contains(expectedError))
+            }
+        }
+
+        val batch = listOf(
+            generatedMessage(
+                index = 9_101,
+                messageId = "derived-batch-message-1",
+                title = "Batch canonical message one",
+                body = "Batch body one remains readable.",
+            ),
+            generatedMessage(
+                index = 9_102,
+                messageId = "derived-batch-message-2",
+                title = "Batch canonical message two",
+                body = "Batch body two remains readable.",
+            ),
+        )
+        val batchIds = batch.joinToString(", ") { "'${sqlLiteral(it.id)}'" }
+        db.openHelper.writableDatabase.execSQL(
+            """
+            CREATE TRIGGER fail_quality_batch_derived_write
+            BEFORE INSERT ON message_metadata_index
+            WHEN NEW.message_id IN ($batchIds)
+              AND NEW.key_name = 'search_text'
+            BEGIN SELECT RAISE(ABORT, 'injected batch derived index failure'); END
+            """.trimIndent()
+        )
+
+        messages.insertAll(batch)
+        assertEquals(2, messages.totalCount())
+        batch.forEach { message ->
+            val canonical = checkNotNull(messages.getById(message.id))
+            assertEquals(message.title, canonical.title)
+            assertEquals(message.body, canonical.body)
+        }
+        assertEquals(2, db.messageMetadataIndexDao().countMessagesMissingSearchText("normalization_v1"))
+        assertEquals(2, db.messageDao().countMessagesMissingSummaryProjection("projection_v1"))
+        assertStaleState(batch.map { it.id }.toSet(), "injected batch derived index failure")
+
+        db.openHelper.writableDatabase.execSQL(
+            "DROP TRIGGER fail_quality_batch_derived_write"
+        )
+        messages.backfillTagMetadataIndexIfNeeded(context)
+        batch.forEach { message ->
+            assertEquals(
+                listOf(message.messageId),
+                messages.searchMessagesSnapshot(
+                    rawQuery = message.title,
+                    unreadOnly = false,
+                    limit = PAGE_SIZE,
+                ).mapNotNull { it.messageId },
+            )
+        }
+
+        val updatedRawPayload = JSONObject(batch.first().rawPayloadJson)
+            .put("severity", "critical")
+            .put("tags", JSONArray(listOf("recovered", "critical")))
+            .toString()
+        db.openHelper.writableDatabase.execSQL(
+            """
+            CREATE TRIGGER fail_quality_update_derived_write
+            BEFORE INSERT ON message_metadata_index
+            WHEN NEW.message_id = '${sqlLiteral(batch.first().id)}'
+              AND NEW.key_name = 'search_text'
+            BEGIN SELECT RAISE(ABORT, 'injected update derived index failure'); END
+            """.trimIndent()
+        )
+        messages.updateRawPayload(batch.first().id, updatedRawPayload)
+        assertEquals(updatedRawPayload, messages.getById(batch.first().id)?.rawPayloadJson)
+        assertStaleState(setOf(batch.first().id), "injected update derived index failure")
+        db.openHelper.writableDatabase.execSQL(
+            "DROP TRIGGER fail_quality_update_derived_write"
+        )
+        messages.backfillTagMetadataIndexIfNeeded(context)
+        val updatedRow = loadMessagePage(db, MessageFilter(), pageSize = PAGE_SIZE)
+            .data
+            .single { it.id == batch.first().id }
+        assertEquals(MessageEntity.buildListPayloadJson(updatedRawPayload), updatedRow.listPayloadJson)
+        assertEquals(0, db.messageMetadataIndexDao().countMessagesMissingSearchText("normalization_v1"))
+        assertEquals(0, db.messageDao().countMessagesMissingSummaryProjection("projection_v1"))
+
+        val single = generatedMessage(
+            index = 9_103,
+            messageId = "derived-single-message",
+            title = "Single canonical message",
+            body = "Single insert remains readable.",
+        )
+        db.openHelper.writableDatabase.execSQL(
+            """
+            CREATE TRIGGER fail_quality_insert_derived_write
+            BEFORE INSERT ON message_metadata_index
+            WHEN NEW.message_id = '${sqlLiteral(single.id)}'
+              AND NEW.key_name = 'search_text'
+            BEGIN SELECT RAISE(ABORT, 'injected insert derived index failure'); END
+            """.trimIndent()
+        )
+        messages.insert(single)
+        assertEquals(single.title, messages.getById(single.id)?.title)
+        assertEquals(single.body, messages.getById(single.id)?.body)
+        assertStaleState(setOf(single.id), "injected insert derived index failure")
+        db.openHelper.writableDatabase.execSQL(
+            "DROP TRIGGER fail_quality_insert_derived_write"
+        )
+        messages.backfillTagMetadataIndexIfNeeded(context)
+        assertEquals(
+            listOf(single.messageId),
+            messages.searchMessagesSnapshot(
+                rawQuery = single.title,
+                unreadOnly = false,
+                limit = PAGE_SIZE,
+            ).mapNotNull { it.messageId },
+        )
+        assertEquals(3, messages.totalCount())
     }
 
     @Test
