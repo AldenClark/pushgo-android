@@ -366,3 +366,7 @@ Doze 宿主脚本首次试跑 `build/quality-results/android-doze-positive-curre
 ### 2026-09-02 Android 更新 Skip 当前字节复核
 
 最新干净提交 `77b0dcb` 上，`QualitySettingsJourneyInstrumentedTest#dataPageVisibilityUsesRealControlsAndPersistsAcrossRelaunch` 通过 focused lane 在专用 `Medium_Phone / emulator-5554` 精确执行 1/1；原生 XML 为 `tests=1 failures=0 errors=0 skipped=0`，收据 `build/quality-results/android-update-skip-current-20260902/android-focused-summary.json` 为 product/test-system=`PASSED/PASSED`、`source_dirty=false`、`selected_claims == executed_claims`、`incomplete_selected_claims=[]`、无 issue。该 fresh 证据再次核对稳定版本 Skip 后的卡片/状态、普通 Activity relaunch 抑制、真实手动检查绕过及 Beta 版本范围隔离，更新此前 `340d4b7` 快照为当前字节；不外推 Install 中断、系统权限/返回、真实发布 feed、物理设备/OEM 或 Release 验收。
+
+### 2026-09-02 Android `pr-ui` 当前字节复验（`c88ed24`）
+
+在最新干净提交上，固定的 6 条最低充分正向旅程于专用 `Medium_Phone / emulator-5554` 精确执行 6/6；原生 XML 为 `tests=6 failures=0 errors=0 skipped=0`，收据 `build/quality-results/android-pr-ui-current-20260902-r2/android-pr-ui-summary.json` 为 product/test-system=`PASSED/PASSED`、`source_dirty=false`、`selected_claims == executed_claims`、`incomplete_selected_claims=[]`、无 issue。该集合实际核对标准消息准确内容与 Activity 重开、第二页/慢加载、未读徽标不遮挡“消息”标签、五域导航、Event 关闭投影、Channel 生命周期和 Gateway 候选验证/注册后换域；仅更新受控 emulator 的当前 PR-UI 证据，不外推真实 FCM/Private、物理设备/OEM、生产性能或 Release 验收。
