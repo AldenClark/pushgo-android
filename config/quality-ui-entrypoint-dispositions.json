@@ -105,10 +105,6 @@
           "disposition": "SEMANTICALLY_COVERED_SHARED_SYSTEM_ACTION",
           "reason": "The disabled card and persistent Settings row call the same openAppNotificationSettings adapter; the controlled permission journey proves the denied explanation, exact PushGo system page, real switch, return refresh and enabled App state."
         },
-        "action.settings.update.skip": {
-          "disposition": "DEFERRED",
-          "reason": "Skip expiry and target-version policy are residual P1-ANDROID-SETTINGS scope owned by the Android platform-settings quality owner, due 2026-11-09."
-        },
         "row.settings.app_version": {
           "disposition": "NOT_A_STANDALONE_CAPABILITY",
           "reason": "A non-actionable version row is supporting information, not an independent user purpose; update installation is accepted only from the actual installed package version, retained data and resumed App state."
