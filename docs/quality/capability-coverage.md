@@ -382,3 +382,7 @@ Doze 宿主脚本首次试跑 `build/quality-results/android-doze-positive-curre
 ### 2026-09-02 Android Nightly 当前字节复验（`5dd1666`）
 
 最新干净提交的 Nightly 在专用 `Medium_Phone / emulator-5554` 完成主机/JVM/本地化/编译 298 项、精选 UI 33/33、数据/迁移/ACK/Runtime 55/55、通知权限 1/1、Doze 1/1、进程恢复 1/1、系统通知/Private Service 3/3 和大字号本地化 1/1；无 failure/error/skip。收据 `build/quality-results/android-nightly-current-20260902-r2/android-nightly-summary.json` 为 product/test-system=`PASSED/PASSED`、`source_dirty=false`、selected 与 executed claim 完全一致、无 incomplete claim/issue。该证据只覆盖受控 emulator 的精选跨层 P0/P1，不外推真实 Provider/FCM/Private、reboot、物理/OEM、发布性能或长期观察。
+
+### 2026-09-02 Android `performance` 当前字节（`66c8133`）
+
+专用 `Medium_Phone / emulator-5554`（API 37）真实执行 100k Room 正确性 1/1、1k 启动/详情 Macrobenchmark 2/2，以及 Release/Profile 隔离合同，均无 failure/error/skip；收据 `build/quality-results/android-performance-followup-20260902/android-performance-summary.json` 为 product/test-system=`PASSED/PASSED`、`source_dirty=false`、selected 与 executed claim 一致。慢加载负控在准确 canonical 标题可见后测得 4499ms，超过 2000ms 预算，独立收据为 product=`NOT_RUN`、test-system=`PASSED`，证明预警机制对真实慢加载敏感而非把超时直接当产品通过。该条只支持受控 emulator 的性能/数据正确性与门禁机制，不外推物理设备、真实网络或发布性能。
