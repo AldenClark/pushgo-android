@@ -382,3 +382,7 @@ Doze 宿主脚本首次试跑 `build/quality-results/android-doze-positive-curre
 ### 2026-09-02 Android Nightly 当前字节复验（`5dd1666`）
 
 最新干净提交的 Nightly 在专用 `Medium_Phone / emulator-5554` 完成主机/JVM/本地化/编译 298 项、精选 UI 33/33、数据/迁移/ACK/Runtime 55/55、通知权限 1/1、Doze 1/1、进程恢复 1/1、系统通知/Private Service 3/3 和大字号本地化 1/1；无 failure/error/skip。收据 `build/quality-results/android-nightly-current-20260902-r2/android-nightly-summary.json` 为 product/test-system=`PASSED/PASSED`、`source_dirty=false`、selected 与 executed claim 完全一致、无 incomplete claim/issue。该证据只覆盖受控 emulator 的精选跨层 P0/P1，不外推真实 Provider/FCM/Private、reboot、物理/OEM、发布性能或长期观察。
+
+### 2026-09-02 Android Nightly 当前字节复验（`5dd1666`）
+
+最新干净提交的 Nightly 在专用 `Medium_Phone / emulator-5554` 完成主机/JVM/本地化/编译 298 项、精选 UI 33/33、数据/迁移/ACK/Runtime 55/55、通知权限 1/1、Doze 1/1、进程恢复 1/1、系统通知/Private Service 3/3 和大字号本地化 1/1；无 failure/error/skip。收据 `build/quality-results/android-nightly-current-20260902-r2/android-nightly-summary.json` 为 product/test-system=`PASSED/PASSED`、`source_dirty=false`、selected 与 executed claim 完全一致、无 incomplete claim/issue。该证据只覆盖受控 emulator 的精选跨层 P0/P1，不外推真实 Provider/FCM/Private、reboot、物理/OEM、发布性能或长期观察。
