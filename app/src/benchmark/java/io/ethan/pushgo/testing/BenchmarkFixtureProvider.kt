@@ -12,6 +12,14 @@ import kotlinx.coroutines.runBlocking
 import org.json.JSONObject
 
 class BenchmarkFixtureProvider : ContentProvider() {
+    private data class FixtureVerification(
+        val count: Int,
+        val title: String?,
+        val body: String?,
+        val controlTitle: String? = null,
+        val controlBody: String? = null,
+    )
+
     override fun onCreate(): Boolean = true
 
     override fun call(method: String, arg: String?, extras: Bundle?): Bundle {
@@ -36,9 +44,10 @@ class BenchmarkFixtureProvider : ContentProvider() {
                 check(
                     session.fixture == QualityFixture.MESSAGES_LARGE
                         || session.fixture == QualityFixture.MESSAGES_STANDARD
+                        || session.fixture == QualityFixture.MESSAGES_CLEANUP
                         || session.fixture == QualityFixture.EMPTY_CLEAN
                 ) {
-                    "external quality control supports messages.large, messages.standard, or empty.clean"
+                    "external quality control supports messages.large, messages.standard, messages.cleanup, or empty.clean"
                 }
             }
             val sessionRoot = QualityRuntime.sessionRoot(app, session)
@@ -80,29 +89,58 @@ class BenchmarkFixtureProvider : ContentProvider() {
                     val sentinelId = when (session.fixture) {
                         QualityFixture.MESSAGES_LARGE -> "quality-large-999"
                         QualityFixture.MESSAGES_STANDARD -> "quality-standard-message"
+                        QualityFixture.MESSAGES_CLEANUP -> "quality-cleanup-old"
                         else -> null
                     }
                     val sentinel = sentinelId?.let { container.messageRepository.getByMessageId(it) }
-                    Triple(count, sentinel?.title, sentinel?.body)
+                    val control = if (session.fixture == QualityFixture.MESSAGES_CLEANUP) {
+                        container.messageRepository.getByMessageId("quality-cleanup-recent")
+                    } else {
+                        null
+                    }
+                    FixtureVerification(
+                        count = count,
+                        title = sentinel?.title,
+                        body = sentinel?.body,
+                        controlTitle = control?.title,
+                        controlBody = control?.body,
+                    )
                 }
             }
             preparationPhase("fixture.verify") {
                 when (session.fixture) {
                     QualityFixture.MESSAGES_LARGE -> {
-                        check(verification.first == 1_000) { "benchmark fixture count was ${verification.first}" }
-                        check(verification.second == EXPECTED_TITLE) { "benchmark fixture title was not exact" }
-                        check(verification.third == EXPECTED_BODY) { "benchmark fixture body was not exact" }
+                        check(verification.count == 1_000) { "benchmark fixture count was ${verification.count}" }
+                        check(verification.title == EXPECTED_TITLE) { "benchmark fixture title was not exact" }
+                        check(verification.body == EXPECTED_BODY) { "benchmark fixture body was not exact" }
                     }
                     QualityFixture.EMPTY_CLEAN -> {
-                        check(verification.first == 0) { "empty update fixture count was ${verification.first}" }
+                        check(verification.count == 0) { "empty update fixture count was ${verification.count}" }
                     }
                     QualityFixture.MESSAGES_STANDARD -> {
-                        check(verification.first == 1) { "standard update fixture count was ${verification.first}" }
-                        check(verification.second == EXPECTED_STANDARD_TITLE) {
+                        check(verification.count == 1) { "standard update fixture count was ${verification.count}" }
+                        check(verification.title == EXPECTED_STANDARD_TITLE) {
                             "standard update fixture title was not exact"
                         }
-                        check(verification.third == EXPECTED_STANDARD_BODY) {
+                        check(verification.body == EXPECTED_STANDARD_BODY) {
                             "standard update fixture body was not exact"
+                        }
+                    }
+                    QualityFixture.MESSAGES_CLEANUP -> {
+                        check(verification.count == 2) {
+                            "cleanup fixture count was ${verification.count}"
+                        }
+                        check(verification.title == EXPECTED_CLEANUP_TARGET_TITLE) {
+                            "cleanup target title was not exact"
+                        }
+                        check(verification.body == EXPECTED_CLEANUP_BODY) {
+                            "cleanup target body was not exact"
+                        }
+                        check(verification.controlTitle == EXPECTED_CLEANUP_CONTROL_TITLE) {
+                            "cleanup control title was not exact"
+                        }
+                        check(verification.controlBody == EXPECTED_CLEANUP_BODY) {
+                            "cleanup control body was not exact"
                         }
                     }
                     else -> error("unsupported fixture escaped the external quality-control allowlist")
@@ -114,8 +152,8 @@ class BenchmarkFixtureProvider : ContentProvider() {
 
             Bundle().apply {
                 putString("status", "ready")
-                putInt("count", verification.first)
-                putString("title", verification.second)
+                putInt("count", verification.count)
+                putString("title", verification.title)
             }
         } catch (error: Throwable) {
             rollbackFailedPreparation(app, session, error)
@@ -244,6 +282,9 @@ class BenchmarkFixtureProvider : ContentProvider() {
         const val EXPECTED_BODY = "Deterministic app-owned performance fixture row 999."
         const val EXPECTED_STANDARD_TITLE = "P2 Split Seed Message"
         const val EXPECTED_STANDARD_BODY = "Seeded from fixture.seed_messages for UI validation."
+        const val EXPECTED_CLEANUP_TARGET_TITLE = "Quality Old Cleanup Target"
+        const val EXPECTED_CLEANUP_CONTROL_TITLE = "Quality Recent Cleanup Control"
+        const val EXPECTED_CLEANUP_BODY = "Deterministic cleanup boundary message."
         const val NOTIFICATION_PERMISSION_PREFERENCES = "pushgo_notification_permission"
         const val POST_NOTIFICATIONS_REQUESTED_KEY = "post_notifications_requested"
         const val NOTIFICATION_PERMISSION_SNAPSHOT_FILE = "notification-permission-preference.json"

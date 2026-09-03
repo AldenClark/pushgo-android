@@ -637,6 +637,42 @@ class QualityLaneCostContractTests(unittest.TestCase):
         self.assertNotIn('dump_ui || failed "UI tree could not be captured before tapping', host_journey)
         self.assertNotIn('run_android_process_restart_positive.sh', runner.split('  pr-ui)', 1)[1].split('    ;;', 1)[0])
 
+    def test_pending_deletion_process_restart_keeps_two_purpose_oracles_separate(self) -> None:
+        runner = (REPO / "scripts/quality_test.sh").read_text()
+        host_journey = (
+            REPO / "scripts/run_android_pending_deletion_process_restart_positive.sh"
+        ).read_text()
+        app = (REPO / "app/src/main/java/io/ethan/pushgo/PushGoApp.kt").read_text()
+        container = (REPO / "app/src/main/java/io/ethan/pushgo/data/AppContainer.kt").read_text()
+        runtime = (REPO / "app/src/main/java/io/ethan/pushgo/testing/QualityRuntime.kt").read_text()
+        provider = (REPO / "app/src/benchmark/java/io/ethan/pushgo/testing/BenchmarkFixtureProvider.kt").read_text()
+        impact = (REPO / "config/quality-impact.json").read_text()
+
+        self.assertEqual(1, runner.count("run_android_pending_deletion_process_restart_positive.sh"))
+        self.assertIn("QUALITY_ANDROID_SKIP_INSTALL=1", runner)
+        self.assertIn('fixture": "messages.cleanup"', host_journey)
+        self.assertIn('pending_deletion_undo_window_ms', host_journey)
+        self.assertIn('run_undo_case()', host_journey)
+        self.assertIn('run_deadline_case()', host_journey)
+        self.assertIn('state.pending_deletion', host_journey)
+        self.assertIn('action.pending_deletion.undo', host_journey)
+        self.assertIn('message.row.quality-cleanup-old', host_journey)
+        self.assertIn('message.row.quality-cleanup-recent', host_journey)
+        self.assertIn('[[ "$second_pid" != "$first_pid" ]]', host_journey)
+        self.assertIn('Deterministic cleanup boundary message.', host_journey)
+        self.assertIn('cases.jsonl', host_journey)
+        self.assertIn('capture_failure_evidence()', host_journey)
+        self.assertIn('App-owned pending-deletion session was not cleared', host_journey)
+        self.assertIn('container.pendingLocalDeletionCoordinator.start()', app)
+        quality_branch = app.split('if (io.ethan.pushgo.testing.QualityRuntime.currentSession() != null) {', 1)[1].split('return', 1)[0]
+        self.assertIn('container.pendingLocalDeletionCoordinator.start()', quality_branch)
+        self.assertIn('pendingDeletionUndoWindowMillis', container)
+        self.assertIn('pending deletion undo window must be between 5000 and 120000 ms', runtime)
+        self.assertIn('QualityFixture.MESSAGES_CLEANUP', provider)
+        self.assertIn('quality-cleanup-recent', provider)
+        self.assertIn('scripts/run_android_pending_deletion_process_restart_positive.sh', impact)
+        self.assertIn('pending-deletion', impact)
+
     def test_changed_device_workflow_consumes_structured_profiled_scopes(self) -> None:
         workflow = (REPO / ".github/workflows/android-quality.yml").read_text()
         changed_runner = (REPO / "scripts/quality_changed.sh").read_text()

@@ -488,6 +488,8 @@ class AppContainer(
             channelExecutor = pendingChannelDeletionExecutor,
         ),
         drainScheduler = pendingLocalDeletionDrainScheduler,
+        countdownMillis = qualitySession?.pendingDeletionUndoWindowMillis
+            ?: PendingLocalDeletionCoordinator.DEFAULT_COUNTDOWN_MILLIS,
     )
     val updateManager = UpdateManager(
         context = appContext,

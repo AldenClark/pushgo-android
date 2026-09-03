@@ -57,11 +57,11 @@
     },
     {
       "id": "quality-system-process-restart-journey",
-      "paths": ["app/src/benchmark/java/io/ethan/pushgo/testing/BenchmarkFixtureProvider.kt", "app/src/benchmark/java/io/ethan/pushgo/testing/BenchmarkUnstopActivity.kt", "scripts/run_android_process_restart_positive.sh"],
-      "capabilities": ["app-launch", "messages", "message-detail", "external-navigation", "quality-system-trustworthiness"],
-      "minimum_evidence": ["host-driven canonical unread message to exact detail/read mutation to verified no-PID to new-PID restart to exact persisted detail/read state", "production Open URL action to unique HTTPS handler, exact user-visible canonical browser URL, and return to the same accurate detail", "App-owned session preparation and teardown completion", "one-time wrong-body and wrong-url sensitivity controls"],
+      "paths": ["app/src/benchmark/java/io/ethan/pushgo/testing/BenchmarkFixtureProvider.kt", "app/src/benchmark/java/io/ethan/pushgo/testing/BenchmarkUnstopActivity.kt", "app/src/main/java/io/ethan/pushgo/PushGoApp.kt", "app/src/main/java/io/ethan/pushgo/data/AppContainer.kt", "app/src/main/java/io/ethan/pushgo/testing/QualityRuntime.kt", "app/src/main/java/io/ethan/pushgo/ui/PendingLocalDeletionCoordinator.kt", "scripts/run_android_process_restart_positive.sh", "scripts/run_android_pending_deletion_process_restart_positive.sh"],
+      "capabilities": ["app-launch", "messages", "message-detail", "pending-deletion", "external-navigation", "quality-system-trustworthiness"],
+      "minimum_evidence": ["host-driven canonical unread message to exact detail/read mutation to verified no-PID to new-PID restart to exact persisted detail/read state", "production Open URL action to unique HTTPS handler, exact user-visible canonical browser URL, and return to the same accurate detail", "two independent App-owned pending-deletion sessions: new-PID pending-bar plus exact Undo restoration, and new-PID post-deadline target commit with exact control-message preservation", "App-owned session preparation and teardown completion", "one-time wrong-body and wrong-url sensitivity controls"],
       "lane": "nightly",
-      "known_evidence_gaps": ["Controlled-emulator force-stop proves a real Linux process boundary and durable App-owned Room/UI state, but does not prove low-memory OS eviction, reboot, OEM task policy, physical-device startup timing, or production-data migration."],
+      "known_evidence_gaps": ["Controlled-emulator force-stop proves a real Linux process boundary and durable App-owned Room/UI state, but does not prove low-memory OS eviction, reboot, OEM task policy, physical-device startup timing, or production-data migration.", "Quality pending-deletion recovery intentionally excludes the production Activity lifecycle bridge and WorkManager while the App-owned session is active; background force-stop execution, low-memory kill, reboot, Worker scheduling, and physical/OEM behavior remain NOT RUN."],
       "escalation_reasons": ["Process lifecycle tests must prove both process identity change and a durable user outcome; Activity recreation or a PID check alone is insufficient."]
     },
     {

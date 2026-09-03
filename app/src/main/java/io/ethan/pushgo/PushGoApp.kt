@@ -178,6 +178,12 @@ class PushGoApp : Application(), SingletonImageLoader.Factory {
         if (io.ethan.pushgo.testing.QualityRuntime.currentSession() != null) {
             // Preserve the real Room/UI composition root while excluding
             // unrelated Firebase, Worker, service, and sync noise from the CUJ.
+            // The coordinator is intentionally the only background boundary
+            // started here: a host-driven process-restart journey must observe
+            // durable pending deletion rows in the new process, while the
+            // production Activity lifecycle bridge would turn force-stop into
+            // an ambiguous foreground/background commit race.
+            container.pendingLocalDeletionCoordinator.start()
             NotificationHelper.cleanupObsoleteChannels(this)
             NotificationHelper.ensureManagedChannels(this)
             return
