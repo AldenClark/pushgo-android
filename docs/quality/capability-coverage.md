@@ -2,6 +2,8 @@
 
 此索引防遗漏，不计算覆盖分，不是测试 Oracle。`testTag`、Manifest 组件、Worker 或测试方法存在均不能单独证明用户能力。
 
+2026-09-03 首屏加载失败行身份 Oracle 收紧：提交 `8e635e1` 的 `QualityMessageJourneyInstrumentedTest#failedLoadShowsUsableRetryAndRecoversToTheCanonicalMessageDetail` 要求唯一 `message.row.quality-standard-message` tag，并继续核对准确标题、正文和详情；干净源码 `a60492a` 的专用 API 37 emulator 运行 1/1，收据 `build/quality-results/android-load-retry-stable-id-clean-20260903/android-focused-summary.json` 双状态 `PASSED`、选择=执行。tag 只用于唯一业务行定位，不替代真实 Retry、数据和详情终点，也不外推真实 Provider/FCM、真机/OEM 或 Release。
+
 2026-09-03 Android pending-deletion 真实进程边界当前字节：质量会话以有界窗口启动持久化协调器，独立宿主脚本在提交 `98ef1b1` 的干净工作树、`Medium_Phone / emulator-5554` 上串行执行两个独立新会话。`undo`（60s，PID `3363→3742`）要求新 PID 先显示 pending bar、目标隐藏，再由真实 Undo 恢复目标准确标题/正文且控制消息保持可读；`deadline`（8s，PID `4169→4525`）要求旧 PID 在截止前终止，跨过窗口后新 PID 看到 pending bar 消失、目标永久缺失且控制消息准确可进入详情。两条均零重试通过，收据 `build/quality-results/android-pending-deletion-process-restart-clean-20260903/android-pending-deletion-process-summary.json`，`source_dirty=false`。这只证明受控 emulator 的显式进程终止和持久化 UI/Room 终点，不把 `am force-stop` 外推为低内存/reboot/OEM 或进程停止期间 Worker 运行，也不覆盖真实 Provider/FCM、并发和 COMMITTING 中点。
 
 2026-09-03 Android `performance` 当前字节：干净提交 `16f8503` 在 `Medium_Phone / emulator-5554`（API 37）实际执行 Room 100k 正确性 1/1、Release-like Macrobenchmark 精确 1k 启动/详情目的 2/2，以及 Release/Profile 隔离合同；总收据 `build/quality-results/android-performance-current-20260903/android-performance-summary.json` 为 product/test-system=`PASSED/PASSED`、`source_dirty=false`、选择=执行。慢加载敏感性控制在 3,500ms 注入下以准确标题可见耗时 3,875ms，精确拒绝 2,000ms 预算，独立收据为 product=`NOT_RUN`/test-system=`PASSED`；它证明门禁能识别真实慢加载和错误数据，不是产品失败或真机 SLA。物理设备、真实 Provider/OEM、Release 分发和长期观察仍未运行。
