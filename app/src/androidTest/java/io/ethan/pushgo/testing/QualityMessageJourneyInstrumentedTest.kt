@@ -1155,8 +1155,15 @@ class QualityMessageJourneyInstrumentedTest : QualityAppJourneyTestCase() {
         }
         composeRule.onNodeWithTag("state.messages.load_failed").assertDoesNotExist()
         composeRule.onNodeWithTag("state.messages.empty").assertDoesNotExist()
+        composeRule.onAllNodes(
+            hasTestTag("message.row.quality-standard-message"),
+            useUnmergedTree = true,
+        ).assertCountEquals(1)
+        composeRule.onNodeWithTag("message.row.quality-standard-message")
+            .assertIsDisplayed()
+            .assertHasClickAction()
         composeRule.onAllNodesWithText("P2 Split Seed Message").assertCountEquals(1)
-        composeRule.onNodeWithText("P2 Split Seed Message").assertIsDisplayed().performClick()
+        composeRule.onNodeWithTag("message.row.quality-standard-message").performClick()
         composeRule.onNodeWithTag("sheet.message.detail").assertIsDisplayed()
         composeRule.onNodeWithTag("field.message.detail.body")
             .assertTextEquals("Seeded from fixture.seed_messages for UI validation.")
