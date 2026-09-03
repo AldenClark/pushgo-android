@@ -2,6 +2,8 @@
 
 此索引防遗漏，不计算覆盖分，不是测试 Oracle。`testTag`、Manifest 组件、Worker 或测试方法存在均不能单独证明用户能力。
 
+2026-09-03 Android `performance` 当前字节：干净提交 `16f8503` 在 `Medium_Phone / emulator-5554`（API 37）实际执行 Room 100k 正确性 1/1、Release-like Macrobenchmark 精确 1k 启动/详情目的 2/2，以及 Release/Profile 隔离合同；总收据 `build/quality-results/android-performance-current-20260903/android-performance-summary.json` 为 product/test-system=`PASSED/PASSED`、`source_dirty=false`、选择=执行。慢加载敏感性控制在 3,500ms 注入下以准确标题可见耗时 3,875ms，精确拒绝 2,000ms 预算，独立收据为 product=`NOT_RUN`/test-system=`PASSED`；它证明门禁能识别真实慢加载和错误数据，不是产品失败或真机 SLA。物理设备、真实 Provider/OEM、Release 分发和长期观察仍未运行。
+
 2026-09-03 Android 跨页尾行真实详情的干净 PR 回归：提交 `4941ea3` 的变更影响计划只选择 `workflowFixtureLoadsSecondPageAndPersistsReadActions`；host PR 合同/编译 298 项，专用 `Medium_Phone / emulator-5554` planned-device 该旅程 1/1，收据 `build/quality-results/android-message-workflow-oracle-pr-20260903/{android-pr-summary.json,android-planned-device-summary.json}` 双 `PASSED`、`source_dirty=false`、选择=执行。真实终点为失败提示存在时有限滚动到 `Quality workflow 84`、打开并核对精确正文、返回后仍保留页面错误并可 Retry；不把节点存在、标签或构建成功当作通过，也不外推 Provider、进程终止、真机/OEM、Release 或整体覆盖。
 
 2026-09-03 Android 跨页加载失败 Oracle 强化：既有 workflow 用例原先只断言第 1 页尾行存在/可点击，存在弱 Oracle 风险。当前改动加入有限滚动到真实可命中 `Quality workflow 84`、点击详情、精确正文 `Cross-page deterministic workflow row 84.`、返回及页面错误仍可 Retry 的业务终点；受控 `Medium_Phone / emulator-5554` focused 1/1 通过，收据 `build/quality-results/android-message-workflow-oracle-fix-focused-20260903/android-focused-summary.json` 为双 `PASSED`（提交前 `source_dirty=true`）。这只关闭受控 emulator 的跨页详情与错误归属子 claim，不把 Compose 标签/列表存在、命令成功或 emulator 证据外推为 Provider、进程终止、真机/OEM、Release 或整体 P1-MESSAGE-LIST 通过。
