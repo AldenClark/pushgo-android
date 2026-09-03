@@ -587,12 +587,26 @@ class QualityMessageJourneyInstrumentedTest : QualityAppJourneyTestCase() {
                 .fetchSemanticsNodes().isNotEmpty()
         }
         composeRule.onNodeWithTag("state.messages.page.failed").assertIsDisplayed()
-        composeRule.onNode(
-            hasTestTag("message.row.quality-workflow-84") and
-                hasContentDescriptionContaining("Quality workflow 84"),
-        )
+        val retainedPageOneTail = hasTestTag("message.row.quality-workflow-84") and
+            hasContentDescriptionContaining("Quality workflow 84")
+        composeRule.onNode(retainedPageOneTail)
             .assertIsDisplayed()
             .assertHasClickAction()
+        messageList.performScrollToNode(retainedPageOneTail)
+        composeRule.onNode(retainedPageOneTail)
+            .assertIsDisplayed()
+            .assertHasClickAction()
+            .performClick()
+        composeRule.onNodeWithTag("sheet.message.detail").assertIsDisplayed()
+        composeRule.onNodeWithTag("field.message.detail.body")
+            .assertTextContains("Cross-page deterministic workflow row 84.")
+        pressBack()
+        composeRule.waitUntil(timeoutMillis = 8_000) {
+            composeRule.onAllNodes(hasTestTag("sheet.message.detail"))
+                .fetchSemanticsNodes()
+                .isEmpty()
+        }
+        composeRule.onNodeWithTag("state.messages.page.failed").assertIsDisplayed()
         composeRule.onNodeWithTag("action.messages.page.retry")
             .performScrollTo()
             .assertIsDisplayed()

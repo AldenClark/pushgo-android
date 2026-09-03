@@ -278,6 +278,14 @@ class QualityLaneCostContractTests(unittest.TestCase):
             "refreshPersistsNewProviderResultOpensDetailAndSurvivesRelaunch",
             standard_source,
         )
+        workflow_journey = standard_source.split(
+            "fun workflowFixtureLoadsSecondPageAndPersistsReadActions()", 1
+        )[1].split("\n    @Test", 1)[0]
+        self.assertIn("retainedPageOneTail", workflow_journey)
+        self.assertIn("performScrollToNode(retainedPageOneTail)", workflow_journey)
+        self.assertIn('Cross-page deterministic workflow row 84.', workflow_journey)
+        self.assertIn('state.messages.page.failed', workflow_journey)
+        self.assertIn('action.messages.page.retry', workflow_journey)
         # This contract owns lane composition and cost only. Business outcomes stay
         # in executable device journeys; mirroring their tags or implementation
         # strings here would add maintenance cost without exercising the product.
