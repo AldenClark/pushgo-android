@@ -22,9 +22,11 @@ Policy:
 
 ### Fixed
 - Kept the active Gateway unchanged when a new Gateway save fails before commit.
-- Kept the five-second Undo period for local deletion exact, including app background and foreground transitions and taps at the deadline.
+- Prevented obsolete background callbacks from ending the five-second local deletion Undo early, with an exact deadline check for Undo taps.
 - Continued a transport switch after an uncertain Gateway result and showed its recovery status in Settings.
 - Preserved the open message detail when returning from an external browser link.
+- Dismissed search keyboard focus when opening a message detail, so Back closes the detail first.
+- Let Android preview shared message images and grant the selected app access to them.
 - Blocked IPv4-mapped local and private image addresses.
 
 ## [v1.3.0]

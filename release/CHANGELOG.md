@@ -41,6 +41,9 @@ PushGo Android policy:
 - Surfaced protected settings write failures instead of silently treating them as saved.
 - Continued an uncertain transport switch after the Gateway committed it, with recovery status in Settings.
 - Returned from external message links to the existing message detail instead of leaving Chrome in a separate task.
+- Cleared search focus before opening a message detail and requested bottom-sheet focus only after its target was attached, preserving Back dismissal order.
+- Supplied URI ClipData to the Android image share chooser so its preview and selected recipient can read the shared image.
+- Constrained message-refresh result scrolling to the Android main thread when a Paging continuation resumes on a background executor.
 - Rejected IPv4-mapped local and private image addresses.
 
 ## [v1.3.0] - 2026-08-24
