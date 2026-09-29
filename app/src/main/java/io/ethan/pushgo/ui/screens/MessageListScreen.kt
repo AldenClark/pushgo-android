@@ -323,7 +323,9 @@ fun MessageListScreen(
                 // observe "complete" while LazyColumn still holds the old keyed anchor.
                 if (refreshCompleted && query.isBlank() && messages.itemCount > 0) {
                     val firstMessageIndex = 1 + if (isPullRefreshSlow) 1 else 0
-                    listState.scrollToItem(firstMessageIndex)
+                    positionMessageRefreshResult(firstMessageIndex) { index ->
+                        listState.scrollToItem(index)
+                    }
                 }
                 isPullRefreshSlow = false
                 isPullRefreshing = false
@@ -860,6 +862,16 @@ fun MessageListScreen(
             },
         )
 
+}
+
+internal suspend fun positionMessageRefreshResult(
+    firstMessageIndex: Int,
+    scrollToItem: suspend (Int) -> Unit,
+) {
+    // Paging completion can resume on a database thread; scrolling forces UI layout.
+    withContext(Dispatchers.Main.immediate) {
+        scrollToItem(firstMessageIndex)
+    }
 }
 
 @Composable
