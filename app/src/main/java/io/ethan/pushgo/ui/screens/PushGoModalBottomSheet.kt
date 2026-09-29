@@ -16,6 +16,7 @@ import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.toArgb
@@ -24,6 +25,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.testTagsAsResourceId
 import androidx.compose.ui.unit.Dp
@@ -47,6 +49,7 @@ internal fun PushGoModalBottomSheet(
     val density = LocalDensity.current
     val containerHeight = with(density) { LocalWindowInfo.current.containerSize.height.toDp() }
     val focusRequester = remember { FocusRequester() }
+    val focusTargetReady = remember { mutableStateOf(false) }
     val resolvedMaxHeightFraction = maxHeightFraction.coerceIn(0.5f, 1f)
     val maxSheetHeight = containerHeight * resolvedMaxHeightFraction
     val minSheetHeight = minHeightFraction
@@ -68,8 +71,8 @@ internal fun PushGoModalBottomSheet(
             }
         }
     }
-    LaunchedEffect(paneTitle) {
-        if (!paneTitle.isNullOrBlank()) {
+    LaunchedEffect(paneTitle, focusTargetReady.value) {
+        if (focusTargetReady.value && !paneTitle.isNullOrBlank()) {
             focusRequester.requestFocus()
         }
     }
@@ -92,6 +95,7 @@ internal fun PushGoModalBottomSheet(
                     .fillMaxWidth()
                     .heightIn(min = minSheetHeight, max = maxSheetHeight)
                     .focusRequester(focusRequester)
+                    .onGloballyPositioned { focusTargetReady.value = true }
                     .focusable()
                     .pushGoPaneSemantics(paneTitle),
                 content = content,

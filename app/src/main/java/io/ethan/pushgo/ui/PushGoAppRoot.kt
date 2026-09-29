@@ -26,6 +26,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -90,6 +92,8 @@ fun PushGoAppRoot(
     useDarkTheme: Boolean,
 ) {
     val context = LocalContext.current
+    val focusManager = LocalFocusManager.current
+    val keyboardController = LocalSoftwareKeyboardController.current
     val lifecycleOwner = LocalLifecycleOwner.current
     val navController = rememberNavController()
     val factory = remember(container) { PushGoViewModelFactory(container) }
@@ -418,6 +422,8 @@ fun PushGoAppRoot(
                 navController = navController, container = container, factory = factory, settingsViewModel = settingsViewModel,
                 initialRoute = initialRoute, padding = padding,
                 onMessageClick = { messageId ->
+                    focusManager.clearFocus(force = true)
+                    keyboardController?.hide()
                     unavailableMessageTargetFeedback = null
                     selectedMessageId = messageId
                 },

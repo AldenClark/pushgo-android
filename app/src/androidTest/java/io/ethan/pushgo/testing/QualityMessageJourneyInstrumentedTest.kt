@@ -439,9 +439,21 @@ class QualityMessageJourneyInstrumentedTest : QualityAppJourneyTestCase() {
         composeRule.onAllNodesWithText("P2 Split Seed Message").assertCountEquals(1)
         composeRule.onNodeWithText("P2 Split Seed Message").performClick()
         composeRule.onNodeWithTag("sheet.message.detail").assertIsDisplayed()
+        composeRule.onNode(
+            SemanticsMatcher.expectValue(
+                SemanticsProperties.PaneTitle,
+                app.getString(R.string.a11y_pane_message_detail),
+            ),
+        ).assertIsFocused()
         composeRule.onNodeWithTag("field.message.detail.body")
             .assertTextContains("Seeded from fixture.seed_messages for UI validation.")
+        composeRule.onNodeWithTag("field.message.search").assertIsNotFocused()
         pressBack()
+        composeRule.waitUntil(timeoutMillis = 3_000) {
+            composeRule.onAllNodes(hasTestTag("sheet.message.detail"))
+                .fetchSemanticsNodes().isEmpty()
+        }
+        composeRule.onNodeWithTag("sheet.message.detail").assertDoesNotExist()
 
         composeRule.onNodeWithTag("field.message.search").performTextClearance()
         composeRule.onNodeWithTag("field.message.search").performTextInput("not-present-in-any-message")
