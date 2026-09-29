@@ -80,6 +80,8 @@ jobs:
       - name: Set up Android SDK
         if: env.QUALITY_SKIP_FAST != '1'
         uses: android-actions/setup-android@40fd30fb8d7440372e1316f5d1809ec01dcd3699 # v4
+        with:
+          packages: platform-tools
 
       - name: Prepare native toolchain
         if: env.QUALITY_SKIP_FAST != '1'
@@ -184,6 +186,8 @@ jobs:
       - name: Set up Android SDK
         if: env.QUALITY_SKIP_DEVICE != '1'
         uses: android-actions/setup-android@40fd30fb8d7440372e1316f5d1809ec01dcd3699 # v4
+        with:
+          packages: platform-tools
 
       - name: Prepare native toolchain
         if: env.QUALITY_SKIP_DEVICE != '1'
