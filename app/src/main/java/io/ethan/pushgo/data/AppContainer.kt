@@ -19,7 +19,6 @@ import io.ethan.pushgo.testing.QualityFixture
 import io.ethan.pushgo.testing.QualityChannelMutationScenario
 import io.ethan.pushgo.testing.QualityEventCloseScenario
 import io.ethan.pushgo.testing.QualityRuntime
-import io.ethan.pushgo.testing.QualityTransportSwitchException
 import io.ethan.pushgo.testing.QualityTransportSwitchScenario
 import io.ethan.pushgo.testing.QualityUpdateScenario
 import io.ethan.pushgo.ui.PendingLocalDeletionDrainScheduler
@@ -47,6 +46,8 @@ import javax.crypto.spec.SecretKeySpec
 class AppContainer(
     context: Context,
     appScope: CoroutineScope,
+    awaitTransportRecovery: suspend () -> Unit = {},
+    requestTransportRecovery: () -> Unit = {},
     pendingLocalDeletionDrainScheduler: PendingLocalDeletionDrainScheduler = if (
         InstrumentationRuntime.isUnderInstrumentationTest()
     ) {
@@ -93,6 +94,16 @@ class AppContainer(
             Context.MODE_PRIVATE,
         ),
     )
+    private val transportRouteWriterGate = CoordinatorTransportRouteWriterGate(
+        coordinator = { transportSwitchCoordinator },
+        currentChannelType = {
+            if (settingsRepository.getUseFcmChannel() && fcmSupportChecker(appContext)) {
+                "fcm"
+            } else {
+                "private"
+            }
+        },
+    )
     val inboundDeliveryLedgerRepository = InboundDeliveryLedgerRepository(
         database = database,
         inboundDeliveryLedgerDao = database.inboundDeliveryLedgerDao(),
@@ -130,7 +141,7 @@ class AppContainer(
         context = appContext,
         repository = messageRepository,
     )
-    val channelRepository = ChannelSubscriptionRepository(
+    val channelRepository: ChannelSubscriptionRepository = ChannelSubscriptionRepository(
         store = channelStore,
         settingsRepository = settingsRepository,
         messageStateCoordinator = messageStateCoordinator,
@@ -138,6 +149,8 @@ class AppContainer(
         entityRepository = entityRepository,
         database = database,
         pushTokenProvider = pushTokenProvider,
+        awaitTransportRecovery = awaitTransportRecovery,
+        transportRouteWriterGate = transportRouteWriterGate,
         service = ChannelSubscriptionService(ioDispatcher = coroutineDispatchers.io),
         eventCloseRoundTrip = QualityRuntime.currentSession()?.eventCloseScenario
             ?.takeUnless { it == QualityEventCloseScenario.NONE }
@@ -341,17 +354,20 @@ class AppContainer(
             }
         },
     )
-    val privateChannelClient = PrivateChannelClient(
+    val privateChannelClient: PrivateChannelClient = PrivateChannelClient(
         appContext = appContext,
         channelRepository = channelRepository,
         inboundDeliveryLedgerRepository = inboundDeliveryLedgerRepository,
         messageRepository = messageRepository,
         entityRepository = entityRepository,
         settingsRepository = settingsRepository,
+        awaitTransportRecovery = awaitTransportRecovery,
+        transportRouteWriterGate = transportRouteWriterGate,
     )
-    val transportSwitchCoordinator = TransportSwitchCoordinator(
+    val transportSwitchCoordinator: TransportSwitchCoordinator = TransportSwitchCoordinator(
         store = RoomTransportTransitionStore(database.transportTransitionDao()),
         secretStore = secureSecretStore,
+        requestRecovery = requestTransportRecovery,
         gateway = if (qualityTransportScenario == QualityTransportSwitchScenario.NONE) {
             privateChannelClient
         } else {
@@ -382,7 +398,12 @@ class AppContainer(
                             QualityTransportSwitchScenario.REJECT_ONCE_THEN_ACCEPTED &&
                         attempt == 1
                     ) {
-                        throw QualityTransportSwitchException()
+                        throw ChannelSubscriptionException(
+                            message = "Quality-injected transport prepare rejection",
+                            code = "route_transition_rejected",
+                            category = GatewayErrorCategory.VALIDATION,
+                            httpStatus = 400,
+                        )
                     }
                     this.channelType = channelType
                     state = TransportTransitionRemoteState.PREPARED
@@ -393,6 +414,7 @@ class AppContainer(
                 override suspend fun commit(
                     operationId: String,
                     transitionId: String,
+                    gatewayUrl: String,
                 ): CommittedTransportTransition {
                     routeRevision += 1
                     state = TransportTransitionRemoteState.COMMITTED
@@ -402,6 +424,7 @@ class AppContainer(
                 override suspend fun abort(
                     operationId: String,
                     transitionId: String,
+                    gatewayUrl: String,
                 ): TransportTransitionSnapshot {
                     state = TransportTransitionRemoteState.ABORTED
                     return TransportTransitionSnapshot(state, routeRevision, channelType)
@@ -411,6 +434,7 @@ class AppContainer(
                     operationId: String,
                     transitionId: String?,
                     deviceKey: String,
+                    gatewayUrl: String,
                 ): TransportTransitionSnapshot {
                     if (activeOperationId != operationId) {
                         throw TransportTransitionNotFoundException("quality operation not found")
@@ -440,6 +464,27 @@ class AppContainer(
                     systemToken = providerToken.takeIf { useFcm },
                 )
                 PrivateChannelServiceManager.refreshForMode(appContext, useFcm)
+            }
+
+            override suspend fun reconcileActiveRoute(
+                channelType: String,
+                providerTokenSha256: String?,
+            ): Boolean {
+                val token = when (channelType) {
+                    "private" -> {
+                        if (providerTokenSha256 != null) return false
+                        null
+                    }
+                    "fcm" -> {
+                        val current = pushTokenProvider.fetchToken(AppConstants.fcmTokenTimeoutMs)
+                            ?.trim()?.ifEmpty { null } ?: return false
+                        if (transportTokenSha256(current) != providerTokenSha256) return false
+                        current
+                    }
+                    else -> return false
+                }
+                apply(useFcm = channelType == "fcm", providerToken = token)
+                return true
             }
         },
     )

@@ -4,6 +4,10 @@ import io.ethan.pushgo.data.db.TransportTransitionDao
 import io.ethan.pushgo.data.db.TransportTransitionEntity
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.withContext
 import java.security.MessageDigest
 import java.util.UUID
 
@@ -26,6 +30,7 @@ data class TransportTransitionSnapshot(
     val transitionId: String? = null,
     val committedRevision: Long? = null,
     val candidateChannelType: String? = null,
+    val currentProviderTokenSha256: String? = null,
 )
 
 interface TransportTransitionGateway {
@@ -36,12 +41,21 @@ interface TransportTransitionGateway {
         channelType: String,
         providerToken: String?,
     ): PreparedTransportTransition
-    suspend fun commit(operationId: String, transitionId: String): CommittedTransportTransition
-    suspend fun abort(operationId: String, transitionId: String): TransportTransitionSnapshot
+    suspend fun commit(
+        operationId: String,
+        transitionId: String,
+        gatewayUrl: String,
+    ): CommittedTransportTransition
+    suspend fun abort(
+        operationId: String,
+        transitionId: String,
+        gatewayUrl: String,
+    ): TransportTransitionSnapshot
     suspend fun query(
         operationId: String,
         transitionId: String?,
         deviceKey: String,
+        gatewayUrl: String,
     ): TransportTransitionSnapshot
 }
 
@@ -52,12 +66,40 @@ class TransportTransitionUnavailableException(message: String) : Exception(messa
 
 interface TransportSelectionApplier {
     suspend fun apply(useFcm: Boolean, providerToken: String?)
+    /** Returns false when the current remote route cannot be proven to match this device. */
+    suspend fun reconcileActiveRoute(channelType: String, providerTokenSha256: String?): Boolean
 }
 
 interface TransportSwitcher {
+    val pendingRecovery: StateFlow<Boolean>? get() = null
     suspend fun switchToFcm(providerToken: String)
     suspend fun switchToPrivate()
     suspend fun recoverPending()
+    suspend fun hasPendingRecovery(): Boolean = false
+}
+
+/** Serializes ordinary route writes with a durable transport transition. */
+interface TransportRouteWriterGate {
+    suspend fun <T> run(expectedChannelType: String?, block: suspend () -> T): T
+}
+
+object UnlockedTransportRouteWriterGate : TransportRouteWriterGate {
+    override suspend fun <T> run(expectedChannelType: String?, block: suspend () -> T): T = block()
+}
+
+class CoordinatorTransportRouteWriterGate(
+    private val coordinator: () -> TransportSwitchCoordinator,
+    private val currentChannelType: suspend () -> String,
+) : TransportRouteWriterGate {
+    override suspend fun <T> run(expectedChannelType: String?, block: suspend () -> T): T =
+        coordinator().withIdleRouteWriter {
+            if (expectedChannelType != null && currentChannelType() != expectedChannelType) {
+                throw TransportTransitionUnavailableException(
+                    "Transport mode changed before the route write"
+                )
+            }
+            block()
+        }
 }
 
 interface TransportTransitionStore {
@@ -82,8 +124,11 @@ class TransportSwitchCoordinator(
     private val selectionApplier: TransportSelectionApplier,
     private val nowMillis: () -> Long = System::currentTimeMillis,
     private val newOperationId: () -> String = { UUID.randomUUID().toString() },
+    private val requestRecovery: () -> Unit = {},
 ) : TransportSwitcher {
     private val mutex = Mutex()
+    private val mutablePendingRecovery = MutableStateFlow(false)
+    override val pendingRecovery: StateFlow<Boolean> = mutablePendingRecovery
 
     override suspend fun switchToFcm(providerToken: String) {
         val token = providerToken.trim()
@@ -95,11 +140,35 @@ class TransportSwitchCoordinator(
 
     override suspend fun recoverPending() {
         mutex.withLock {
-            store.getPending()?.let { recoverLocked(it) }
+            val pending = store.getPending()
+            mutablePendingRecovery.value = pending != null
+            pending?.let { recoverLocked(it) }
         }
     }
 
-    private suspend fun switch(channelType: String, providerToken: String?) = mutex.withLock {
+    // The UI must be able to report a durable pending intent while the coordinator
+    // holds its mutex across a slow Gateway request.
+    override suspend fun hasPendingRecovery(): Boolean = store.getPending() != null
+
+    suspend fun <T> withIdleRouteWriter(block: suspend () -> T): T = mutex.withLock {
+        check(store.getPending() == null) { "A transport transition is still pending recovery" }
+        block()
+    }
+
+    private suspend fun switch(channelType: String, providerToken: String?) {
+        try {
+            mutex.withLock { switchLocked(channelType, providerToken) }
+        } catch (error: Throwable) {
+            withContext(NonCancellable) {
+                if (runCatching { store.getPending() }.getOrNull() != null) {
+                    runCatching { requestRecovery() }
+                }
+            }
+            throw error
+        }
+    }
+
+    private suspend fun switchLocked(channelType: String, providerToken: String?) {
         store.getPending()?.let { recoverLocked(it) }
         check(store.getPending() == null) { "A transport transition is still pending recovery" }
         val context = gateway.loadContext()
@@ -119,7 +188,7 @@ class TransportSwitchCoordinator(
             baseRevision = context.routeRevision,
             committedRevision = null,
             phase = TransportTransitionPhase.LOCAL_INTENT.name,
-            candidateTokenFingerprint = providerToken?.let(::sha256Hex),
+            candidateTokenFingerprint = providerToken?.let(::transportTokenSha256),
             createdAt = now,
             updatedAt = now,
             lastError = null,
@@ -127,11 +196,22 @@ class TransportSwitchCoordinator(
         try {
             secretStore.setPendingTransportToken(operationId, providerToken)
             store.insert(pending)
+            mutablePendingRecovery.value = true
         } catch (error: Throwable) {
             runCatching { secretStore.setPendingTransportToken(operationId, null) }
             throw error
         }
-        val prepared = gateway.prepare(operationId, context, channelType, providerToken)
+        val prepared = try {
+            gateway.prepare(operationId, context, channelType, providerToken)
+        } catch (conflict: TransportRevisionConflictException) {
+            cleanupLocal(pending)
+            throw conflict
+        } catch (rejection: ChannelSubscriptionException) {
+            if ((rejection.httpStatus ?: 0) in 400..499 && !rejection.retryable) {
+                cleanupLocal(pending)
+            }
+            throw rejection
+        }
         try {
             check(prepared.baseRevision == context.routeRevision) {
                 "Gateway prepared transport against an unexpected route revision"
@@ -154,7 +234,7 @@ class TransportSwitchCoordinator(
             TransportTransitionPhase.LOCAL_INTENT -> resumeLocalIntentLocked(pending)
             TransportTransitionPhase.REMOTE_PREPARED -> reconcilePreparedLocked(pending)
             TransportTransitionPhase.REMOTE_COMMITTED -> reconcileCommittedLocked(pending)
-            TransportTransitionPhase.LOCAL_APPLIED -> cleanupLocal(pending)
+            TransportTransitionPhase.LOCAL_APPLIED -> finishAppliedLocked(pending)
         }
     }
 
@@ -164,6 +244,7 @@ class TransportSwitchCoordinator(
                 operationId = pending.operationId,
                 transitionId = null,
                 deviceKey = pending.deviceKey,
+                gatewayUrl = pending.gatewayUrl,
             )
         } catch (_: TransportTransitionNotFoundException) {
             null
@@ -210,6 +291,11 @@ class TransportSwitchCoordinator(
             throw TransportTransitionSupersededException(
                 "Pending transport intent was superseded before prepare"
             )
+        } catch (rejection: ChannelSubscriptionException) {
+            if ((rejection.httpStatus ?: 0) in 400..499 && !rejection.retryable) {
+                cleanupLocal(pending)
+            }
+            throw rejection
         }
         check(prepared.baseRevision == pending.baseRevision) {
             "Gateway resumed transport against an unexpected route revision"
@@ -250,9 +336,9 @@ class TransportSwitchCoordinator(
     private suspend fun commitAndFinalizeLocked(pending: TransportTransitionEntity) {
         val transitionId = checkNotNull(pending.transitionId)
         val committed = try {
-            gateway.commit(pending.operationId, transitionId)
+            gateway.commit(pending.operationId, transitionId, pending.gatewayUrl)
         } catch (conflict: TransportRevisionConflictException) {
-            runCatching { gateway.abort(pending.operationId, transitionId) }
+            runCatching { gateway.abort(pending.operationId, transitionId, pending.gatewayUrl) }
             cleanupLocal(pending)
             throw conflict
         } catch (unknown: Throwable) {
@@ -282,13 +368,16 @@ class TransportSwitchCoordinator(
             channelType = committed.channelType,
         )
         store.update(committedPending)
-        finalizeLocalLocked(committedPending)
+        markCommittedAndFinalize(committedPending, query(committedPending))
     }
 
     private suspend fun markCommittedAndFinalize(
         pending: TransportTransitionEntity,
         snapshot: TransportTransitionSnapshot,
     ) {
+        check(snapshot.state == TransportTransitionRemoteState.COMMITTED) {
+            "Gateway did not retain the committed transport transition"
+        }
         val committedRevision = snapshot.committedRevision
             ?: error("Committed transition query is missing committed revision")
         val candidateChannelType = snapshot.candidateChannelType
@@ -298,10 +387,7 @@ class TransportSwitchCoordinator(
             snapshot.routeRevision != committedRevision ||
             snapshot.channelType != candidateChannelType
         ) {
-            cleanupLocal(pending)
-            throw TransportTransitionSupersededException(
-                "Transport transition was superseded by a newer active route"
-            )
+            reconcileSupersededLocked(pending, snapshot)
         }
         val committed = pending.copy(
             committedRevision = committedRevision,
@@ -329,11 +415,70 @@ class TransportSwitchCoordinator(
             lastError = null,
         )
         store.update(applied)
-        cleanupLocal(applied)
+        finishAppliedLocked(applied)
+    }
+
+    private suspend fun finishAppliedLocked(pending: TransportTransitionEntity) {
+        val snapshot = query(pending)
+        check(snapshot.state == TransportTransitionRemoteState.COMMITTED) {
+            "Gateway did not retain the committed transport transition"
+        }
+        val committedRevision = pending.committedRevision
+            ?: error("Locally applied transition has no committed revision")
+        if (
+            snapshot.routeRevision != committedRevision ||
+            snapshot.channelType != pending.targetChannelType
+        ) {
+            reconcileSupersededLocked(pending, snapshot)
+        }
+        cleanupLocal(pending)
+    }
+
+    private suspend fun reconcileSupersededLocked(
+        pending: TransportTransitionEntity,
+        snapshot: TransportTransitionSnapshot,
+    ): Nothing {
+        val activeRevision = snapshot.routeRevision
+            ?: throw TransportTransitionUnavailableException(
+                "Superseding transport route has no active revision"
+            )
+        val activeChannel = snapshot.channelType
+            ?: throw TransportTransitionUnavailableException(
+                "Superseding transport route has no active channel"
+            )
+        if (!selectionApplier.reconcileActiveRoute(
+                activeChannel,
+                snapshot.currentProviderTokenSha256,
+            )
+        ) {
+            throw TransportTransitionUnavailableException(
+                "Superseding transport route cannot be matched to this device"
+            )
+        }
+        val checked = query(pending)
+        if (
+            checked.state != TransportTransitionRemoteState.COMMITTED ||
+            checked.routeRevision != activeRevision ||
+            checked.channelType != activeChannel ||
+            checked.currentProviderTokenSha256 != snapshot.currentProviderTokenSha256
+        ) {
+            throw TransportTransitionUnavailableException(
+                "Superseding transport route changed during local reconciliation"
+            )
+        }
+        cleanupLocal(pending)
+        throw TransportTransitionSupersededException(
+            "Transport transition was superseded by a newer active route"
+        )
     }
 
     private suspend fun query(pending: TransportTransitionEntity): TransportTransitionSnapshot =
-        gateway.query(pending.operationId, pending.transitionId, pending.deviceKey)
+        gateway.query(
+            pending.operationId,
+            pending.transitionId,
+            pending.deviceKey,
+            pending.gatewayUrl,
+        )
 
     private fun candidateToken(pending: TransportTransitionEntity): String? {
         if (pending.targetChannelType != CHANNEL_FCM) return null
@@ -351,8 +496,10 @@ class TransportSwitchCoordinator(
     }
 
     private suspend fun cleanupLocal(pending: TransportTransitionEntity) {
-        secretStore.setPendingTransportToken(pending.operationId, null)
         store.delete(pending.operationId)
+        mutablePendingRecovery.value = false
+        // A failure here leaves an encrypted orphan, not an unrecoverable pending row.
+        secretStore.setPendingTransportToken(pending.operationId, null)
     }
 
     private fun phaseOf(pending: TransportTransitionEntity): TransportTransitionPhase =
@@ -372,13 +519,13 @@ class TransportSwitchCoordinator(
         }
     }
 
-    private fun sha256Hex(value: String): String {
-        val digest = MessageDigest.getInstance("SHA-256").digest(value.toByteArray(Charsets.UTF_8))
-        return digest.joinToString("") { byte -> "%02x".format(byte) }
-    }
-
     private companion object {
         const val CHANNEL_FCM = "fcm"
         const val CHANNEL_PRIVATE = "private"
     }
+}
+
+internal fun transportTokenSha256(value: String): String {
+    val digest = MessageDigest.getInstance("SHA-256").digest(value.toByteArray(Charsets.UTF_8))
+    return digest.joinToString("") { byte -> "%02x".format(byte) }
 }

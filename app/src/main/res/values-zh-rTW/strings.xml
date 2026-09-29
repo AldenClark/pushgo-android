@@ -301,6 +301,7 @@
     <string name="label_notification_transport_gateway_private_disabled_hint">網關私有通道已關閉。此網關下 Android 只能使用 FCM。</string>
     <string name="label_notification_transport_unavailable_hint">網關私有通道已關閉，且此裝置不支援 FCM。推送不可用。</string>
     <string name="error_notification_transport_switch_failed">無法切換到私有通道，FCM 仍保持啟用，請重試。</string>
+    <string name="message_notification_transport_recovering">正在確認通道切換結果，恢復完成後會更新目前通道；必要時可重試。</string>
     <string name="error_notification_transport_private_compensation_failed">無法切換到私有通道，且清理未能完成。目前仍選擇 FCM，但推送可能中斷，請重新開啟設定後再試。</string>
     <string name="error_notification_transport_fcm_switch_failed">無法切換到 FCM，私有通道仍保持啟用，請重試。</string>
     <string name="error_notification_transport_fcm_compensation_failed">無法切換到 FCM，且清理未能完成。目前仍選擇私有通道，但推送可能重複，請重新開啟設定後再試。</string>

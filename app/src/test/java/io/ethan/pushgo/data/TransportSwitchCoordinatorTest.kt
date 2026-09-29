@@ -1,7 +1,11 @@
 package io.ethan.pushgo.data
 
 import io.ethan.pushgo.data.db.TransportTransitionEntity
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.yield
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -51,7 +55,45 @@ class TransportSwitchCoordinatorTest {
         assertTrue(harness.selection.useFcm)
         assertEquals(0, harness.selection.applyCount)
         assertEquals(TransportTransitionPhase.LOCAL_INTENT.name, harness.store.pending?.phase)
+        assertEquals(1, harness.recoveryRequested)
         assertFalse(harness.gateway.commitCalled)
+    }
+
+    @Test
+    fun pendingStatusRemainsReadableWhileGatewayPrepareIsInFlight() = runBlocking {
+        val harness = Harness()
+        val prepareEntered = CompletableDeferred<Unit>()
+        val finishPrepare = CompletableDeferred<Unit>()
+        harness.gateway.onPrepareSuspend = {
+            prepareEntered.complete(Unit)
+            finishPrepare.await()
+        }
+        val switching = launch { harness.coordinator.switchToPrivate() }
+        prepareEntered.await()
+        try {
+            assertTrue(withTimeout(1_000) { harness.coordinator.hasPendingRecovery() })
+        } finally {
+            finishPrepare.complete(Unit)
+            switching.join()
+        }
+    }
+
+    @Test
+    fun definitivePrepareRejectionDoesNotLeaveARecoveryIntent() = runBlocking {
+        val harness = Harness()
+        harness.gateway.prepareFailure = ChannelSubscriptionException(
+            message = "rejected",
+            category = GatewayErrorCategory.VALIDATION,
+            httpStatus = 400,
+        )
+
+        assertThrows(ChannelSubscriptionException::class.java) {
+            runBlocking { harness.coordinator.switchToPrivate() }
+        }
+
+        assertNull(harness.store.pending)
+        assertEquals(0, harness.recoveryRequested)
+        assertTrue(harness.selection.useFcm)
     }
 
     @Test
@@ -68,7 +110,7 @@ class TransportSwitchCoordinatorTest {
         harness.coordinator.recoverPending()
 
         assertEquals(1, harness.gateway.prepareCount)
-        assertEquals(1, harness.gateway.queryCount)
+        assertEquals(3, harness.gateway.queryCount)
         assertFalse(harness.selection.useFcm)
         assertNull(harness.store.pending)
     }
@@ -100,8 +142,85 @@ class TransportSwitchCoordinatorTest {
         harness.coordinator.switchToPrivate()
 
         assertFalse(harness.selection.useFcm)
-        assertEquals(1, harness.gateway.queryCount)
+        assertEquals(2, harness.gateway.queryCount)
         assertEquals(1, harness.gateway.commitCount)
+        assertEquals(listOf("https://gateway.invalid"), harness.gateway.commitGatewayUrls)
+        assertEquals(listOf("https://gateway.invalid", "https://gateway.invalid"), harness.gateway.queryGatewayUrls)
+        assertNull(harness.store.pending)
+    }
+
+    @Test
+    fun queuedRouteWriterRechecksSelectionAfterTransportSwitchCompletes() = runBlocking {
+        val harness = Harness()
+        val localApplyEntered = CompletableDeferred<Unit>()
+        val finishLocalApply = CompletableDeferred<Unit>()
+        harness.selection.onAppliedSuspend = {
+            localApplyEntered.complete(Unit)
+            finishLocalApply.await()
+        }
+        val switching = launch { harness.coordinator.switchToPrivate() }
+        localApplyEntered.await()
+
+        var staleProviderRouteWritten = false
+        var staleProviderRouteRejected = false
+        val writerGate = CoordinatorTransportRouteWriterGate(
+            coordinator = { harness.coordinator },
+            currentChannelType = { if (harness.selection.useFcm) "fcm" else "private" },
+        )
+        val oldWriter = launch {
+            try {
+                writerGate.run("fcm") { staleProviderRouteWritten = true }
+            } catch (_: TransportTransitionUnavailableException) {
+                staleProviderRouteRejected = true
+            }
+        }
+        yield()
+        assertFalse(oldWriter.isCompleted)
+        finishLocalApply.complete(Unit)
+        switching.join()
+        oldWriter.join()
+
+        assertFalse(staleProviderRouteWritten)
+        assertTrue(staleProviderRouteRejected)
+        assertNull(harness.store.pending)
+    }
+
+    @Test
+    fun queuedPrivateRouteWriterCannotReverseCommittedProviderSelection() = runBlocking {
+        val harness = Harness()
+        harness.selection.useFcm = false
+        harness.selection.token = null
+        harness.gateway.committedChannelType = "fcm"
+        val localApplyEntered = CompletableDeferred<Unit>()
+        val finishLocalApply = CompletableDeferred<Unit>()
+        harness.selection.onAppliedSuspend = {
+            localApplyEntered.complete(Unit)
+            finishLocalApply.await()
+        }
+        val switching = launch { harness.coordinator.switchToFcm("new-token") }
+        localApplyEntered.await()
+
+        var stalePrivateRouteWritten = false
+        var stalePrivateRouteRejected = false
+        val writerGate = CoordinatorTransportRouteWriterGate(
+            coordinator = { harness.coordinator },
+            currentChannelType = { if (harness.selection.useFcm) "fcm" else "private" },
+        )
+        val oldWriter = launch {
+            try {
+                writerGate.run("private") { stalePrivateRouteWritten = true }
+            } catch (_: TransportTransitionUnavailableException) {
+                stalePrivateRouteRejected = true
+            }
+        }
+        yield()
+        assertFalse(oldWriter.isCompleted)
+        finishLocalApply.complete(Unit)
+        switching.join()
+        oldWriter.join()
+
+        assertFalse(stalePrivateRouteWritten)
+        assertTrue(stalePrivateRouteRejected)
         assertNull(harness.store.pending)
     }
 
@@ -133,6 +252,7 @@ class TransportSwitchCoordinatorTest {
             TransportTransitionPhase.REMOTE_COMMITTED.name,
             harness.store.pending?.phase,
         )
+        assertEquals(1, harness.recoveryRequested)
         assertTrue(harness.selection.useFcm)
 
         harness.gateway.querySnapshot = committedPrivate(revision = 8)
@@ -157,6 +277,7 @@ class TransportSwitchCoordinatorTest {
             channelType = "fcm",
             committedRevision = 8,
             candidateChannelType = "private",
+            currentProviderTokenSha256 = transportTokenSha256("old-token"),
         )
 
         assertThrows(TransportTransitionSupersededException::class.java) {
@@ -164,7 +285,62 @@ class TransportSwitchCoordinatorTest {
         }
 
         assertTrue(harness.selection.useFcm)
-        assertEquals(1, harness.selection.applyCount)
+        assertEquals(2, harness.selection.applyCount)
+        assertNull(harness.store.pending)
+    }
+
+    @Test
+    fun partialLocalApplyIsReconciledToVerifiedNewerProviderRoute() = runBlocking {
+        val harness = Harness()
+        harness.selection.failAfterMutationNext = true
+        assertThrows(IllegalStateException::class.java) {
+            runBlocking { harness.coordinator.switchToPrivate() }
+        }
+        assertFalse(harness.selection.useFcm)
+        assertNull(harness.selection.token)
+        assertEquals(TransportTransitionPhase.REMOTE_COMMITTED.name, harness.store.pending?.phase)
+
+        harness.gateway.querySnapshot = newerProviderRoute(transportTokenSha256("old-token"))
+        assertThrows(TransportTransitionSupersededException::class.java) {
+            runBlocking { harness.coordinator.recoverPending() }
+        }
+
+        assertTrue(harness.selection.useFcm)
+        assertEquals("old-token", harness.selection.token)
+        assertNull(harness.store.pending)
+    }
+
+    @Test
+    fun unknownNewerProviderTokenKeepsRecoveryPending() = runBlocking {
+        val harness = Harness()
+        harness.selection.failAfterMutationNext = true
+        assertThrows(IllegalStateException::class.java) {
+            runBlocking { harness.coordinator.switchToPrivate() }
+        }
+        harness.gateway.querySnapshot = newerProviderRoute(transportTokenSha256("different-device-token"))
+
+        assertThrows(TransportTransitionUnavailableException::class.java) {
+            runBlocking { harness.coordinator.recoverPending() }
+        }
+
+        assertEquals(TransportTransitionPhase.REMOTE_COMMITTED.name, harness.store.pending?.phase)
+        assertFalse(harness.selection.useFcm)
+        assertNull(harness.selection.token)
+    }
+
+    @Test
+    fun newerRouteDuringSuccessfulLocalApplyIsRecheckedBeforeCleanup() = runBlocking {
+        val harness = Harness()
+        harness.selection.onApplied = {
+            harness.gateway.querySnapshot = newerProviderRoute(transportTokenSha256("old-token"))
+        }
+
+        assertThrows(TransportTransitionSupersededException::class.java) {
+            runBlocking { harness.coordinator.switchToPrivate() }
+        }
+
+        assertTrue(harness.selection.useFcm)
+        assertEquals("old-token", harness.selection.token)
         assertNull(harness.store.pending)
     }
 
@@ -173,6 +349,7 @@ class TransportSwitchCoordinatorTest {
         val secrets = FakeSecretStore()
         val gateway = FakeGateway()
         val selection = FakeSelection()
+        var recoveryRequested = 0
         val coordinator = TransportSwitchCoordinator(
             store = store,
             secretStore = secrets,
@@ -180,6 +357,7 @@ class TransportSwitchCoordinatorTest {
             selectionApplier = selection,
             nowMillis = { 1_000L },
             newOperationId = { "operation-1" },
+            requestRecovery = { recoveryRequested += 1 },
         )
     }
 
@@ -203,6 +381,7 @@ class TransportSwitchCoordinatorTest {
 
     private class FakeGateway : TransportTransitionGateway {
         var prepareFailure: Throwable? = null
+        var onPrepareSuspend: suspend () -> Unit = {}
         var prepareResponseFailure: Throwable? = null
         var commitFailure: Throwable? = null
         var querySnapshot = TransportTransitionSnapshot(
@@ -215,7 +394,10 @@ class TransportSwitchCoordinatorTest {
         var abortCount = 0
         var inverseRouteWrites = 0
         var prepareCount = 0
+        val commitGatewayUrls = mutableListOf<String>()
+        val queryGatewayUrls = mutableListOf<String>()
         var capabilityEnabled = true
+        var committedChannelType = "private"
         var hasOperation = false
         val commitCalled: Boolean get() = commitCount > 0
 
@@ -233,6 +415,7 @@ class TransportSwitchCoordinatorTest {
             providerToken: String?,
         ): PreparedTransportTransition {
             prepareCount += 1
+            onPrepareSuspend()
             prepareFailure?.let { throw it }
             hasOperation = true
             querySnapshot = TransportTransitionSnapshot(
@@ -248,20 +431,31 @@ class TransportSwitchCoordinatorTest {
         override suspend fun commit(
             operationId: String,
             transitionId: String,
+            gatewayUrl: String,
         ): CommittedTransportTransition {
             commitCount += 1
+            commitGatewayUrls += gatewayUrl
             commitFailure?.let { failure ->
                 if (failure is TransportRevisionConflictException) throw failure
-                querySnapshot = committedPrivate(revision = 8)
+                querySnapshot = committedSelection(revision = 8)
                 throw failure
             }
-            querySnapshot = committedPrivate(revision = 8)
-            return CommittedTransportTransition(routeRevision = 8, channelType = "private")
+            querySnapshot = committedSelection(revision = 8)
+            return CommittedTransportTransition(routeRevision = 8, channelType = committedChannelType)
         }
+
+        private fun committedSelection(revision: Long) = TransportTransitionSnapshot(
+            state = TransportTransitionRemoteState.COMMITTED,
+            routeRevision = revision,
+            channelType = committedChannelType,
+            committedRevision = revision,
+            candidateChannelType = committedChannelType,
+        )
 
         override suspend fun abort(
             operationId: String,
             transitionId: String,
+            gatewayUrl: String,
         ): TransportTransitionSnapshot {
             abortCount += 1
             hasOperation = true
@@ -272,8 +466,10 @@ class TransportSwitchCoordinatorTest {
             operationId: String,
             transitionId: String?,
             deviceKey: String,
+            gatewayUrl: String,
         ): TransportTransitionSnapshot {
             queryCount += 1
+            queryGatewayUrls += gatewayUrl
             if (!hasOperation) {
                 throw TransportTransitionNotFoundException("operation not found")
             }
@@ -285,6 +481,9 @@ class TransportSwitchCoordinatorTest {
         var useFcm = true
         var token: String? = "old-token"
         var failNext = false
+        var failAfterMutationNext = false
+        var onApplied: (() -> Unit)? = null
+        var onAppliedSuspend: (suspend () -> Unit)? = null
         var applyCount = 0
         override suspend fun apply(useFcm: Boolean, providerToken: String?) {
             applyCount += 1
@@ -294,6 +493,31 @@ class TransportSwitchCoordinatorTest {
             }
             this.useFcm = useFcm
             token = providerToken
+            if (failAfterMutationNext) {
+                failAfterMutationNext = false
+                throw IllegalStateException("local finalize failed after mutation")
+            }
+            onApplied?.invoke()
+            onAppliedSuspend?.invoke()
+        }
+
+        override suspend fun reconcileActiveRoute(
+            channelType: String,
+            providerTokenSha256: String?,
+        ): Boolean {
+            if (channelType == "private" && providerTokenSha256 == null) {
+                apply(useFcm = false, providerToken = null)
+                return true
+            }
+            val systemToken = "old-token"
+            if (
+                channelType == "fcm" &&
+                providerTokenSha256 == transportTokenSha256(systemToken)
+            ) {
+                apply(useFcm = true, providerToken = systemToken)
+                return true
+            }
+            return false
         }
     }
 
@@ -321,6 +545,15 @@ class TransportSwitchCoordinatorTest {
     }
 
     private companion object {
+        fun newerProviderRoute(tokenFingerprint: String) = TransportTransitionSnapshot(
+            state = TransportTransitionRemoteState.COMMITTED,
+            routeRevision = 9,
+            channelType = "fcm",
+            committedRevision = 8,
+            candidateChannelType = "private",
+            currentProviderTokenSha256 = tokenFingerprint,
+        )
+
         fun committedPrivate(revision: Long) = TransportTransitionSnapshot(
             state = TransportTransitionRemoteState.COMMITTED,
             routeRevision = revision,

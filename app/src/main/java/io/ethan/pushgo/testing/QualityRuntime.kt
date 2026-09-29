@@ -932,8 +932,5 @@ class QualityNotificationKeyPersistenceException :
 class QualityChannelSubscriptionPersistenceException :
     IllegalStateException("Injected channel subscription persistence failure")
 
-class QualityTransportSwitchException :
-    IllegalStateException("Injected notification transport registration failure")
-
 class QualityTransportSelectionPersistenceException :
     IllegalStateException("Injected notification transport selection persistence failure")

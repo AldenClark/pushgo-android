@@ -279,6 +279,7 @@ class QualitySettingsJourneyInstrumentedTest : QualityAppJourneyTestCase() {
 
         openPageVisibilitySettings()
         assertActivePeriodicUpdateWorkCount(1)
+        scrollTo("switch.settings.update.auto_check")
         composeRule.onNodeWithTag("switch.settings.update.auto_check")
             .assertUpdateToggleEnabled(true)
         composeRule.onNodeWithTag("option.settings.update.channel.beta").assertIsSelected()
@@ -830,7 +831,7 @@ class QualitySettingsJourneyInstrumentedTest : QualityAppJourneyTestCase() {
     }
 
     @Test
-    fun privateTransportLocalCommitFailureRollsBackBeforeRetryCommits() {
+    fun privateTransportLocalCommitFailureRecoversCommittedRouteWithoutRetry() {
         configureAndLaunch(
             fixture = QualityFixture.CHANNELS_STANDARD,
             faults = QualityFaults(failTransportSelectionPersistenceOnce = true),
@@ -838,48 +839,28 @@ class QualitySettingsJourneyInstrumentedTest : QualityAppJourneyTestCase() {
         )
         openSettings()
         scrollTo("row.settings.notification_transport")
-        val originalToken = runBlocking {
-            app.container.settingsRepository.getFcmToken()
-        }
         composeRule.onNodeWithTag("option.settings.notification_transport.fcm")
             .assertIsSelected()
         composeRule.onNodeWithTag("option.settings.notification_transport.private")
             .assertIsNotSelected()
             .performClick()
 
-        waitForTag("feedback.settings.notification_transport")
-        composeRule.onNodeWithTag("feedback.settings.notification_transport")
-            .assertTextEquals(
-                app.getString(io.ethan.pushgo.R.string.error_notification_transport_switch_failed)
-            )
-        composeRule.onNodeWithTag("option.settings.notification_transport.fcm")
-            .assertIsSelected()
-        composeRule.onNodeWithTag("option.settings.notification_transport.private")
-            .assertIsNotSelected()
-        composeRule.onNodeWithTag("dialog.settings.private_transport_whitelist")
-            .assertDoesNotExist()
-        assertEquals(
-            originalToken,
-            runBlocking { app.container.settingsRepository.getFcmToken() },
-        )
-
-        // This is an Activity relaunch recovery check. Keep the controlled remote transition
-        // endpoint alive; process/container recovery is a separate native acceptance boundary.
-        relaunchCurrentQualitySessionWithFaults(reopenStorage = false)
-        openSettings()
-        scrollTo("row.settings.notification_transport")
-        composeRule.onNodeWithTag("option.settings.notification_transport.fcm")
-            .assertIsSelected()
-        composeRule.onNodeWithTag("option.settings.notification_transport.private")
-            .assertIsNotSelected()
-            .performClick()
+        // The remote commit already succeeded. The independent recovery owner must
+        // finish the durable intent without an unrelated route write or another tap.
         composeRule.waitUntil(timeoutMillis = 8_000) {
             composeRule.onAllNodes(
                 hasTestTag("option.settings.notification_transport.private") and isSelected()
-            ).fetchSemanticsNodes().isNotEmpty()
+            ).fetchSemanticsNodes().isNotEmpty() && runBlocking {
+                !app.container.transportSwitchCoordinator.hasPendingRecovery()
+            }
         }
         composeRule.onNodeWithTag("option.settings.notification_transport.private")
             .assertIsSelected()
+        composeRule.onNodeWithTag("option.settings.notification_transport.fcm")
+            .assertIsNotSelected()
+        composeRule.onNodeWithTag("feedback.settings.notification_transport")
+            .assertDoesNotExist()
+        assertEquals(null, runBlocking { app.container.settingsRepository.getFcmToken() })
         waitForTag("dialog.settings.private_transport_whitelist")
         composeRule.onNodeWithTag("action.settings.private_transport_whitelist.dismiss")
             .performClick()

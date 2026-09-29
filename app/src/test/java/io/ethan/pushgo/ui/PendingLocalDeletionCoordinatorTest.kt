@@ -418,6 +418,9 @@ class PendingLocalDeletionCoordinatorTest {
         val resumeBackgroundDrain = CompletableDeferred<Unit>()
         val recoverCalls = AtomicInteger(0)
         val repository = object : PendingLocalDeletionRepository by delegate {
+            override suspend fun cancelPending(id: Long, nowEpochMillis: Long): Boolean =
+                delegate.cancelPending(id, nowEpochMillis)
+
             override suspend fun recoverInterruptedClaims(nowEpochMillis: Long): Int {
                 if (recoverCalls.incrementAndGet() == 2) {
                     backgroundDrainReached.complete(Unit)

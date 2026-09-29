@@ -99,6 +99,8 @@ class ChannelSubscriptionRepository(
     private val entityRepository: EntityRepository,
     private val database: PushGoDatabase,
     private val pushTokenProvider: PushTokenProvider,
+    private val awaitTransportRecovery: suspend () -> Unit = {},
+    private val transportRouteWriterGate: TransportRouteWriterGate = UnlockedTransportRouteWriterGate,
     service: ChannelSubscriptionService? = null,
     private val eventCloseRoundTrip: EventCloseRoundTrip? = null,
     private val channelMutationRoundTrip: ChannelMutationRoundTrip? = null,
@@ -486,6 +488,22 @@ class ChannelSubscriptionRepository(
         providerToken: String?,
         channelType: String,
     ): PreparedGatewaySwitch {
+        awaitTransportRecovery()
+        return transportRouteWriterGate.run(channelType.trim().lowercase()) {
+            val sourceGatewayConfig = loadGatewayConfig()
+            prepareGatewaySwitchUnderGate(
+                address, gatewayToken, providerToken, channelType, sourceGatewayConfig,
+            )
+        }
+    }
+
+    private suspend fun prepareGatewaySwitchUnderGate(
+        address: String,
+        gatewayToken: String?,
+        providerToken: String?,
+        channelType: String,
+        sourceGatewayConfig: Pair<String, String?>,
+    ): PreparedGatewaySwitch {
         val normalizedAddress = UrlValidators.normalizeGatewayBaseUrl(address)
             ?: throw ChannelSubscriptionException.local(
                 message = "Request failed",
@@ -547,6 +565,8 @@ class ChannelSubscriptionRepository(
             providerToken = normalizedProviderToken,
             channelType = normalizedChannelType,
             deviceKey = resolvedDeviceKey,
+            sourceGatewayUrl = sourceGatewayConfig.first,
+            sourceGatewayToken = sourceGatewayConfig.second,
         )
     }
 
@@ -557,6 +577,18 @@ class ChannelSubscriptionRepository(
      * is silently accepted as the active gateway.
      */
     suspend fun commitGatewaySwitch(prepared: PreparedGatewaySwitch) {
+        awaitTransportRecovery()
+        transportRouteWriterGate.run(prepared.channelType) {
+            if (loadGatewayConfig() != (prepared.sourceGatewayUrl to prepared.sourceGatewayToken)) {
+                throw TransportTransitionUnavailableException(
+                    "Gateway changed after switch preparation"
+                )
+            }
+            commitGatewaySwitchUnderGate(prepared)
+        }
+    }
+
+    private suspend fun commitGatewaySwitchUnderGate(prepared: PreparedGatewaySwitch) {
         when (recoverGatewaySwitchIfNeeded()) {
             GatewaySwitchRecovery.COMMITTED -> throw IllegalStateException(
                 "Previous gateway switch still needs recovery before another switch can start",
@@ -838,6 +870,19 @@ class ChannelSubscriptionRepository(
     }
 
     private suspend fun ensureProviderRoute(deviceToken: String, config: ServerConfig): String {
+        awaitTransportRecovery()
+        return transportRouteWriterGate.run(FCM_CHANNEL_TYPE) {
+            val currentConfig = resolveServerConfig()
+            if (currentConfig.address != config.address || currentConfig.token != config.token) {
+                throw TransportTransitionUnavailableException(
+                    "Gateway changed before the provider route write"
+                )
+            }
+            ensureProviderRouteUnderGate(deviceToken, currentConfig)
+        }
+    }
+
+    private suspend fun ensureProviderRouteUnderGate(deviceToken: String, config: ServerConfig): String {
         val normalizedToken = deviceToken.trim()
         if (normalizedToken.isEmpty()) {
             throw ChannelSubscriptionException.local(
@@ -845,6 +890,21 @@ class ChannelSubscriptionRepository(
                 code = "provider_token_missing",
                 category = GatewayErrorCategory.VALIDATION,
             )
+        }
+        val storedToken = settingsRepository.getFcmToken()?.trim()?.ifEmpty { null }
+        if (storedToken != null && storedToken != normalizedToken) {
+            // A queued startup/ingress write may carry the old token after a newer
+            // Firebase callback has already changed the active provider route.
+            val systemToken = runCatching {
+                withTimeout(FCM_TOKEN_BOOTSTRAP_TIMEOUT_MS) {
+                    pushTokenProvider.fetchToken(FCM_TOKEN_BOOTSTRAP_TIMEOUT_MS)
+                }
+            }.getOrNull()?.trim()?.ifEmpty { null }
+            if (systemToken != normalizedToken) {
+                throw TransportTransitionUnavailableException(
+                    "Provider token changed before the route write"
+                )
+            }
         }
         if (channelMutationRoundTrip != null) {
             val deviceKey = channelMutationRoundTrip.ensureProviderRoute(
@@ -939,9 +999,6 @@ class ChannelSubscriptionRepository(
         }.getOrNull()
             ?.trim()
             ?.ifEmpty { null }
-            ?.also { token ->
-                settingsRepository.setFcmToken(token)
-            }
     }
 
     private suspend fun subscribeInternal(
@@ -1297,6 +1354,8 @@ class ChannelSubscriptionRepository(
         val providerToken: String?,
         val channelType: String,
         val deviceKey: String,
+        val sourceGatewayUrl: String,
+        val sourceGatewayToken: String?,
     )
 
     enum class GatewaySwitchRecovery {

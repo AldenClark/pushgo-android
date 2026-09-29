@@ -195,13 +195,13 @@ class PendingLocalDeletionCoordinator(
         start()
         initialization.await()
         val id = _pendingDeletion.value?.id ?: return
-        if (repository.cancelPending(id)) {
+        if (repository.cancelPending(id, wallClockEpochMillis())) {
             stateMutex.withLock {
                 runtimeCallbacks.remove(id)
                 markTerminalLocked(id)
             }
-            publishRecords(repository.loadActive())
         }
+        publishRecords(repository.loadActive())
     }
 
     suspend fun commitCurrentIfNeeded() {

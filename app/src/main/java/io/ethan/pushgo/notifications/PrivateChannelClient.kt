@@ -30,6 +30,9 @@ import io.ethan.pushgo.data.TransportTransitionGateway
 import io.ethan.pushgo.data.TransportTransitionNotFoundException
 import io.ethan.pushgo.data.TransportTransitionRemoteState
 import io.ethan.pushgo.data.TransportTransitionSnapshot
+import io.ethan.pushgo.data.TransportRouteWriterGate
+import io.ethan.pushgo.data.UnlockedTransportRouteWriterGate
+import io.ethan.pushgo.data.TransportTransitionUnavailableException
 import io.ethan.pushgo.testing.QualityRuntime
 import io.ethan.pushgo.testing.QualitySystemCapability
 import kotlinx.coroutines.CompletableDeferred
@@ -174,6 +177,8 @@ class PrivateChannelClient(
     private val messageRepository: MessageRepository,
     private val entityRepository: EntityRepository,
     private val settingsRepository: SettingsRepository,
+    private val awaitTransportRecovery: suspend () -> Unit = {},
+    private val transportRouteWriterGate: TransportRouteWriterGate = UnlockedTransportRouteWriterGate,
 ) : TransportTransitionGateway {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val prefs = appContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -690,16 +695,22 @@ class PrivateChannelClient(
         channelType: String,
         providerToken: String?,
     ) {
+        awaitTransportRecovery()
         val (baseUrl, token) = channelRepository.loadGatewayConfig()
-        withDeviceStateRetry(baseUrl, token) { state ->
-            privatePost(baseUrl, token, "/channel/device", JSONObject().apply {
-                put("device_key", state.deviceKey)
-                put("platform", "android")
-                put("channel_type", channelType.trim().lowercase())
-                if (!providerToken.isNullOrBlank()) {
-                    put("provider_token", providerToken.trim())
-                }
-            })
+        transportRouteWriterGate.run(null) {
+            check(channelRepository.loadGatewayConfig() == (baseUrl to token)) {
+                "Gateway changed before the route write"
+            }
+            withDeviceStateRetry(baseUrl, token) { state ->
+                privatePost(baseUrl, token, "/channel/device", JSONObject().apply {
+                    put("device_key", state.deviceKey)
+                    put("platform", "android")
+                    put("channel_type", channelType.trim().lowercase())
+                    if (!providerToken.isNullOrBlank()) {
+                        put("provider_token", providerToken.trim())
+                    }
+                })
+            }
         }
         // Next private operation must not be skipped by route ensure cache.
         lastRouteEnsureAtMs = 0L
@@ -708,6 +719,8 @@ class PrivateChannelClient(
 
     override suspend fun loadContext(): TransportTransitionContext {
         val (baseUrl, token) = channelRepository.loadGatewayConfig()
+        // Recovery persists the URL in Room; retain the matching credential before that write.
+        settingsRepository.setGatewayAckToken(baseUrl, token)
         val profile = fetchGatewayProfileSnapshot(baseUrl, token)
         val state = ensureDeviceState(baseUrl, token, forceRefresh = true)
         return TransportTransitionContext(
@@ -752,8 +765,9 @@ class PrivateChannelClient(
     override suspend fun commit(
         operationId: String,
         transitionId: String,
+        gatewayUrl: String,
     ): CommittedTransportTransition {
-        val (baseUrl, token) = channelRepository.loadGatewayConfig()
+        val (baseUrl, token) = transitionGatewayConfig(gatewayUrl)
         val data = try {
             privatePostWithoutRetry(baseUrl, token, ROUTE_TRANSITION_COMMIT_ENDPOINT, JSONObject().apply {
                 put("transition_id", transitionId)
@@ -774,8 +788,9 @@ class PrivateChannelClient(
     override suspend fun abort(
         operationId: String,
         transitionId: String,
+        gatewayUrl: String,
     ): TransportTransitionSnapshot {
-        val (baseUrl, token) = channelRepository.loadGatewayConfig()
+        val (baseUrl, token) = transitionGatewayConfig(gatewayUrl)
         val data = privatePost(baseUrl, token, ROUTE_TRANSITION_ABORT_ENDPOINT, JSONObject().apply {
             put("transition_id", transitionId)
             put("operation_id", operationId)
@@ -787,8 +802,9 @@ class PrivateChannelClient(
         operationId: String,
         transitionId: String?,
         deviceKey: String,
+        gatewayUrl: String,
     ): TransportTransitionSnapshot {
-        val (baseUrl, token) = channelRepository.loadGatewayConfig()
+        val (baseUrl, token) = transitionGatewayConfig(gatewayUrl)
         val data = try {
             privatePost(baseUrl, token, ROUTE_TRANSITION_QUERY_ENDPOINT, JSONObject().apply {
                 if (!transitionId.isNullOrBlank()) {
@@ -805,6 +821,18 @@ class PrivateChannelClient(
             throw error
         }
         return data.toTransportTransitionSnapshot()
+    }
+
+    private suspend fun transitionGatewayConfig(gatewayUrl: String): Pair<String, String?> {
+        val pinnedUrl = gatewayUrl.trim().removeSuffix("/")
+        require(pinnedUrl.isNotEmpty()) { "Pending transport Gateway URL is missing" }
+        val (currentUrl, currentToken) = channelRepository.loadGatewayConfig()
+        val token = if (currentUrl.trim().removeSuffix("/") == pinnedUrl) {
+            currentToken
+        } else {
+            settingsRepository.getGatewayAckToken(pinnedUrl)
+        }
+        return pinnedUrl to token
     }
 
     suspend fun switchToPrivateAndRetireProvider(channelType: String, providerToken: String?) {
@@ -2158,6 +2186,7 @@ class PrivateChannelClient(
         state: DeviceState,
         force: Boolean = false,
     ) {
+        awaitTransportRecovery()
         val routeFingerprint = buildRouteEnsureFingerprint(
             baseUrl = baseUrl,
             token = token,
@@ -2195,13 +2224,22 @@ class PrivateChannelClient(
         }
         val owner = createdDeferred ?: return
         try {
-            privatePost(baseUrl, token, "/channel/device", JSONObject().apply {
-                put("device_key", state.deviceKey)
-                put("platform", "android")
-                put("channel_type", "private")
-            })
-            lastRouteEnsureAtMs = System.currentTimeMillis()
-            lastRouteEnsureFingerprint = routeFingerprint
+            transportRouteWriterGate.run("private") {
+                if (channelRepository.loadGatewayConfig() != (baseUrl to token) ||
+                    loadState()?.deviceKey != state.deviceKey
+                ) {
+                    throw TransportTransitionUnavailableException(
+                        "Gateway identity changed before the private route write"
+                    )
+                }
+                privatePost(baseUrl, token, "/channel/device", JSONObject().apply {
+                    put("device_key", state.deviceKey)
+                    put("platform", "android")
+                    put("channel_type", "private")
+                })
+                lastRouteEnsureAtMs = System.currentTimeMillis()
+                lastRouteEnsureFingerprint = routeFingerprint
+            }
             owner.complete(Unit)
         } catch (error: Throwable) {
             owner.completeExceptionally(error)
@@ -2626,6 +2664,13 @@ class PrivateChannelClient(
             },
             candidateChannelType = optString("candidate_channel_type", "")
                 .trim().ifEmpty { null },
+            currentProviderTokenSha256 = if (
+                has("current_provider_token_sha256") && !isNull("current_provider_token_sha256")
+            ) {
+                requireNonBlank("current_provider_token_sha256")
+            } else {
+                null
+            },
         )
     }
 

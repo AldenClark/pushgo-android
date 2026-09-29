@@ -13,6 +13,20 @@ Policy:
 ### Changed
 - Placeholder for next development cycle.
 
+## [v1.3.3]
+
+### Improved
+- Kept message history and search results available when an incoming message cannot be projected into an Event or Thing, with clearer progress during slow searches.
+- Kept existing channel names and aliases during resubscription and Gateway synchronization.
+- Kept Gateway settings open with the entered values when saving fails, and surfaced protected settings write errors.
+
+### Fixed
+- Kept the active Gateway unchanged when a new Gateway save fails before commit.
+- Kept the five-second Undo period for local deletion exact, including app background and foreground transitions and taps at the deadline.
+- Continued a transport switch after an uncertain Gateway result and showed its recovery status in Settings.
+- Preserved the open message detail when returning from an external browser link.
+- Blocked IPv4-mapped local and private image addresses.
+
 ## [v1.3.0]
 
 ### Improved
