@@ -1,3 +1,4 @@
+import copy
 import importlib.util
 import unittest
 from pathlib import Path
@@ -226,10 +227,10 @@ class RuntimeExtendedJourneyInstrumentedTest {{
             for run in plan["required_device_runs"]
         }
         self.assertEqual(
-            {"accessibility": 1, "app-owned": 34, "system-notification": 3},
+            {"accessibility": 1, "app-owned": 35, "system-notification": 3},
             profiles,
         )
-        self.assertEqual(38, len(plan["required_device_scopes"]))
+        self.assertEqual(39, len(plan["required_device_scopes"]))
 
     def test_unknown_changed_instrumented_class_forces_full_lane(self):
         path = "app/src/androidTest/java/io/ethan/pushgo/testing/Unknown.kt"
@@ -564,11 +565,87 @@ class RuntimeExtendedJourneyInstrumentedTest {{
         self.assertEqual("focused", plan["device_scope_selection"])
         self.assertEqual(
             [
-                "io.ethan.pushgo.testing.QualitySettingsJourneyInstrumentedTest#privateTransportLocalCommitFailureRollsBackBeforeRetryCommits",
+                "io.ethan.pushgo.testing.QualitySettingsJourneyInstrumentedTest#privateTransportLocalCommitFailureRecoversCommittedRouteWithoutRetry",
                 "io.ethan.pushgo.testing.QualitySettingsJourneyInstrumentedTest#transportRejectionsPreserveActiveRouteUntilRetryAndPersistAfterRelaunch",
             ],
             plan["required_device_scopes"],
         )
+
+    def test_conflated_recovery_dispatcher_keeps_transport_scope(self):
+        plan = self.plan("app/src/main/java/io/ethan/pushgo/ConflatedRecoveryDispatcher.kt")
+        self.assertEqual("READY", plan["plan_status"])
+        self.assertEqual([], plan["unmapped_product_paths"])
+        self.assertEqual(["transport-selector"], plan["impacted_capabilities"])
+        self.assertEqual("device", plan["recommended_lane"])
+        self.assertIn(
+            "io.ethan.pushgo.testing.QualitySettingsJourneyInstrumentedTest#privateTransportLocalCommitFailureRecoversCommittedRouteWithoutRetry",
+            plan["required_device_scopes"],
+        )
+
+    def test_all_manifest_device_selectors_are_current_runnable_methods(self):
+        QUALITY_IMPACT.validate_manifest_device_selectors(REPO, self.manifest)
+        stale = copy.deepcopy(self.manifest)
+        stale["rules"][0]["required_device_scopes"] = [
+            "io.ethan.pushgo.testing.QualitySettingsJourneyInstrumentedTest#privateTransportLocalCommitFailureRollsBackBeforeRetryCommits"
+        ]
+        with self.assertRaisesRegex(ValueError, "manifest device selectors are not runnable"):
+            QUALITY_IMPACT.validate_manifest_device_selectors(REPO, stale)
+
+    def test_exact_historical_deletions_keep_explicit_replacement_receipt(self):
+        retired = self.manifest["retired_instrumented_test_sources"]
+        paths = sorted(retired)
+        args = SimpleNamespace(base="995d0e1", head="HEAD")
+        impacts = QUALITY_IMPACT.instrumented_test_impacts(
+            args, REPO, paths, "git:995d0e1...HEAD", self.manifest
+        )
+        self.assertIsNotNone(impacts)
+        for path in paths:
+            self.assertEqual("retired-with-replacements", impacts[path]["selection"])
+            self.assertEqual(retired[path]["replacement_scopes"], impacts[path]["scopes"])
+            self.assertEqual(retired[path]["retired_methods"], impacts[path]["retired_methods"])
+            self.assertEqual(retired[path]["evidence_limit"], impacts[path]["evidence_limit"])
+
+        plan = QUALITY_IMPACT.build_plan(paths, self.manifest, "git:995d0e1...HEAD", impacts)
+        self.assertEqual("READY", plan["plan_status"])
+        self.assertEqual("pr-ui", plan["recommended_lane"])
+        self.assertEqual("focused", plan["device_scope_selection"])
+        self.assertEqual(
+            sorted({scope for entry in retired.values() for scope in entry["replacement_scopes"]}),
+            plan["retired_replacement_scopes"],
+        )
+
+    def test_unregistered_deleted_instrumented_source_still_blocks(self):
+        path = "app/src/androidTest/java/io/ethan/pushgo/testing/UnregisteredInstrumentedTest.kt"
+        impact = QUALITY_IMPACT.resolve_kotlin_instrumented_test_change(
+            path, self.kotlin_test_source(), None, None
+        )
+        plan = QUALITY_IMPACT.build_plan([path], self.manifest, "unit-test", {path: impact})
+        self.assertEqual("BLOCKED", plan["plan_status"])
+        self.assertEqual(1, len(plan["selection_blockers"]))
+        self.assertIn(path, plan["selection_blockers"][0])
+
+    def test_retirement_rejects_wrong_original_or_missing_replacement(self):
+        path, retirement = next(iter(self.manifest["retired_instrumented_test_sources"].items()))
+        original = QUALITY_IMPACT.git_text(REPO, ["show", f"995d0e1:{path}"])
+        self.assertIsNotNone(original)
+        wrong_methods = copy.deepcopy(retirement)
+        wrong_methods["retired_methods"] = ["notTheOriginalTest"]
+        wrong_scopes = copy.deepcopy(retirement)
+        wrong_scopes["replacement_scopes"] = [
+            "io.ethan.pushgo.testing.QualityMessageJourneyInstrumentedTest#notAnExistingTest"
+        ]
+        for source, current, record in (
+            (original, None, wrong_methods),
+            (original, None, wrong_scopes),
+            ("package io.ethan.pushgo.testing\n", None, retirement),
+            (original, original, retirement),
+        ):
+            with self.subTest(source=source[:30], current=current is not None, record=record):
+                impact = QUALITY_IMPACT.retired_instrumented_test_impact(
+                    REPO, path, source, current, record
+                )
+                self.assertEqual("blocked", impact["selection"])
+                self.assertTrue(impact["blocker"])
 
     def test_macrobenchmark_change_selects_performance_lane(self):
         plan = self.plan(

@@ -218,6 +218,65 @@ def kotlin_test_method_ranges(source: str) -> dict[str, tuple[int, int]] | None:
     return methods
 
 
+def runnable_device_selector_exists(repo: Path, selector: str) -> bool:
+    if selector.count("#") != 1:
+        return False
+    class_name, method = selector.split("#")
+    path = f"{INSTRUMENTED_TEST_PREFIX}java/{class_name.replace('.', '/')}.kt"
+    candidate = repo / path
+    if not candidate.is_file():
+        return False
+    source = candidate.read_text(encoding="utf-8")
+    return kotlin_test_class(source, path) == class_name and method in (kotlin_test_method_ranges(source) or {})
+
+
+def validate_manifest_device_selectors(repo: Path, manifest: dict[str, Any]) -> None:
+    selectors = [
+        scope
+        for rule in manifest["rules"]
+        for scope in rule.get("required_device_scopes", [])
+    ]
+    selectors.extend(
+        scope
+        for retirement in manifest.get("retired_instrumented_test_sources", {}).values()
+        for scope in retirement["replacement_scopes"]
+    )
+    missing = sorted({scope for scope in selectors if not runnable_device_selector_exists(repo, scope)})
+    if missing:
+        raise ValueError(f"manifest device selectors are not runnable: {', '.join(missing)}")
+
+
+def retired_instrumented_test_impact(
+    repo: Path, path: str, old_source: str | None, new_source: str | None,
+    retirement: dict[str, Any],
+) -> dict[str, Any]:
+    reason: str | None = None
+    if new_source is not None:
+        reason = "registered retired instrumented test source still exists"
+    elif old_source is None:
+        reason = "registered retired instrumented test has no original source"
+    elif kotlin_test_class(old_source, path) != retirement["retired_class"]:
+        reason = "registered retired class does not match original source"
+    elif sorted(kotlin_test_method_ranges(old_source) or {}) != sorted(retirement["retired_methods"]):
+        reason = "registered retired methods do not match original source"
+    elif any(not runnable_device_selector_exists(repo, scope) for scope in retirement["replacement_scopes"]):
+        reason = "registered replacement selector is not runnable"
+    if reason:
+        return {
+            "selection": "blocked", "scopes": [], "expected_test_count": 0,
+            "blocker": f"{reason}: {path}",
+        }
+    return {
+        "selection": "retired-with-replacements",
+        "scopes": retirement["replacement_scopes"],
+        "expected_test_count": len(retirement["replacement_scopes"]),
+        "blocker": None,
+        "retired_class": retirement["retired_class"],
+        "retired_methods": retirement["retired_methods"],
+        "evidence_limit": retirement["evidence_limit"],
+    }
+
+
 def changed_hunk_ranges(patch: str) -> tuple[list[tuple[int, int]], list[tuple[int, int]]] | None:
     old_ranges: list[tuple[int, int]] = []
     new_ranges: list[tuple[int, int]] = []
@@ -382,7 +441,8 @@ def exact_changed_test_scopes(path: str, old_source: str, new_source: str, patch
 
 
 def instrumented_test_impacts(
-    args: argparse.Namespace, repo: Path, files: list[str], source: str
+    args: argparse.Namespace, repo: Path, files: list[str], source: str,
+    manifest: dict[str, Any] | None = None,
 ) -> dict[str, dict[str, Any]] | None:
     if source == "tracked-product-tree-audit":
         return None
@@ -433,8 +493,11 @@ def instrumented_test_impacts(
             old_source = git_text(repo, ["show", f"{merge_base}:{path}"], allow_missing=True)
             current_source = git_text(repo, ["show", f"{args.head}:{path}"], allow_missing=True)
             patch = git_text(repo, ["diff", "--unified=0", f"{args.base}...{args.head}", "--", path])
-        impact = resolve_kotlin_instrumented_test_change(
-            path, old_source, current_source, patch
+        retirement = (manifest or {}).get("retired_instrumented_test_sources", {}).get(path)
+        impact = (
+            retired_instrumented_test_impact(repo, path, old_source, current_source, retirement)
+            if retirement and current_source is None
+            else resolve_kotlin_instrumented_test_change(path, old_source, current_source, patch)
         )
         if (
             impact.get("blocker")
@@ -458,6 +521,27 @@ def load_manifest(path: Path) -> dict[str, Any]:
     if not isinstance(lane_order, list) or not lane_order or lane_order[0] != "not-run":
         raise ValueError("lane_order must be a non-empty list beginning with not-run")
     seen: set[str] = set()
+    retirements = manifest.get("retired_instrumented_test_sources", {})
+    if not isinstance(retirements, dict):
+        raise ValueError("retired_instrumented_test_sources must be a path map")
+    for path, retirement in retirements.items():
+        if (
+            not isinstance(path, str) or not path.startswith(INSTRUMENTED_TEST_PREFIX)
+            or not path.endswith(".kt") or normalize_path(path) != path
+            or not isinstance(retirement, dict)
+            or not isinstance(retirement.get("retired_class"), str)
+            or not isinstance(retirement.get("retired_methods"), list)
+            or not retirement["retired_methods"]
+            or any(not isinstance(method, str) or not method for method in retirement["retired_methods"])
+            or len(set(retirement["retired_methods"])) != len(retirement["retired_methods"])
+            or not isinstance(retirement.get("replacement_scopes"), list)
+            or not retirement["replacement_scopes"]
+            or any(not isinstance(scope, str) or not scope for scope in retirement["replacement_scopes"])
+            or len(set(retirement["replacement_scopes"])) != len(retirement["replacement_scopes"])
+            or not isinstance(retirement.get("evidence_limit"), str)
+            or not retirement["evidence_limit"]
+        ):
+            raise ValueError(f"invalid explicit instrumented test retirement: {path}")
     for rule in manifest.get("rules", []):
         rule_id = rule.get("id")
         if not isinstance(rule_id, str) or not rule_id or rule_id in seen:
@@ -649,6 +733,12 @@ def build_plan(
         "instrumented_test_impacts": {
             path: dynamic_impacts.get(path, {}) for path in changed_instrumented_paths
         },
+        "retired_replacement_scopes": sorted({
+            scope
+            for impact in dynamic_impacts.values()
+            if impact.get("selection") == "retired-with-replacements"
+            for scope in impact["scopes"]
+        }),
         "selection_blockers": [
             dynamic_impacts.get(path, {}).get("blocker")
             or f"unable to resolve a runnable changed instrumented test class: {path}"
@@ -687,8 +777,9 @@ def main() -> int:
     if not manifest_path.is_absolute():
         manifest_path = repo / manifest_path
     manifest = load_manifest(manifest_path)
+    validate_manifest_device_selectors(repo, manifest)
     files, source = changed_files(args, repo)
-    impacts = instrumented_test_impacts(args, repo, files, source)
+    impacts = instrumented_test_impacts(args, repo, files, source, manifest)
     plan = build_plan(files, manifest, source, impacts)
     output = Path(args.output)
     if not output.is_absolute():

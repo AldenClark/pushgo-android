@@ -24,10 +24,39 @@
     "Which notification, Service, Worker, Receiver, update, media, or OS consumers share this contract?",
     "Does an existing Oracle fail on a credible wrong value/state, or must the change add or strengthen one?"
   ],
+  "retired_instrumented_test_sources": {
+    "app/src/androidTest/java/io/ethan/pushgo/testing/RuntimeComposeUiAutomatorInstrumentedTest.kt": {
+      "retired_class": "io.ethan.pushgo.testing.RuntimeComposeUiAutomatorInstrumentedTest",
+      "retired_methods": ["composeRuntime_uiAutomatorBaseline_messageListDetailAndSettings"],
+      "replacement_scopes": [
+        "io.ethan.pushgo.testing.QualityMessageJourneyInstrumentedTest#standardFixtureShowsAccurateContentAndSurvivesActivityRelaunch",
+        "io.ethan.pushgo.testing.QualityMessageJourneyInstrumentedTest#searchReturnsOnlyTheTargetAndOpensItsRealDetail",
+        "io.ethan.pushgo.testing.QualitySettingsJourneyInstrumentedTest#transportRejectionsPreserveActiveRouteUntilRetryAndPersistAfterRelaunch",
+        "io.ethan.pushgo.testing.RuntimeChannelSwitchInstrumentedTest#switchFcmPrivateFcm_andRestart_keepsStateStorageAndTransportConsistent"
+      ],
+      "evidence_limit": "The old 10k/100k insertion, meminfo, gfxinfo, and timing probes were not valid user-outcome or performance oracles. Real UI behavior is replaced by the named journeys; scale and performance remain owned by the separate performance lane and physical budgets remain unverified."
+    },
+    "app/src/androidTest/java/io/ethan/pushgo/testing/RuntimeComposeUiBaselineInstrumentedTest.kt": {
+      "retired_class": "io.ethan.pushgo.testing.RuntimeComposeUiBaselineInstrumentedTest",
+      "retired_methods": [
+        "composeRuntime_environmentProbe_reports_inputManagerReflectionGap",
+        "composeRuntime_messageListBaseline_proxyThroughViewModelAndRepository",
+        "composeRuntime_detailAndSettingsBaseline_proxyThroughViewModelState",
+        "composeRuntime_settingsPrivateStagesAndTokenRecovery_matchViewModelUiState"
+      ],
+      "replacement_scopes": [
+        "io.ethan.pushgo.testing.QualityMessageJourneyInstrumentedTest#standardFixtureShowsAccurateContentAndSurvivesActivityRelaunch",
+        "io.ethan.pushgo.testing.QualityMessageJourneyInstrumentedTest#searchReturnsOnlyTheTargetAndOpensItsRealDetail",
+        "io.ethan.pushgo.testing.QualitySettingsJourneyInstrumentedTest#privateTransportLocalCommitFailureRecoversCommittedRouteWithoutRetry",
+        "io.ethan.pushgo.testing.RuntimePrivateChannelStateFlowInstrumentedTest#settingsViewModel_uiState_stays_consistent_with_repository_and_transport"
+      ],
+      "evidence_limit": "The API 17 InputManager reflection probe has no product outcome. The old 10k/100k ViewModel and Repository proxy timings are not replaced by these UI journeys; scale and performance remain separate evidence."
+    }
+  },
   "rules": [
     {
       "id": "quality-system",
-      "paths": ["AGENTS.md", "app/src/test/**", "scripts/tests/**", "scripts/quality_*.py", "scripts/quality_*.sh", "scripts/run_android_doze_positive.sh", ".github/workflows/android-quality.yml", "config/quality-impact.json", "config/quality-ai-task-history.json", "config/quality-test-system-issues.json", "config/quality-waivers.json"],
+      "paths": ["AGENTS.md", "app/src/test/**", "scripts/tests/**", "scripts/quality_*.py", "scripts/quality_*.sh", "scripts/run_android_compose_flake_exit.py", "scripts/run_android_doze_positive.sh", ".github/workflows/android-compose-flake-exit.yml", ".github/workflows/android-quality.yml", "config/quality-impact.json", "config/quality-ai-task-history.json", "config/quality-test-system-issues.json", "config/quality-waivers.json"],
       "capabilities": ["quality-system-trustworthiness"],
       "minimum_evidence": ["quality selector unit/negative controls", "Android JVM suite and androidTest compilation"],
       "lane": "pr",
@@ -169,11 +198,11 @@
     },
     {
       "id": "transport-switch-coordinator",
-      "paths": ["app/src/main/java/io/ethan/pushgo/data/TransportSwitchCoordinator.kt"],
+      "paths": ["app/src/main/java/io/ethan/pushgo/data/TransportSwitchCoordinator.kt", "app/src/main/java/io/ethan/pushgo/ConflatedRecoveryDispatcher.kt"],
       "capabilities": ["transport-selector"],
       "minimum_evidence": ["TransportSwitchCoordinator prepare/commit/query/recovery JVM transaction contract", "real Settings FCM/private selector rejection-preserves-active-route/retry/commit/relaunch journey", "real Settings local-finalize-failure/relaunch/retry journey"],
       "required_device_scopes": [
-        "io.ethan.pushgo.testing.QualitySettingsJourneyInstrumentedTest#privateTransportLocalCommitFailureRollsBackBeforeRetryCommits",
+        "io.ethan.pushgo.testing.QualitySettingsJourneyInstrumentedTest#privateTransportLocalCommitFailureRecoversCommittedRouteWithoutRetry",
         "io.ethan.pushgo.testing.QualitySettingsJourneyInstrumentedTest#transportRejectionsPreserveActiveRouteUntilRetryAndPersistAfterRelaunch"
       ],
       "lane": "device",

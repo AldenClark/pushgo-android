@@ -87,9 +87,15 @@ jobs:
         if: env.QUALITY_SKIP_FAST != '1'
         shell: bash
         run: |
+          set -euo pipefail
+          ndk_version="$(sed -n 's/^pushgo.androidNdkVersion=//p' gradle.properties)"
+          sdkmanager --install "platforms;android-37.0" "build-tools;36.0.0" "ndk;${ndk_version}"
+          echo "ANDROID_NDK_HOME=${ANDROID_SDK_ROOT}/ndk/${ndk_version}" >> "$GITHUB_ENV"
+          test "$(rustc --version | awk '{print $2}')" = "1.97.1"
           rustup target add aarch64-linux-android armv7-linux-androideabi x86_64-linux-android
           cargo_ndk_version="$(sed -n 's/^pushgo.cargoNdkVersion=//p' gradle.properties)"
           cargo install cargo-ndk --version "$cargo_ndk_version" --locked
+          test "$(cargo ndk --version | awk '{print $NF}')" = "$cargo_ndk_version"
 
       - name: Run fast product regression
         if: env.QUALITY_SKIP_FAST != '1'
@@ -193,9 +199,15 @@ jobs:
         if: env.QUALITY_SKIP_DEVICE != '1'
         shell: bash
         run: |
+          set -euo pipefail
+          ndk_version="$(sed -n 's/^pushgo.androidNdkVersion=//p' gradle.properties)"
+          sdkmanager --install "platforms;android-37.0" "build-tools;36.0.0" "ndk;${ndk_version}"
+          echo "ANDROID_NDK_HOME=${ANDROID_SDK_ROOT}/ndk/${ndk_version}" >> "$GITHUB_ENV"
+          test "$(rustc --version | awk '{print $2}')" = "1.97.1"
           rustup target add aarch64-linux-android armv7-linux-androideabi x86_64-linux-android
           cargo_ndk_version="$(sed -n 's/^pushgo.cargoNdkVersion=//p' gradle.properties)"
           cargo install cargo-ndk --version "$cargo_ndk_version" --locked
+          test "$(cargo ndk --version | awk '{print $NF}')" = "$cargo_ndk_version"
 
       - name: Run representative device lane
         if: env.QUALITY_SKIP_DEVICE != '1'
