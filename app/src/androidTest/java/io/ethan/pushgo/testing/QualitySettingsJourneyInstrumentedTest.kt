@@ -784,7 +784,8 @@ class QualitySettingsJourneyInstrumentedTest : QualityAppJourneyTestCase() {
         composeRule.onNodeWithTag("row.settings.decryption")
             .assertTextContains(app.getString(io.ethan.pushgo.R.string.label_decryption_not_configured))
             .performClick()
-        val validKey = Base64.getEncoder().encodeToString(ByteArray(32) { 0x35 })
+        val expectedKey = ByteArray(32) { 0x35 }
+        val validKey = Base64.getEncoder().encodeToString(expectedKey)
         composeRule.onNodeWithTag("field.settings.decryption.key").performTextInput(validKey)
         composeRule.onNodeWithTag("action.settings.decryption.save").performClick()
 
@@ -792,6 +793,8 @@ class QualitySettingsJourneyInstrumentedTest : QualityAppJourneyTestCase() {
         composeRule.onNodeWithTag("sheet.settings.decryption").assertIsDisplayed()
 
         relaunchCurrentQualitySessionWithFaults()
+        assertEquals(null, runBlocking { app.container.settingsRepository.getNotificationKeyBytes() })
+        assertEquals(null, runBlocking { app.container.settingsRepository.getNotificationKeyUpdatedAt() })
         openSettings()
         scrollTo("row.settings.decryption")
         composeRule.onNodeWithTag("row.settings.decryption")
@@ -803,12 +806,32 @@ class QualitySettingsJourneyInstrumentedTest : QualityAppJourneyTestCase() {
         composeRule.onNodeWithTag("row.settings.decryption")
             .assertTextContains(app.getString(io.ethan.pushgo.R.string.label_decryption_configured))
 
+        val committedAt = runBlocking { app.container.settingsRepository.getNotificationKeyUpdatedAt() }
+        assertTrue("Successful retry must persist the Key timestamp", committedAt != null)
+        assertTrue(
+            "Successful retry must retain the exact test-owned protected Key",
+            runBlocking { app.container.settingsRepository.getNotificationKeyBytes() }
+                ?.contentEquals(expectedKey) == true,
+        )
         scenario?.close()
         scenario = launchMainActivity()
+        assertTrue(
+            "Ordinary relaunch must retain the exact test-owned protected Key",
+            runBlocking { app.container.settingsRepository.getNotificationKeyBytes() }
+                ?.contentEquals(expectedKey) == true,
+        )
+        assertEquals(committedAt, runBlocking { app.container.settingsRepository.getNotificationKeyUpdatedAt() })
         openSettings()
         scrollTo("row.settings.decryption")
+        // Screen presence can precede SettingsViewModel's asynchronous Key load.
+        // Await the same accurate UI endpoint without retrying Save or relaunch.
+        val configuredLabel = app.getString(io.ethan.pushgo.R.string.label_decryption_configured)
+        composeRule.waitUntil(timeoutMillis = 8_000) {
+            composeRule.onAllNodes(hasTestTag("row.settings.decryption") and hasText(configuredLabel))
+                .fetchSemanticsNodes().isNotEmpty()
+        }
         composeRule.onNodeWithTag("row.settings.decryption")
-            .assertTextContains(app.getString(io.ethan.pushgo.R.string.label_decryption_configured))
+            .assertTextContains(configuredLabel)
     }
 
     @Test

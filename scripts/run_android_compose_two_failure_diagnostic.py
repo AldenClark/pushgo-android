@@ -25,8 +25,8 @@ from run_android_compose_flake_exit import (
 
 OUT = ROOT / "build/quality-results/android-compose-two-failure-diagnostic"
 SELECTORS = (
-    "io.ethan.pushgo.testing.QualityMessageJourneyInstrumentedTest"
-    "#standardFixtureShowsAccurateContentAndSurvivesActivityRelaunch",
+    "io.ethan.pushgo.testing.QualitySettingsJourneyInstrumentedTest"
+    "#protectedKeyPersistenceFailureDoesNotConfigureBeforeRetry",
 )
 
 
