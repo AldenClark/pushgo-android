@@ -7,6 +7,8 @@ import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.*
 import androidx.test.espresso.Espresso.pressBack
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import androidx.test.platform.app.InstrumentationRegistry
+import androidx.test.uiautomator.UiDevice
 import androidx.work.WorkManager
 import io.ethan.pushgo.R
 import io.ethan.pushgo.notifications.NotificationIngressParser
@@ -436,7 +438,18 @@ class QualitySettingsJourneyInstrumentedTest : QualityAppJourneyTestCase() {
         pressBack()
         composeRule.waitForIdle()
         pressBack()
-        waitForTagToDisappear("sheet.settings.gateway")
+        runCatching { waitForTagToDisappear("sheet.settings.gateway") }
+            .onFailure {
+                QualityUiFailureDiagnostics.logWindowHierarchy(
+                    UiDevice.getInstance(InstrumentationRegistry.getInstrumentation()),
+                    "gateway sheet dismiss after rejected candidate",
+                )
+                runCatching { composeRule.onRoot(useUnmergedTree = true).printToString(maxDepth = 20) }
+                    .onSuccess { tree ->
+                        QualityUiFailureDiagnostics.logText("gateway sheet Compose semantics", tree)
+                    }
+            }
+            .getOrThrow()
         composeRule.onNodeWithTag("row.settings.gateway")
             .assertTextContains(io.ethan.pushgo.data.AppConstants.defaultServerAddress)
             .performClick()

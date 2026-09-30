@@ -251,9 +251,13 @@ class QualityMessageJourneyInstrumentedTest : QualityAppJourneyTestCase() {
                 device.wait(Until.hasObject(browserUrlBar), 2_000)
             }
         }
+        val browserAddressBarVisible = device.wait(Until.hasObject(browserUrlBar), 10_000)
+        if (!browserAddressBarVisible) {
+            QualityUiFailureDiagnostics.logWindowHierarchy(device, "canonical URL browser address bar")
+        }
         assertTrue(
             "The browser did not expose its real address bar for the canonical URL.",
-            device.wait(Until.hasObject(browserUrlBar), 10_000),
+            browserAddressBarVisible,
         )
         val visibleBrowserTarget = device.findObject(browserUrlBar)?.let { urlBar ->
             listOfNotNull(urlBar.text, urlBar.contentDescription)
