@@ -225,11 +225,12 @@ class SettingsViewModel(
             val initialUseFcm = settingsRepository.getUseFcmChannel()
             useFcmChannel = initialUseFcm
             isFcmSupported = true
-            gatewayPrivateChannelEnabled = gatewayPrivateChannelEnabledFetcher()
+            // Local protected configuration must not wait for a remote capability query.
             val currentKey = settingsRepository.getNotificationKeyBytes()
             isDecryptionConfigured = currentKey?.isNotEmpty() == true
             decryptionUpdatedAt = settingsRepository.getNotificationKeyUpdatedAt()
             keyEncoding = settingsRepository.getKeyEncoding()
+            gatewayPrivateChannelEnabled = gatewayPrivateChannelEnabledFetcher()
             updateAutoCheckEnabled = settingsRepository.getUpdateAutoCheckEnabled()
             updateBetaChannelEnabled = settingsRepository.getUpdateBetaChannelEnabled()
             isChannelModeLoaded = true
@@ -1461,9 +1462,14 @@ class SettingsViewModel(
             try {
                 val trimmed = decryptionKeyInput.trim()
                 if (trimmed.isEmpty()) {
-                    if (!hasEditedDecryptionKeyInput && isDecryptionConfigured) {
+                    // Initialization is asynchronous; its initial UI value cannot
+                    // authorize erasing an untouched Key that already exists in storage.
+                    val retainStoredKey = !hasEditedDecryptionKeyInput &&
+                        settingsRepository.getNotificationKeyBytes()?.isNotEmpty() == true
+                    if (retainStoredKey) {
                         settingsRepository.setKeyEncoding(keyEncoding)
                         decryptionUpdatedAt = settingsRepository.getNotificationKeyUpdatedAt()
+                        isDecryptionConfigured = true
                     } else {
                         settingsRepository.setNotificationKeyBytes(null)
                         decryptionUpdatedAt = null
