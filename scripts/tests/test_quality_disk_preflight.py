@@ -3,6 +3,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from scripts.tests.quality_issue_fixture import isolated_quality_scripts
+
 
 REPO = Path(__file__).resolve().parents[2]
 
@@ -52,10 +54,17 @@ class QualityDiskPreflightTests(unittest.TestCase):
         canonical_receipt = REPO / "build/quality-results/android-pr-ui-summary.json"
         canonical_before = canonical_receipt.read_bytes() if canonical_receipt.exists() else None
         with tempfile.TemporaryDirectory() as directory:
+            isolated_root = isolated_quality_scripts(
+                Path(directory) / "isolated",
+                "quality_test.sh",
+                "quality_test_system_issues.py",
+                "quality_disk_preflight.py",
+                "quality_result.py",
+            )
             isolated_results = Path(directory) / "quality-results"
             process = subprocess.run(
-                [str(REPO / "scripts/quality_test.sh"), "pr-ui"],
-                cwd=REPO,
+                [str(isolated_root / "scripts/quality_test.sh"), "pr-ui"],
+                cwd=isolated_root,
                 env={
                     "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
                     "QUALITY_MIN_FREE_BYTES": str(2**63 - 1),

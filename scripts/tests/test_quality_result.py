@@ -7,9 +7,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from scripts import quality_result
-
-
-REPO = Path(__file__).resolve().parents[2]
+from scripts.tests.quality_issue_fixture import isolated_quality_scripts
 
 
 class QualityResultTests(unittest.TestCase):
@@ -23,11 +21,14 @@ class QualityResultTests(unittest.TestCase):
 
     def run_result(self, *extra, env=None):
         with tempfile.TemporaryDirectory() as directory:
-            output = Path(directory) / "result.json"
+            isolated_root = isolated_quality_scripts(
+                Path(directory), "quality_result.py", "quality_test_system_issues.py"
+            )
+            output = isolated_root / "result.json"
             process = subprocess.run(
                 [
                     "python3",
-                    str(REPO / "scripts/quality_result.py"),
+                    str(isolated_root / "scripts/quality_result.py"),
                     "--output",
                     str(output),
                     "--platform",
@@ -38,7 +39,7 @@ class QualityResultTests(unittest.TestCase):
                     "NOT_RUN",
                     *extra,
                 ],
-                cwd=REPO,
+                cwd=isolated_root,
                 text=True,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
@@ -68,11 +69,14 @@ class QualityResultTests(unittest.TestCase):
 
     def test_receipt_records_deduplicated_test_system_issue_ids(self):
         with tempfile.TemporaryDirectory() as directory:
-            output = Path(directory) / "result.json"
+            isolated_root = isolated_quality_scripts(
+                Path(directory), "quality_result.py", "quality_test_system_issues.py"
+            )
+            output = isolated_root / "result.json"
             subprocess.run(
                 [
                     "python3",
-                    str(REPO / "scripts/quality_result.py"),
+                    str(isolated_root / "scripts/quality_result.py"),
                     "--output",
                     str(output),
                     "--platform",
@@ -88,7 +92,7 @@ class QualityResultTests(unittest.TestCase):
                     "--test-system-issue-id",
                     "android-compose-snapshot-observer-runtime",
                 ],
-                cwd=REPO,
+                cwd=isolated_root,
                 check=True,
             )
 

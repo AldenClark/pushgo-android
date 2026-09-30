@@ -1,7 +1,8 @@
 import importlib.util
-import json
 import unittest
 from pathlib import Path
+
+from scripts.tests.quality_issue_fixture import synthetic_issue_registry
 
 
 REPO = Path(__file__).resolve().parents[2]
@@ -16,9 +17,7 @@ SPEC.loader.exec_module(CLASSIFIER)
 class AndroidInstrumentLogClassificationTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.registry = json.loads(
-            (REPO / "config/quality-test-system-issues.json").read_text(encoding="utf-8")
-        )
+        cls.registry = synthetic_issue_registry()
 
     def test_exact_snapshot_runtime_failure_is_flaky_test_system(self):
         status, ids = CLASSIFIER.classify(
