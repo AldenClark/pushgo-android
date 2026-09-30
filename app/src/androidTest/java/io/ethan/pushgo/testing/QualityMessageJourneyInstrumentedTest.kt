@@ -245,7 +245,13 @@ class QualityMessageJourneyInstrumentedTest : QualityAppJourneyTestCase() {
                 if (device.hasObject(browserUrlBar)) return@repeat
                 device.findObject(By.res(browserPackage, "signin_fre_dismiss_button"))
                     ?.click()
-                if (device.hasObject(By.res(browserPackage, "notification_permission_rationale_title"))) {
+                val chromeNotificationPrompt =
+                    device.hasObject(By.res(browserPackage, "notification_permission_rationale_title")) ||
+                    (
+                        device.hasObject(By.res(browserPackage, "modal_dialog_view")) &&
+                            device.hasObject(By.text("Chrome notifications make things easier"))
+                    )
+                if (chromeNotificationPrompt) {
                     device.findObject(By.res(browserPackage, "negative_button"))?.click()
                 }
                 device.wait(Until.hasObject(browserUrlBar), 2_000)

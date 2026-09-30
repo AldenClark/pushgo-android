@@ -1,5 +1,6 @@
 package io.ethan.pushgo.testing
 
+import android.provider.Settings
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.toPixelMap
@@ -8,7 +9,9 @@ import androidx.compose.ui.test.*
 import androidx.test.espresso.Espresso.pressBack
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import androidx.test.uiautomator.By
 import androidx.test.uiautomator.UiDevice
+import androidx.test.uiautomator.Until
 import androidx.work.WorkManager
 import io.ethan.pushgo.R
 import io.ethan.pushgo.notifications.NotificationIngressParser
@@ -435,9 +438,23 @@ class QualitySettingsJourneyInstrumentedTest : QualityAppJourneyTestCase() {
         composeRule.onNodeWithTag("row.settings.gateway")
             .assertTextContains(io.ethan.pushgo.data.AppConstants.defaultServerAddress)
 
-        pressBack()
-        composeRule.waitForIdle()
-        pressBack()
+        val device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
+        val activeImePackage = checkNotNull(
+            Settings.Secure.getString(app.contentResolver, Settings.Secure.DEFAULT_INPUT_METHOD),
+        ).substringBefore('/')
+        val activeImeWindow = By.pkg(activeImePackage)
+        if (device.hasObject(activeImeWindow)) {
+            pressBack()
+            // The sheet is a Dialog window; Activity insets cannot prove its
+            // keyboard has gone. Await the actual IME window after Back.
+            assertTrue(
+                "The active keyboard window remained after Back.",
+                device.wait(Until.gone(activeImeWindow), 5_000),
+            )
+            composeRule.waitForIdle()
+            composeRule.onNodeWithTag("sheet.settings.gateway").assertIsDisplayed()
+        }
+        device.pressBack()
         runCatching { waitForTagToDisappear("sheet.settings.gateway") }
             .onFailure {
                 QualityUiFailureDiagnostics.logWindowHierarchy(
@@ -447,6 +464,12 @@ class QualitySettingsJourneyInstrumentedTest : QualityAppJourneyTestCase() {
                 runCatching { composeRule.onRoot(useUnmergedTree = true).printToString(maxDepth = 20) }
                     .onSuccess { tree ->
                         QualityUiFailureDiagnostics.logText("gateway sheet Compose semantics", tree)
+                    }
+                    .onFailure { error ->
+                        QualityUiFailureDiagnostics.logText(
+                            "gateway sheet Compose semantics unavailable",
+                            "${error.javaClass.simpleName}: ${error.message}",
+                        )
                     }
             }
             .getOrThrow()
@@ -973,4 +996,5 @@ class QualitySettingsJourneyInstrumentedTest : QualityAppJourneyTestCase() {
         }
         composeRule.onNodeWithTag(tag).assertDoesNotExist()
     }
+
 }
