@@ -41,6 +41,7 @@ import java.util.Base64
 import javax.crypto.Cipher
 import javax.crypto.spec.GCMParameterSpec
 import javax.crypto.spec.SecretKeySpec
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
@@ -503,6 +504,35 @@ class RuntimePrivateChannelStateFlowInstrumentedTest {
     }
 
     @Test
+    fun settingsViewModel_untouchedKeySavePreservesStoredKeyWhileGatewayLoadIsPending() = runBlocking {
+        val original = ByteArray(32) { 0x31 }
+        harness.settingsRepository.setNotificationKeyBytes(original)
+        harness.settingsRepository.setKeyEncoding(KeyEncoding.HEX)
+        val originalTimestamp = harness.settingsRepository.getNotificationKeyUpdatedAt()
+        val gatewayEntered = CompletableDeferred<Unit>()
+        val releaseGateway = CompletableDeferred<Unit>()
+        val saved = CompletableDeferred<Unit>()
+        val vm = buildSettingsViewModelOnMain {
+            gatewayEntered.complete(Unit)
+            releaseGateway.await()
+            true
+        }
+        try {
+            withTimeout(8_000) { gatewayEntered.await() }
+            assertTrue("The remote capability query must still be pending", !releaseGateway.isCompleted)
+            withContext(Dispatchers.Main) {
+                vm.saveDecryptionConfig { saved.complete(Unit) }
+            }
+            withTimeout(8_000) { saved.await() }
+            assertArrayEquals(original, harness.settingsRepository.getNotificationKeyBytes())
+            assertEquals(originalTimestamp, harness.settingsRepository.getNotificationKeyUpdatedAt())
+            assertEquals(KeyEncoding.HEX, harness.settingsRepository.getKeyEncoding())
+        } finally {
+            releaseGateway.complete(Unit)
+        }
+    }
+
+    @Test
     fun settingsViewModel_saveDecryptionConfig_preservesUntouchedExistingKey() = runBlocking {
         val original = "0123456789abcdef".toByteArray()
         harness.settingsRepository.setNotificationKeyBytes(original)
@@ -659,7 +689,9 @@ class RuntimePrivateChannelStateFlowInstrumentedTest {
         )
     }
 
-    private fun buildSettingsViewModel(): SettingsViewModel {
+    private fun buildSettingsViewModel(
+        gatewayPrivateChannelEnabledFetcher: suspend () -> Boolean? = { true },
+    ): SettingsViewModel {
         return SettingsViewModel(
             settingsRepository = harness.settingsRepository,
             channelRepository = harness.channelRepository,
@@ -670,7 +702,7 @@ class RuntimePrivateChannelStateFlowInstrumentedTest {
             pushTokenProvider = object : PushTokenProvider {
                 override suspend fun fetchToken(timeoutMs: Long): String? = null
             },
-            gatewayPrivateChannelEnabledFetcher = { true },
+            gatewayPrivateChannelEnabledFetcher = gatewayPrivateChannelEnabledFetcher,
             transportSwitcher = object : TransportSwitcher {
                 override suspend fun switchToFcm(providerToken: String) = Unit
                 override suspend fun switchToPrivate() = Unit
@@ -679,10 +711,12 @@ class RuntimePrivateChannelStateFlowInstrumentedTest {
         )
     }
 
-    private fun buildSettingsViewModelOnMain(): SettingsViewModel {
+    private fun buildSettingsViewModelOnMain(
+        gatewayPrivateChannelEnabledFetcher: suspend () -> Boolean? = { true },
+    ): SettingsViewModel {
         lateinit var vm: SettingsViewModel
         InstrumentationRegistry.getInstrumentation().runOnMainSync {
-            vm = buildSettingsViewModel()
+            vm = buildSettingsViewModel(gatewayPrivateChannelEnabledFetcher)
         }
         settingsViewModels += vm
         return vm
