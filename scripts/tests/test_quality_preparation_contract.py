@@ -1,4 +1,5 @@
 from pathlib import Path
+import json
 import os
 import subprocess
 import tempfile
@@ -9,6 +10,34 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 class QualityPreparationContractTest(unittest.TestCase):
+    def test_host_impact_contract_defers_device_preparation_without_claiming_it(self):
+        runner = (ROOT / "scripts/quality_test.sh").read_text()
+        start = runner.index("run_impact_contracts() {")
+        end = runner.index("\n}\n\nrun_impact_contracts", start) + 2
+        contract_function = runner[start:end]
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "scripts").mkdir()
+            helper = root / "scripts/run_android_preparation_contract.sh"
+            helper.write_text('#!/bin/bash\nprintf invoked > "$PREPARATION_MARKER"\n')
+            helper.chmod(0o755)
+            plan = root / "plan.json"
+            plan.write_text(json.dumps({"required_checks": ["android-preparation-contract"]}))
+            marker_path = root / "preparation-invoked.txt"
+            for lane in ("pr", "planned-device"):
+                with self.subTest(lane=lane):
+                    marker_path.unlink(missing_ok=True)
+                    command = 'selected_claims=(); claims=(); not_run=();\n' + contract_function
+                    command += '\nrun_impact_contracts\nprintf "%s %s" "${#selected_claims[@]}" "${#claims[@]}"'
+                    process = subprocess.run(
+                        ["/bin/bash", "-euo", "pipefail", "-c", command],
+                        env={**os.environ, "repo_root": str(root), "lane": lane,
+                             "QUALITY_IMPACT_PLAN": str(plan), "PREPARATION_MARKER": str(marker_path)},
+                        capture_output=True, text=True, check=True,
+                    )
+                    self.assertEqual(lane != "pr", marker_path.exists())
+                    self.assertEqual("0 0" if lane == "pr" else "1 1", process.stdout)
+
     def test_negative_controls_preserve_exclusive_classification_without_ripgrep(self):
         runner = (ROOT / "scripts/run_android_preparation_contract.sh").read_text()
         for variable, phase in (("invalid", "session.decode"), ("storage_failure", "storage.open")):

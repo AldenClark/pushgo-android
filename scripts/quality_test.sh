@@ -383,6 +383,10 @@ PY
         claims+=("Android JNI/toolchain/schema/release static contracts")
         ;;
       android-preparation-contract)
+        if [[ "$lane" == "pr" ]]; then
+          not_run+=("Android App-owned device preparation contract runs in the device lane; host pr does not claim it.")
+          continue
+        fi
         selected_claims+=("Android App-owned preparation rejects invalid sessions within 10 seconds and recovers to accurate functional empty state")
         "$repo_root/scripts/run_android_preparation_contract.sh"
         claims+=("Android App-owned preparation rejects invalid sessions within 10 seconds and recovers to accurate functional empty state")

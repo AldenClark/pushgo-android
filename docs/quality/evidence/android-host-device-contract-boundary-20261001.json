@@ -1,0 +1,46 @@
+{
+  "original_host_receipt": {
+    "schema_version": 2,
+    "recorded_at": "2026-09-30T18:32:14.942150+00:00",
+    "source_revision": "57296c4a1f38e350ff221d70ed515b6ccb390890",
+    "source_dirty": false,
+    "run_identity": "github:36759173569:1:fast-regression",
+    "platform": "android",
+    "lane": "pr",
+    "product_capability_status": "NOT_RUN",
+    "test_system_status": "BLOCKED",
+    "selected_claims": [
+      "Android App-owned preparation rejects invalid sessions within 10 seconds and recovers to accurate functional empty state"
+    ],
+    "executed_claims": [],
+    "incomplete_selected_claims": [
+      "Android App-owned preparation rejects invalid sessions within 10 seconds and recovers to accurate functional empty state"
+    ],
+    "not_run": [
+      "real FCM/private delivery, reboot, production-distributed/OEM install policy, physical audio, and physical accessibility evidence",
+      "controlled-emulator notification permission, Doze, system notification, and Private Service journeys",
+      "opt-in 100k production Room performance evidence",
+      "Release-like Macrobenchmark mechanics and physical-device performance evidence"
+    ],
+    "test_system_issue_ids": [],
+    "waiver_id": null,
+    "reason": "lane preparation was blocked before product evidence completed",
+    "scope_notice": "PASSED applies only to executed_claims. Selected claims absent from executed_claims failed or were blocked; this is not whole-product coverage."
+  },
+  "original_ci_run_id": 36759173569,
+  "observed_fault": "QUALITY_LANE=pr now routes correctly, but global run_impact_contracts still invokes device preparation from the required-check plan before host JVM work.",
+  "repair": "Only pr defers android-preparation-contract into explicit not_run; native/device lanes still select, execute and claim the same contract. No device result is inferred.",
+  "calibration": "Actual function from old Git 5b8ec12: pr wrongly invokes the device helper (one intended failure, zero errors), planned-device still invokes it once. Fixed function: pr selects/claims zero device preparation; planned-device selects/claims one.",
+  "script_controls": {
+    "tests": 208,
+    "failures": 0,
+    "errors": 0
+  },
+  "raw_evidence_directory": "/Users/ethan/Repo/PushGo/pushgo-android/build/quality-results/android-formal-routing-5b8-20261001",
+  "sha256": {
+    "fast-regression.log": "9ec7797fbcbf3b591da67c59b9ea0181eb64e8deba2f73d5e0649852e732380c",
+    "host-device-check-red-calibrated.log": "9250d8fda267e9f0e7929fd75d698e6ebb92828be81fcbe008f5c2d52558cfdc",
+    "host-device-check-green-script-tests.log": "cf2c488dbf1ffaf549029b808b06b650776b6dd654aceeaafb089c604f7a0b6f"
+  },
+  "limits": "Host routing control only. Device preparation and formal product evidence require actual execution; old CI failure is retained."
+}
