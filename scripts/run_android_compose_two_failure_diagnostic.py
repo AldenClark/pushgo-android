@@ -18,7 +18,8 @@ from pathlib import Path
 from xml.etree import ElementTree
 
 from run_android_compose_flake_exit import (
-    ROOT, RESULTS, file_digest, selected_emulator, source_identity, source_is_frozen,
+    ROOT, RESULTS, file_digest, scan_campaign_log, selected_emulator,
+    source_identity, source_is_frozen,
 )
 
 
@@ -91,11 +92,15 @@ def main() -> int:
         "run_count": 1,
         "allowed_retries": 0,
         "selectors": SELECTORS,
+        "scope_claim": "Only the two named Android Compose journeys on one API 35 emulator",
+        "quality_gate_status": "NOT_RUN",
         "status": "FAILED_TEST_SYSTEM",
+        "test_system_status": "FAILED",
         "product_status": "NOT_RUN",
         "github_run_id": os.environ.get("GITHUB_RUN_ID"),
         "github_run_attempt": os.environ.get("GITHUB_RUN_ATTEMPT"),
     }
+    gradle_started = False
     try:
         if os.environ.get("GITHUB_RUN_ATTEMPT", "1") != "1":
             raise ValueError("GitHub rerun cannot replace the first diagnostic result")
@@ -124,6 +129,7 @@ def main() -> int:
                 ]
                 with (OUT / "gradle.log").open("w", encoding="utf-8") as gradle_log:
                     try:
+                        gradle_started = True
                         gradle_exit = subprocess.run(
                             command, cwd=ROOT, stdout=gradle_log,
                             stderr=subprocess.STDOUT, timeout=900,
@@ -144,6 +150,9 @@ def main() -> int:
         summary.update({"gradle_exit_code": gradle_exit, "started_epoch": started})
         if RESULTS.is_dir():
             shutil.copytree(RESULTS, OUT / "raw")
+        signature_matches, app_crash = scan_campaign_log(logcat_path)
+        summary["registered_signature_matches_in_full_logcat"] = signature_matches
+        summary["app_crash_in_full_logcat"] = app_crash
         cases, _ = native_cases(started)
         summary["native_cases"] = cases
         summary["source_frozen_after"] = source_is_frozen(identity)
@@ -156,6 +165,10 @@ def main() -> int:
         if any(case["skipped"] or case["errors"] for case in cases.values()):
             raise ValueError("native test skipped or errored")
         failures = sum(case["failures"] for case in cases.values())
+        summary["native_oracle_failures"] = failures
+        if signature_matches or app_crash:
+            raise ValueError("registered Compose signature or app crash in continuous device logcat")
+        summary["test_system_status"] = "PASSED"
         if failures:
             summary.update({"status": "FAILED_PRODUCT_ORACLE", "product_status": "FAILED"})
             return 1
@@ -168,6 +181,13 @@ def main() -> int:
         print(f"FAILED_TEST_SYSTEM: {error}", file=sys.stderr, flush=True)
         return 2
     finally:
+        # An END-marker or logcat failure must not discard XML produced by a
+        # Gradle invocation that already ran. It remains test-system failure.
+        if gradle_started and RESULTS.is_dir() and not (OUT / "raw").exists():
+            try:
+                shutil.copytree(RESULTS, OUT / "raw")
+            except OSError as error:
+                summary["native_result_copy_error"] = str(error)
         summary["finished_epoch"] = time.time()
         summary["artifact_sha256"] = {
             str(path.relative_to(OUT)): file_digest(path)
