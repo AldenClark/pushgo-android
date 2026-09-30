@@ -1,0 +1,87 @@
+{
+  "ci_terminal": {
+    "conclusion": "failure",
+    "headSha": "de66e327d3172e2ce2b0cce3b6f4bb7406b242f5",
+    "status": "completed"
+  },
+  "original_receipts": {
+    "host": {
+      "schema_version": 2,
+      "recorded_at": "2026-09-30T18:10:22.028022+00:00",
+      "source_revision": "15830bbb27e13e6805b4d16e88b8e191fa8869b2",
+      "source_dirty": false,
+      "run_identity": "github:36756535759:1:fast-regression",
+      "platform": "android",
+      "lane": "release",
+      "product_capability_status": "NOT_RUN",
+      "test_system_status": "BLOCKED",
+      "selected_claims": [
+        "Android App-owned preparation rejects invalid sessions within 10 seconds and recovers to accurate functional empty state"
+      ],
+      "executed_claims": [],
+      "incomplete_selected_claims": [
+        "Android App-owned preparation rejects invalid sessions within 10 seconds and recovers to accurate functional empty state"
+      ],
+      "not_run": [
+        "real FCM/private delivery, reboot, production-distributed/OEM install policy, physical audio, and physical accessibility evidence",
+        "physical/OEM notification, Doze, and Private Service behavior beyond the controlled-emulator system journeys"
+      ],
+      "test_system_issue_ids": [],
+      "waiver_id": null,
+      "reason": "lane preparation was blocked before product evidence completed",
+      "scope_notice": "PASSED applies only to executed_claims. Selected claims absent from executed_claims failed or were blocked; this is not whole-product coverage."
+    },
+    "device": {
+      "schema_version": 2,
+      "recorded_at": "2026-09-30T18:21:53.472955+00:00",
+      "source_revision": "15830bbb27e13e6805b4d16e88b8e191fa8869b2",
+      "source_dirty": false,
+      "run_identity": "github:36756535759:1:device-regression",
+      "platform": "android",
+      "lane": "release",
+      "product_capability_status": "NOT_RUN",
+      "test_system_status": "FAILED",
+      "selected_claims": [
+        "Android App-owned preparation rejects invalid sessions within 10 seconds and recovers to accurate functional empty state"
+      ],
+      "executed_claims": [],
+      "incomplete_selected_claims": [
+        "Android App-owned preparation rejects invalid sessions within 10 seconds and recovers to accurate functional empty state"
+      ],
+      "not_run": [
+        "real FCM/private delivery, reboot, production-distributed/OEM install policy, physical audio, and physical accessibility evidence",
+        "physical/OEM notification, Doze, and Private Service behavior beyond the controlled-emulator system journeys"
+      ],
+      "test_system_issue_ids": [],
+      "waiver_id": null,
+      "reason": "fresh Android execution did not exactly match every selected scope; no product claim was completed",
+      "scope_notice": "PASSED applies only to executed_claims. Selected claims absent from executed_claims failed or were blocked; this is not whole-product coverage."
+    }
+  },
+  "observed_host_fault": "Mapped release recommendation replaced host pr and attempted device preparation without an emulator. Original product NOT_RUN / test-system BLOCKED.",
+  "observed_device_fault": "Preparation contract line 178 invokes unavailable rg. Original product NOT_RUN / test-system FAILED; no native product assertion was executed. Nested preparation logs were not in the original upload pattern, so original payload classification is not claimed.",
+  "repairs": [
+    "Host job uses pr for every mapped change, preserving explicit dispatch and no-product skip; device job recommended scope unchanged.",
+    "Preparation matching uses existing portable grep -F -q with identical expected literal phases/readiness and budgets; no retries or expected outcomes loosened.",
+    "Upload existing nested preparation evidence for future first failures."
+  ],
+  "failure_controls": [
+    "Execute the actual host routing shell with six synthetic recommendations; before repair four device recommendations route incorrectly, after repair mapped changes go to pr and not-run skips.",
+    "Execute actual two preparation classification blocks on a restricted /usr/bin:/bin PATH without ripgrep; each accepts only its phase without readiness, rejects mixed readiness, wrong owner and empty evidence. Before repair unavailable rg fails the controls."
+  ],
+  "script_tests_after": {
+    "tests": 207,
+    "failures": 0,
+    "errors": 0
+  },
+  "raw_evidence_directory": "/Users/ethan/Repo/PushGo/pushgo-android/build/quality-results/android-formal-compose-exit-de66-20261001",
+  "sha256": {
+    "fast-regression.log": "d8e60f3669ab4f5b206f1785c9c94c9c61b2d60608f454124fbc3fbdcbac2557",
+    "device-regression.log": "76051c89e2c041b7d0a54c0437373343458d224a298f05d6e02cad7e88d56e2d",
+    "host-route-red.log": "0ec12cf94097626e759cb7bcfea62465589c62cdfd343bb14c20a99b5a727778",
+    "preparation-portability-red.log": "b8a813dc550fabaa4ad5a627bf7faa8ac4989508b288990309670a1ee7719493",
+    "preparation-portability-green-script-tests.log": "8ea6887984bbcbdd3167b81d7983ee32728af38e9878095958e0741068a18b75"
+  },
+  "new_formal_gate_status": "NOT_RUN until post-repair CI is collected",
+  "product_or_androidTest_change": false
+}

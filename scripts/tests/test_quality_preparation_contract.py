@@ -1,4 +1,7 @@
 from pathlib import Path
+import os
+import subprocess
+import tempfile
 import unittest
 
 
@@ -6,6 +9,31 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 class QualityPreparationContractTest(unittest.TestCase):
+    def test_negative_controls_preserve_exclusive_classification_without_ripgrep(self):
+        runner = (ROOT / "scripts/run_android_preparation_contract.sh").read_text()
+        for variable, phase in (("invalid", "session.decode"), ("storage_failure", "storage.open")):
+            start = runner.index("if ! ", runner.index(f"{variable}_elapsed_ms="))
+            end = runner.index(f"if (( {variable}_elapsed_ms", start)
+            matcher = runner[start:end]
+            with tempfile.TemporaryDirectory() as directory:
+                log = Path(directory) / "preparation.log"
+                for content, expected_exit in (
+                    (f"QUALITY_PRECONDITION phase={phase}\n", 0),
+                    (f"QUALITY_PRECONDITION phase={phase}\nstatus=ready\n", 3),
+                    ("QUALITY_PRECONDITION phase=wrong.owner\n", 3),
+                    ("", 3),
+                ):
+                    with self.subTest(phase=phase, content=content):
+                        log.write_text(content)
+                        process = subprocess.run(
+                            ["/bin/bash", "-euo", "pipefail", "-c", matcher],
+                            env={**os.environ, "PATH": "/usr/bin:/bin", f"{variable}_log": str(log)},
+                            capture_output=True,
+                            text=True,
+                        )
+                        self.assertEqual(expected_exit, process.returncode, process.stdout + process.stderr)
+                        self.assertNotIn("command not found", process.stderr)
+
     def test_provider_exposes_stable_phases_without_retrying(self):
         provider = (
             ROOT
@@ -32,7 +60,7 @@ class QualityPreparationContractTest(unittest.TestCase):
         self.assertIn("invalid_elapsed_ms >= 10000", runner)
         self.assertIn("QUALITY_PRECONDITION phase=session.decode", runner)
         self.assertIn("QUALITY_PRECONDITION phase=storage.open", runner)
-        self.assertIn("rg -q 'status=ready'", runner)
+        self.assertIn("grep -F -q 'status=ready'", runner)
         self.assertIn('resource-id="quality-runtime.ready"', runner)
         self.assertIn('resource-id="state.messages.empty"', runner)
         self.assertNotIn("retry", runner.split("invalid_payload=", 1)[1].split("valid_payload=", 1)[0])

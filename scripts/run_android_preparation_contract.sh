@@ -175,8 +175,8 @@ set -e
 finished_ns="$(python3 -c 'import time; print(time.monotonic_ns())')"
 invalid_elapsed_ms=$(((finished_ns - started_ns) / 1000000))
 
-if ! rg -q 'QUALITY_PRECONDITION phase=session.decode' "$invalid_log" \
-  || rg -q 'status=ready' "$invalid_log"; then
+if ! grep -F -q 'QUALITY_PRECONDITION phase=session.decode' "$invalid_log" \
+  || grep -F -q 'status=ready' "$invalid_log"; then
   echo "status=FAILED_TEST_SYSTEM"
   echo "reason=invalid_session_was_not_exclusively_classified"
   echo "log=$invalid_log"
@@ -213,8 +213,8 @@ adb_with_timeout -s "$device_serial" shell content call \
 set -e
 finished_ns="$(python3 -c 'import time; print(time.monotonic_ns())')"
 storage_failure_elapsed_ms=$(((finished_ns - started_ns) / 1000000))
-if ! rg -q 'QUALITY_PRECONDITION phase=storage.open' "$storage_failure_log" \
-  || rg -q 'status=ready' "$storage_failure_log"; then
+if ! grep -F -q 'QUALITY_PRECONDITION phase=storage.open' "$storage_failure_log" \
+  || grep -F -q 'status=ready' "$storage_failure_log"; then
   echo "status=FAILED_TEST_SYSTEM"
   echo "reason=storage_open_failure_was_not_exclusively_classified"
   echo "log=$storage_failure_log"
@@ -250,7 +250,7 @@ adb_with_timeout -s "$device_serial" shell content call \
   --arg "$valid_payload" >"$positive_log" 2>&1
 finished_ns="$(python3 -c 'import time; print(time.monotonic_ns())')"
 positive_elapsed_ms=$(((finished_ns - started_ns) / 1000000))
-rg -q 'status=ready' "$positive_log" || {
+grep -F -q 'status=ready' "$positive_log" || {
   echo "status=BLOCKED"
   echo "reason=valid_app_owned_session_did_not_report_ready"
   echo "log=$positive_log"
@@ -266,8 +266,8 @@ functional_ready=0
 while (( SECONDS < deadline )); do
   if adb_with_timeout -s "$device_serial" shell uiautomator dump /data/local/tmp/pushgo-preparation.xml >/dev/null 2>&1 \
     && adb_with_timeout -s "$device_serial" exec-out cat /data/local/tmp/pushgo-preparation.xml >"$ui_dump" 2>/dev/null \
-    && rg -q 'resource-id="quality-runtime.ready"' "$ui_dump" \
-    && rg -q 'resource-id="state.messages.empty"' "$ui_dump"; then
+    && grep -F -q 'resource-id="quality-runtime.ready"' "$ui_dump" \
+    && grep -F -q 'resource-id="state.messages.empty"' "$ui_dump"; then
     functional_ready=1
     break
   fi

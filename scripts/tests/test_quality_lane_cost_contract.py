@@ -1,4 +1,9 @@
+import json
+import os
 import re
+import subprocess
+import tempfile
+import textwrap
 import unittest
 from pathlib import Path
 
@@ -7,6 +12,31 @@ REPO = Path(__file__).resolve().parents[2]
 
 
 class QualityLaneCostContractTests(unittest.TestCase):
+    def test_ci_host_routes_mapped_changes_to_host_pr_before_device_preparation(self) -> None:
+        workflow = (REPO / ".github/workflows/android-quality.yml").read_text()
+        host_plan = workflow.split("      - name: Plan changed capability evidence\n", 1)[1]
+        host_plan = host_plan.split("      - name: Set up Java", 1)[0]
+        routing = textwrap.dedent("          impact_lane=" + host_plan.split("          impact_lane=", 1)[1])
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            plan_path = root / "build/quality-results/android-impact-plan.json"
+            plan_path.parent.mkdir(parents=True)
+            environment_path = root / "github-environment.txt"
+            for lane in ("pr", "pr-ui", "release", "nightly", "performance", "not-run"):
+                with self.subTest(recommended_lane=lane):
+                    plan_path.write_text(json.dumps({"recommended_lane": lane}))
+                    environment_path.write_text("")
+                    subprocess.run(
+                        ["bash", "-euo", "pipefail", "-c", routing],
+                        cwd=root,
+                        env={**os.environ, "GITHUB_ENV": str(environment_path)},
+                        check=True,
+                        capture_output=True,
+                        text=True,
+                    )
+                    expected = "QUALITY_SKIP_FAST=1" if lane == "not-run" else "QUALITY_LANE=pr"
+                    self.assertEqual([expected], environment_path.read_text().splitlines())
+
     def test_focused_host_jvm_requires_fresh_execution_without_weakening_full_lanes(self) -> None:
         runner = (REPO / "scripts/quality_test.sh").read_text()
 

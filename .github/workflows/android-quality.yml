@@ -63,7 +63,8 @@ jobs:
           if [[ "$impact_lane" == "not-run" ]]; then
             echo "QUALITY_SKIP_FAST=1" >> "$GITHUB_ENV"
           else
-            echo "QUALITY_LANE=$impact_lane" >> "$GITHUB_ENV"
+            # Host evidence always uses pr; the device job executes mapped native scopes.
+            echo "QUALITY_LANE=pr" >> "$GITHUB_ENV"
           fi
 
       - name: Set up Java
@@ -263,6 +264,7 @@ jobs:
             macrobenchmark/build/outputs/connected_android_test_additional_output/
             app/src/release/generated/baselineProfiles/
             build/quality-results/*.log
+            build/quality-results/android-preparation-contract/
             build/quality-results/*.json
             !build/quality-results/*-summary.json
 
