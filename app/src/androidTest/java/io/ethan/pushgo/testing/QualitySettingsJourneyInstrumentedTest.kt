@@ -6,7 +6,12 @@ import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.toPixelMap
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.*
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.test.espresso.Espresso.onView
 import androidx.test.espresso.Espresso.pressBack
+import androidx.test.espresso.matcher.RootMatchers.isDialog
+import androidx.test.espresso.matcher.ViewMatchers.isRoot
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.uiautomator.By
@@ -443,6 +448,7 @@ class QualitySettingsJourneyInstrumentedTest : QualityAppJourneyTestCase() {
             Settings.Secure.getString(app.contentResolver, Settings.Secure.DEFAULT_INPUT_METHOD),
         ).substringBefore('/')
         val activeImeWindow = By.pkg(activeImePackage)
+        QualityUiFailureDiagnostics.logText("gateway before Back", sheetDialogWindowState())
         if (device.hasObject(activeImeWindow)) {
             pressBack()
             // The sheet is a Dialog window; Activity insets cannot prove its
@@ -453,6 +459,9 @@ class QualitySettingsJourneyInstrumentedTest : QualityAppJourneyTestCase() {
             )
             composeRule.waitForIdle()
             composeRule.onNodeWithTag("sheet.settings.gateway").assertIsDisplayed()
+            QualityUiFailureDiagnostics.logText(
+                "gateway after IME window gone", sheetDialogWindowState(),
+            )
         }
         device.pressBack()
         runCatching { waitForTagToDisappear("sheet.settings.gateway") }
@@ -461,7 +470,13 @@ class QualitySettingsJourneyInstrumentedTest : QualityAppJourneyTestCase() {
                     UiDevice.getInstance(InstrumentationRegistry.getInstrumentation()),
                     "gateway sheet dismiss after rejected candidate",
                 )
-                runCatching { composeRule.onRoot(useUnmergedTree = true).printToString(maxDepth = 20) }
+                QualityUiFailureDiagnostics.logText(
+                    "gateway after Sheet Back timeout", sheetDialogWindowState(),
+                )
+                runCatching {
+                    composeRule.onNodeWithTag("sheet.settings.gateway", useUnmergedTree = true)
+                        .printToString(maxDepth = 20)
+                }
                     .onSuccess { tree ->
                         QualityUiFailureDiagnostics.logText("gateway sheet Compose semantics", tree)
                     }
@@ -997,4 +1012,18 @@ class QualitySettingsJourneyInstrumentedTest : QualityAppJourneyTestCase() {
         composeRule.onNodeWithTag(tag).assertDoesNotExist()
     }
 
+    private fun sheetDialogWindowState(): String {
+        var state = "dialog root unavailable"
+        val failure = runCatching {
+            onView(isRoot()).inRoot(isDialog()).check { root, _ ->
+                val insets = ViewCompat.getRootWindowInsets(root)
+                state = "imeVisible=${insets?.isVisible(WindowInsetsCompat.Type.ime())}, " +
+                    "imeBottom=${insets?.getInsets(WindowInsetsCompat.Type.ime())?.bottom}, " +
+                    "attached=${root.isAttachedToWindow}, hasWindowFocus=${root.hasWindowFocus()}"
+            }
+        }.exceptionOrNull()
+        return if (failure == null) state else {
+            "dialog root capture failed: ${failure.javaClass.simpleName}: ${failure.message}"
+        }
+    }
 }
