@@ -8,6 +8,7 @@ import android.graphics.BitmapFactory
 import android.net.Uri
 import android.os.SystemClock
 import android.provider.MediaStore
+import android.provider.Settings
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
@@ -484,7 +485,15 @@ class QualityMessageJourneyInstrumentedTest : QualityAppJourneyTestCase() {
                 SemanticsProperties.PaneTitle,
                 app.getString(R.string.a11y_pane_message_detail),
             ),
-        ).assertIsFocused()
+        ).assertIsDisplayed()
+        val detailImePackage = checkNotNull(
+            Settings.Secure.getString(app.contentResolver, Settings.Secure.DEFAULT_INPUT_METHOD),
+        ).substringBefore('/')
+        assertTrue(
+            "Opening a message detail must hide the search keyboard.",
+            UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
+                .wait(Until.gone(By.pkg(detailImePackage)), 5_000),
+        )
         composeRule.onNodeWithTag("field.message.detail.body")
             .assertTextContains("Seeded from fixture.seed_messages for UI validation.")
         composeRule.onNodeWithTag("field.message.search").assertIsNotFocused()

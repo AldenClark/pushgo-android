@@ -27,12 +27,6 @@ OUT = ROOT / "build/quality-results/android-compose-two-failure-diagnostic"
 SELECTORS = (
     "io.ethan.pushgo.testing.QualityMessageJourneyInstrumentedTest"
     "#standardFixtureShowsAccurateContentAndSurvivesActivityRelaunch",
-    "io.ethan.pushgo.testing.QualitySettingsJourneyInstrumentedTest"
-    "#serverConfigurationRejectsInvalidInputAndScopesDataAfterRelaunch",
-    "io.ethan.pushgo.testing.QualitySettingsJourneyInstrumentedTest"
-    "#savingGatewayKeepsEditorOpenUntilPreparedSwitchCommitsAndPersists",
-    "io.ethan.pushgo.ui.accessibility.SharedAccessibilitySemanticsTest"
-    "#modalBottomSheet_exposesPaneTitle",
 )
 
 
@@ -119,7 +113,7 @@ def main() -> int:
         "run_count": 1,
         "allowed_retries": 0,
         "selectors": SELECTORS,
-        "scope_claim": "Only the two named Android Compose journeys on one API 35 emulator",
+        "scope_claim": "Only the selected named Android Compose journeys on one API 35 emulator",
         "quality_gate_status": "NOT_RUN",
         "status": "FAILED_TEST_SYSTEM",
         "test_system_status": "FAILED",

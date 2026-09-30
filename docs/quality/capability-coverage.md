@@ -1,5 +1,7 @@
 # Android 能力覆盖索引
 
+2026-09-30 核心 Back 原生收尾：精确 `3b4e71b` [四方法 CI](https://github.com/AldenClark/pushgo-android/actions/runs/36723451032) 为 4 executed/3 passed/1 failed、0 error/skip，source/device frozen、全场 crash/signature=0。Gateway 拒绝后返回/恢复/重开、保存中关闭保护/提交/重开、pane-title 均通过；Message 方法在末段搜索后详情的旧 `assertIsFocused`（整个 Pane 的键盘焦点）失败，完整方法仍记 FAILED，不抹除原结果。该键盘焦点正是本次删除的实现；新测试保留 Pane 可见性、准确正文、底层搜索失焦、一次真实 Back 关闭和原 Chrome/分享/刷新/重开全部断言，并增加实际 IME 窗口消失。生产 app/src/main 与已通过三项的 3b4 字节相同，因此下一轮只复验改动的 Message 方法，不重跑另三项。新测试调整的独立 reviewer 遇模型容量限制；root 已复核实际差异与未放宽的用户结果，保留同上下文复核的局限。正式 PR/无障碍/质量门禁继续受真实过期登记阻断，未改日期。
+
 2026-09-30 RC.9 核心体验修正（待 native 复验）：`c8599a3` 的两方法远端诊断为 browser 通过、Gateway 拒绝后 Back 关闭失败（2 executed/1 failure、0 error/skip，产品 FAILED/测试系统 PASSED、正式门禁 NOT_RUN）。第二次 Back 前 IME=false/0、地址框 focused、Save enabled；随后焦点移到外层 Pane，关闭回调没有执行。精确 Compose UI 1.11.4 的 Back→FocusDirection.Exit→最近可聚焦父节点→消费 KeyDown 与此一致。共享 `PushGoModalBottomSheet` 移除外层 keyboard-focus scaffold，保留 pane-title 语义、Material3 原生 dismiss、保存中 Hidden/cancel guard 和窗口布局；原失败断言不变，并新增打开编辑器不会自动弹 IME 的实际窗口断言。复验只选核心四方法：原 Gateway 失败/恢复/普通重开、保存中关闭保护/提交/重开、详情 Chrome 往返及 pane-title。它们分别覆盖返回缺陷、事务保护、共享弹层邻近流程、语义保留；预计 native 约 2 分钟，复用同一次远端构建。不启动 52 类 campaign 或额外组合。原始失败 `build/quality-results/android-compose-two-failure-remote-c859-20260930/` 保留。
 
 此索引防遗漏，不计算覆盖分，不是测试 Oracle。`testTag`、Manifest 组件、Worker 或测试方法存在均不能单独证明用户能力。
