@@ -238,6 +238,19 @@ class QualityMessageJourneyInstrumentedTest : QualityAppJourneyTestCase() {
             device.wait(Until.hasObject(By.pkg(checkNotNull(browserPackage)).depth(0)), 10_000),
         )
         val browserUrlBar = By.res(checkNotNull(browserPackage), "url_bar")
+        if (browserPackage == "com.android.chrome") {
+            // A fresh emulator may show Chrome's exact one-time preparation
+            // surfaces before it consumes the already-delivered VIEW intent.
+            repeat(2) {
+                if (device.hasObject(browserUrlBar)) return@repeat
+                device.findObject(By.res(browserPackage, "signin_fre_dismiss_button"))
+                    ?.click()
+                if (device.hasObject(By.res(browserPackage, "notification_permission_rationale_title"))) {
+                    device.findObject(By.res(browserPackage, "negative_button"))?.click()
+                }
+                device.wait(Until.hasObject(browserUrlBar), 2_000)
+            }
+        }
         assertTrue(
             "The browser did not expose its real address bar for the canonical URL.",
             device.wait(Until.hasObject(browserUrlBar), 10_000),
@@ -252,8 +265,15 @@ class QualityMessageJourneyInstrumentedTest : QualityAppJourneyTestCase() {
             visibleBrowserTarget.contains("pushgo.dev") && visibleBrowserTarget.contains("quality-message"),
         )
         device.pressBack()
+        if (!device.wait(Until.hasObject(By.pkg(app.packageName).depth(0)), 2_000) &&
+            device.currentPackageName == browserPackage
+        ) {
+            // Chrome can consume the first Back to dismiss its own transient UI.
+            device.pressBack()
+        }
         assertTrue(
-            "Dismissing the system browser must return to the existing PushGo message detail.",
+            "Dismissing the system browser must return to the existing PushGo message detail; " +
+                "actualPackage=${device.currentPackageName}",
             device.wait(Until.hasObject(By.pkg(app.packageName).depth(0)), 8_000),
         )
         composeRule.onNodeWithTag("sheet.message.detail").assertIsDisplayed()
@@ -367,7 +387,17 @@ class QualityMessageJourneyInstrumentedTest : QualityAppJourneyTestCase() {
                 ?.forEach(File::delete)
         }
 
-        pressBack()
+        // A system share resolver may leave PushGo visible without window
+        // focus. Send Back to the focused window first, then close the detail
+        // if that Back only dismissed the external surface.
+        device.pressBack()
+        device.waitForIdle()
+        if (composeRule.onAllNodes(hasTestTag("sheet.message.detail")).fetchSemanticsNodes().isNotEmpty()) {
+            device.pressBack()
+        }
+        composeRule.waitUntil(timeoutMillis = 8_000) {
+            composeRule.onAllNodes(hasTestTag("sheet.message.detail")).fetchSemanticsNodes().isEmpty()
+        }
         composeRule.onNodeWithTag("screen.messages.list").assertIsDisplayed()
         waitForCanonicalUnreadCount(0)
         assertUnreadNavigationBadge(null)
@@ -478,7 +508,11 @@ class QualityMessageJourneyInstrumentedTest : QualityAppJourneyTestCase() {
             .assertIsDisplayed()
             .performClick()
         composeRule.onNodeWithTag("sheet.messages.history_cleanup.range").assertIsDisplayed()
+        composeRule.onNodeWithTag("option.messages.history_cleanup.1_year")
+            .performScrollTo()
+            .assertIsDisplayed()
         composeRule.onNodeWithTag("option.messages.history_cleanup.30_days")
+            .performScrollTo()
             .assertIsDisplayed()
             .performClick()
         composeRule.onNodeWithTag("dialog.messages.history_cleanup.status").assertIsDisplayed()
@@ -750,6 +784,7 @@ class QualityMessageJourneyInstrumentedTest : QualityAppJourneyTestCase() {
     @Test
     fun channelTagCombinedUngroupedFiltersAndScopedReadPersist() {
         configureAndLaunch(fixture = QualityFixture.MESSAGES_FILTERS)
+        assertUnreadNavigationBadge("4")
 
         waitForMessageSet(
             present = setOf(
@@ -760,15 +795,14 @@ class QualityMessageJourneyInstrumentedTest : QualityAppJourneyTestCase() {
                 "Quality filter ungrouped orphan",
             ),
         )
-        assertUnreadNavigationBadge("4")
-
         openMessageFilters()
+        revealFilterOption("filter.channel.filter-alpha")
         composeRule.onNodeWithTag("filter.channel.filter-alpha").performClick()
         pressBack()
 
         openMessageFilters()
         revealFilterOption("filter.tag.even")
-        composeRule.onNodeWithTag("filter.tag.even").performClick()
+        composeRule.onNodeWithTag("filter.tag.even").performClick().assertIsSelected()
         pressBack()
         waitForMessageSet(
             present = setOf("Quality filter alpha even"),
@@ -809,12 +843,14 @@ class QualityMessageJourneyInstrumentedTest : QualityAppJourneyTestCase() {
 
         scenario?.close()
         scenario = launchMainActivity()
-        composeRule.waitUntil(timeoutMillis = 8_000) {
-            composeRule.onAllNodes(hasText("Quality filter ungrouped orphan"))
-                .fetchSemanticsNodes().isNotEmpty()
-        }
         assertUnreadNavigationBadge("3")
-        composeRule.onNode(hasContentDescriptionContaining("Quality filter ungrouped orphan"))
+        waitForMessageSet(
+            present = setOf("Quality filter ungrouped orphan"),
+            expectedVisibleCount = 5, // Channel and tag selections reset with the Activity.
+        )
+        composeRule.onNodeWithTag("messages.list.scroll")
+            .performScrollToNode(hasTestTag("message.row.quality-filter-ungrouped"))
+        composeRule.onNodeWithTag("message.row.quality-filter-ungrouped")
             .assert(hasStateDescription(app.getString(R.string.a11y_state_read)))
 
         openMessageFilters()
@@ -831,10 +867,69 @@ class QualityMessageJourneyInstrumentedTest : QualityAppJourneyTestCase() {
             ),
         )
         composeRule.onNodeWithTag("action.messages.mark_all_read").assertDoesNotExist()
+
+        // A long unread list can hide the bottom navigation. A later Room
+        // change may leave only one row, so no scroll gesture remains to
+        // reveal it. Keep the real badge and Channels action reachable.
+        tearDownQualitySession()
+        configureAndLaunch(fixture = QualityFixture.MESSAGES_FILTERS)
+        openMessageFilters()
+        composeRule.onNodeWithTag("filter.unread_only").assertIsDisplayed().performClick()
+        pressBack()
+        waitForMessageSet(
+            present = setOf(
+                "Quality filter alpha even",
+                "Quality filter beta odd",
+                "Quality filter beta even",
+                "Quality filter ungrouped orphan",
+            ),
+            absent = setOf("Quality filter alpha odd"),
+        )
+        val list = composeRule.onNodeWithTag("messages.list.scroll")
+        list.performScrollToIndex(0)
+        list.performTouchInput { swipeUp() }
+        composeRule.waitUntil(timeoutMillis = 3_000) {
+            composeRule.onAllNodes(hasTestTag("nav.item.channels"))
+                .fetchSemanticsNodes().isEmpty()
+        }
+        val markedRead = runBlocking {
+            checkNotNull(app.containerOrNull()).messageRepository.markRead(
+                listOf("quality-filter-beta-odd", "quality-filter-beta-even", "quality-filter-ungrouped"),
+            )
+        }
+        assertEquals(3, markedRead)
+        waitForCanonicalUnreadCount(1)
+        waitForMessageSet(
+            present = setOf("Quality filter alpha even"),
+            absent = setOf(
+                "Quality filter alpha odd",
+                "Quality filter beta odd",
+                "Quality filter beta even",
+                "Quality filter ungrouped orphan",
+            ),
+        )
+        composeRule.onNodeWithTag("nav.item.messages.unread_badge", useUnmergedTree = true)
+            .assertTextEquals("1")
+            .assertIsDisplayed()
+        composeRule.onNodeWithTag("nav.item.channels").assertIsDisplayed().performClick()
+        composeRule.onNodeWithTag("screen.channels.list").assertIsDisplayed()
     }
 
     private fun openMessageFilters() {
-        composeRule.onNodeWithTag("action.messages.filter").assertIsDisplayed().performClick()
+        val list = composeRule.onNodeWithTag("messages.list.scroll")
+        list.performScrollToIndex(0)
+        composeRule.waitUntil(timeoutMillis = 3_000) {
+            runCatching {
+                list.fetchSemanticsNode().config[SemanticsProperties.VerticalScrollAxisRange].value() == 0f
+            }.getOrDefault(false)
+        }
+        composeRule.onNodeWithTag("action.messages.filter")
+            .performScrollTo()
+            .assertIsDisplayed()
+            .performClick()
+        composeRule.waitUntil(timeoutMillis = 3_000) {
+            runCatching { composeRule.onNodeWithTag("filter.surface").assertIsDisplayed() }.isSuccess
+        }
         composeRule.onNodeWithTag("filter.surface").assertIsDisplayed()
         composeRule.onNodeWithTag("filter.unread_only").assertIsDisplayed()
     }
@@ -865,16 +960,33 @@ class QualityMessageJourneyInstrumentedTest : QualityAppJourneyTestCase() {
     private fun waitForMessageSet(
         present: Set<String>,
         absent: Set<String> = emptySet(),
+        expectedVisibleCount: Int = present.size,
     ) {
+        val messageList = composeRule.onNodeWithTag("messages.list.scroll")
         composeRule.waitUntil(timeoutMillis = 8_000) {
-            present.all { title ->
-                composeRule.onAllNodes(hasText(title)).fetchSemanticsNodes().isNotEmpty()
-            } && absent.all { title ->
-                composeRule.onAllNodes(hasText(title)).fetchSemanticsNodes().isEmpty()
-            }
+            val rowCount = runCatching {
+                messageList.fetchSemanticsNode().config[SemanticsProperties.CollectionInfo].rowCount
+            }.getOrNull()
+            rowCount == expectedVisibleCount + 1 &&
+                (expectedVisibleCount != 1 || composeRule.onAllNodes(hasText(present.first()))
+                    .fetchSemanticsNodes().isNotEmpty())
         }
-        present.forEach { title -> composeRule.onNodeWithText(title).assertIsDisplayed() }
-        absent.forEach { title -> composeRule.onNodeWithText(title).assertDoesNotExist() }
+        present.forEach { title ->
+            messageList.performScrollToNode(hasText(title))
+            composeRule.onNodeWithText(title).assertIsDisplayed()
+        }
+        absent.forEach { title ->
+            val failure = runCatching {
+                messageList.performScrollToNode(hasText(title))
+            }.exceptionOrNull()
+            assertTrue(
+                "Expected only a missing-node result for filtered message $title, got $failure",
+                failure is AssertionError &&
+                    failure.message.orEmpty().contains("No node found that matches") &&
+                    failure.message.orEmpty().contains("in scrollable container") &&
+                    failure.message.orEmpty().contains(title),
+            )
+        }
     }
 
     private fun assertUnreadNavigationBadge(expectedText: String?) {

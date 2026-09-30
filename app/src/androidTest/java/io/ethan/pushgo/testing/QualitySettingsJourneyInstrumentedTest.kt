@@ -223,8 +223,8 @@ class QualitySettingsJourneyInstrumentedTest : QualityAppJourneyTestCase() {
 
         openSettings()
         scrollTo("row.settings.update.check_now")
-        waitForTag("card.settings.update.available")
-        composeRule.onNodeWithTag("card.settings.update.available").performScrollTo()
+        waitForUpdateStatus(app.getString(R.string.label_update_status_available, "9.9.9-quality"))
+        scrollTo("card.settings.update.available")
         composeRule.onNodeWithTag("row.settings.update.check_now")
             .assertTextContains(
                 app.getString(R.string.label_update_status_available, "9.9.9-quality"),
@@ -234,6 +234,7 @@ class QualitySettingsJourneyInstrumentedTest : QualityAppJourneyTestCase() {
             .performClick()
         waitForTagToDisappear("card.settings.update.available")
         waitForUpdateStatus(app.getString(R.string.label_update_status_skipped))
+        scrollTo("switch.settings.update.auto_check")
         composeRule.onNodeWithTag("switch.settings.update.auto_check")
             .assertUpdateToggleEnabled(true)
             .performClick()
@@ -246,23 +247,28 @@ class QualitySettingsJourneyInstrumentedTest : QualityAppJourneyTestCase() {
         composeRule.onNodeWithTag("option.settings.update.channel.stable").assertIsSelected()
         composeRule.onNodeWithTag("option.settings.update.channel.beta")
             .assertIsNotSelected()
+            .performScrollTo()
+            .assertIsDisplayed()
             .performClick()
             .assertIsSelected()
         composeRule.onNodeWithTag("row.settings.update.check_now")
             .assertTextContains(
                 app.getString(R.string.label_update_status_available, "10.0.0-beta-quality"),
             )
+        scrollTo("card.settings.update.available")
         composeRule.onNodeWithTag("action.settings.update.remind_later")
+            .performScrollTo()
             .assertIsDisplayed()
             .performClick()
         waitForTagToDisappear("card.settings.update.available")
         composeRule.onNodeWithTag("row.settings.update.check_now")
             .assertTextContains(app.getString(R.string.label_update_status_cooldown))
-        scrollTo("switch.settings.page.things")
+        scrollTo("switch.settings.page.events")
         composeRule.onNodeWithTag("switch.settings.page.events")
             .assertIsSelected()
             .performClick()
             .assertIsNotSelected()
+        scrollTo("switch.settings.page.things")
         composeRule.onNodeWithTag("switch.settings.page.things")
             .assertIsSelected()
             .performClick()
@@ -288,28 +294,35 @@ class QualitySettingsJourneyInstrumentedTest : QualityAppJourneyTestCase() {
             .assertTextContains(app.getString(R.string.label_update_status_cooldown))
         composeRule.onNodeWithTag("card.settings.update.available").assertDoesNotExist()
         composeRule.onNodeWithTag("option.settings.update.channel.stable")
+            .performScrollTo()
+            .assertIsDisplayed()
             .performClick()
             .assertIsSelected()
         waitForUpdateStatus(app.getString(R.string.label_update_status_skipped))
         composeRule.onNodeWithTag("card.settings.update.available").assertDoesNotExist()
         composeRule.onNodeWithTag("row.settings.update.check_now").performClick()
-        waitForTag("card.settings.update.available")
+        waitForUpdateStatus(app.getString(R.string.label_update_status_available, "9.9.9-quality"))
+        scrollTo("card.settings.update.available")
         composeRule.onNodeWithTag("row.settings.update.check_now")
             .assertTextContains(
                 app.getString(R.string.label_update_status_available, "9.9.9-quality"),
             )
+        scrollTo("option.settings.update.channel.beta")
         composeRule.onNodeWithTag("option.settings.update.channel.beta")
+            .performScrollTo()
+            .assertIsDisplayed()
             .performClick()
             .assertIsSelected()
         composeRule.onNodeWithTag("row.settings.update.check_now")
             .assertTextContains(
                 app.getString(R.string.label_update_status_available, "10.0.0-beta-quality"),
             )
-        scrollTo("switch.settings.page.things")
+        scrollTo("switch.settings.page.events")
         composeRule.onNodeWithTag("switch.settings.page.events")
             .assertIsNotSelected()
             .performClick()
             .assertIsSelected()
+        scrollTo("switch.settings.page.things")
         composeRule.onNodeWithTag("switch.settings.page.things")
             .assertIsNotSelected()
             .performClick()
@@ -394,8 +407,8 @@ class QualitySettingsJourneyInstrumentedTest : QualityAppJourneyTestCase() {
         addressField.performTextClearance()
         addressField.performTextInput("not a valid url")
         val hostErrorPresentationBaseline = QualityRuntime.globalErrorPresentationCount()
-        composeRule.onNodeWithTag("action.settings.gateway.save").performClick()
-        waitForTag("feedback.settings.gateway")
+        saveGatewayFromEditor()
+        waitForGatewayFeedback()
         composeRule.onNodeWithTag("sheet.settings.gateway").assertIsDisplayed()
         composeRule.onNodeWithTag("feedback.settings.gateway")
             .assertTextEquals(app.getString(R.string.error_invalid_server_address))
@@ -407,8 +420,8 @@ class QualitySettingsJourneyInstrumentedTest : QualityAppJourneyTestCase() {
 
         addressField.performTextClearance()
         addressField.performTextInput("$normalizedAddress/")
-        composeRule.onNodeWithTag("action.settings.gateway.save").performClick()
-        waitForTag("feedback.settings.gateway")
+        saveGatewayFromEditor()
+        waitForGatewayFeedback()
         composeRule.onNodeWithTag("sheet.settings.gateway").assertIsDisplayed()
         composeRule.onNodeWithTag("feedback.settings.gateway")
             .assertTextEquals(app.getString(R.string.error_request_failed))
@@ -435,7 +448,7 @@ class QualitySettingsJourneyInstrumentedTest : QualityAppJourneyTestCase() {
             .performTextInput(gatewayToken)
         retryAddressField.performTextClearance()
         retryAddressField.performTextInput("$normalizedAddress/")
-        composeRule.onNodeWithTag("action.settings.gateway.save").performClick()
+        saveGatewayFromEditor()
         waitForTagToDisappear("sheet.settings.gateway")
         composeRule.onNodeWithTag("row.settings.gateway")
             .assertTextContains(normalizedAddress)
@@ -450,6 +463,8 @@ class QualitySettingsJourneyInstrumentedTest : QualityAppJourneyTestCase() {
         composeRule.onNodeWithTag("field.channels.create.password")
             .performTextInput(listOf("quality", "x").joinToString(""))
         composeRule.onNodeWithTag("action.channels.entry.submit")
+            .performScrollTo()
+            .assertIsDisplayed()
             .assertIsEnabled()
             .performClick()
         waitForTag("channel.row.01H00000000000000000000003")
@@ -496,7 +511,7 @@ class QualitySettingsJourneyInstrumentedTest : QualityAppJourneyTestCase() {
         val addressField = composeRule.onNodeWithTag("field.settings.gateway.address")
         addressField.performTextClearance()
         addressField.performTextInput("$candidateAddress/")
-        composeRule.onNodeWithTag("action.settings.gateway.save").performClick()
+        saveGatewayFromEditor()
 
         waitForTag("feedback.settings.gateway")
         composeRule.onNodeWithTag("sheet.settings.gateway").assertIsDisplayed()
@@ -512,7 +527,7 @@ class QualitySettingsJourneyInstrumentedTest : QualityAppJourneyTestCase() {
         retryField.assertTextContains(originalAddress)
         retryField.performTextClearance()
         retryField.performTextInput("$candidateAddress/")
-        composeRule.onNodeWithTag("action.settings.gateway.save").performClick()
+        saveGatewayFromEditor()
         waitForTagToDisappear("sheet.settings.gateway")
         composeRule.onNodeWithTag("row.settings.gateway").assertTextContains(candidateAddress)
 
@@ -540,7 +555,7 @@ class QualitySettingsJourneyInstrumentedTest : QualityAppJourneyTestCase() {
         val addressField = composeRule.onNodeWithTag("field.settings.gateway.address")
         addressField.performTextClearance()
         addressField.performTextInput("$candidateAddress/")
-        composeRule.onNodeWithTag("action.settings.gateway.save").performClick()
+        saveGatewayFromEditor()
 
         // The latch is reached only after candidate registration. It replaces
         // a timing guess with a deterministic pre-commit observation point.
@@ -599,7 +614,7 @@ class QualitySettingsJourneyInstrumentedTest : QualityAppJourneyTestCase() {
         val addressField = composeRule.onNodeWithTag("field.settings.gateway.address")
         addressField.performTextClearance()
         addressField.performTextInput("$candidateAddress/")
-        composeRule.onNodeWithTag("action.settings.gateway.save").performClick()
+        saveGatewayFromEditor()
 
         // A transient Android Toast is a system surface and its text is not
         // reliably exposed to UiAutomator on every supported API level. The
@@ -912,7 +927,24 @@ class QualitySettingsJourneyInstrumentedTest : QualityAppJourneyTestCase() {
         composeRule.onNodeWithTag("screen.settings.content")
             .assertIsDisplayed()
             .performScrollToNode(hasTestTag(tag))
-        composeRule.onNodeWithTag(tag).assertIsDisplayed()
+        composeRule.onNodeWithTag(tag).performScrollTo().assertIsDisplayed()
+    }
+
+    private fun saveGatewayFromEditor() {
+        composeRule.onNodeWithTag("action.settings.gateway.save")
+            .performScrollTo()
+            .assertIsDisplayed()
+            .performClick()
+    }
+
+    private fun waitForGatewayFeedback() {
+        composeRule.waitUntil(timeoutMillis = 8_000) {
+            composeRule.onAllNodes(hasTestTag("feedback.settings.gateway"))
+                .fetchSemanticsNodes().isNotEmpty()
+        }
+        composeRule.onNodeWithTag("feedback.settings.gateway")
+            .performScrollTo()
+            .assertIsDisplayed()
     }
 
     private fun waitForTag(tag: String, timeoutMillis: Long = 8_000) {

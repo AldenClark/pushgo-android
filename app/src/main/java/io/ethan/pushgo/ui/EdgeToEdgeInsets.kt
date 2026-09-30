@@ -4,7 +4,9 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.geometry.Offset
@@ -20,14 +22,20 @@ fun rememberBottomGestureInset(): Dp {
 @Composable
 fun rememberBottomBarNestedScrollConnection(
     onVisibilityChanged: (Boolean) -> Unit,
+    canScroll: Boolean,
     hideThreshold: Dp = 56.dp,
     showThreshold: Dp = 20.dp,
 ): NestedScrollConnection {
     val density = LocalDensity.current
     val hideThresholdPx = with(density) { hideThreshold.toPx() }
     val showThresholdPx = with(density) { showThreshold.toPx() }
+    val visibilityChanged = rememberUpdatedState(onVisibilityChanged)
 
-    return remember(onVisibilityChanged, hideThresholdPx, showThresholdPx) {
+    LaunchedEffect(canScroll) {
+        if (!canScroll) visibilityChanged.value(true)
+    }
+
+    return remember(canScroll, hideThresholdPx, showThresholdPx) {
         object : NestedScrollConnection {
             private var isVisible = true
             private var hideAccumulatorPx = 0f
@@ -47,7 +55,7 @@ fun rememberBottomBarNestedScrollConnection(
                     if (isVisible && hideAccumulatorPx >= hideThresholdPx) {
                         isVisible = false
                         hideAccumulatorPx = 0f
-                        onVisibilityChanged(false)
+                        visibilityChanged.value(false)
                     }
                 } else {
                     hideAccumulatorPx = 0f
@@ -55,7 +63,7 @@ fun rememberBottomBarNestedScrollConnection(
                     if (!isVisible && showAccumulatorPx >= showThresholdPx) {
                         isVisible = true
                         showAccumulatorPx = 0f
-                        onVisibilityChanged(true)
+                        visibilityChanged.value(true)
                     }
                 }
 

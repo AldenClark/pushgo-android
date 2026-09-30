@@ -229,7 +229,10 @@ fun ThingListScreen(
     val scope = rememberCoroutineScope()
     val listState = rememberLazyListState()
     val bottomGestureInset = rememberBottomGestureInset()
-    val bottomBarNestedScrollConnection = rememberBottomBarNestedScrollConnection(onBottomBarVisibilityChanged)
+    val bottomBarNestedScrollConnection = rememberBottomBarNestedScrollConnection(
+        onBottomBarVisibilityChanged,
+        canScroll = listState.canScrollBackward || listState.canScrollForward,
+    )
     var listTopInWindow by remember { mutableFloatStateOf(0f) }
     
     var channelNameMap by remember { mutableStateOf<Map<String, String>>(emptyMap()) }

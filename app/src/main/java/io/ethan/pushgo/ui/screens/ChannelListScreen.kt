@@ -4,6 +4,8 @@ import android.widget.Toast
 import android.text.format.DateFormat
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -18,6 +20,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.Logout
 import androidx.compose.material.icons.outlined.Add
@@ -106,7 +109,11 @@ fun ChannelListScreen(
     val clipboard = LocalClipboard.current
     val scope = rememberCoroutineScope()
     val bottomGestureInset = rememberBottomGestureInset()
-    val bottomBarNestedScrollConnection = rememberBottomBarNestedScrollConnection(onBottomBarVisibilityChanged)
+    val listState = rememberLazyListState()
+    val bottomBarNestedScrollConnection = rememberBottomBarNestedScrollConnection(
+        onBottomBarVisibilityChanged,
+        canScroll = listState.canScrollBackward || listState.canScrollForward,
+    )
     val effectivePendingScope by container.pendingLocalDeletionCoordinator.effectiveScope.collectAsStateWithLifecycle()
     val visibleChannelSubscriptions = viewModel.channelSubscriptions.filterNot {
         effectivePendingScope.suppressesChannel(it.channelId)
@@ -234,6 +241,7 @@ fun ChannelListScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .nestedScroll(bottomBarNestedScrollConnection),
+            state = listState,
             contentPadding = androidx.compose.foundation.layout.PaddingValues(bottom = bottomGestureInset + 24.dp),
         ) {
             if (visibleChannelSubscriptions.isEmpty()) {
@@ -437,6 +445,7 @@ fun ChannelListScreen(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
+                    .verticalScroll(rememberScrollState())
                     .padding(start = 24.dp, top = 16.dp, end = 24.dp, bottom = bottomGestureInset + 16.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {

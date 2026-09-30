@@ -292,13 +292,16 @@ class QualityEntityJourneyInstrumentedTest : QualityAppJourneyTestCase() {
 
         composeRule.onNodeWithTag("tab.thing.detail.updates").performClick()
         composeRule.onNodeWithTag("thing.related.update.quality-delivery-thing-initial")
+            .performScrollTo()
             .assertIsDisplayed()
             .performClick()
         composeRule.onNodeWithTag("sheet.thing.related.update.detail").assertIsDisplayed()
         composeRule.onNodeWithTag("content.thing.related.update.detail", useUnmergedTree = true)
             .assert(hasAnyDescendant(hasText("Quality Initial Thing Snapshot")))
         dismissTopSheet()
-        composeRule.onNodeWithTag("thing.related.update.quality-delivery-thing-initial").assertIsDisplayed()
+        composeRule.onNodeWithTag("thing.related.update.quality-delivery-thing-initial")
+            .performScrollTo()
+            .assertIsDisplayed()
 
         scenario?.close()
         scenario = launchMainActivity {

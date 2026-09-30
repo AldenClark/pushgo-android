@@ -56,7 +56,7 @@
   "rules": [
     {
       "id": "quality-system",
-      "paths": ["AGENTS.md", "app/src/test/**", "scripts/tests/**", "scripts/quality_*.py", "scripts/quality_*.sh", "scripts/run_android_compose_flake_exit.py", "scripts/run_android_doze_positive.sh", ".github/workflows/android-compose-flake-exit.yml", ".github/workflows/android-quality.yml", "config/quality-impact.json", "config/quality-ai-task-history.json", "config/quality-test-system-issues.json", "config/quality-waivers.json"],
+      "paths": ["AGENTS.md", "app/src/test/**", "scripts/tests/**", "scripts/quality_*.py", "scripts/quality_*.sh", "scripts/run_android_compose_flake_exit.py", "scripts/run_android_doze_positive.sh", "scripts/verify_android_unsigned_release_apks.py", ".github/workflows/android-compose-flake-exit.yml", ".github/workflows/android-quality.yml", "config/quality-impact.json", "config/quality-ai-task-history.json", "config/quality-test-system-issues.json", "config/quality-waivers.json"],
       "capabilities": ["quality-system-trustworthiness"],
       "minimum_evidence": ["quality selector unit/negative controls", "Android JVM suite and androidTest compilation"],
       "lane": "pr",

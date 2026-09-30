@@ -217,6 +217,11 @@ android {
     }
 
     packaging {
+        jniLibs {
+            // Rust owns private transport for the three distributed ABIs. A
+            // transitive x86 .so must not make the universal APK advertise x86.
+            excludes += "**/x86/**"
+        }
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
         }

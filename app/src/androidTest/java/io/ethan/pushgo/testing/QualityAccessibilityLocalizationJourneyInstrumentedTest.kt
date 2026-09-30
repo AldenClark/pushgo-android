@@ -151,6 +151,7 @@ class QualityAccessibilityLocalizationJourneyInstrumentedTest : QualityAppJourne
             .performTextInput("quality-channel-password")
         channelPassword.assert(SemanticsMatcher.expectValue(SemanticsProperties.Password, Unit))
         composeRule.onNodeWithTag("action.channels.entry.submit")
+            .performScrollTo()
             .assertIsDisplayed()
             .assertIsEnabled()
             .performClick()

@@ -153,7 +153,10 @@ fun MessageListScreen(
     val lifecycleOwner = LocalLifecycleOwner.current
     val listState = rememberLazyListState()
     val bottomGestureInset = rememberBottomGestureInset()
-    val bottomBarNestedScrollConnection = rememberBottomBarNestedScrollConnection(onBottomBarVisibilityChanged)
+    val bottomBarNestedScrollConnection = rememberBottomBarNestedScrollConnection(
+        onBottomBarVisibilityChanged,
+        canScroll = listState.canScrollBackward || listState.canScrollForward,
+    )
     var channelNameMap by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
     var isPullRefreshing by remember { mutableStateOf(false) }
     var isPullRefreshSlow by remember { mutableStateOf(false) }
