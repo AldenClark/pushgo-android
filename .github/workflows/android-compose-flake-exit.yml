@@ -126,7 +126,7 @@ jobs:
           cargo install cargo-ndk --version "$cargo_ndk_version" --locked
           test "$(cargo ndk --version | awk '{print $NF}')" = "$cargo_ndk_version"
 
-      - name: Run the two unresolved journeys once without retries
+      - name: Run selected core regressions once without retries
         uses: ReactiveCircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
         with:
           api-level: 35

@@ -397,6 +397,14 @@ class QualitySettingsJourneyInstrumentedTest : QualityAppJourneyTestCase() {
         scrollTo("row.settings.gateway")
         composeRule.onNodeWithTag("row.settings.gateway").performClick()
         composeRule.onNodeWithTag("sheet.settings.gateway").assertIsDisplayed()
+        val initialImePackage = checkNotNull(
+            Settings.Secure.getString(app.contentResolver, Settings.Secure.DEFAULT_INPUT_METHOD),
+        ).substringBefore('/')
+        assertTrue(
+            "Opening the editor must not focus an input or open the keyboard.",
+            UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
+                .wait(Until.gone(By.pkg(initialImePackage)), 5_000),
+        )
 
         val addressField = composeRule.onNodeWithTag("field.settings.gateway.address")
         val gatewayToken = "quality-gateway-token"

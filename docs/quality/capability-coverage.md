@@ -1,5 +1,7 @@
 # Android 能力覆盖索引
 
+2026-09-30 RC.9 核心体验修正（待 native 复验）：`c8599a3` 的两方法远端诊断为 browser 通过、Gateway 拒绝后 Back 关闭失败（2 executed/1 failure、0 error/skip，产品 FAILED/测试系统 PASSED、正式门禁 NOT_RUN）。第二次 Back 前 IME=false/0、地址框 focused、Save enabled；随后焦点移到外层 Pane，关闭回调没有执行。精确 Compose UI 1.11.4 的 Back→FocusDirection.Exit→最近可聚焦父节点→消费 KeyDown 与此一致。共享 `PushGoModalBottomSheet` 移除外层 keyboard-focus scaffold，保留 pane-title 语义、Material3 原生 dismiss、保存中 Hidden/cancel guard 和窗口布局；原失败断言不变，并新增打开编辑器不会自动弹 IME 的实际窗口断言。复验只选核心四方法：原 Gateway 失败/恢复/普通重开、保存中关闭保护/提交/重开、详情 Chrome 往返及 pane-title。它们分别覆盖返回缺陷、事务保护、共享弹层邻近流程、语义保留；预计 native 约 2 分钟，复用同一次远端构建。不启动 52 类 campaign 或额外组合。原始失败 `build/quality-results/android-compose-two-failure-remote-c859-20260930/` 保留。
+
 此索引防遗漏，不计算覆盖分，不是测试 Oracle。`testTag`、Manifest 组件、Worker 或测试方法存在均不能单独证明用户能力。
 
 2026-09-29 Android 消息刷新线程边界与 Compose 稳定性当前状态：干净提交 `6caaa7b` 的 50 类连续验证前六轮各 4 类、34/34、零跳过且旧 `SnapshotStateObserver` 精确签名为零；第七轮在 `QualityMessageJourneyInstrumentedTest#refreshFailureKeepsSnapshotAndRetryRecoversPersistedResult` 的第 11/34 项发生新的 App 进程崩溃，原始收据 `build/quality-results/android-compose50-6caaa7b-20260929/round-07/receipt.json` 为 `FAIL`，不能计入已通过类。首异常是 Room 唤醒线程 `arch_disk_io_3` 上执行 `MessageListScreen` 的 `LazyListState.scrollToItem`，触发 `CalledFromWrongThreadException`；主线程随后才报布局重入。它发生于当前 Compose v1 原生测试的 unconfined 续体环境，尚无生产设备同样崩溃的证据。本地提交 `a7ecb99` 仅把刷新成功后的滚动切回 Android main；独立跨线程原生负控修前 1/1 失败、修后 1/1 通过，原失败旅程修后 1/1、完整 Message 类 15/15、相邻 host 刷新状态 5/5 均通过，修后原生日志无上述错线程或布局异常。旧过期 Compose flake 登记的 50 类退出标准仍未满足，正式门禁仍 `BLOCKED`；新提交的 Release APK、线上 Provider、物理设备/OEM 均未由这些聚焦测试证明。

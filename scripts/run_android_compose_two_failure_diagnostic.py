@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Run the two unresolved Compose journeys once and retain their native evidence.
+"""Run selected core Compose regressions once and retain their native evidence.
 
-This is a targeted diagnostic, not part of the 50-class flake exit campaign or
+This is a bounded core-flow diagnostic, not part of the 50-class flake exit campaign or
 the formal product-quality lane. A valid failed assertion remains a product
 failure; missing or stale native execution evidence is a test-system failure.
 """
@@ -29,6 +29,10 @@ SELECTORS = (
     "#standardFixtureShowsAccurateContentAndSurvivesActivityRelaunch",
     "io.ethan.pushgo.testing.QualitySettingsJourneyInstrumentedTest"
     "#serverConfigurationRejectsInvalidInputAndScopesDataAfterRelaunch",
+    "io.ethan.pushgo.testing.QualitySettingsJourneyInstrumentedTest"
+    "#savingGatewayKeepsEditorOpenUntilPreparedSwitchCommitsAndPersists",
+    "io.ethan.pushgo.ui.accessibility.SharedAccessibilitySemanticsTest"
+    "#modalBottomSheet_exposesPaneTitle",
 )
 
 
@@ -203,7 +207,7 @@ def main() -> int:
             raise ValueError("unexpected Gradle exit despite native assertion evidence")
         if not failures and gradle_exit != 0:
             summary.update(classify_observed_result(failures, test_system_defect=True))
-            raise ValueError("Gradle failed despite two passing native testcases")
+            raise ValueError("Gradle failed despite passing native testcases")
         summary.update(classify_observed_result(failures, test_system_defect=False))
         return 1 if failures else 0
     except (OSError, ValueError, subprocess.CalledProcessError, subprocess.TimeoutExpired) as error:
