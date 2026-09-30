@@ -21,6 +21,7 @@ Policy:
 - Kept Gateway settings open with the entered values when saving fails, and surfaced protected settings write errors.
 
 ### Fixed
+- Saving decryption settings preserves an existing key while Gateway status is loading.
 - The Gateway editor closes on Back after the keyboard is dismissed, while saving still prevents dismissal.
 - Kept the active Gateway unchanged when a new Gateway save fails before commit.
 - Prevented obsolete background callbacks from ending the five-second local deletion Undo early, with an exact deadline check for Undo taps.
