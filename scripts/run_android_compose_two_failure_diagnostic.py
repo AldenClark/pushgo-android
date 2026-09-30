@@ -36,6 +36,29 @@ def write_json(path: Path, value: dict[str, object]) -> None:
     path.write_text(json.dumps(value, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
 
+def classify_observed_result(failures: int, test_system_defect: bool) -> dict[str, object]:
+    if test_system_defect:
+        return {
+            "status": "FAILED_TEST_SYSTEM",
+            "test_system_status": "FAILED",
+            "product_status": "FAILED" if failures else "NOT_RUN",
+            "mixed_evidence": failures > 0,
+        }
+    if failures:
+        return {
+            "status": "FAILED_PRODUCT_ORACLE",
+            "test_system_status": "PASSED",
+            "product_status": "FAILED",
+            "mixed_evidence": False,
+        }
+    return {
+        "status": "PASSED",
+        "test_system_status": "PASSED",
+        "product_status": "PASSED",
+        "mixed_evidence": False,
+    }
+
+
 def native_cases(started_epoch: float) -> tuple[dict[str, object], set[str]]:
     raw = OUT / "raw"
     paths = sorted(raw.rglob("TEST-*.xml")) if raw.is_dir() else []
@@ -97,6 +120,8 @@ def main() -> int:
         "status": "FAILED_TEST_SYSTEM",
         "test_system_status": "FAILED",
         "product_status": "NOT_RUN",
+        "native_oracle_status": "NOT_RUN",
+        "mixed_evidence": False,
         "github_run_id": os.environ.get("GITHUB_RUN_ID"),
         "github_run_attempt": os.environ.get("GITHUB_RUN_ATTEMPT"),
     }
@@ -155,6 +180,12 @@ def main() -> int:
         summary["app_crash_in_full_logcat"] = app_crash
         cases, _ = native_cases(started)
         summary["native_cases"] = cases
+        failures = sum(case["failures"] for case in cases.values())
+        incomplete = any(case["skipped"] or case["errors"] for case in cases.values())
+        summary["native_oracle_failures"] = failures
+        summary["native_oracle_status"] = "INCOMPLETE" if incomplete else "FAILED" if failures else "PASSED"
+        if failures:
+            summary["product_status"] = "FAILED"
         summary["source_frozen_after"] = source_is_frozen(identity)
         summary["device_same_after"] = selected_emulator() == device
         gradle_text = (OUT / "gradle.log").read_text(encoding="utf-8", errors="replace")
@@ -162,22 +193,23 @@ def main() -> int:
             raise ValueError("source or emulator changed during diagnostic")
         if gradle_exit == 124 or "INSTRUMENTATION_FAILED" in gradle_text or "Failed to retrieve logcat" in gradle_text:
             raise ValueError("instrumentation or native logcat was incomplete")
-        if any(case["skipped"] or case["errors"] for case in cases.values()):
+        if incomplete:
             raise ValueError("native test skipped or errored")
-        failures = sum(case["failures"] for case in cases.values())
-        summary["native_oracle_failures"] = failures
         if signature_matches or app_crash:
+            summary.update(classify_observed_result(failures, test_system_defect=True))
             raise ValueError("registered Compose signature or app crash in continuous device logcat")
-        summary["test_system_status"] = "PASSED"
-        if failures:
-            summary.update({"status": "FAILED_PRODUCT_ORACLE", "product_status": "FAILED"})
-            return 1
-        if gradle_exit != 0:
+        if failures and gradle_exit not in (0, 1):
+            summary.update(classify_observed_result(failures, test_system_defect=True))
+            raise ValueError("unexpected Gradle exit despite native assertion evidence")
+        if not failures and gradle_exit != 0:
+            summary.update(classify_observed_result(failures, test_system_defect=True))
             raise ValueError("Gradle failed despite two passing native testcases")
-        summary.update({"status": "PASSED", "product_status": "PASSED"})
-        return 0
+        summary.update(classify_observed_result(failures, test_system_defect=False))
+        return 1 if failures else 0
     except (OSError, ValueError, subprocess.CalledProcessError, subprocess.TimeoutExpired) as error:
         summary["reason"] = str(error)
+        if summary["native_oracle_status"] == "FAILED":
+            summary["mixed_evidence"] = True
         print(f"FAILED_TEST_SYSTEM: {error}", file=sys.stderr, flush=True)
         return 2
     finally:
