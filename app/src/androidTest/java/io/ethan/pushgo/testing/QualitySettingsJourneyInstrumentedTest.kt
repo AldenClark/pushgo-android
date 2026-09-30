@@ -463,6 +463,17 @@ class QualitySettingsJourneyInstrumentedTest : QualityAppJourneyTestCase() {
                 "gateway after IME window gone", sheetDialogWindowState(),
             )
         }
+        val saveEnabledBeforeBack = runCatching {
+            composeRule.onNodeWithTag("action.settings.gateway.save").assertIsEnabled()
+        }.isSuccess
+        QualityUiFailureDiagnostics.logText(
+            "gateway before Sheet Back",
+            "saveEnabled=$saveEnabledBeforeBack, " +
+                "addressFocused=${nodeFocused("field.settings.gateway.address")}, " +
+                "tokenFocused=${nodeFocused("field.settings.gateway.token")}, " +
+                "saveFocused=${nodeFocused("action.settings.gateway.save")}, " +
+                sheetDialogWindowState(),
+        )
         device.pressBack()
         runCatching { waitForTagToDisappear("sheet.settings.gateway") }
             .onFailure {
@@ -1026,4 +1037,9 @@ class QualitySettingsJourneyInstrumentedTest : QualityAppJourneyTestCase() {
             "dialog root capture failed: ${failure.javaClass.simpleName}: ${failure.message}"
         }
     }
+
+    private fun nodeFocused(tag: String): Boolean? = runCatching {
+        composeRule.onNodeWithTag(tag, useUnmergedTree = true)
+            .fetchSemanticsNode().config[SemanticsProperties.Focused]
+    }.getOrNull()
 }

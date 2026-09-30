@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.provider.Settings
+import android.util.Log
 import android.widget.Toast
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.background
@@ -519,12 +520,20 @@ fun SettingsScreen(
         val sheetState = rememberModalBottomSheetState(
             skipPartiallyExpanded = true,
             confirmValueChange = { targetValue ->
+                if (targetValue == SheetValue.Hidden &&
+                    BuildConfig.DEBUG && QualityRuntime.currentSession() != null
+                ) {
+                    Log.d("PushGoGatewaySheet", "confirmHidden saving=${uiState.isSavingGateway}")
+                }
                 targetValue != SheetValue.Hidden || !uiState.isSavingGateway
             },
         )
         PushGoModalBottomSheet(
             modifier = Modifier.testTag("sheet.settings.gateway"),
             onDismissRequest = {
+                if (BuildConfig.DEBUG && QualityRuntime.currentSession() != null) {
+                    Log.d("PushGoGatewaySheet", "onDismissRequest saving=${uiState.isSavingGateway}")
+                }
                 // A candidate may already have a remote identity. Keep the
                 // editor visible until the active-Gateway transaction reaches
                 // its truthful terminal result rather than implying cancel.
