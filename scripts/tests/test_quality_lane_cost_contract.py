@@ -1,6 +1,8 @@
 import json
 import os
 import re
+import shutil
+import sys
 import subprocess
 import tempfile
 import textwrap
@@ -12,6 +14,30 @@ REPO = Path(__file__).resolve().parents[2]
 
 
 class QualityLaneCostContractTests(unittest.TestCase):
+    def test_permission_runner_stops_without_ripgrep_before_any_device_call(self):
+        script = REPO / "scripts/run_android_notification_permission_positive.sh"
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            tools = root / "bin"
+            tools.mkdir()
+            for command in ("dirname", "mkdir", "mktemp", "tr"):
+                (tools / command).symlink_to(shutil.which(command))
+            (tools / "python3").symlink_to(sys.executable)
+            marker = root / "adb-called.txt"
+            adb = tools / "adb"
+            adb.write_text('#!/bin/bash\nprintf touched > "$ADB_TOUCH_MARKER"\nexit 1\n')
+            adb.chmod(0o755)
+            process = subprocess.run(
+                ["/bin/bash", str(script)],
+                env={**os.environ, "PATH": str(tools), "ANDROID_SERIAL": "emulator-5554",
+                     "ADB_TOUCH_MARKER": str(marker), "QUALITY_RESULTS_ROOT": str(root / "results")},
+                capture_output=True, text=True,
+            )
+            self.assertEqual(2, process.returncode, process.stdout + process.stderr)
+            self.assertIn("status=BLOCKED", process.stdout)
+            self.assertIn("rg is unavailable before notification permission preparation", process.stdout)
+            self.assertFalse(marker.exists(), "missing parser must stop before device queries or mutation")
+
     def test_ci_host_routes_mapped_changes_to_host_pr_before_device_preparation(self) -> None:
         workflow = (REPO / ".github/workflows/android-quality.yml").read_text()
         host_plan = workflow.split("      - name: Plan changed capability evidence\n", 1)[1]

@@ -11,7 +11,9 @@ test_selector="$test_class#$test_method"
 permission="android.permission.POST_NOTIFICATIONS"
 adb_timeout_seconds="${QUALITY_ADB_TIMEOUT_SECONDS:-8}"
 adb_binary="$(command -v adb || true)"
-run_dir="$(mktemp -d "${TMPDIR:-/tmp}/pushgo-notification-permission.XXXXXX")"
+results_root="${QUALITY_RESULTS_ROOT:-$repo_root/build/quality-results}"
+mkdir -p "$results_root/android-notification-permission"
+run_dir="$(mktemp -d "$results_root/android-notification-permission/run.XXXXXX")"
 ui_dump="$run_dir/window.xml"
 device_ui_dump="/sdcard/pushgo-notification-permission.xml"
 lock_timeout_seconds="${QUALITY_ANDROID_DEVICE_LOCK_TIMEOUT_SECONDS:-15}"
@@ -152,6 +154,7 @@ release_device_lock() {
 [[ -n "$device_serial" ]] || blocked "ANDROID_SERIAL is required"
 [[ -n "$adb_binary" ]] || blocked "adb is unavailable"
 command -v python3 >/dev/null 2>&1 || blocked "python3 is unavailable"
+command -v rg >/dev/null 2>&1 || blocked "rg is unavailable before notification permission preparation"
 [[ "$adb_timeout_seconds" =~ ^[1-9][0-9]*$ ]] || \
   blocked "QUALITY_ADB_TIMEOUT_SECONDS must be a positive integer"
 [[ "$lock_timeout_seconds" =~ ^[1-9][0-9]*$ ]] || \
@@ -217,7 +220,8 @@ cleanup() {
     adb_with_timeout -s "$device_serial" shell rm -f "$device_ui_dump" >/dev/null 2>&1 || true
     release_device_lock
   fi
-  rm -rf "$run_dir"
+  printf '%s\n' "$status" > "$run_dir/exit-status.txt"
+  echo "evidence_dir=$run_dir"
   exit "$status"
 }
 trap cleanup EXIT

@@ -186,6 +186,13 @@ jobs:
               ;;
           esac
 
+      - name: Install existing device-script tools
+        if: env.QUALITY_SKIP_DEVICE != '1'
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends --yes ripgrep
+          rg --version
+
       - name: Enable KVM
         if: env.QUALITY_SKIP_DEVICE != '1'
         shell: bash
@@ -265,6 +272,7 @@ jobs:
             app/src/release/generated/baselineProfiles/
             build/quality-results/*.log
             build/quality-results/android-preparation-contract/
+            build/quality-results/android-notification-permission/
             build/quality-results/*.json
             !build/quality-results/*-summary.json
 
