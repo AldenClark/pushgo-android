@@ -135,6 +135,20 @@ jobs:
           retention-days: 21
           path: build/quality-results/*-summary.json
 
+      - name: Upload verified unsigned Release APKs
+        if: success() && env.QUALITY_LANE == 'release-isolation'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: android-unsigned-release-isolation-${{ github.run_id }}-${{ github.run_attempt }}
+          if-no-files-found: error
+          retention-days: 21
+          path: |
+            app/build/outputs/apk/release/*.apk
+            app/build/outputs/apk/release/output-metadata.json
+            build/quality-results/android-release-isolation/unsigned-apk-matrix.json
+            build/quality-results/android-release-isolation/assemble-release.log
+            build/quality-results/android-release-isolation/verify-performance-contract.log
+
   device-regression:
     if: github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref == 'refs/heads/main') || github.event_name == 'schedule' || startsWith(github.ref, 'refs/tags/') || (github.event_name == 'workflow_dispatch' && inputs.lane != 'pr' && inputs.lane != 'release-isolation')
     runs-on: ubuntu-latest

@@ -632,6 +632,11 @@ run_release_isolation_checks() {
   mkdir -p "$isolation_root"
   "$repo_root/gradlew" :app:assembleRelease --console=plain 2>&1 | tee "$build_log"
   python3 "$repo_root/scripts/verify_android_performance_contract.py" 2>&1 | tee "$contract_log"
+  if [[ "$lane" == "release-isolation" ]]; then
+    python3 "$repo_root/scripts/verify_android_unsigned_release_apks.py" \
+      --not-before "$lane_started_at_epoch" \
+      --output "$isolation_root/unsigned-apk-matrix.json"
+  fi
 }
 
 run_release_isolation() {

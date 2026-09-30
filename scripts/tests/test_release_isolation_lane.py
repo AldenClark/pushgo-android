@@ -12,6 +12,7 @@ class AndroidReleaseIsolationLaneTests(unittest.TestCase):
         helper = runner.split("run_release_isolation_checks() {", 1)[1].split("\n}\n", 1)[0]
         self.assertIn(":app:assembleRelease", helper)
         self.assertIn("verify_android_performance_contract.py", helper)
+        self.assertIn("verify_android_unsigned_release_apks.py", helper)
         for forbidden in (
             "adb",
             "connectedDebugAndroidTest",
