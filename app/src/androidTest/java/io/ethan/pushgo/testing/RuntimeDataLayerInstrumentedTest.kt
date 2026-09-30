@@ -403,6 +403,112 @@ class RuntimeDataLayerInstrumentedTest {
     }
 
     @Test
+    fun canonicalBatchWriteFailureRollsBackRowsCountsAndDeliveryClaimsAcrossReopen() = runBlocking {
+        // Purpose: a storage-side failure after one canonical batch row has
+        // been written must be explicit and atomic, including delivery claims.
+        // Real Room/SQLite and reopen are required; a JVM mock cannot prove
+        // transaction/WAL durability. Three messages keep this below the cost
+        // of a UI journey (expected native runtime: a few seconds).
+        val db = openFreshDatabase().database
+        val messages = messageRepository(db)
+        val sentinel = generatedMessage(
+            index = 9_101,
+            messageId = "canonical-write-sentinel",
+            title = "Canonical write sentinel",
+            body = "The existing message survives a failed batch.",
+            isRead = false,
+        )
+        assertTrue(messages.insertIncoming(sentinel))
+        val batch = listOf(
+            generatedMessage(
+                index = 9_102,
+                messageId = "canonical-batch-first",
+                title = "Canonical batch first",
+                body = "The first attempted row must roll back.",
+                isRead = false,
+            ),
+            generatedMessage(
+                index = 9_103,
+                messageId = "canonical-batch-second",
+                title = "Canonical batch second",
+                body = "The rejected row must not become partial data.",
+                isRead = true,
+            ),
+        )
+        val originalRevision = messages.currentStoreRevision()
+        val firstLocalId = batch.first().id.replace("'", "''")
+        val rejectedLocalId = batch.last().id.replace("'", "''")
+        val faultMessage = "injected canonical batch write failure"
+        db.openHelper.writableDatabase.execSQL(
+            """
+            CREATE TRIGGER fail_quality_canonical_batch_write
+            BEFORE INSERT ON messages
+            WHEN NEW.id = '$rejectedLocalId'
+              AND EXISTS (SELECT 1 FROM messages WHERE id = '$firstLocalId')
+            BEGIN SELECT RAISE(ABORT, '$faultMessage'); END
+            """.trimIndent()
+        )
+
+        val failure = runCatching { messages.insertAll(batch) }.exceptionOrNull()
+        assertNotNull("The real canonical write fault must be reported.", failure)
+        assertTrue(
+            "The failure must come from the calibrated storage trigger.",
+            generateSequence(failure) { it.cause }.any { it.message?.contains(faultMessage) == true },
+        )
+        assertEquals(1, messages.totalCount())
+        assertEquals(1, messages.unreadCount())
+        assertEquals(originalRevision, messages.currentStoreRevision())
+        batch.forEach { message ->
+            assertTrue("No attempted batch row may survive rollback.", messages.getById(message.id) == null)
+        }
+        assertEquals(sentinel.body, checkNotNull(messages.getById(sentinel.id)).body)
+
+        db.close()
+        val reopenedDb = openExistingDatabase().database
+        val reopened = messageRepository(reopenedDb)
+        assertEquals(1, reopened.totalCount())
+        assertEquals(1, reopened.unreadCount())
+        assertEquals(originalRevision, reopened.currentStoreRevision())
+        assertEquals(
+            setOf(sentinel.messageId),
+            loadMessagePage(reopenedDb, MessageFilter(), pageSize = PAGE_SIZE)
+                .data.map { it.messageId }.toSet(),
+        )
+        assertEquals(sentinel.title, checkNotNull(reopened.getById(sentinel.id)).title)
+        assertEquals(sentinel.body, checkNotNull(reopened.getById(sentinel.id)).body)
+        reopenedDb.openHelper.writableDatabase.execSQL("DROP TRIGGER fail_quality_canonical_batch_write")
+
+        // Retry the exact delivery/operation identities. Claims from the failed
+        // transaction must not suppress either canonical message on recovery.
+        reopened.insertAll(batch)
+        assertEquals(3, reopened.totalCount())
+        assertEquals(2, reopened.unreadCount())
+        batch.forEach { expected ->
+            val persisted = checkNotNull(reopened.getById(expected.id))
+            assertEquals(expected.messageId, persisted.messageId)
+            assertEquals(expected.title, persisted.title)
+            assertEquals(expected.body, persisted.body)
+            assertEquals(expected.isRead, persisted.isRead)
+        }
+        reopened.insertAll(batch)
+        assertEquals(3, reopened.totalCount())
+        assertEquals(2, reopened.unreadCount())
+        reopenedDb.close()
+        val recoveredDb = openExistingDatabase().database
+        val recovered = messageRepository(recoveredDb)
+        assertEquals(3, recovered.totalCount())
+        assertEquals(2, recovered.unreadCount())
+        assertEquals(
+            (listOf(sentinel) + batch).map { it.messageId }.toSet(),
+            loadMessagePage(recoveredDb, MessageFilter(), pageSize = PAGE_SIZE)
+                .data.map { it.messageId }.toSet(),
+        )
+        batch.forEach { expected ->
+            assertEquals(expected.body, checkNotNull(recovered.getById(expected.id)).body)
+        }
+    }
+
+    @Test
     fun canonicalMessageSurvivesDerivedIndexWriteFailureAndRepairsBeforeSearch() = runBlocking {
         val db = openFreshDatabase().database
         val messages = messageRepository(db)
