@@ -1,0 +1,58 @@
+{
+  "native_campaign_summary": {
+    "allowed_retries": 0,
+    "campaign_app_crash": false,
+    "campaign_logcat_bytes": 107427950,
+    "campaign_logcat_sha256": "96d08875072ace84c067450be4030b6bcda62e7f003e9141f537e5784ec2c94d",
+    "campaign_signature_matches": 0,
+    "classes_per_round": 4,
+    "completed_rounds": 13,
+    "consecutive_passed_classes": 52,
+    "device": {
+      "abi": "x86_64",
+      "api_level": "35",
+      "serial": "emulator-5554"
+    },
+    "exit_criteria_met": true,
+    "github_run_attempt": "1",
+    "github_run_id": "36748932537",
+    "required_consecutive_classes": 50,
+    "required_native_tests_per_round": 34,
+    "scheduled_rounds": 13,
+    "source_identity": {
+      "commit": "d34747202c1d5384770fbbe6837997be69a85c61",
+      "production_paths": {
+        "app/build.gradle.kts": "6dc59c02c63dc4c7e05c627adb3df9ef3b9d2751",
+        "app/src/androidTest": "f25cd8e72322fddd213ffc5fd940089ad1a355c5",
+        "app/src/main": "a300245b911af89f885833537a9dd5909e6700a0",
+        "gradle.properties": "209f3ee35e9fc00b7ca1861d8af190bdafdaa04b",
+        "native/quinn-jni": "4d5a43ef20766efcd9dab6ac4696338e7e5277fe"
+      },
+      "production_sha256": "1d6b4fa18f20074a47d7d56cdc8652a871edd8da71ab601b54cb10ca3ea22b65",
+      "source_tree": "5833cf4fe187f59de73c84cc4b73a338b7f9db04"
+    },
+    "status": "PASSED"
+  },
+  "root_raw_review": {
+    "source_sha": "d34747202c1d5384770fbbe6837997be69a85c61",
+    "github_run_id": "36748932537",
+    "status": "PASS",
+    "native_methods": 442,
+    "consecutive_classes": 52,
+    "rounds": 13,
+    "failures": 0,
+    "errors": 0,
+    "skips": 0,
+    "signature_matches": 0,
+    "app_crash": false,
+    "source_device_frozen": true,
+    "raw_files_hash_checked": 611,
+    "whole_logcat_bytes_hash_checked": 107427950,
+    "same_34_unique_methods_each_round": true,
+    "limits": "Controlled API35 emulator stability exit only; no physical/provider/distribution signing claim."
+  },
+  "raw_evidence_local_directory": "/Users/ethan/Repo/PushGo/pushgo-android/build/quality-results/android-compose-flake-exit-d347-20261001",
+  "ci_artifact": "android-compose-flake-exit-36748932537-1",
+  "historical_failure_preserved": "android-compose-flake-exit-b39e-20260930",
+  "claim": "Only the existing controlled-emulator classification exit is satisfied. Raw files remain preserved locally and in the referenced CI artifact."
+}

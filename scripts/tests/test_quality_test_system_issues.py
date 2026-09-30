@@ -32,6 +32,8 @@ class QualityTestSystemIssueTests(unittest.TestCase):
     def test_expired_active_flake_is_rejected(self):
         registry = copy.deepcopy(self.registry)
         flake = next(issue for issue in registry["issues"] if issue["kind"] == "flake")
+        # Exercise the active-flake policy even after the real issue is resolved.
+        flake["status"] = "active"
         flake["expires_on"] = "2026-08-27"
 
         with self.assertRaisesRegex(ValueError, "expired"):
@@ -40,6 +42,8 @@ class QualityTestSystemIssueTests(unittest.TestCase):
     def test_active_flake_cannot_be_renewed_beyond_fourteen_days(self):
         registry = copy.deepcopy(self.registry)
         flake = next(issue for issue in registry["issues"] if issue["kind"] == "flake")
+        # Exercise the active-flake policy even after the real issue is resolved.
+        flake["status"] = "active"
         flake["expires_on"] = "2026-09-12"
 
         with self.assertRaisesRegex(ValueError, "exceeds 14 days"):

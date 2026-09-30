@@ -9,29 +9,47 @@
       "owner": "android-quality-runtime",
       "opened_on": "2026-08-28",
       "last_seen_on": "2026-08-28",
-      "scope": ["Explicit QUALITY_PRECONDITION failures before product evidence begins"],
-      "signatures": ["QUALITY_PRECONDITION"],
+      "scope": [
+        "Explicit QUALITY_PRECONDITION failures before product evidence begins"
+      ],
+      "signatures": [
+        "QUALITY_PRECONDITION"
+      ],
       "allowed_retries": 0,
       "quarantined": false,
       "rationale": "This is a permanent attribution boundary, not a waiver: permission, session, device, or fixture preparation must stop before payload injection and cannot become product green.",
       "exit_criteria": "Keep the category while App-owned preparation exists; fix each concrete precondition failure at its source and never retry it as a product assertion.",
-      "evidence": ["app/src/androidTest/java/io/ethan/pushgo/testing/NotificationPermissionTestSupport.kt", "scripts/classify_android_test_failure.py"]
+      "evidence": [
+        "app/src/androidTest/java/io/ethan/pushgo/testing/NotificationPermissionTestSupport.kt",
+        "scripts/classify_android_test_failure.py"
+      ]
     },
     {
       "id": "android-compose-snapshot-observer-runtime",
       "kind": "flake",
-      "status": "active",
+      "status": "resolved",
       "owner": "android-ui-quality-runtime",
       "opened_on": "2026-08-28",
       "last_seen_on": "2026-08-28",
       "expires_on": "2026-09-11",
-      "scope": ["AndroidX Compose device-test drawing runtime after individual product journeys may already have completed"],
-      "signatures": ["Detected multithreaded access to SnapshotStateObserver"],
+      "scope": [
+        "AndroidX Compose device-test drawing runtime after individual product journeys may already have completed"
+      ],
+      "signatures": [
+        "Detected multithreaded access to SnapshotStateObserver"
+      ],
       "allowed_retries": 0,
       "quarantined": false,
       "rationale": "The aggregate run is NOT RUN/FAILED_TEST_SYSTEM only when every current XML failure has this exact runtime signature; mixed product assertions remain product FAILED.",
       "exit_criteria": "Remove the classification after 50 consecutive controlled-emulator device classes without the signature or after upgrading to a verified AndroidX Compose runtime that eliminates it.",
-      "evidence": ["build/quality-results/android-focused-summary.json", "scripts/classify_android_test_failure.py"]
+      "evidence": [
+        "build/quality-results/android-focused-summary.json",
+        "scripts/classify_android_test_failure.py",
+        "docs/quality/evidence/android-compose-exit-d347-20261001.json",
+        "https://github.com/AldenClark/pushgo-android/actions/runs/36748932537"
+      ],
+      "resolved_on": "2026-10-01",
+      "resolution": "Existing 50-class exit criterion met on frozen d347472: 13 rounds / 52 consecutive controlled API35 x86_64 device classes / 442 native methods, zero failures, errors, skips, registered signatures or App crashes, no retries. This retires the classification; it does not assert an upstream cause or physical-device acceptance."
     }
   ]
 }
