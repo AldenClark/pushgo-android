@@ -74,6 +74,9 @@ class QualityNotificationPermissionJourneyInstrumentedTest {
         composeRule.onNodeWithTag("banner.settings.notifications_disabled").assertDoesNotExist()
 
         val device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
+        composeRule.onNodeWithTag("screen.settings.content")
+            .assertIsDisplayed()
+            .performScrollToNode(hasTestTag("row.settings.system_notification_settings"))
         composeRule.onNodeWithTag("row.settings.system_notification_settings")
             .performScrollTo()
             .assertIsDisplayed()
