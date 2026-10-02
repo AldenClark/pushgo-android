@@ -799,6 +799,7 @@ class QualitySettingsJourneyInstrumentedTest : QualityAppJourneyTestCase() {
         val expectedKey = ByteArray(32) { 0x35 }
         val validKey = Base64.getEncoder().encodeToString(expectedKey)
         composeRule.onNodeWithTag("field.settings.decryption.key").performTextInput(validKey)
+        awaitDialogInputWindowBeforeTouch("action.settings.decryption.save")
         composeRule.onNodeWithTag("action.settings.decryption.save").performClick()
 
         waitForTag("feedback.settings.decryption")
@@ -813,6 +814,7 @@ class QualitySettingsJourneyInstrumentedTest : QualityAppJourneyTestCase() {
             .assertTextContains(app.getString(io.ethan.pushgo.R.string.label_decryption_not_configured))
             .performClick()
         composeRule.onNodeWithTag("field.settings.decryption.key").performTextInput(validKey)
+        awaitDialogInputWindowBeforeTouch("action.settings.decryption.save")
         composeRule.onNodeWithTag("action.settings.decryption.save").performClick()
         waitForTagToDisappear("sheet.settings.decryption")
         composeRule.onNodeWithTag("row.settings.decryption")
@@ -1050,6 +1052,25 @@ class QualitySettingsJourneyInstrumentedTest : QualityAppJourneyTestCase() {
         composeRule.onNodeWithTag("feedback.settings.gateway")
             .performScrollTo()
             .assertIsDisplayed()
+    }
+
+    private fun awaitDialogInputWindowBeforeTouch(actionTag: String) {
+        val action = composeRule.onNodeWithTag(actionTag)
+        val startupBounds = action.fetchSemanticsNode().boundsInWindow
+        composeRule.waitUntil(timeoutMillis = 5_000) {
+            var keyboardVisible = false
+            onView(isRoot()).inRoot(isDialog()).check { root, _ ->
+                keyboardVisible = ViewCompat.getRootWindowInsets(root)
+                    ?.isVisible(WindowInsetsCompat.Type.ime()) == true
+            }
+            keyboardVisible
+        }
+        UiDevice.getInstance(InstrumentationRegistry.getInstrumentation()).waitForIdle(5_000)
+        QualityUiFailureDiagnostics.logText(
+            "dialog before touch",
+            "${sheetDialogWindowState()}, startupBounds=$startupBounds, " +
+                "settledBounds=${action.fetchSemanticsNode().boundsInWindow}",
+        )
     }
 
     private fun waitForTag(tag: String, timeoutMillis: Long = 8_000) {
