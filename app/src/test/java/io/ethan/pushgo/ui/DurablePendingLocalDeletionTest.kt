@@ -11,11 +11,14 @@ import io.ethan.pushgo.notifications.privateTransportFailure
 import java.io.IOException
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.atomic.AtomicLong
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
@@ -25,6 +28,77 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class DurablePendingLocalDeletionTest {
+    @Test
+    fun undoCannotCancelAfterTheExactDeadlineWhenDrainIsDelayed() = runBlocking {
+        for (tapAt in listOf(6_000L, 6_001L)) {
+            val clock = AtomicLong(1_000L)
+            val repository = InMemoryPendingLocalDeletionRepository()
+            val executions = CopyOnWriteArrayList<PendingLocalDeletionOperation>()
+            val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+            try {
+                val coordinator = PendingLocalDeletionCoordinator(
+                    appScope = scope,
+                    repository = repository,
+                    operationExecutor = PendingLocalDeletionExecutor { executions += it },
+                    countdownMillis = 5_000L,
+                    wallClockEpochMillis = clock::get,
+                    elapsedRealtimeMillis = clock::get,
+                    completionDispatcher = Dispatchers.Unconfined,
+                )
+                coordinator.schedule(
+                    summary = "event",
+                    operation = PendingLocalDeletionOperation.events(setOf("e1")),
+                )
+                val id = repository.loadActive().single().id
+                clock.set(tapAt)
+
+                coordinator.undoCurrent()
+
+                assertTrue(
+                    repository.loadActive().any { it.id == id } ||
+                        executions.contains(PendingLocalDeletionOperation.events(setOf("e1")))
+                )
+                assertEquals(null, coordinator.pendingDeletion.value)
+            } finally {
+                scope.cancel()
+            }
+        }
+    }
+
+    @Test
+    fun undoAndForceClaimCannotBothWinTheSamePendingRecord() = runBlocking {
+        repeat(64) {
+            val repository = InMemoryPendingLocalDeletionRepository()
+            val record = repository.enqueue(
+                summary = "event",
+                operation = PendingLocalDeletionOperation.events(setOf("e1")),
+                requestedAtEpochMillis = 1_000L,
+                undoWindowMillis = 5_000L,
+            )
+            coroutineScope {
+                val start = CompletableDeferred<Unit>()
+                val undo = async(Dispatchers.Default) {
+                    start.await()
+                    repository.cancelPending(record.id, nowEpochMillis = 1_001L)
+                }
+                val claim = async(Dispatchers.Default) {
+                    start.await()
+                    repository.claim(record.id, nowEpochMillis = 1_001L, force = true)
+                }
+                start.complete(Unit)
+                val cancelled = undo.await()
+                val claimed = claim.await()
+                assertTrue(cancelled xor (claimed != null))
+                val remaining = repository.loadActive()
+                if (cancelled) {
+                    assertTrue(remaining.isEmpty())
+                } else {
+                    assertEquals(PendingLocalDeletionState.COMMITTING, remaining.single().state)
+                }
+            }
+        }
+    }
+
     @Test
     fun firstClaimPermanentlyConsumesUndoCapability() = runBlocking {
         val repository = InMemoryPendingLocalDeletionRepository()
@@ -51,7 +125,7 @@ class DurablePendingLocalDeletionTest {
         assertEquals(PendingLocalDeletionState.PENDING, retry.state)
         assertEquals(1, retry.attemptCount)
         assertFalse(retry.isUndoable)
-        assertFalse(repository.cancelPending(record.id))
+        assertFalse(repository.cancelPending(record.id, nowEpochMillis = 1_100L))
     }
 
     @Test

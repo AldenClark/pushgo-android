@@ -1,5 +1,8 @@
 <resources>
     <string name="app_name">PushGo</string>
+    <string name="label_local_storage_unavailable">本機資料庫無法使用</string>
+    <string name="label_local_storage_unavailable_safety">為防止資料損壞，應用程式已停止讀寫。</string>
+    <string name="action_exit_app">結束應用程式</string>
     <string name="tab_messages">訊息</string>
     <string name="tab_settings">設定</string>
     <string name="action_mark_all_read">全部標示為已讀</string>
@@ -80,6 +83,10 @@
     <string name="label_no_title">(無標題)</string>
     <string name="label_group_ungrouped">未分組</string>
     <string name="label_loading">載入中…</string>
+    <string name="message_loading_slow">訊息仍在載入，請稍候…</string>
+    <string name="message_load_failed">無法載入訊息，請重試。</string>
+    <string name="message_refresh_failed">重新整理失敗，請重試。</string>
+    <string name="action_retry">重試</string>
     <string name="section_connection_device">連線與裝置</string><string name="section_channels">頻道</string>
     <string name="section_decryption">訊息解密</string>
     <string name="section_security">安全</string>
@@ -105,6 +112,8 @@
     <string name="label_skip_for_one_month">暫時忽略</string>
     <string name="label_update_install_manual_continue">手動繼續安裝</string>
     <string name="message_gateway_saved">網關已儲存</string>
+    <string name="message_gateway_saved_sync_pending">網關已切換，頻道同步待完成，稍後會自動重試。</string>
+    <string name="message_gateway_saved_recovery_pending">網關已切換，通知設定待完成，請稍後重試。</string>
     <string name="message_decryption_saved">解密設定已儲存</string><string name="message_channel_created_and_subscribed">頻道已建立並訂閱</string>
     <string name="message_channel_subscribed">頻道已訂閱</string>
     <string name="message_channel_renamed">頻道已重新命名</string>
@@ -291,8 +300,19 @@
     <string name="label_notification_settings_hint">開啟系統中的 PushGo 通知設定。</string>
     <string name="label_notification_transport_gateway_private_disabled_hint">網關私有通道已關閉。此網關下 Android 只能使用 FCM。</string>
     <string name="label_notification_transport_unavailable_hint">網關私有通道已關閉，且此裝置不支援 FCM。推送不可用。</string>
+    <string name="error_notification_transport_switch_failed">無法切換到私有通道，FCM 仍保持啟用，請重試。</string>
+    <string name="message_notification_transport_recovering">正在確認通道切換結果，恢復完成後會更新目前通道；必要時可重試。</string>
+    <string name="error_notification_transport_private_compensation_failed">無法切換到私有通道，且清理未能完成。目前仍選擇 FCM，但推送可能中斷，請重新開啟設定後再試。</string>
+    <string name="error_notification_transport_fcm_switch_failed">無法切換到 FCM，私有通道仍保持啟用，請重試。</string>
+    <string name="error_notification_transport_fcm_compensation_failed">無法切換到 FCM，且清理未能完成。目前仍選擇私有通道，但推送可能重複，請重新開啟設定後再試。</string>
     <string name="message_image_saved">圖片已儲存到相簿。</string>
     <string name="message_show_unread_only">只顯示未讀</string>
+    <plurals name="message_notification_group_summary">
+        <item quantity="other">%1$d 則訊息通知</item>
+    </plurals>
+    <plurals name="entity_notification_group_summary">
+        <item quantity="other">%1$d 則事件或物件通知</item>
+    </plurals>
     <string name="message_text_copied">內容已複製。</string>
     <string name="a11y_value_empty">空白</string>
     <string name="a11y_state_on">開啟</string>
@@ -334,4 +354,9 @@
     <string name="label_docs_e2ee_hint">了解資料加密和客戶端解密金鑰設定。</string>
     <string name="a11y_open_documentation">%1$s。%2$s 將在瀏覽器中開啟。</string>
     <string name="error_open_documentation">無法開啟文件。</string>
+    <string name="channel_stats_empty">暫無訊息</string>
+    <string name="channel_stats_loading">正在載入動態…</string>
+    <string name="channel_stats_no_recent">暫無最近訊息</string>
+    <string name="channel_stats_summary">%1$d 則訊息 · %2$d 則未讀 · 最近 %3$s</string>
+    <string name="channel_stats_unavailable">動態暫不可用</string>
 </resources>

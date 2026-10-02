@@ -25,8 +25,10 @@ import io.ethan.pushgo.data.db.ThingSubMessageEntity
 import io.ethan.pushgo.data.model.MessageChannelCount
 import io.ethan.pushgo.data.model.MessageFacetOptionCount
 import io.ethan.pushgo.data.model.MessageFilter
+import io.ethan.pushgo.data.model.DecryptionState
 import io.ethan.pushgo.data.model.MessageListItem
 import io.ethan.pushgo.data.model.PushMessage
+import io.ethan.pushgo.testing.QualityRuntime
 import io.ethan.pushgo.util.SearchTextNormalizer
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -39,6 +41,49 @@ import kotlinx.coroutines.sync.withLock
 import org.json.JSONObject
 import java.util.Locale
 import java.util.concurrent.atomic.AtomicLong
+
+private val ENCRYPTED_RECOVERY_PROVENANCE_FIELDS = listOf(
+    "ciphertext",
+    "_pushgo_recovery_title_ciphertext",
+    "_pushgo_recovery_body_ciphertext",
+    "entity_type",
+    "entity_id",
+    "event_id",
+    "thing_id",
+    "event_state",
+    "event_time",
+    "observed_at",
+    "occurred_at",
+    "message_id",
+    "delivery_id",
+    "op_id",
+    "channel_id",
+    "server_id",
+    "base_url",
+    "provider_device_key",
+    "severity",
+    "ttl",
+    "sent_at",
+)
+
+internal fun hasSameEncryptedRecoveryProvenance(
+    existing: PushMessage,
+    replay: PushMessage,
+): Boolean {
+    fun provenance(rawPayloadJson: String): Map<String, String>? {
+        val payload = runCatching { JSONObject(rawPayloadJson) }.getOrNull() ?: return null
+        val encrypted = listOf(
+            "ciphertext",
+            "_pushgo_recovery_title_ciphertext",
+            "_pushgo_recovery_body_ciphertext",
+        ).any { key -> payload.optString(key, "").isNotBlank() }
+        if (!encrypted) return null
+        return ENCRYPTED_RECOVERY_PROVENANCE_FIELDS.associateWith { key ->
+            if (payload.has(key) && !payload.isNull(key)) payload.optString(key, "") else ""
+        }
+    }
+    return provenance(existing.rawPayloadJson)?.let { it == provenance(replay.rawPayloadJson) } == true
+}
 
 private const val SQLITE_BIND_PARAMETER_CHUNK_SIZE = 900
 private const val SQLITE_SEARCH_BIND_PARAMETER_BUDGET = SQLITE_BIND_PARAMETER_CHUNK_SIZE
@@ -61,6 +106,8 @@ class MessageRepository(
     private var searchIndexReady = false
     @Volatile
     private var summaryProjectionReady = false
+
+    suspend fun currentStoreRevision(): Long = channelStatsDao.storeRevision()
 
     private companion object {
         private const val TAG_METADATA_BACKFILL_PREFS = "pushgo_message_search_maintenance"
@@ -111,7 +158,7 @@ class MessageRepository(
                 initialLoadSize = 50
             ),
             pagingSourceFactory = {
-                dao.observeMessages(
+                val source = dao.observeMessages(
                     readState = if (filter.unreadOnly) false else null,
                     withUrl = if (filter.withUrlOnly) 1 else 0,
                     channels = filter.channels.toList(),
@@ -123,6 +170,8 @@ class MessageRepository(
                     excludedIds = normalizedExcludedIds,
                     excludedCount = normalizedExcludedIds.size,
                 )
+                if (QualityRuntime.currentSession() == null) source
+                else QualityFaultPagingSource(source)
             }
         ).flow.map { pagingData ->
             pagingData.map(MessageListRow::asListItem)
@@ -140,7 +189,8 @@ class MessageRepository(
         if (plan.isEmpty) {
             return kotlinx.coroutines.flow.flowOf(PagingData.empty())
         }
-        val normalizedChannels = channels.map(String::trim).filter(String::isNotEmpty).distinct()
+        // Empty is the canonical key for the user-visible "Ungrouped" facet.
+        val normalizedChannels = channels.map(String::trim).distinct()
         val normalizedFacetTags = facetTags.map { it.trim().lowercase(Locale.ROOT) }
             .filter(String::isNotEmpty)
             .distinct()
@@ -152,7 +202,15 @@ class MessageRepository(
         val pagingFlow = Pager(
             config = PagingConfig(pageSize = 50, enablePlaceholders = false, initialLoadSize = 50),
             pagingSourceFactory = {
-                searchPagingSource(plan, readState, normalizedExcludedIds, normalizedChannels, normalizedFacetTags)
+                val source = searchPagingSource(
+                    plan,
+                    readState,
+                    normalizedExcludedIds,
+                    normalizedChannels,
+                    normalizedFacetTags,
+                )
+                if (QualityRuntime.currentSession() == null) source
+                else QualityFaultPagingSource(source) { QualityRuntime.beforeMessageSearchLoad() }
             },
         ).flow.map { pagingData -> pagingData.map(MessageListRow::asListItem) }
         return flow {
@@ -316,6 +374,68 @@ class MessageRepository(
 
     suspend fun loadAllForExport(): List<PushMessage> = dao.loadAllForExport().map(MessageEntity::asModel)
 
+    suspend fun loadEncryptedRecoveryCandidates(): List<PushMessage> =
+        dao.loadEncryptedRecoveryCandidates().map(MessageEntity::asModel)
+
+    suspend fun replaceEncryptedRecoveryCandidate(
+        existingId: String,
+        reparsed: PushMessage,
+    ): Boolean {
+        var committedReplacement: Pair<String, PushMessage>? = null
+        val replaced = database.withTransaction {
+            val existingEntity = dao.getById(existingId) ?: return@withTransaction false
+            if (existingEntity.decryptionState !in setOf(
+                DecryptionState.NOT_CONFIGURED.name,
+                DecryptionState.ALG_MISMATCH.name,
+                DecryptionState.DECRYPT_FAILED.name,
+            )
+            ) {
+                return@withTransaction false
+            }
+            val existing = existingEntity.asModel()
+            val stableMessageId = existing.messageId?.trim()?.takeIf(String::isNotEmpty)
+            if (stableMessageId == null || reparsed.messageId?.trim() != stableMessageId) {
+                return@withTransaction false
+            }
+            if (!hasSameEncryptedRecoveryProvenance(existing, reparsed)) {
+                return@withTransaction false
+            }
+            val replacement = reparsed.copy(
+                id = existing.id,
+                messageId = existing.messageId,
+                isRead = existing.isRead,
+                receivedAt = existing.receivedAt,
+                status = existing.status,
+                notificationId = existing.notificationId,
+                serverId = existing.serverId,
+            )
+            val replacementEntity = MessageEntity.fromModel(replacement)
+            val changed = existingEntity.title != replacementEntity.title ||
+                existingEntity.body != replacementEntity.body ||
+                existingEntity.channel != replacementEntity.channel ||
+                existingEntity.url != replacementEntity.url ||
+                existingEntity.rawPayloadJson != replacementEntity.rawPayloadJson ||
+                existingEntity.decryptionState != replacementEntity.decryptionState ||
+                existingEntity.bodyPreview != replacementEntity.bodyPreview
+            if (!changed) {
+                return@withTransaction false
+            }
+            if (dao.update(replacementEntity) != 1) {
+                return@withTransaction false
+            }
+            committedReplacement = existing.id to replacement
+            true
+        }
+        committedReplacement?.let { (messageId, replacement) ->
+            upsertRealtimeDerivedDataSafely(
+                messageId = messageId,
+                message = replacement,
+                updateListPayload = true,
+            )
+        }
+        return replaced
+    }
+
     suspend fun getIdsBefore(readState: Boolean?, cutoff: Long): List<String> {
         return dao.getIdsBefore(readState, cutoff)
     }
@@ -361,18 +481,24 @@ class MessageRepository(
         message: PushMessage,
         providerAckIdentity: ProviderAckIdentity? = null,
         deliveryScope: InboundDeliveryScope? = providerAckIdentity.inboundDeliveryScope(),
+        claimIngressIdentity: Boolean = true,
     ): Boolean {
         if (!isMessageEntity(message)) {
             return false
         }
         val canonicalMessage = canonicalMessage(message)
-        return database.withTransaction {
+        // The canonical message and its idempotency claims are durable user data.
+        // Keep the optional search/summary projections outside this transaction:
+        // a projection failure must mark those projections stale, never roll back
+        // a successfully accepted notification.
+        var committedTopLevel: Pair<String, PushMessage>? = null
+        val accepted = database.withTransaction {
             val deliveryClaimed = claimInboundDelivery(
                 inboundDeliveryLedgerDao = inboundDeliveryLedgerDao,
                 channelId = canonicalMessage.channel,
                 entityType = canonicalMessage.entityType,
                 entityId = operationScopeEntityId(canonicalMessage),
-                deliveryId = canonicalMessage.deliveryId,
+                deliveryId = canonicalMessage.deliveryId.takeIf { claimIngressIdentity },
                 opId = canonicalMessage.opId,
                 appliedAt = canonicalMessage.receivedAt.toEpochMilli(),
                 providerAckIdentity = providerAckIdentity,
@@ -386,8 +512,8 @@ class MessageRepository(
                 channelId = canonicalMessage.channel,
                 entityType = canonicalMessage.entityType,
                 entityId = operationScopeEntityId(canonicalMessage),
-                opId = canonicalMessage.opId,
-                deliveryId = canonicalMessage.deliveryId,
+                opId = canonicalMessage.opId.takeIf { claimIngressIdentity },
+                deliveryId = canonicalMessage.deliveryId.takeIf { claimIngressIdentity },
                 appliedAt = canonicalMessage.receivedAt.toEpochMilli(),
                 providerAckIdentity = providerAckIdentity,
                 deliveryScope = deliveryScope,
@@ -429,9 +555,16 @@ class MessageRepository(
             if (!inserted) {
                 return@withTransaction false
             }
-            upsertRealtimeDerivedDataSafely(entity.id, canonicalMessage)
+            committedTopLevel = entity.id to canonicalMessage
             true
         }
+        if (!accepted) {
+            return false
+        }
+        committedTopLevel?.let { (messageId, committedMessage) ->
+            upsertRealtimeDerivedDataSafely(messageId, committedMessage)
+        }
+        return true
     }
 
     suspend fun insert(message: PushMessage) {
@@ -439,6 +572,7 @@ class MessageRepository(
             return
         }
         val canonicalMessage = canonicalMessage(message)
+        var committedTopLevel: Pair<String, PushMessage>? = null
         database.withTransaction {
             val deliveryClaimed = claimInboundDelivery(
                 inboundDeliveryLedgerDao = inboundDeliveryLedgerDao,
@@ -499,12 +633,16 @@ class MessageRepository(
             if (!inserted) {
                 return@withTransaction
             }
-            upsertRealtimeDerivedDataSafely(entity.id, canonicalMessage)
+            committedTopLevel = entity.id to canonicalMessage
+        }
+        committedTopLevel?.let { (messageId, committedMessage) ->
+            upsertRealtimeDerivedDataSafely(messageId, committedMessage)
         }
     }
 
     suspend fun insertAll(messages: List<PushMessage>) {
         if (messages.isEmpty()) return
+        val committedTopLevel = mutableListOf<Pair<String, PushMessage>>()
         database.withTransaction {
             val topLevelMessages = mutableListOf<PushMessage>()
             val thingScopedMessages = mutableListOf<PushMessage>()
@@ -603,7 +741,7 @@ class MessageRepository(
                     if (!persisted) {
                         return@forEach
                     }
-                    upsertRealtimeDerivedDataSafely(entity.id, message)
+                    committedTopLevel += entity.id to message
                 }
             }
             if (thingScopedMessages.isNotEmpty()) {
@@ -658,6 +796,9 @@ class MessageRepository(
                 }
             }
         }
+        committedTopLevel.forEach { (messageId, committedMessage) ->
+            upsertRealtimeDerivedDataSafely(messageId, committedMessage)
+        }
     }
 
     suspend fun markRead(id: String) {
@@ -692,12 +833,16 @@ class MessageRepository(
     }
 
     suspend fun updateRawPayload(id: String, rawPayloadJson: String) {
+        var committedUpdate: PushMessage? = null
         database.withTransaction {
             val existing = dao.getById(id) ?: return@withTransaction
             dao.updateRawPayload(id, rawPayloadJson)
+            committedUpdate = existing.asModel().copy(rawPayloadJson = rawPayloadJson)
+        }
+        committedUpdate?.let { updatedMessage ->
             upsertRealtimeDerivedDataSafely(
                 messageId = id,
-                message = existing.asModel().copy(rawPayloadJson = rawPayloadJson),
+                message = updatedMessage,
                 updateListPayload = true,
             )
         }
@@ -856,14 +1001,20 @@ class MessageRepository(
         updateListPayload: Boolean = false,
     ) {
         try {
-            if (updateListPayload) {
-                metadataIndexDao.deleteSummaryProjectionMarker(messageId)
-                dao.updateListPayload(messageId, MessageEntity.buildListPayloadJson(message.rawPayloadJson))
+            // Keep the derived consumers atomic with one another, but separate
+            // from the canonical transaction. A partial projection must not be
+            // observable as a successful update, and a projection failure must
+            // never roll back the already-committed canonical row.
+            database.withTransaction {
+                if (updateListPayload) {
+                    metadataIndexDao.deleteSummaryProjectionMarker(messageId)
+                    dao.updateListPayload(messageId, MessageEntity.buildListPayloadJson(message.rawPayloadJson))
+                }
+                upsertMetadataIndex(messageId, message)
+                metadataIndexDao.insertAll(
+                    listOf(summaryProjectionMarker(messageId, message.receivedAt.toEpochMilli()))
+                )
             }
-            upsertMetadataIndex(messageId, message)
-            metadataIndexDao.insertAll(
-                listOf(summaryProjectionMarker(messageId, message.receivedAt.toEpochMilli()))
-            )
         } catch (error: CancellationException) {
             throw error
         } catch (error: Exception) {

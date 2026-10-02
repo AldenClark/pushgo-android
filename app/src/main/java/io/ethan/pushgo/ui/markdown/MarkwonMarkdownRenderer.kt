@@ -6,6 +6,7 @@ import android.os.LocaleList
 import android.text.Layout
 import android.text.Selection
 import android.text.Spannable
+import android.text.Spanned
 import android.text.method.LinkMovementMethod
 import android.graphics.text.LineBreaker
 import android.text.style.URLSpan
@@ -14,13 +15,20 @@ import android.view.MotionEvent
 import android.widget.TextView
 import androidx.appcompat.widget.AppCompatTextView
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalResources
+import androidx.compose.ui.semantics.SemanticsPropertyKey
+import androidx.compose.ui.semantics.SemanticsPropertyReceiver
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.viewinterop.AndroidView
 import coil3.imageLoader
+import io.ethan.pushgo.BuildConfig
 import io.noties.markwon.AbstractMarkwonPlugin
 import io.noties.markwon.Markwon
 import io.noties.markwon.LinkResolverDef
@@ -34,7 +42,19 @@ import io.noties.markwon.ext.tasklist.TaskListPlugin
 import io.noties.markwon.html.HtmlPlugin
 import io.noties.markwon.image.AsyncDrawableSpan
 import io.noties.markwon.linkify.LinkifyPlugin
+import io.ethan.pushgo.testing.QualityRuntime
 import io.ethan.pushgo.ui.theme.PushGoThemeExtras
+
+val MarkdownRenderedTextKey = SemanticsPropertyKey<String>("MarkdownRenderedText")
+val MarkdownRenderedSpanClassesKey = SemanticsPropertyKey<String>("MarkdownRenderedSpanClasses")
+
+private var SemanticsPropertyReceiver.markdownRenderedText by MarkdownRenderedTextKey
+private var SemanticsPropertyReceiver.markdownRenderedSpanClasses by MarkdownRenderedSpanClassesKey
+
+private data class MarkdownRenderEvidence(
+    val text: String = "",
+    val spanClasses: String = "",
+)
 
 @Composable
 fun SelectablePlainTextRenderer(
@@ -87,6 +107,8 @@ fun FullMarkdownRenderer(
     onOpenImage: ((String) -> Unit)? = null,
     onAnimatedImagePlay: (() -> Unit)? = null,
 ) {
+    val recordsRenderEvidence = BuildConfig.DEBUG && QualityRuntime.currentSession() != null
+    var renderEvidence by remember(text) { mutableStateOf(MarkdownRenderEvidence()) }
     val context = LocalContext.current
     val resources = LocalResources.current
     val uiColors = PushGoThemeExtras.colors
@@ -198,7 +220,16 @@ fun FullMarkdownRenderer(
     }
 
     AndroidView(
-        modifier = modifier,
+        modifier = modifier.then(
+            if (recordsRenderEvidence) {
+                Modifier.semantics {
+                    markdownRenderedText = renderEvidence.text
+                    markdownRenderedSpanClasses = renderEvidence.spanClasses
+                }
+            } else {
+                Modifier
+            }
+        ),
         factory = {
             AppCompatTextView(it).apply {
                 typeface = bodyTypeface
@@ -230,6 +261,23 @@ fun FullMarkdownRenderer(
             if (previousText != text) {
                 markwon.setMarkdown(textView, text)
                 textView.tag = text
+            }
+            if (recordsRenderEvidence) {
+                val rendered = textView.text
+                val spanClasses = (rendered as? Spanned)
+                    ?.getSpans(0, rendered.length, Any::class.java)
+                    ?.mapNotNull { it::class.simpleName }
+                    ?.distinct()
+                    ?.sorted()
+                    ?.joinToString(",")
+                    .orEmpty()
+                val nextEvidence = MarkdownRenderEvidence(
+                    text = rendered.toString(),
+                    spanClasses = spanClasses,
+                )
+                if (renderEvidence != nextEvidence) {
+                    renderEvidence = nextEvidence
+                }
             }
         },
     )

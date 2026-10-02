@@ -3,6 +3,7 @@ package io.ethan.pushgo.data
 import io.ethan.pushgo.data.model.ChannelSubscription
 import io.ethan.pushgo.data.db.ChannelSubscriptionDao
 import io.ethan.pushgo.data.db.ChannelSubscriptionEntity
+import io.ethan.pushgo.testing.QualityRuntime
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
@@ -42,6 +43,16 @@ class ChannelSubscriptionStore(
         return entities.map { it.asModel() }
     }
 
+    suspend fun loadSubscription(
+        gatewayUrl: String,
+        channelId: String,
+        includeDeleted: Boolean = false,
+    ): ChannelSubscription? {
+        val entity = dao.getById(gatewayUrl, channelId) ?: return null
+        if (!includeDeleted && entity.isDeleted) return null
+        return entity.asModel()
+    }
+
     suspend fun upsertSubscription(
         gatewayUrl: String,
         channelId: String,
@@ -61,12 +72,29 @@ class ChannelSubscriptionStore(
             deletedAt = null,
         )
         val normalizedPassword = password.trim().ifEmpty { null }
-        if (existing == null) {
-            dao.insert(record)
-        } else {
-            dao.update(record.copy(updatedAt = now))
+        val previousPassword = secretStore.channelPassword(gatewayUrl, channelId)
+        try {
+            // Commit the recoverable secret first. If Room then fails, restore the previous
+            // secret; never leave an active Room row whose required credential was not saved.
+            secretStore.setChannelPassword(gatewayUrl, channelId, normalizedPassword)
+            QualityRuntime.afterChannelSubscriptionSecretPersistence()
+            if (existing == null) {
+                dao.insert(record)
+            } else {
+                dao.update(record.copy(updatedAt = now))
+            }
+        } catch (commitError: Exception) {
+            try {
+                secretStore.setChannelPassword(gatewayUrl, channelId, previousPassword)
+            } catch (rollbackError: Exception) {
+                commitError.addSuppressed(rollbackError)
+                throw IllegalStateException(
+                    "Channel subscription commit failed and credential rollback failed",
+                    commitError,
+                )
+            }
+            throw commitError
         }
-        secretStore.setChannelPassword(gatewayUrl, channelId, normalizedPassword)
         return record.asModel()
     }
 

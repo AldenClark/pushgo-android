@@ -4,10 +4,16 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.provider.Settings
+import android.util.Log
 import android.widget.Toast
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.background
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.relocation.BringIntoViewRequester
+import androidx.compose.foundation.relocation.bringIntoViewRequester
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -33,6 +39,8 @@ import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.Lock
 import androidx.compose.material.icons.outlined.Memory
 import androidx.compose.material.icons.outlined.NotificationsActive
+import androidx.compose.material.icons.outlined.Visibility
+import androidx.compose.material.icons.outlined.VisibilityOff
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CardDefaults
@@ -49,6 +57,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SheetValue
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -63,6 +72,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -72,7 +82,10 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import io.ethan.pushgo.R
@@ -95,9 +108,9 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import io.ethan.pushgo.BuildConfig
 import io.ethan.pushgo.data.AppConstants
+import io.ethan.pushgo.testing.QualityRuntime
 import io.ethan.pushgo.update.UpdateCandidate
 import io.ethan.pushgo.update.UpdateInstallIntentLauncher
-import io.ethan.pushgo.util.FcmSupport
 import io.ethan.pushgo.util.isDozeReminderSnoozed
 import io.ethan.pushgo.util.isAppSubjectToBatteryOptimization
 import io.ethan.pushgo.util.openAppNotificationSettings
@@ -118,7 +131,7 @@ fun SettingsScreen(
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val uiColors = PushGoThemeExtras.colors
-    val fcmSupported = remember(context) { isFcmSupported(context) }
+    val fcmSupported = uiState.isFcmSupported
     var notificationsEnabled by remember { mutableStateOf(false) }
     var batteryOptimizationEnabled by remember { mutableStateOf(false) }
     var dozeReminderSnoozed by remember { mutableStateOf(false) }
@@ -134,6 +147,7 @@ fun SettingsScreen(
     )
     var showDecryptionSheet by remember { mutableStateOf(false) }
     var showGatewaySheet by remember { mutableStateOf(false) }
+    var showGatewayToken by remember { mutableStateOf(false) }
     val bottomGestureInset = rememberBottomGestureInset()
 
     fun refreshDeliveryRiskState() {
@@ -169,6 +183,10 @@ fun SettingsScreen(
     LaunchedEffect(uiState.errorMessage) {
         val message = uiState.errorMessage
         if (message != null) {
+            // Keep the presentation evidence after consumeError() clears the
+            // transient state. Gateway Sheet errors are intentionally rendered
+            // by GatewaySection and must never increment this host ledger.
+            QualityRuntime.recordGlobalErrorPresentation()
             val text = message.resolve(context)
             Toast.makeText(context, text, Toast.LENGTH_SHORT).show()
             announceForAccessibility(context, text)
@@ -178,8 +196,16 @@ fun SettingsScreen(
     LaunchedEffect(uiState.successMessage) {
         val message = uiState.successMessage
         if (message != null) {
-            if (message is io.ethan.pushgo.ui.viewmodel.ResMessage && message.resId == R.string.message_gateway_saved) {
+            if (
+                message is io.ethan.pushgo.ui.viewmodel.ResMessage &&
+                message.resId in setOf(
+                    R.string.message_gateway_saved,
+                    R.string.message_gateway_saved_sync_pending,
+                    R.string.message_gateway_saved_recovery_pending,
+                )
+            ) {
                 showGatewaySheet = false
+                showGatewayToken = false
             }
             val text = message.resolve(context)
             Toast.makeText(context, text, Toast.LENGTH_SHORT).show()
@@ -198,7 +224,7 @@ fun SettingsScreen(
     }
 
     Scaffold(
-        modifier = Modifier.testTag("screen.settings.content"),
+        modifier = Modifier.testTag("screen.settings"),
         topBar = {
             Column(
                 modifier = Modifier.background(uiColors.surfaceBase),
@@ -231,12 +257,14 @@ fun SettingsScreen(
             }
         },
     ) { scaffoldPadding ->
-        LazyColumn(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(scaffoldPadding),
-            contentPadding = PaddingValues(bottom = bottomGestureInset + 24.dp),
-        ) {
+        Box(modifier = Modifier.fillMaxSize()) {
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(scaffoldPadding)
+                    .testTag("screen.settings.content"),
+                contentPadding = PaddingValues(bottom = bottomGestureInset + 24.dp),
+            ) {
 
             if (!notificationsEnabled) {
                 item {
@@ -260,13 +288,17 @@ fun SettingsScreen(
                 SettingsSectionHeader(text = stringResource(R.string.section_connection_device))
             }
             item {
-                val gatewaySubtitle = uiState.gatewayAddress.ifBlank { AppConstants.defaultServerAddress }
+                val gatewaySubtitle = uiState.savedGatewayAddress.ifBlank { AppConstants.defaultServerAddress }
                 SettingsRow(
                     testTag = "row.settings.gateway",
                     icon = Icons.Outlined.Dns,
                     title = stringResource(R.string.label_gateway_settings),
                     subtitle = gatewaySubtitle,
-                    onClick = { showGatewaySheet = true },
+                    onClick = {
+                        viewModel.beginGatewayEdit()
+                        showGatewayToken = false
+                        showGatewaySheet = true
+                    },
                 )
             }
             if (uiState.isChannelModeLoaded) {
@@ -288,6 +320,8 @@ fun SettingsScreen(
                             || uiState.gatewayPrivateChannelEnabled == false,
                         isFcmSupported = fcmSupported,
                         isPrivateSupported = uiState.gatewayPrivateChannelEnabled != false,
+                        isSwitching = uiState.isSwitchingTransport,
+                        errorMessage = uiState.transportErrorMessage?.resolve(context),
                         onSelectUseFcm = { useFcm -> viewModel.updateUseFcmChannel(context, useFcm) },
                     )
                 }
@@ -448,6 +482,7 @@ fun SettingsScreen(
                     onClick = null,
                 )
             }
+            }
         }
     }
 
@@ -471,8 +506,9 @@ fun SettingsScreen(
                 DecryptionKeyForm(
                     viewModel = viewModel,
                     onSave = {
-                        viewModel.saveDecryptionConfig()
-                        showDecryptionSheet = false
+                        viewModel.saveDecryptionConfig {
+                            showDecryptionSheet = false
+                        }
                     },
                     fillRemaining = false,
                     modifier = Modifier
@@ -484,16 +520,39 @@ fun SettingsScreen(
     }
 
     if (showGatewaySheet) {
-        val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+        val sheetState = rememberModalBottomSheetState(
+            skipPartiallyExpanded = true,
+            confirmValueChange = { targetValue ->
+                if (targetValue == SheetValue.Hidden &&
+                    BuildConfig.DEBUG && QualityRuntime.currentSession() != null
+                ) {
+                    Log.d("PushGoGatewaySheet", "confirmHidden saving=${uiState.isSavingGateway}")
+                }
+                targetValue != SheetValue.Hidden || !uiState.isSavingGateway
+            },
+        )
         PushGoModalBottomSheet(
             modifier = Modifier.testTag("sheet.settings.gateway"),
-            onDismissRequest = { showGatewaySheet = false },
+            onDismissRequest = {
+                if (BuildConfig.DEBUG && QualityRuntime.currentSession() != null) {
+                    Log.d("PushGoGatewaySheet", "onDismissRequest saving=${uiState.isSavingGateway}")
+                }
+                // A candidate may already have a remote identity. Keep the
+                // editor visible until the active-Gateway transaction reaches
+                // its truthful terminal result rather than implying cancel.
+                if (!uiState.isSavingGateway) {
+                    viewModel.cancelGatewayEdit()
+                    showGatewayToken = false
+                    showGatewaySheet = false
+                }
+            },
             sheetState = sheetState,
             paneTitle = stringResource(R.string.a11y_pane_gateway_settings),
         ) {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
+                    .verticalScroll(rememberScrollState())
                     .padding(start = 24.dp, top = 16.dp, end = 24.dp, bottom = bottomGestureInset + 16.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
@@ -504,9 +563,12 @@ fun SettingsScreen(
                 GatewaySection(
                     gatewayAddress = uiState.gatewayAddress,
                     gatewayToken = uiState.gatewayToken,
+                    isGatewayTokenVisible = showGatewayToken,
+                    errorMessage = viewModel.gatewayErrorMessage?.resolve(context),
                     isSavingGateway = uiState.isSavingGateway,
                     onGatewayAddressChange = viewModel::updateGatewayAddress,
                     onGatewayTokenChange = viewModel::updateGatewayToken,
+                    onGatewayTokenVisibilityChange = { showGatewayToken = !showGatewayToken },
                     onSaveGateway = { viewModel.saveGatewayConfig(context) },
                 )
             }
@@ -518,9 +580,17 @@ fun SettingsScreen(
             onDismissRequest = viewModel::consumePrivateChannelWhitelistDialog,
             paneTitle = stringResource(R.string.dialog_private_channel_whitelist_title),
             title = { Text(text = stringResource(R.string.dialog_private_channel_whitelist_title)) },
-            text = { Text(text = stringResource(R.string.dialog_private_channel_whitelist_body)) },
+            text = {
+                Text(
+                    text = stringResource(R.string.dialog_private_channel_whitelist_body),
+                    modifier = Modifier.testTag("dialog.settings.private_transport_whitelist"),
+                )
+            },
             confirmButton = {
-                TextButton(onClick = viewModel::consumePrivateChannelWhitelistDialog) {
+                TextButton(
+                    onClick = viewModel::consumePrivateChannelWhitelistDialog,
+                    modifier = Modifier.testTag("action.settings.private_transport_whitelist.dismiss"),
+                ) {
                     Text(text = stringResource(R.string.label_got_it))
                 }
             },
@@ -954,7 +1024,12 @@ private fun DecryptionSettingsRow(
                 .then(if (testTag != null) Modifier.testTag(testTag) else Modifier)
                 .clickable { onAction() },
             headlineContent = { Text(stringResource(R.string.section_decryption)) },
-            supportingContent = { Text(text = statusText, color = statusColor) },
+            supportingContent = {
+                Text(
+                    text = statusText,
+                    color = statusColor,
+                )
+            },
             leadingContent = {
                 Icon(
                     imageVector = Icons.Outlined.Lock,
@@ -982,72 +1057,102 @@ private fun TransportSelectorRow(
     selectedUseFcm: Boolean,
     isFcmSupported: Boolean,
     isPrivateSupported: Boolean,
+    isSwitching: Boolean,
+    errorMessage: String?,
     onSelectUseFcm: (Boolean) -> Unit,
 ) {
     val uiColors = PushGoThemeExtras.colors
     SettingsItemContainer {
-        ListItem(
-            modifier = Modifier
-                .fillMaxWidth()
-                .then(if (rowTestTag != null) Modifier.testTag(rowTestTag) else Modifier),
-            headlineContent = { Text(title) },
-            supportingContent = {
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    if (!subtitle.isNullOrBlank()) {
-                        Text(subtitle)
-                    }
-                    SingleChoiceSegmentedButtonRow(
-                        modifier = Modifier.testTag("segmented.settings.notification_transport"),
-                    ) {
-                        SegmentedButton(
-                            selected = selectedUseFcm,
-                            onClick = {
-                                if (!selectedUseFcm) {
-                                    onSelectUseFcm(true)
-                                }
-                            },
-                            enabled = isFcmSupported,
-                            shape = SegmentedButtonDefaults.itemShape(index = 0, count = 2),
-                            modifier = Modifier.testTag("option.settings.notification_transport.fcm"),
-                            icon = {},
-                            colors = pushGoSegmentedButtonColors(),
-                        ) {
-                            Text(
-                                text = stringResource(R.string.label_transport_fcm),
-                                style = MaterialTheme.typography.labelMedium.copy(fontSize = 13.sp),
-                                modifier = Modifier.padding(vertical = 1.dp),
-                            )
+        Column {
+            ListItem(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .then(if (rowTestTag != null) Modifier.testTag(rowTestTag) else Modifier),
+                headlineContent = { Text(title) },
+                supportingContent = {
+                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        if (!subtitle.isNullOrBlank()) {
+                            Text(subtitle)
                         }
-                        SegmentedButton(
-                            selected = !selectedUseFcm,
-                            onClick = {
-                                if (selectedUseFcm) {
-                                    onSelectUseFcm(false)
-                                }
-                            },
-                            enabled = isPrivateSupported,
-                            shape = SegmentedButtonDefaults.itemShape(index = 1, count = 2),
-                            modifier = Modifier.testTag("option.settings.notification_transport.private"),
-                            icon = {},
-                            colors = pushGoSegmentedButtonColors(),
+                        SingleChoiceSegmentedButtonRow(
+                            modifier = Modifier.testTag("segmented.settings.notification_transport"),
                         ) {
-                            Text(
-                                text = stringResource(R.string.label_transport_private),
-                                style = MaterialTheme.typography.labelMedium.copy(fontSize = 13.sp),
-                                modifier = Modifier.padding(vertical = 1.dp),
-                            )
+                            SegmentedButton(
+                                selected = selectedUseFcm,
+                                onClick = {
+                                    if (!selectedUseFcm) {
+                                        onSelectUseFcm(true)
+                                    }
+                                },
+                                enabled = isFcmSupported && !isSwitching,
+                                shape = SegmentedButtonDefaults.itemShape(index = 0, count = 2),
+                                modifier = Modifier.testTag(
+                                    "option.settings.notification_transport.fcm"
+                                ),
+                                icon = {},
+                                colors = pushGoSegmentedButtonColors(),
+                            ) {
+                                Text(
+                                    text = stringResource(R.string.label_transport_fcm),
+                                    style = MaterialTheme.typography.labelMedium.copy(
+                                        fontSize = 13.sp
+                                    ),
+                                    modifier = Modifier.padding(vertical = 1.dp),
+                                )
+                            }
+                            SegmentedButton(
+                                selected = !selectedUseFcm,
+                                onClick = {
+                                    if (selectedUseFcm) {
+                                        onSelectUseFcm(false)
+                                    }
+                                },
+                                enabled = isPrivateSupported && !isSwitching,
+                                shape = SegmentedButtonDefaults.itemShape(index = 1, count = 2),
+                                modifier = Modifier.testTag(
+                                    "option.settings.notification_transport.private"
+                                ),
+                                icon = {},
+                                colors = pushGoSegmentedButtonColors(),
+                            ) {
+                                Text(
+                                    text = stringResource(R.string.label_transport_private),
+                                    style = MaterialTheme.typography.labelMedium.copy(
+                                        fontSize = 13.sp
+                                    ),
+                                    modifier = Modifier.padding(vertical = 1.dp),
+                                )
+                            }
                         }
                     }
+                },
+                leadingContent = {
+                    Icon(
+                        imageVector = icon,
+                        contentDescription = null,
+                        tint = uiColors.textSecondary,
+                    )
+                },
+            )
+            if (!errorMessage.isNullOrBlank()) {
+                val feedbackBringIntoView = remember { BringIntoViewRequester() }
+                LaunchedEffect(errorMessage) {
+                    // The rejection adds this row after the user taps the selector.
+                    // Wait for its first layout before revealing the actual feedback.
+                    withFrameNanos { }
+                    feedbackBringIntoView.bringIntoView()
                 }
-            },
-            leadingContent = {
-                Icon(
-                    imageVector = icon,
-                    contentDescription = null,
-                    tint = uiColors.textSecondary,
+                Text(
+                    text = errorMessage,
+                    color = MaterialTheme.colorScheme.error,
+                    style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier
+                        .testTag("feedback.settings.notification_transport")
+                        .bringIntoViewRequester(feedbackBringIntoView)
+                        .padding(start = 56.dp, end = 16.dp, bottom = 16.dp),
                 )
-            },
-        )
+            }
+        }
     }
 }
 
@@ -1074,7 +1179,10 @@ private fun DataPageChipGroupRow(
                 .testTag(rowTestTag),
             headlineContent = { Text(text = title) },
             supportingContent = {
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(
+                    modifier = Modifier.horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
                     DataPageFilterChip(
                         title = messageTitle,
                         selected = messageEnabled,
@@ -1291,17 +1399,16 @@ private fun startActivityOrFallback(
         .onFailure { fallback?.invoke() }
 }
 
-private fun isFcmSupported(context: Context): Boolean {
-    return FcmSupport.isAvailable(context)
-}
-
 @Composable
 private fun GatewaySection(
     gatewayAddress: String,
     gatewayToken: String,
+    isGatewayTokenVisible: Boolean,
+    errorMessage: String?,
     isSavingGateway: Boolean,
     onGatewayAddressChange: (String) -> Unit,
     onGatewayTokenChange: (String) -> Unit,
+    onGatewayTokenVisibilityChange: () -> Unit,
     onSaveGateway: () -> Unit,
 ) {
     val uiColors = PushGoThemeExtras.colors
@@ -1321,10 +1428,22 @@ private fun GatewaySection(
             value = gatewayToken,
             onValueChange = onGatewayTokenChange,
             labelText = stringResource(R.string.label_server_token),
+            secretVisible = isGatewayTokenVisible,
+            onSecretVisibilityChange = onGatewayTokenVisibilityChange,
             modifier = Modifier
                 .fillMaxWidth()
                 .testTag("field.settings.gateway.token"),
         )
+        errorMessage?.let { message ->
+            Text(
+                text = message,
+                style = MaterialTheme.typography.bodySmall,
+                color = uiColors.stateDanger.foreground,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("feedback.settings.gateway"),
+            )
+        }
         Text(
             text = stringResource(R.string.label_gateway_change_channel_reset_hint),
             style = MaterialTheme.typography.bodySmall,
@@ -1352,9 +1471,16 @@ private fun GatewaySheetInputField(
     value: String,
     onValueChange: (String) -> Unit,
     labelText: String,
+    secretVisible: Boolean? = null,
+    onSecretVisibilityChange: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
     val uiColors = PushGoThemeExtras.colors
+    val visibilityStateLabel = if (secretVisible == true) {
+        stringResource(R.string.a11y_state_on)
+    } else {
+        stringResource(R.string.a11y_state_off)
+    }
     OutlinedTextField(
         value = value,
         onValueChange = onValueChange,
@@ -1376,6 +1502,37 @@ private fun GatewaySheetInputField(
         },
         modifier = modifier,
         singleLine = true,
+        visualTransformation = if (secretVisible == false) {
+            PasswordVisualTransformation()
+        } else {
+            VisualTransformation.None
+        },
+        trailingIcon = if (secretVisible != null && onSecretVisibilityChange != null) {
+            {
+                IconButton(
+                    modifier = Modifier
+                        .testTag("action.settings.gateway.token.toggle_visibility")
+                        .semantics { stateDescription = visibilityStateLabel },
+                    onClick = onSecretVisibilityChange,
+                ) {
+                    Icon(
+                        imageVector = if (secretVisible) {
+                            Icons.Outlined.VisibilityOff
+                        } else {
+                            Icons.Outlined.Visibility
+                        },
+                        contentDescription = if (secretVisible) {
+                            stringResource(R.string.label_hide_key)
+                        } else {
+                            stringResource(R.string.label_show_key)
+                        },
+                        tint = uiColors.textSecondary,
+                    )
+                }
+            }
+        } else {
+            null
+        },
         shape = RoundedCornerShape(12.dp),
         colors = pushGoOutlinedTextFieldColors(),
     )

@@ -1,0 +1,797 @@
+import json
+import os
+import re
+import shutil
+import sys
+import subprocess
+import tempfile
+import textwrap
+import unittest
+from pathlib import Path
+
+
+REPO = Path(__file__).resolve().parents[2]
+
+
+class QualityLaneCostContractTests(unittest.TestCase):
+    def test_process_restart_scroll_uses_the_visible_settings_viewport(self):
+        script = (REPO / "scripts/run_android_process_restart_positive.sh").read_text()
+        helper = ""
+        if "scroll_settings_content() {" in script:
+            helper = "scroll_settings_content() {" + script.split(
+                "scroll_settings_content() {", 1,
+            )[1].split('\nadb_with_timeout -s "$device_serial" shell am force-stop', 1)[0]
+        start = script.index("for _ in 1 2 3 4 5; do")
+        end = script.index('tap_node resource "row.settings.docs.getting_started"', start)
+        scroll = script[start:end]
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            for right, bottom, scrollable in [(720, 1200, True), (1080, 1800, True), (720, 1200, False)]:
+                with self.subTest(viewport=(right, bottom), scrollable=scrollable):
+                    ui = root / "window.xml"
+                    marker = root / "reachable"
+                    marker.unlink(missing_ok=True)
+                    ui.write_text(
+                        '<hierarchy><node resource-id="screen.settings.content" '
+                        f'package="io.ethan.pushgo" scrollable="{str(scrollable).lower()}" '
+                        f'bounds="[0,50][{right},{bottom}]" /></hierarchy>',
+                    )
+                    harness = r'''
+set -eu
+failed() { printf 'reason=%s\n' "$1"; exit 1; }
+wait_for_node() { [[ -f "$MARKER" ]]; }
+adb_with_timeout() {
+  [[ "$3 $4 $5" == "shell input swipe" ]] || exit 3
+  if (( $6 > 0 && $6 < RIGHT && $8 > 0 && $8 < RIGHT && $7 > 50 && $7 < BOTTOM && $9 > 50 && $9 < $7 )); then
+    touch "$MARKER"
+  fi
+}
+'''
+                    process = subprocess.run(
+                        ["bash", "-c", harness + helper + "\n" + scroll],
+                        env={**os.environ, "ui_dump": str(ui), "device_serial": "owned-emulator",
+                             "MARKER": str(marker), "RIGHT": str(right), "BOTTOM": str(bottom)},
+                        text=True, capture_output=True, timeout=5,
+                    )
+                    if scrollable:
+                        self.assertEqual(0, process.returncode, process.stdout + process.stderr)
+                        self.assertTrue(marker.exists(), "No in-viewport upward Settings swipe reached the row")
+                    else:
+                        self.assertEqual(1, process.returncode, process.stdout + process.stderr)
+                        self.assertFalse(marker.exists(), "An unscrollable surface must not receive a guessed swipe")
+
+    def test_permission_runner_stops_without_ripgrep_before_any_device_call(self):
+        script = REPO / "scripts/run_android_notification_permission_positive.sh"
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            tools = root / "bin"
+            tools.mkdir()
+            for command in ("dirname", "mkdir", "mktemp", "tr"):
+                (tools / command).symlink_to(shutil.which(command))
+            (tools / "python3").symlink_to(sys.executable)
+            marker = root / "adb-called.txt"
+            adb = tools / "adb"
+            adb.write_text('#!/bin/bash\nprintf touched > "$ADB_TOUCH_MARKER"\nexit 1\n')
+            adb.chmod(0o755)
+            process = subprocess.run(
+                ["/bin/bash", str(script)],
+                env={**os.environ, "PATH": str(tools), "ANDROID_SERIAL": "emulator-5554",
+                     "ADB_TOUCH_MARKER": str(marker), "QUALITY_RESULTS_ROOT": str(root / "results")},
+                capture_output=True, text=True,
+            )
+            self.assertEqual(2, process.returncode, process.stdout + process.stderr)
+            self.assertIn("status=BLOCKED", process.stdout)
+            self.assertIn("rg is unavailable before notification permission preparation", process.stdout)
+            self.assertFalse(marker.exists(), "missing parser must stop before device queries or mutation")
+
+    def test_ci_host_routes_mapped_changes_to_host_pr_before_device_preparation(self) -> None:
+        workflow = (REPO / ".github/workflows/android-quality.yml").read_text()
+        host_plan = workflow.split("      - name: Plan changed capability evidence\n", 1)[1]
+        host_plan = host_plan.split("      - name: Set up Java", 1)[0]
+        routing = textwrap.dedent("          impact_lane=" + host_plan.split("          impact_lane=", 1)[1])
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            plan_path = root / "build/quality-results/android-impact-plan.json"
+            plan_path.parent.mkdir(parents=True)
+            environment_path = root / "github-environment.txt"
+            for lane in ("pr", "pr-ui", "release", "nightly", "performance", "not-run"):
+                with self.subTest(recommended_lane=lane):
+                    plan_path.write_text(json.dumps({"recommended_lane": lane}))
+                    environment_path.write_text("")
+                    subprocess.run(
+                        ["bash", "-euo", "pipefail", "-c", routing],
+                        cwd=root,
+                        env={**os.environ, "GITHUB_ENV": str(environment_path)},
+                        check=True,
+                        capture_output=True,
+                        text=True,
+                    )
+                    expected = "QUALITY_SKIP_FAST=1" if lane == "not-run" else "QUALITY_LANE=pr"
+                    self.assertEqual([expected], environment_path.read_text().splitlines())
+
+    def test_focused_host_jvm_requires_fresh_execution_without_weakening_full_lanes(self) -> None:
+        runner = (REPO / "scripts/quality_test.sh").read_text()
+
+        self.assertIn('quality_minimum_free_bytes="${QUALITY_MIN_FREE_BYTES:-3221225472}"', runner)
+        self.assertIn('"$lane" == "focused"', runner)
+        self.assertIn('-n "${TEST_FILTER:-}"', runner)
+        self.assertIn('-z "${ANDROID_TEST_CLASS:-}"', runner)
+        self.assertIn("quality_minimum_free_bytes=1073741824", runner)
+        self.assertIn('--minimum-free-bytes "$quality_minimum_free_bytes"', runner)
+
+        focused_lane = re.search(
+            r"  focused\)\n(?P<body>.*?)\n    ;;",
+            runner,
+            re.DOTALL,
+        )
+        self.assertIsNotNone(focused_lane)
+        focused_body = focused_lane.group("body")
+        self.assertIn('testDebugUnitTest --rerun-tasks --tests "$TEST_FILTER"', focused_body)
+        self.assertIn('"$repo_root/app/build/test-results/testDebugUnitTest"', focused_body)
+        self.assertIn("verify_device_tests_executed", focused_body)
+        self.assertIn("No tests found for given includes:", focused_body)
+        self.assertIn("focused_jvm_filter_matched_no_tests:$TEST_FILTER", focused_body)
+        self.assertIn("exit 3", focused_body)
+
+        for full_lane in ("pr", "device", "nightly", "release"):
+            full_body = re.search(
+                rf"  {full_lane}\)\n(?P<body>.*?)\n    ;;",
+                runner,
+                re.DOTALL,
+            )
+            self.assertIsNotNone(full_body)
+            self.assertNotIn("quality_minimum_free_bytes=1073741824", full_body.group("body"))
+
+    def test_full_host_jvm_stage_rejects_cached_zero_execution(self) -> None:
+        runner = (REPO / "scripts/quality_test.sh").read_text()
+        host_stage = re.search(
+            r"run_jvm_and_compile_device_tests\(\) \{(?P<body>.*?)\n\}",
+            runner,
+            re.DOTALL,
+        )
+        self.assertIsNotNone(host_stage)
+        host_body = host_stage.group("body")
+        self.assertIn('testDebugUnitTest --rerun-tasks', host_body)
+        self.assertIn('"$repo_root/app/build/test-results/testDebugUnitTest"', host_body)
+        self.assertIn("verify_device_tests_executed", host_body)
+        self.assertLess(
+            host_body.index("testDebugUnitTest --rerun-tasks"),
+            host_body.index("compileDebugAndroidTestKotlin"),
+        )
+
+    def test_entity_tab_reselection_reuses_existing_positive_journeys(self) -> None:
+        source = (
+            REPO
+            / "app/src/androidTest/java/io/ethan/pushgo/testing/QualityEntityJourneyInstrumentedTest.kt"
+        ).read_text()
+        fixture = (REPO / "app/src/main/java/io/ethan/pushgo/data/AppContainer.kt").read_text()
+        runner = (REPO / "scripts/quality_test.sh").read_text()
+
+        pr_scopes = runner.split('pr_device_scopes="', 1)[1].split('"', 1)[0]
+        positive_scopes = runner.split('positive_device_scopes="', 1)[1].split('"', 1)[0]
+        self.assertEqual(1, pr_scopes.count("eventClosePersistsAndOngoingFilterReflectsTheRealProjection"))
+        self.assertEqual(1, positive_scopes.count("eventClosePersistsAndOngoingFilterReflectsTheRealProjection"))
+        self.assertNotIn("thingFixtureShowsAccurateOverviewAndAllThreeRealRelationTabs", pr_scopes)
+        self.assertEqual(1, positive_scopes.count("thingFixtureShowsAccurateOverviewAndAllThreeRealRelationTabs"))
+        self.assertEqual(2, source.count("assertCurrentTabDoubleTapReturnsToTop(") - 1)
+        self.assertEqual(2, fixture.count("(0 until 16).forEach"))
+        self.assertIn('offscreenRowTag = "event.row.quality-event-navigation-00"', source)
+        self.assertIn('offscreenRowTag = "thing.row.quality-thing-navigation-00"', source)
+        self.assertIn("performScrollToIndex(16)", source)
+        self.assertIn("performTouchInput { doubleClick() }", source)
+        self.assertIn("assertIsNotDisplayed()", source)
+
+    def test_changed_runner_help_exits_before_tests_or_stale_lane_selection(self) -> None:
+        runner = (REPO / "scripts/quality_changed.sh").read_text()
+
+        help_guard = runner.index('if [[ "${1:-}" == "-h"')
+        script_tests = runner.index("python3 -m unittest discover")
+        lane_execution = runner.index('exec "$repo_root/scripts/quality_test.sh"')
+        self.assertLess(help_guard, script_tests)
+        self.assertLess(help_guard, lane_execution)
+
+    def test_changed_and_nested_runners_share_an_injectable_results_root(self) -> None:
+        changed_runner = (REPO / "scripts/quality_changed.sh").read_text()
+        lane_runner = (REPO / "scripts/quality_test.sh").read_text()
+        performance_control = (
+            REPO / "scripts/run_android_performance_negative_control.sh"
+        ).read_text()
+        update_runner = (REPO / "scripts/run_android_update_install_positive.sh").read_text()
+        preparation_runner = (REPO / "scripts/run_android_preparation_contract.sh").read_text()
+
+        self.assertIn(
+            'results_root="${QUALITY_RESULTS_ROOT:-$repo_root/build/quality-results}"',
+            changed_runner,
+        )
+        self.assertIn('export QUALITY_RESULTS_ROOT="$results_root"', changed_runner)
+        self.assertIn(
+            'results_root="${QUALITY_RESULTS_ROOT:-$repo_root/build/quality-results}"',
+            lane_runner,
+        )
+        self.assertIn(
+            'results_root="${QUALITY_RESULTS_ROOT:-$repo_root/build/quality-results}"',
+            performance_control,
+        )
+        for nested_runner in (update_runner, preparation_runner):
+            self.assertIn(
+                'quality_results_root="${QUALITY_RESULTS_ROOT:-$repo_root/build/quality-results}"',
+                nested_runner,
+            )
+
+    def test_top_level_device_gradle_lanes_share_a_bounded_serial_lease(self) -> None:
+        runner = (REPO / "scripts/quality_test.sh").read_text()
+
+        self.assertIn(
+            'android_device_lock_timeout="${QUALITY_ANDROID_DEVICE_LOCK_TIMEOUT_SECONDS:-15}"',
+            runner,
+        )
+        self.assertIn(
+            'android_device_lock_root="${QUALITY_ANDROID_LOCK_ROOT:-${TMPDIR:-/tmp}/pushgo-android-quality-locks}"',
+            runner,
+        )
+        self.assertIn("acquire_android_device_lock()", runner)
+        self.assertIn("release_android_device_lock()", runner)
+        self.assertIn("release_android_device_lock || true", runner)
+        self.assertIn("selected Android device is busy", runner)
+        self.assertIn("connectedBenchmarkBenchmarkAndroidTest", runner)
+
+        # Every direct device Gradle invocation is protected by the same serial-scoped
+        # lease. Count the executable call sites so a new path cannot silently bypass
+        # isolation without updating this contract and its corresponding lock block.
+        self.assertEqual(6, runner.count("connectedDebugAndroidTest"))
+        self.assertEqual(6, runner.count('acquire_android_device_lock "$device_serial"'))
+        self.assertEqual(
+            6,
+            sum(1 for line in runner.splitlines() if line.strip() == "release_android_device_lock"),
+        )
+
+    def test_curated_device_lanes_bind_exact_selectors_and_reject_default_opt_in_skip(self) -> None:
+        runner = (REPO / "scripts/quality_test.sh").read_text()
+        verifier = (REPO / "scripts/verify_android_test_execution.py").read_text()
+
+        self.assertIn("android_test_selectors_for_scopes()", runner)
+        self.assertIn('QUALITY_EXPECTED_ANDROID_TEST_SELECTORS="$expected_selectors"', runner)
+        self.assertIn('QUALITY_EXPECTED_ANDROID_TEST_COUNT="$expected_count"', runner)
+        self.assertIn("skipped_test_selectors", verifier)
+        self.assertIn("fresh_android_test_report_contains_skipped_tests", verifier)
+        self.assertIn(
+            "RuntimeDataLayerInstrumentedTest#realRoomDaoSearchAndPaging_optIn100000",
+            runner,
+        )
+        self.assertIn(
+            'instrumentation_scope="$expected_selectors"',
+            runner,
+        )
+        self.assertIn(
+            '"-Pandroid.testInstrumentationRunnerArguments.class=$instrumentation_scope"',
+            runner,
+        )
+        nightly_body = runner.split("  nightly)", 1)[1].split("    ;;", 1)[0]
+        self.assertIn("excluding opt-in 100k performance", nightly_body)
+
+    def test_device_scope_resolution_is_safe_for_empty_optional_exclusions(self) -> None:
+        # The runner is re-executed from stdin with nounset enabled.  An empty
+        # local array cannot be expanded directly in that mode, so the generic
+        # data lane must take the no-options branch explicitly.
+        runner = (REPO / "scripts/quality_test.sh").read_text()
+        self.assertIn("if (( ${#selector_args[@]} > 0 )); then", runner)
+        self.assertIn('android_test_selectors_for_scopes "$classes")', runner)
+
+    def test_accessibility_lane_has_host_baseline_recovery_even_after_instrumentation_abort(self) -> None:
+        runner = (REPO / "scripts/quality_test.sh").read_text()
+        self.assertIn("capture_accessibility_baseline()", runner)
+        self.assertIn("restore_accessibility_baseline()", runner)
+        self.assertIn('trap on_exit EXIT', runner)
+        self.assertIn('accessibility_baseline_captured=0', runner)
+        accessibility_body = runner.split("run_accessibility_localization() {", 1)[1].split(
+            "run_planned_device_evidence() {", 1
+        )[0]
+        self.assertIn("ensure_android_test_package_installed", accessibility_body)
+        self.assertIn("capture_accessibility_baseline", accessibility_body)
+        self.assertIn("restore_accessibility_baseline", accessibility_body)
+
+    def test_ci_receipts_outlive_the_full_observation_window(self) -> None:
+        workflow = (REPO / ".github/workflows/android-quality.yml").read_text()
+        compact_uploads = re.findall(
+            r"- name: Upload compact (?:host|device) receipts(?P<body>.*?)(?=\n\s*- name:|\Z)",
+            workflow,
+            re.DOTALL,
+        )
+
+        self.assertEqual(2, len(compact_uploads))
+        for upload in compact_uploads:
+            self.assertIn("if-no-files-found: error", upload)
+            self.assertIn("retention-days: 21", upload)
+            self.assertIn("path: build/quality-results/*-summary.json", upload)
+            self.assertNotIn("app/build/reports", upload)
+        diagnostic_uploads = re.findall(
+            r"- name: Upload (?:JVM|device) evidence(?P<body>.*?)(?=\n\s*- name:|\Z)",
+            workflow,
+            re.DOTALL,
+        )
+        self.assertEqual(2, len(diagnostic_uploads))
+        self.assertTrue(all("retention-days: 14" in upload for upload in diagnostic_uploads))
+        self.assertTrue(
+            all("!build/quality-results/*-summary.json" in upload for upload in diagnostic_uploads)
+        )
+        global_permissions = workflow.split("permissions:", 1)[1].split("concurrency:", 1)[0]
+        self.assertNotIn("actions: read", global_permissions)
+        observation_job = workflow.split("\n  observation:\n", 1)[1]
+        self.assertIn("github.event.schedule == '43 18 * * *'", observation_job)
+        self.assertIn("needs: device-regression", observation_job)
+        self.assertIn("actions: read", observation_job)
+        self.assertIn("quality_observation_collect.py", observation_job)
+        self.assertIn("--workflow android-quality.yml", observation_job)
+        self.assertIn("quality_observation.py", observation_job)
+        self.assertIn("--artifact-name-prefix android-quality-receipts-", observation_job)
+        self.assertNotIn("--artifact-name-prefix android- ", observation_job)
+        self.assertNotIn("--require-ready", observation_job)
+        self.assertIn("if-no-files-found: error", observation_job)
+
+    def test_pr_ui_is_unique_discoverable_positive_breadth(self) -> None:
+        runner = (REPO / "scripts/quality_test.sh").read_text()
+        pr_match = re.search(r'^pr_device_scopes="([^"]+)"$', runner, re.MULTILINE)
+        positive_match = re.search(r'^positive_device_scopes="([^"]+)"$', runner, re.MULTILINE)
+        self.assertIsNotNone(pr_match)
+        self.assertIsNotNone(positive_match)
+        pr_scopes = pr_match.group(1).split(",")
+        positive_scopes = positive_match.group(1).split(",")
+        self.assertEqual(len(pr_scopes), len(set(pr_scopes)))
+        self.assertEqual(len(positive_scopes), len(set(positive_scopes)))
+        self.assertEqual(6, len(pr_scopes))
+        self.assertEqual(12, len(positive_scopes))
+        self.assertTrue(set(pr_scopes).issubset(positive_scopes))
+
+        sources = {
+            path.stem: path.read_text()
+            for path in (REPO / "app/src/androidTest/java/io/ethan/pushgo/testing").glob(
+                "Quality*JourneyInstrumentedTest.kt"
+            )
+        }
+        for scope in positive_scopes:
+            class_name, method = scope.rsplit(".", 1)[-1].split("#", 1)
+            self.assertIn(class_name, sources)
+            self.assertRegex(sources[class_name], rf"\bfun\s+{re.escape(method)}\s*\(")
+        for required_fragment in ("MessageJourney", "EntityJourney", "ChannelJourney", "SettingsJourney"):
+            self.assertTrue(any(required_fragment in scope for scope in pr_scopes), required_fragment)
+        for required_purpose in (
+            "standardFixtureShowsAccurateContentAndSurvivesActivityRelaunch",
+            "workflowFixtureLoadsSecondPageAndPersistsReadActions",
+            "primaryNavigationUsesRealControlsAndReachesEveryProductScreen",
+            "eventClosePersistsAndOngoingFilterReflectsTheRealProjection",
+            "createRenameAndBothUnsubscribeOutcomesReachAccuratePersistentUserResults",
+            "serverConfigurationRejectsInvalidInputAndScopesDataAfterRelaunch",
+        ):
+            self.assertTrue(any(required_purpose in scope for scope in pr_scopes), required_purpose)
+        for deferred_fragment in ("Failure", "failure", "Corrupt", "corrupt", "Slow", "slow", "Delete", "delete", "Rejection"):
+            self.assertFalse(any(deferred_fragment in scope for scope in pr_scopes), deferred_fragment)
+        self.assertFalse(any("emptyFixtureShows" in scope for scope in pr_scopes))
+        self.assertFalse(any("searchReturnsOnly" in scope for scope in pr_scopes))
+        standard_source = sources["QualityMessageJourneyInstrumentedTest"]
+        standard_journey = standard_source.split(
+            "fun standardFixtureShowsAccurateContentAndSurvivesActivityRelaunch()", 1
+        )[1].split("\n    @Test", 1)[0]
+        self.assertIn("QualityMessageRefreshScenario.NEW_MESSAGE", standard_journey)
+        self.assertIn('getByMessageId("quality-refresh-result")', standard_journey)
+        self.assertIn('assertUnreadNavigationBadge("1")', standard_journey)
+        self.assertIn('assertUnreadNavigationBadge(null)', standard_journey)
+        self.assertIn("scenario = launchMainActivity()", standard_journey)
+        self.assertNotIn(
+            "refreshPersistsNewProviderResultOpensDetailAndSurvivesRelaunch",
+            standard_source,
+        )
+        workflow_journey = standard_source.split(
+            "fun workflowFixtureLoadsSecondPageAndPersistsReadActions()", 1
+        )[1].split("\n    @Test", 1)[0]
+        self.assertIn("retainedPageOneTail", workflow_journey)
+        self.assertIn("performScrollToNode(retainedPageOneTail)", workflow_journey)
+        self.assertIn('Cross-page deterministic workflow row 84.', workflow_journey)
+        self.assertIn('state.messages.page.failed', workflow_journey)
+        self.assertIn('action.messages.page.retry', workflow_journey)
+        # This contract owns lane composition and cost only. Business outcomes stay
+        # in executable device journeys; mirroring their tags or implementation
+        # strings here would add maintenance cost without exercising the product.
+        device_lane = re.search(
+            r"  device\)\n(?P<body>.*?)\n    ;;",
+            runner,
+            re.DOTALL,
+        )
+        self.assertIsNotNone(device_lane)
+        self.assertIn(
+            'run_quality_device_classes "$positive_device_scopes"',
+            device_lane.group("body"),
+        )
+        pr_ui_lane = re.search(
+            r"  pr-ui\)\n(?P<body>.*?)\n    ;;",
+            runner,
+            re.DOTALL,
+        )
+        self.assertIsNotNone(pr_ui_lane)
+        self.assertIn(
+            'run_quality_device_classes "$pr_device_scopes"',
+            pr_ui_lane.group("body"),
+        )
+
+        for lane in ("nightly", "release"):
+            full_lane = re.search(
+                rf"  {lane}\)\n(?P<body>.*?)\n    ;;",
+                runner,
+                re.DOTALL,
+            )
+            self.assertIsNotNone(full_lane)
+            self.assertIn("run_quality_device_classes", full_lane.group("body"))
+            self.assertNotIn("positive_device_scopes", full_lane.group("body"))
+
+    def test_event_close_convergence_stays_in_one_positive_journey_with_app_owned_readiness(self) -> None:
+        runner = (REPO / "scripts/quality_test.sh").read_text()
+        source = (
+            REPO
+            / "app/src/androidTest/java/io/ethan/pushgo/testing/QualityEntityJourneyInstrumentedTest.kt"
+        ).read_text()
+        base = (
+            REPO
+            / "app/src/androidTest/java/io/ethan/pushgo/testing/QualityAppJourneyTestCase.kt"
+        ).read_text()
+        scopes = runner.split('positive_device_scopes="', 1)[1].split('"', 1)[0]
+        method_name = "eventClosePersistsAndOngoingFilterReflectsTheRealProjection"
+        journey = source.split(f"fun {method_name}()", 1)[1].split(
+            "fun eventCloseFailureKeepsAccurateDetailBlocksDuplicateAndRetryPersists()", 1
+        )[0]
+
+        self.assertEqual(1, scopes.count(method_name))
+        for purpose in (
+            "event.close.cancel",
+            "event.filters.ongoing",
+            "nav.item.things",
+            "field.event.detail.status.closed",
+            "event.timeline.count.3",
+        ):
+            self.assertIn(purpose, journey)
+        self.assertIn("fixtureInitializationWasRecorded(app.filesDir)", base)
+        self.assertIn("app.startupStorageErrorMessage() == null", base)
+        self.assertIn("PushGoAutomation.currentRuntimeErrorCount() == 0", base)
+
+    def test_gateway_positive_journey_proves_the_first_post_commit_business_operation(self) -> None:
+        journey_source = (
+            REPO
+            / "app/src/androidTest/java/io/ethan/pushgo/testing/QualitySettingsJourneyInstrumentedTest.kt"
+        ).read_text()
+        repository = (
+            REPO / "app/src/main/java/io/ethan/pushgo/data/ChannelSubscriptionRepository.kt"
+        ).read_text()
+        runtime_fake = (
+            REPO / "app/src/main/java/io/ethan/pushgo/data/AppContainer.kt"
+        ).read_text()
+        journey = journey_source.split(
+            "fun serverConfigurationRejectsInvalidInputAndScopesDataAfterRelaunch()", 1
+        )[1].split("fun gatewayLocalCommitFailureRollsBackBeforeRetryCommits()", 1)[0]
+
+        self.assertIn("expectedChannelMutationGatewayUrl = normalizedAddress", journey)
+        self.assertIn('onNodeWithTag("action.channels.add")', journey)
+        self.assertIn('onNodeWithTag("channel.row.01H00000000000000000000003")', journey)
+        self.assertIn('assertTextContains("New Gateway Channel")', journey)
+        self.assertIn("suspend fun ensureProviderRoute(gatewayUrl: String", repository)
+        self.assertGreaterEqual(repository.count("gatewayUrl: String"), 4)
+        self.assertNotIn("fun requireGateway", repository)
+        self.assertGreaterEqual(runtime_fake.count("requireExpectedGateway(gatewayUrl)"), 4)
+        self.assertIn("quality channel operation was routed through the wrong gateway", runtime_fake)
+
+    def test_update_install_is_strict_positive_release_evidence(self) -> None:
+        runner = (REPO / "scripts/quality_test.sh").read_text()
+        update_runner = (REPO / "scripts/run_android_update_install_positive.sh").read_text()
+        legacy_matrix = (REPO / "scripts/device_update_e2e_matrix.sh").read_text()
+        installer = (
+            REPO / "app/src/main/java/io/ethan/pushgo/update/UpdateInstaller.kt"
+        ).read_text()
+
+        self.assertRegex(
+            runner,
+            r"  update-install\)\n\s+run_update_install_positive\n\s+;;",
+        )
+        release_lane = re.search(
+            r"  release\)\n(?P<body>.*?)\n    ;;",
+            runner,
+            re.DOTALL,
+        )
+        self.assertIsNotNone(release_lane)
+        self.assertIn("run_update_install_positive", release_lane.group("body"))
+
+        self.assertIn('[[ "$installed_version" == "$candidate_version_code" ]]', update_runner)
+        self.assertIn('wait_for_node resource "quality-runtime.ready"', update_runner)
+        self.assertIn('wait_for_node resource "message.row.quality-standard-message"', update_runner)
+        self.assertIn('wait_for_node text "P2 Split Seed Message"', update_runner)
+        self.assertIn(
+            'wait_for_node text "Seeded from fixture.seed_messages for UI validation."',
+            update_runner,
+        )
+        self.assertIn("adb_with_timeout()", update_runner)
+        self.assertIn("QUALITY_ADB_TIMEOUT_SECONDS", update_runner)
+        self.assertIn("capture_failure_evidence()", update_runner)
+        self.assertIn("failure-metadata.txt", update_runner)
+        self.assertIn("acquire_device_lock()", update_runner)
+        self.assertIn("device_lock_acquired", update_runner)
+        self.assertIn("isolated benchmark package is already installed", update_runner)
+        self.assertNotIn("adb -s ", update_runner)
+        self.assertNotIn("B006 accepted", legacy_matrix)
+        self.assertIn("guidance or installer handoff is not installation success", legacy_matrix)
+        self.assertIn("archiveInfo.signingInfo ?: return false", installer)
+        self.assertIn("signingInfo.apkContentsSigners ?: return false", installer)
+        self.assertIn("if (signers.isEmpty()) return false", installer)
+
+    def test_one_migration_representative_reaches_real_ui_without_a_version_matrix(self) -> None:
+        runner = (REPO / "scripts/quality_test.sh").read_text()
+        migration = (
+            REPO
+            / "app/src/androidTest/java/io/ethan/pushgo/data/db/PushGoDatabaseMigrationDeviceTest.kt"
+        ).read_text()
+
+        self.assertIn("io.ethan.pushgo.data.db.PushGoDatabaseMigrationDeviceTest", runner)
+        self.assertEqual(1, migration.count("ActivityScenario.launch("))
+        self.assertIn('onNodeWithText("Legacy title")', migration)
+        self.assertIn('onNodeWithTag("field.message.detail.body")', migration)
+        self.assertIn('assertTextContains("Legacy body")', migration)
+
+    def test_private_service_system_journey_shares_nightly_install_and_stays_out_of_daily(self) -> None:
+        runner = (REPO / "scripts/quality_test.sh").read_text()
+        system_class = "io.ethan.pushgo.testing.QualityPrivateForegroundServiceJourneyInstrumentedTest"
+
+        self.assertIn(system_class, runner)
+        self.assertNotIn(system_class, runner.split('positive_device_scopes="', 1)[1].split('"', 1)[0])
+        self.assertIn('run_system_notification_journeys', runner)
+        self.assertNotIn('run_private_foreground_service_journey', runner)
+
+    def test_exact_entity_notification_routes_share_one_system_method_and_stay_out_of_daily(self) -> None:
+        runner = (REPO / "scripts/quality_test.sh").read_text()
+        journey = (
+            REPO
+            / "app/src/androidTest/java/io/ethan/pushgo/testing/QualitySystemNotificationJourneyInstrumentedTest.kt"
+        ).read_text()
+        system_class = "io.ethan.pushgo.testing.QualitySystemNotificationJourneyInstrumentedTest"
+        method = journey.split(
+            "fun entityInboundNotificationsOpenExactColdEventAndWarmThingDetails()", 1
+        )[1].split("private fun grantAndVerifyNotificationPermission()", 1)[0]
+
+        self.assertIn(system_class, runner)
+        self.assertNotIn(system_class, runner.split('positive_device_scopes="', 1)[1].split('"', 1)[0])
+        self.assertEqual(1, journey.count("entityInboundNotificationsOpenExactColdEventAndWarmThingDetails"))
+        self.assertIn('"entity_type" to "event"', method)
+        self.assertIn('"entity_type" to "thing"', method)
+        self.assertIn("openExactSystemNotification(device, eventTitle, eventSummary)", method)
+        self.assertIn("openExactSystemNotification(device, thingTitle, thingSummary)", method)
+        self.assertIn("openExactSystemNotification(device, messageTitle, messageBody)", method)
+        self.assertIn('hasTestTag("sheet.event.detail")', method)
+        self.assertIn('hasTestTag("sheet.thing.detail")', method)
+        self.assertIn('hasTestTag("sheet.message.detail")', method)
+        self.assertIn('onNodeWithTag("sheet.thing.detail").assertDoesNotExist()', method)
+        self.assertIn('onNodeWithTag("event.row.$eventId"', method)
+        self.assertIn('onNodeWithTag("thing.row.$thingId"', method)
+        self.assertIn("exact Message/Event/Thing cold-warm notification routes", runner)
+
+    def test_notification_permission_uses_one_host_driven_positive_journey_only_in_system_lane(self) -> None:
+        runner = (REPO / "scripts/quality_test.sh").read_text()
+        host_journey = (REPO / "scripts/run_android_notification_permission_positive.sh").read_text()
+        identity_verifier = (REPO / "scripts/verify_android_instrumentation_identity.py").read_text()
+        build = (REPO / "app/build.gradle.kts").read_text()
+        manifest = (REPO / "app/src/main/AndroidManifest.xml").read_text()
+
+        self.assertEqual(1, runner.count('run_android_notification_permission_positive.sh'))
+        self.assertIn('run_system_notification_journeys', runner)
+        self.assertIn('permission_deny_button', host_journey)
+        self.assertIn('action.delivery_guard.confirm', host_journey)
+        self.assertIn('main_switch_bar', host_journey)
+        self.assertIn('QualityNotificationPermissionJourneyInstrumentedTest', host_journey)
+        self.assertIn('test_method="enabledSystemDecisionRefreshesTheRealAppAndRemovesDisabledDeliveryState"', host_journey)
+        self.assertIn('-e class "$test_selector"', host_journey)
+        self.assertIn('verify_android_instrumentation_identity.py', host_journey)
+        self.assertIn('INSTRUMENTATION_STATUS: class=', identity_verifier)
+        self.assertIn('INSTRUMENTATION_STATUS: test=', identity_verifier)
+        self.assertIn('ro.kernel.qemu', host_journey)
+        self.assertIn('restore_permission', host_journey)
+        self.assertIn('CLEAR_SESSION', host_journey)
+        self.assertIn('acquire_device_lock()', host_journey)
+        self.assertIn('release_device_lock()', host_journey)
+        self.assertIn('device_lock_acquired', host_journey)
+        self.assertIn('QUALITY_ANDROID_DEVICE_LOCK_TIMEOUT_SECONDS', host_journey)
+        self.assertIn('baseline_captured', host_journey)
+        self.assertIn('adb_with_timeout()', host_journey)
+        self.assertIn('QUALITY_ADB_TIMEOUT_SECONDS', host_journey)
+        self.assertNotIn('adb -s ', host_journey)
+        self.assertIn('getByName("debug")', build)
+        self.assertIn('kotlin.directories.add("src/benchmark/java/io/ethan/pushgo/testing")', build)
+        self.assertIn('android:permission="android.permission.DUMP"', manifest)
+        pr_ui_case = runner.split('  pr-ui)', 1)[1].split('    ;;', 1)[0]
+        self.assertNotIn('run_android_notification_permission_positive.sh', pr_ui_case)
+        self.assertIn('grep -q \'^cleanup_status=FAILED$\'', runner)
+        self.assertIn('mark_planned_controlled_system_profile "notification-permission"', runner)
+        self.assertIn('mark_planned_controlled_system_profile "system-notification"', runner)
+
+    def test_doze_recovery_and_snooze_share_the_system_install_and_stay_out_of_daily(self) -> None:
+        runner = (REPO / "scripts/quality_test.sh").read_text()
+        journey = (REPO / "scripts/run_android_doze_positive.sh").read_text()
+
+        self.assertEqual(1, runner.count('run_android_doze_positive.sh'))
+        self.assertIn('QUALITY_ANDROID_SKIP_INSTALL=1', runner)
+        self.assertIn('run_system_notification_journeys', runner)
+        self.assertNotIn(
+            'run_android_doze_positive.sh',
+            runner.split('positive_device_scopes="', 1)[1].split('"', 1)[0],
+        )
+        self.assertIn('"system_capabilities": ["doze_reminder_journey"]', journey)
+        self.assertIn('banner.settings.doze_enabled', journey)
+        self.assertIn('action.settings.open_battery_optimization_settings', journey)
+        self.assertIn('action.settings.snooze_doze_reminder', journey)
+        self.assertIn('android:id/button1', journey)
+        self.assertIn('cmd deviceidle whitelist -"$package_name"', journey)
+        self.assertIn('restore_battery_optimization', journey)
+        self.assertIn('prepare_session "android-doze-isolation-', journey)
+        self.assertNotIn('run-as', journey)
+        self.assertIn('device_ui_dump="/data/local/tmp/pushgo-doze-positive-$run_id.xml"', journey)
+        self.assertIn('wait_for_node leaves the last successful dump in ui_dump', journey)
+        self.assertNotIn('dump_ui || failed "UI tree could not be captured before tapping', journey)
+        self.assertIn('last_dump_failure', journey)
+        self.assertIn('adb_with_timeout()', journey)
+        self.assertIn('QUALITY_ADB_TIMEOUT_SECONDS', journey)
+        self.assertIn('capture_failure_evidence()', journey)
+        self.assertIn('failure_evidence_dir', journey)
+        self.assertIn('acquire_device_lock()', journey)
+        self.assertIn('device_lock_acquired', journey)
+
+    def test_slow_load_performance_negative_control_runs_only_with_performance(self) -> None:
+        runner = (REPO / "scripts/quality_test.sh").read_text()
+        control = (REPO / "scripts/run_android_performance_negative_control.sh").read_text()
+
+        self.assertEqual(1, runner.count('run_android_performance_negative_control.sh'))
+        performance_function = runner.split("run_performance() {", 1)[1].split(
+            "run_accessibility_localization() {", 1
+        )[0]
+        self.assertIn('run_android_performance_negative_control.sh', performance_function)
+        positive_complete = performance_function.index(
+            'claims+=("Release-like Macrobenchmark mechanics with exact 1k startup/detail product Oracle'
+        )
+        negative_control = performance_function.index(
+            'run_android_performance_negative_control.sh'
+        )
+        self.assertLess(positive_complete, negative_control)
+        for lane in ("pr", "pr-ui", "device", "nightly"):
+            lane_body = runner.split(f"  {lane})", 1)[1].split("    ;;", 1)[0]
+            self.assertNotIn('run_android_performance_negative_control.sh', lane_body)
+        self.assertIn('pushgo.fixtureLoadDelayMs', control)
+        self.assertIn('cold startup-to-accurate-content took', control)
+        self.assertIn('"product_status": "NOT_RUN"', control)
+        self.assertIn('"test_system_status": "PASSED"', control)
+        self.assertNotIn('sleep ', control)
+        self.assertNotIn('--rerun-tasks', control)
+        self.assertRegex(
+            runner,
+            r'elif \[\[ \$status -eq 4 \]\]; then\n'
+            r'\s+write_result NOT_RUN FAILED "a required test-system sensitivity control',
+        )
+        performance_function = runner.split("run_performance() {", 1)[1].split(
+            "run_accessibility_localization() {", 1
+        )[0]
+        self.assertIn("adb_with_timeout()", runner)
+        self.assertIn('android_adb_timeout="${QUALITY_ADB_TIMEOUT_SECONDS:-8}"', runner)
+        self.assertIn("adb_with_timeout -s \"$device_serial\" shell getprop ro.kernel.qemu", performance_function)
+        self.assertNotIn("adb -s ", runner)
+
+    def test_system_lanes_do_not_report_their_controlled_doze_journey_as_not_run(self) -> None:
+        runner = (REPO / "scripts/quality_test.sh").read_text()
+
+        initial_not_run = runner.split("not_run=(", 1)[1].split(")", 1)[0]
+        self.assertNotIn("Doze", initial_not_run)
+        self.assertIn(
+            'if [[ "$lane" != "nightly" && "$lane" != "release" ]]; then',
+            runner,
+        )
+        self.assertIn(
+            'controlled-emulator notification permission, Doze, system notification, and Private Service journeys',
+            runner,
+        )
+        self.assertIn(
+            'physical/OEM notification, Doze, and Private Service behavior beyond the controlled-emulator system journeys',
+            runner,
+        )
+
+    def test_process_restart_reuses_the_system_install_and_proves_a_new_real_process(self) -> None:
+        runner = (REPO / "scripts/quality_test.sh").read_text()
+        host_journey = (REPO / "scripts/run_android_process_restart_positive.sh").read_text()
+
+        self.assertEqual(1, runner.count('run_android_process_restart_positive.sh'))
+        self.assertIn('QUALITY_ANDROID_SKIP_INSTALL=1', runner)
+        self.assertIn('run_system_notification_journeys', runner)
+        self.assertIn('shell pidof "$package_name"', host_journey)
+        self.assertIn('shell am force-stop "$package_name"', host_journey)
+        self.assertIn('[[ "$second_pid" != "$first_pid" ]]', host_journey)
+        self.assertIn('message.row.quality-standard-message', host_journey)
+        self.assertIn('action.messages.mark_all_read', host_journey)
+        self.assertIn('action.message.open_url', host_journey)
+        self.assertIn('cmd package resolve-activity --brief', host_journey)
+        self.assertIn('node_text url_bar', host_journey)
+        self.assertIn('dat=$expected_handoff_url', host_journey)
+        self.assertIn('wrong-url', host_journey)
+        self.assertIn('return_from_browser()', host_journey)
+        self.assertIn('for _ in 1 2 3; do', host_journey)
+        browser_back = host_journey.index('shell input keyevent KEYCODE_BACK')
+        returned_detail = host_journey.index(
+            'return_from_browser "sheet.message.detail"',
+            browser_back,
+        )
+        external_surface_closed = host_journey.index(
+            'external_surface_open=0',
+            returned_detail,
+        )
+        self.assertLess(browser_back, returned_detail)
+        self.assertLess(returned_detail, external_surface_closed)
+        self.assertIn('row.settings.docs.getting_started', host_journey)
+        self.assertIn('pushgo.dev/guides/getting-started/', host_journey)
+        self.assertIn('return_from_browser "screen.settings"', host_journey)
+        self.assertIn('Seeded from fixture.seed_messages for UI validation.', host_journey)
+        self.assertIn('QUALITY_ORACLE_NEGATIVE_CONTROL', host_journey)
+        self.assertNotIn('QUALITY_PROCESS_RESTART_EXPECTED_BODY', host_journey)
+        self.assertIn('CLEAR_SESSION', host_journey)
+        self.assertIn('adb_with_timeout()', host_journey)
+        self.assertIn('QUALITY_ADB_TIMEOUT_SECONDS', host_journey)
+        self.assertIn('acquire_device_lock()', host_journey)
+        self.assertIn('QUALITY_ANDROID_DEVICE_LOCK_TIMEOUT_SECONDS', host_journey)
+        self.assertIn('/data/local/tmp/pushgo-process-restart-$run_id.xml', host_journey)
+        self.assertIn('capture_failure_evidence()', host_journey)
+        self.assertIn('last_dump_failure', host_journey)
+        self.assertNotIn('dump_ui || failed "UI tree could not be captured before tapping', host_journey)
+        self.assertNotIn('run_android_process_restart_positive.sh', runner.split('  pr-ui)', 1)[1].split('    ;;', 1)[0])
+
+    def test_pending_deletion_process_restart_keeps_two_purpose_oracles_separate(self) -> None:
+        runner = (REPO / "scripts/quality_test.sh").read_text()
+        host_journey = (
+            REPO / "scripts/run_android_pending_deletion_process_restart_positive.sh"
+        ).read_text()
+        app = (REPO / "app/src/main/java/io/ethan/pushgo/PushGoApp.kt").read_text()
+        container = (REPO / "app/src/main/java/io/ethan/pushgo/data/AppContainer.kt").read_text()
+        runtime = (REPO / "app/src/main/java/io/ethan/pushgo/testing/QualityRuntime.kt").read_text()
+        provider = (REPO / "app/src/benchmark/java/io/ethan/pushgo/testing/BenchmarkFixtureProvider.kt").read_text()
+        impact = (REPO / "config/quality-impact.json").read_text()
+
+        self.assertEqual(1, runner.count("run_android_pending_deletion_process_restart_positive.sh"))
+        self.assertIn("QUALITY_ANDROID_SKIP_INSTALL=1", runner)
+        self.assertIn('fixture": "messages.cleanup"', host_journey)
+        self.assertIn('pending_deletion_undo_window_ms', host_journey)
+        self.assertIn('run_undo_case()', host_journey)
+        self.assertIn('run_deadline_case()', host_journey)
+        self.assertIn('state.pending_deletion', host_journey)
+        self.assertIn('action.pending_deletion.undo', host_journey)
+        self.assertIn('message.row.quality-cleanup-old', host_journey)
+        self.assertIn('message.row.quality-cleanup-recent', host_journey)
+        self.assertIn('[[ "$second_pid" != "$first_pid" ]]', host_journey)
+        self.assertIn('Deterministic cleanup boundary message.', host_journey)
+        self.assertIn('cases.jsonl', host_journey)
+        self.assertIn('capture_failure_evidence()', host_journey)
+        self.assertIn('App-owned pending-deletion session was not cleared', host_journey)
+        self.assertIn('container.pendingLocalDeletionCoordinator.start()', app)
+        quality_branch = app.split('if (io.ethan.pushgo.testing.QualityRuntime.currentSession() != null) {', 1)[1].split('return', 1)[0]
+        self.assertIn('container.pendingLocalDeletionCoordinator.start()', quality_branch)
+        self.assertIn('pendingDeletionUndoWindowMillis', container)
+        self.assertIn('pending deletion undo window must be between 5000 and 120000 ms', runtime)
+        self.assertIn('QualityFixture.MESSAGES_CLEANUP', provider)
+        self.assertIn('quality-cleanup-recent', provider)
+        self.assertIn('scripts/run_android_pending_deletion_process_restart_positive.sh', impact)
+        self.assertIn('pending-deletion', impact)
+
+    def test_changed_device_workflow_consumes_structured_profiled_scopes(self) -> None:
+        workflow = (REPO / ".github/workflows/android-quality.yml").read_text()
+        changed_runner = (REPO / "scripts/quality_changed.sh").read_text()
+
+        self.assertIn('required_device_scopes="$(python3 -c', workflow)
+        self.assertIn('echo "QUALITY_LANE=planned-device" >> "$GITHUB_ENV"', workflow)
+        self.assertNotIn('echo "ANDROID_TEST_CLASS=$required_device_scopes" >> "$GITHUB_ENV"', workflow)
+        self.assertIn('if [[ "$phase" == "full" ]]; then', changed_runner)
+        self.assertIn('"$repo_root/scripts/quality_test.sh" pr', changed_runner)
+        self.assertIn('lane="planned-device"', changed_runner)
+        self.assertNotIn('export ANDROID_TEST_CLASS="$required_device_scopes"', changed_runner)
+        quality_runner = (REPO / "scripts/quality_test.sh").read_text()
+        self.assertIn('quality_planned_device_runs.py', quality_runner)
+        self.assertIn("read -r profile scopes expected_count <&3", quality_runner)
+        self.assertIn('done 3<<< "$run_lines"', quality_runner)
+        self.assertNotIn('done <<< "$run_lines"', quality_runner)
+
+
+if __name__ == "__main__":
+    unittest.main()

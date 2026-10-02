@@ -1,5 +1,8 @@
 <resources>
     <string name="app_name">PushGo</string>
+    <string name="label_local_storage_unavailable">本地数据库不可用</string>
+    <string name="label_local_storage_unavailable_safety">为防止数据被破坏，应用已停止读写。</string>
+    <string name="action_exit_app">退出应用</string>
     <string name="tab_messages">消息</string>
     <string name="tab_settings">设置</string>
     <string name="action_mark_all_read">全部标记为已读</string>
@@ -95,6 +98,10 @@
     <string name="label_no_title">(无标题)</string>
     <string name="label_group_ungrouped">未分组</string>
     <string name="label_loading">加载中…</string>
+    <string name="message_loading_slow">消息仍在加载，请稍候…</string>
+    <string name="message_load_failed">无法加载消息，请重试。</string>
+    <string name="message_refresh_failed">刷新失败，请重试。</string>
+    <string name="action_retry">重试</string>
     <string name="section_connection_device">连接与设备</string><string name="section_channels">频道</string>
     <string name="section_notification_settings">通知设置</string>
     <string name="section_decryption">消息解密</string>
@@ -126,6 +133,9 @@
     <string name="label_send_type_event">事件</string>
     <string name="label_send_type_thing">对象</string>
     <string name="message_gateway_saved">网关已保存</string>
+    <string name="message_gateway_saved_sync_pending">网关已切换，频道同步待完成，稍后会自动重试。</string>
+    <string name="message_gateway_saved_recovery_pending">网关已切换，通知设置待完成，请稍后重试。</string>
+    <string name="message_show_unread_only">只显示未读</string>
     <string name="dialog_private_channel_whitelist_title">请保持 PushGo 后台运行</string>
     <string name="dialog_private_channel_whitelist_body">私有通道依赖后台长连接。请将 PushGo 加入系统电池/后台白名单，并关闭激进省电清理，否则可能出现消息延迟或收不到消息。</string>
     <string name="message_decryption_saved">解密设置已保存</string><string name="message_channel_created_and_subscribed">频道已创建并订阅</string>
@@ -162,6 +172,11 @@
     <string name="label_notification_transport_private_only_hint">当前设备不支持 FCM，推送将默认使用私有通道。</string>
     <string name="label_notification_transport_gateway_private_disabled_hint">网关已关闭私有通道，当前网关下 Android 只能使用 FCM。</string>
     <string name="label_notification_transport_unavailable_hint">网关已关闭私有通道，且当前设备不支持 FCM，推送不可用。</string>
+    <string name="error_notification_transport_switch_failed">无法切换到私有通道，FCM 仍保持启用，请重试。</string>
+    <string name="message_notification_transport_recovering">正在确认通道切换结果，恢复完成后会更新当前通道；必要时可重试。</string>
+    <string name="error_notification_transport_private_compensation_failed">无法切换到私有通道，且清理未能完成。当前仍选择 FCM，但推送可能中断，请重新打开设置后再试。</string>
+    <string name="error_notification_transport_fcm_switch_failed">无法切换到 FCM，私有通道仍保持启用，请重试。</string>
+    <string name="error_notification_transport_fcm_compensation_failed">无法切换到 FCM，且清理未能完成。当前仍选择私有通道，但推送可能重复，请重新打开设置后再试。</string>
     <string name="label_notification_settings">通知设置</string>
     <string name="label_notification_settings_hint">打开系统中的 PushGo 通知设置页面。</string>
     <string name="label_transport_fcm">FCM</string>
@@ -336,4 +351,9 @@
     <string name="label_docs_e2ee_hint">了解数据加密和客户端解密密钥配置。</string>
     <string name="a11y_open_documentation">%1$s。%2$s 将在浏览器中打开。</string>
     <string name="error_open_documentation">无法打开文档。</string>
+    <string name="channel_stats_empty">暂无消息</string>
+    <string name="channel_stats_loading">正在加载动态…</string>
+    <string name="channel_stats_no_recent">暂无最近消息</string>
+    <string name="channel_stats_summary">%1$d 条消息 · %2$d 条未读 · 最近 %3$s</string>
+    <string name="channel_stats_unavailable">动态暂不可用</string>
 </resources>

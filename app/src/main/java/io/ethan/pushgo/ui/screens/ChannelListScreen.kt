@@ -1,8 +1,11 @@
 package io.ethan.pushgo.ui.screens
 
 import android.widget.Toast
+import android.text.format.DateFormat
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -13,9 +16,11 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.Logout
 import androidx.compose.material.icons.outlined.Add
@@ -45,6 +50,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.produceState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalClipboard
@@ -55,6 +61,8 @@ import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -62,6 +70,8 @@ import io.ethan.pushgo.R
 import io.ethan.pushgo.data.AppContainer
 import io.ethan.pushgo.data.PendingLocalDeletionOperation
 import io.ethan.pushgo.data.model.ChannelSubscription
+import io.ethan.pushgo.data.model.MessageChannelCount
+import io.ethan.pushgo.testing.QualityRuntime
 import io.ethan.pushgo.ui.PendingLocalDeletionCoordinator
 import io.ethan.pushgo.ui.accessibility.joinAccessibilitySummary
 import io.ethan.pushgo.ui.accessibility.pushGoMergedActionSemantics
@@ -74,7 +84,17 @@ import io.ethan.pushgo.ui.theme.PushGoThemeExtras
 import io.ethan.pushgo.ui.theme.pushGoPrimaryButtonColors
 import io.ethan.pushgo.ui.theme.pushGoSegmentedButtonColors
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
+import java.time.Instant
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
+
+private sealed interface ChannelActivityState {
+    data object Loading : ChannelActivityState
+    data object Failed : ChannelActivityState
+    data class Loaded(val byIdentifier: Map<String, MessageChannelCount>) : ChannelActivityState
+}
 
 @Composable
 @OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
@@ -89,15 +109,39 @@ fun ChannelListScreen(
     val clipboard = LocalClipboard.current
     val scope = rememberCoroutineScope()
     val bottomGestureInset = rememberBottomGestureInset()
-    val bottomBarNestedScrollConnection = rememberBottomBarNestedScrollConnection(onBottomBarVisibilityChanged)
+    val listState = rememberLazyListState()
+    val bottomBarNestedScrollConnection = rememberBottomBarNestedScrollConnection(
+        onBottomBarVisibilityChanged,
+        canScroll = listState.canScrollBackward || listState.canScrollForward,
+    )
     val effectivePendingScope by container.pendingLocalDeletionCoordinator.effectiveScope.collectAsStateWithLifecycle()
     val visibleChannelSubscriptions = viewModel.channelSubscriptions.filterNot {
         effectivePendingScope.suppressesChannel(it.channelId)
+    }
+    val channelActivityState by produceState<ChannelActivityState>(
+        initialValue = ChannelActivityState.Loading,
+        key1 = container.messageRepository,
+    ) {
+        try {
+            container.messageRepository.observeChannelCounts().collect { counts ->
+                value = ChannelActivityState.Loaded(
+                    counts.associateBy { it.channel.trim() }
+                )
+            }
+        } catch (cancellation: CancellationException) {
+            throw cancellation
+        } catch (_: Exception) {
+            value = ChannelActivityState.Failed
+        }
     }
 
     LaunchedEffect(viewModel.errorMessage) {
         val message = viewModel.errorMessage
         if (message != null) {
+            // Keep host-level Toast evidence separate from channel-entry Sheet
+            // errors. Quality UI journeys use this counter to prove a channel
+            // failure did not escape its owning surface.
+            QualityRuntime.recordGlobalErrorPresentation()
             val text = message.resolve(context)
             Toast.makeText(context, text, Toast.LENGTH_SHORT).show()
             announceForAccessibility(context, text)
@@ -138,6 +182,7 @@ fun ChannelListScreen(
     Column(
         modifier = Modifier
             .fillMaxSize()
+            .testTag("screen.channels.list")
             .background(uiColors.surfaceBase)
     ) {
         Row(
@@ -156,25 +201,32 @@ fun ChannelListScreen(
                 color = uiColors.textPrimary
             )
 
-            IconButton(onClick = {
-                channelEntryMode = ChannelEntryMode.Create
-                createChannelName = ""
-                createChannelPassword = ""
-                subscribeChannelId = ""
-                subscribeChannelPassword = ""
-                showChannelEntrySheet = true
-            }) {
+            IconButton(
+                onClick = {
+                    viewModel.clearChannelEntryError()
+                    channelEntryMode = ChannelEntryMode.Create
+                    createChannelName = ""
+                    createChannelPassword = ""
+                    subscribeChannelId = ""
+                    subscribeChannelPassword = ""
+                    showChannelEntrySheet = true
+                },
+                modifier = Modifier.testTag("action.channels.add"),
+            ) {
                 Icon(
                     imageVector = Icons.Outlined.Add,
                     contentDescription = stringResource(R.string.label_add_channel),
                     tint = uiColors.accentPrimary
                 )
             }
-            IconButton(onClick = {
-                navController.navigate(io.ethan.pushgo.ui.SettingsRoute) {
-                    launchSingleTop = true
-                }
-            }) {
+            IconButton(
+                onClick = {
+                    navController.navigate(io.ethan.pushgo.ui.SettingsRoute) {
+                        launchSingleTop = true
+                    }
+                },
+                modifier = Modifier.testTag("action.channels.settings"),
+            ) {
                 Icon(
                     imageVector = Icons.Outlined.Settings,
                     contentDescription = stringResource(R.string.tab_settings),
@@ -189,6 +241,7 @@ fun ChannelListScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .nestedScroll(bottomBarNestedScrollConnection),
+            state = listState,
             contentPadding = androidx.compose.foundation.layout.PaddingValues(bottom = bottomGestureInset + 24.dp),
         ) {
             if (visibleChannelSubscriptions.isEmpty()) {
@@ -203,7 +256,13 @@ fun ChannelListScreen(
                 items(visibleChannelSubscriptions, key = { it.channelId }) { subscription ->
                     ChannelRow(
                         subscription = subscription,
+                        activityText = channelActivityText(
+                            context = context,
+                            state = channelActivityState,
+                            identifier = subscription.channelId,
+                        ),
                         onRename = {
+                            viewModel.clearChannelRenameError()
                             pendingChannelRename = subscription
                             renameAlias = subscription.displayName
                         },
@@ -275,6 +334,7 @@ fun ChannelListScreen(
                             }
                         },
                         enabled = !viewModel.isRemovingChannel,
+                        modifier = Modifier.testTag("action.channel.unsubscribe.delete_history"),
                     )
                     TextButton(
                         onClick = {
@@ -285,6 +345,7 @@ fun ChannelListScreen(
                             }
                         },
                         enabled = !viewModel.isRemovingChannel,
+                        modifier = Modifier.testTag("action.channel.unsubscribe.keep_history"),
                     ) {
                         Text(stringResource(R.string.label_unsubscribe_keep_history))
                     }
@@ -300,7 +361,10 @@ fun ChannelListScreen(
             target?.displayName ?: "",
         )
         PushGoAlertDialog(
-            onDismissRequest = { pendingChannelRename = null },
+            onDismissRequest = {
+                viewModel.clearChannelRenameError()
+                pendingChannelRename = null
+            },
             paneTitle = renameTitle,
             title = {
                 Text(
@@ -311,9 +375,14 @@ fun ChannelListScreen(
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     OutlinedTextField(
                         value = renameAlias,
-                        onValueChange = { renameAlias = it },
+                        onValueChange = {
+                            renameAlias = it
+                            viewModel.clearChannelRenameError()
+                        },
                         label = { Text(stringResource(R.string.label_channel_alias)) },
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("field.channel.rename.alias"),
                         singleLine = true,
                         colors = pushGoOutlinedTextFieldColors(),
                     )
@@ -321,6 +390,14 @@ fun ChannelListScreen(
                         text = stringResource(R.string.label_rename_channel_hint),
                         style = MaterialTheme.typography.bodySmall,
                     )
+                    viewModel.channelRenameErrorMessage?.let { message ->
+                        Text(
+                            text = message.resolve(context),
+                            color = MaterialTheme.colorScheme.error,
+                            style = MaterialTheme.typography.bodySmall,
+                            modifier = Modifier.testTag("feedback.channel.rename"),
+                        )
+                    }
                 }
             },
             confirmButton = {
@@ -329,17 +406,25 @@ fun ChannelListScreen(
                         val channelId = target?.channelId ?: return@TextButton
                         val alias = renameAlias
                         scope.launch {
-                            viewModel.renameChannel(channelId, alias)
-                            pendingChannelRename = null
+                            if (viewModel.renameChannel(channelId, alias)) {
+                                pendingChannelRename = null
+                            }
                         }
                     },
                     enabled = !viewModel.isRenamingChannel && renameAlias.trim().isNotEmpty(),
+                    modifier = Modifier.testTag("action.channel.rename.save"),
                 ) {
                     Text(stringResource(R.string.label_save))
                 }
             },
             dismissButton = {
-                TextButton(onClick = { pendingChannelRename = null }) {
+                TextButton(
+                    onClick = {
+                        viewModel.clearChannelRenameError()
+                        pendingChannelRename = null
+                    },
+                    modifier = Modifier.testTag("action.channel.rename.cancel"),
+                ) {
                     Text(stringResource(R.string.label_cancel))
                 }
             }
@@ -350,13 +435,17 @@ fun ChannelListScreen(
         val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
         PushGoModalBottomSheet(
             modifier = Modifier.testTag("sheet.channels.entry"),
-            onDismissRequest = { showChannelEntrySheet = false },
+            onDismissRequest = {
+                viewModel.clearChannelEntryError()
+                showChannelEntrySheet = false
+            },
             sheetState = sheetState,
             paneTitle = stringResource(R.string.a11y_pane_channel_management),
         ) {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
+                    .verticalScroll(rememberScrollState())
                     .padding(start = 24.dp, top = 16.dp, end = 24.dp, bottom = bottomGestureInset + 16.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
@@ -371,34 +460,61 @@ fun ChannelListScreen(
                     ChannelEntryMode.entries.forEachIndexed { index, mode ->
                         SegmentedButton(
                             selected = channelEntryMode == mode,
-                            onClick = { channelEntryMode = mode },
+                            onClick = {
+                                viewModel.clearChannelEntryError()
+                                channelEntryMode = mode
+                            },
                             shape = SegmentedButtonDefaults.itemShape(
                                 index = index,
                                 count = ChannelEntryMode.entries.size
                             ),
                             colors = pushGoSegmentedButtonColors(),
+                            modifier = Modifier.testTag(mode.testTag),
                         ) {
                             Text(stringResource(mode.labelRes))
                         }
                     }
                 }
 
+                viewModel.channelEntryErrorMessage?.let { message ->
+                    Text(
+                        text = message.resolve(context),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = uiColors.stateDanger.foreground,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("feedback.channels.entry"),
+                    )
+                }
+
                 when (channelEntryMode) {
                     ChannelEntryMode.Create -> {
                         OutlinedTextField(
                             value = createChannelName,
-                            onValueChange = { createChannelName = it },
+                            onValueChange = {
+                                viewModel.clearChannelEntryError()
+                                createChannelName = it
+                            },
                             label = { Text(stringResource(R.string.label_channel_name)) },
-                            modifier = Modifier.fillMaxWidth(),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag("field.channels.create.name"),
                             singleLine = true,
                             colors = pushGoOutlinedTextFieldColors(),
                         )
                         OutlinedTextField(
                             value = createChannelPassword,
-                            onValueChange = { createChannelPassword = it },
+                            onValueChange = {
+                                viewModel.clearChannelEntryError()
+                                createChannelPassword = it
+                            },
                             label = { Text(stringResource(R.string.label_channel_password)) },
-                            modifier = Modifier.fillMaxWidth(),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag("field.channels.create.password"),
                             singleLine = true,
+                            visualTransformation = PasswordVisualTransformation(),
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
                             colors = pushGoOutlinedTextFieldColors(),
                         )
                     }
@@ -406,18 +522,30 @@ fun ChannelListScreen(
                     ChannelEntryMode.Subscribe -> {
                         OutlinedTextField(
                             value = subscribeChannelId,
-                            onValueChange = { subscribeChannelId = it },
+                            onValueChange = {
+                                viewModel.clearChannelEntryError()
+                                subscribeChannelId = it
+                            },
                             label = { Text(stringResource(R.string.label_channel_id)) },
-                            modifier = Modifier.fillMaxWidth(),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag("field.channels.subscribe.id"),
                             singleLine = true,
                             colors = pushGoOutlinedTextFieldColors(),
                         )
                         OutlinedTextField(
                             value = subscribeChannelPassword,
-                            onValueChange = { subscribeChannelPassword = it },
+                            onValueChange = {
+                                viewModel.clearChannelEntryError()
+                                subscribeChannelPassword = it
+                            },
                             label = { Text(stringResource(R.string.label_channel_password)) },
-                            modifier = Modifier.fillMaxWidth(),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag("field.channels.subscribe.password"),
                             singleLine = true,
+                            visualTransformation = PasswordVisualTransformation(),
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
                             colors = pushGoOutlinedTextFieldColors(),
                         )
                     }
@@ -427,7 +555,10 @@ fun ChannelListScreen(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.End,
                 ) {
-                    TextButton(onClick = { showChannelEntrySheet = false }) {
+                    TextButton(onClick = {
+                        viewModel.clearChannelEntryError()
+                        showChannelEntrySheet = false
+                    }) {
                         Text(stringResource(R.string.label_cancel))
                     }
                     Button(
@@ -463,6 +594,7 @@ fun ChannelListScreen(
                             }
                         },
                         enabled = canSubmitChannelEntry,
+                        modifier = Modifier.testTag("action.channels.entry.submit"),
                         colors = pushGoPrimaryButtonColors(),
                     ) {
                         Text(stringResource(channelEntryMode.labelRes))
@@ -473,15 +605,16 @@ fun ChannelListScreen(
     }
 }
 
-private enum class ChannelEntryMode(val labelRes: Int) {
-    Create(R.string.label_create_channel),
-    Subscribe(R.string.label_subscribe_channel),
+private enum class ChannelEntryMode(val labelRes: Int, val testTag: String) {
+    Create(R.string.label_create_channel, "mode.channels.entry.create"),
+    Subscribe(R.string.label_subscribe_channel, "mode.channels.entry.subscribe"),
 }
 
 @Composable
 
 internal fun ChannelRow(
     subscription: ChannelSubscription,
+    activityText: String,
     onRename: () -> Unit,
     onDelete: () -> Unit,
     onCopy: () -> Unit,
@@ -491,11 +624,13 @@ internal fun ChannelRow(
     val rowSummary = joinAccessibilitySummary(
         subscription.displayName,
         subscription.channelId,
+        activityText,
     )
 
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            .testTag("channel.row.${subscription.channelId}")
             .heightIn(min = 64.dp)
             .background(PushGoThemeExtras.colors.fieldContainer)
             .clickable { onCopy() }
@@ -520,10 +655,21 @@ internal fun ChannelRow(
                 color = uiColors.textSecondary,
                 maxLines = 1
             )
+            Spacer(modifier = Modifier.height(2.dp))
+            Text(
+                text = activityText,
+                style = MaterialTheme.typography.bodySmall,
+                color = uiColors.textSecondary,
+                modifier = Modifier.testTag("channel.stats.${subscription.channelId}"),
+                maxLines = 2,
+            )
         }
 
         Box {
-            IconButton(onClick = { menuExpanded = true }) {
+            IconButton(
+                onClick = { menuExpanded = true },
+                modifier = Modifier.testTag("action.channel.${subscription.channelId}.menu"),
+            ) {
                 Icon(
                     imageVector = Icons.Outlined.MoreVert,
                     contentDescription = stringResource(R.string.label_channel_actions),
@@ -535,6 +681,7 @@ internal fun ChannelRow(
                 onDismissRequest = { menuExpanded = false },
             ) {
                 DropdownMenuItem(
+                    modifier = Modifier.testTag("action.channel.${subscription.channelId}.rename"),
                     text = { Text(stringResource(R.string.label_rename_channel)) },
                     onClick = {
                         menuExpanded = false
@@ -548,6 +695,7 @@ internal fun ChannelRow(
                     }
                 )
                 DropdownMenuItem(
+                    modifier = Modifier.testTag("action.channel.${subscription.channelId}.unsubscribe"),
                     text = { Text(stringResource(R.string.label_unsubscribe_channel)) },
                     onClick = {
                         menuExpanded = false
@@ -561,6 +709,34 @@ internal fun ChannelRow(
                     }
                 )
             }
+        }
+    }
+}
+
+private fun channelActivityText(
+    context: android.content.Context,
+    state: ChannelActivityState,
+    identifier: String,
+): String {
+    return when (state) {
+        ChannelActivityState.Loading -> context.getString(R.string.channel_stats_loading)
+        ChannelActivityState.Failed -> context.getString(R.string.channel_stats_unavailable)
+        is ChannelActivityState.Loaded -> {
+            val stats = state.byIdentifier[identifier.trim()]
+                ?: return context.getString(R.string.channel_stats_empty)
+            val latest = stats.latestReceivedAt?.let { epochMillis ->
+                val locale = context.resources.configuration.locales[0]
+                val pattern = DateFormat.getBestDateTimePattern(locale, "yMMMdjm")
+                DateTimeFormatter.ofPattern(pattern, locale)
+                    .withZone(ZoneId.systemDefault())
+                    .format(Instant.ofEpochMilli(epochMillis))
+            } ?: context.getString(R.string.channel_stats_no_recent)
+            context.getString(
+                R.string.channel_stats_summary,
+                stats.totalCount,
+                stats.unreadCount,
+                latest,
+            )
         }
     }
 }

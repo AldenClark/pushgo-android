@@ -54,6 +54,16 @@ class ExternalNavigationTest {
     }
 
     @Test
+    fun normalizeExternalImageUrl_blocksIpv4MappedPrivateAddresses() {
+        assertNull(normalizeExternalImageUrl("http://[::ffff:127.0.0.1]/a.png"))
+        assertNull(normalizeExternalImageUrl("http://[::ffff:10.0.0.1]/a.png"))
+        assertEquals(
+            "https://[::ffff:8.8.8.8]/a.png",
+            normalizeExternalImageUrl("https://[::ffff:8.8.8.8]/a.png"),
+        )
+    }
+
+    @Test
     fun normalizeExternalOpenUrl_rejectsOversizedAndInvalidHostInput() {
         val oversized = "https://" + "a".repeat(4097)
         assertNull(normalizeExternalOpenUrl(oversized))

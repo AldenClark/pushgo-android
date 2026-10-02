@@ -41,6 +41,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
@@ -68,6 +69,7 @@ import io.ethan.pushgo.ui.theme.PushGoStateColors
 import io.ethan.pushgo.ui.theme.PushGoThemeExtras
 import io.ethan.pushgo.util.PayloadTimeNormalizer
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -158,8 +160,8 @@ enum class EventLifecycleState(val token: String) {
     companion object {
         fun fromRaw(raw: String?): EventLifecycleState {
             return when (raw?.trim()?.uppercase()) {
-                "ONGOING" -> Ongoing
-                "CLOSED" -> Closed
+                "ONGOING", "ACTIVE", "OPEN", "ACK", "ACKNOWLEDGED", "MUTED", "TRIGGERED" -> Ongoing
+                "CLOSED", "CLOSE", "RESOLVED", "ENDED", "DONE", "COMPLETED", "CANCELLED", "CANCELED" -> Closed
                 else -> Unknown
             }
         }
@@ -193,13 +195,15 @@ fun EventListScreen(
     var loadedEventPages by remember { mutableIntStateOf(0) }
     var isLoadingMoreEvents by remember { mutableStateOf(false) }
     var selectedEvent by remember { mutableStateOf<EventCardModel?>(null) }
+    var closingEventId by remember { mutableStateOf<String?>(null) }
+    var closeEventErrorMessage by remember { mutableStateOf<String?>(null) }
+    var targetUnavailableFeedback by remember { mutableStateOf<String?>(null) }
     var isPullRefreshing by remember { mutableStateOf(false) }
     var searchQuery by remember { mutableStateOf("") }
     var selectedChannelFilters by remember { mutableStateOf<Set<String>>(emptySet()) }
     var selectedTagFilters by remember { mutableStateOf<Set<String>>(emptySet()) }
     var showOnlyOpen by remember { mutableStateOf(false) }
     var channelNameMap by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
-    var pendingCloseEvent by remember { mutableStateOf<EventCardModel?>(null) }
     val context = LocalContext.current
     val appContext = context.applicationContext
     val effectivePendingScope by container.pendingLocalDeletionCoordinator.effectiveScope.collectAsStateWithLifecycle()
@@ -208,15 +212,21 @@ fun EventListScreen(
     val closeEventBodyDefault = stringResource(R.string.event_message_closed_default)
     val closeEventSuccessMessage = stringResource(R.string.message_event_closed)
     val missingChannelMessage = stringResource(R.string.error_event_missing_channel)
+    val targetUnavailableMessage = stringResource(R.string.error_gateway_resource_not_found)
     val eventsLabel = stringResource(R.string.label_send_type_event)
     val scope = rememberCoroutineScope()
     val listState = rememberLazyListState()
     val bottomGestureInset = rememberBottomGestureInset()
-    val bottomBarNestedScrollConnection = rememberBottomBarNestedScrollConnection(onBottomBarVisibilityChanged)
+    val bottomBarNestedScrollConnection = rememberBottomBarNestedScrollConnection(
+        onBottomBarVisibilityChanged,
+        canScroll = listState.canScrollBackward || listState.canScrollForward,
+    )
     var listTopInWindow by remember { mutableFloatStateOf(0f) }
 
-    fun showToast(message: String) {
-        Toast.makeText(appContext, message, Toast.LENGTH_SHORT).show()
+    suspend fun showToast(message: String) {
+        withContext(Dispatchers.Main.immediate) {
+            Toast.makeText(appContext, message, Toast.LENGTH_SHORT).show()
+        }
     }
 
     fun isPendingLocalDeletion(event: EventCardModel): Boolean {
@@ -274,12 +284,15 @@ fun EventListScreen(
     }
 
     suspend fun closeEvent(event: EventCardModel) {
+        if (closingEventId != null) return
         val channelId = event.channelId.orEmpty().trim()
         if (channelId.isEmpty()) {
-            showToast(missingChannelMessage)
+            closeEventErrorMessage = missingChannelMessage
             return
         }
-        runCatching {
+        closingEventId = event.eventId
+        closeEventErrorMessage = null
+        try {
             container.channelRepository.closeEvent(
                 rawEventId = event.eventId,
                 rawThingId = event.thingId,
@@ -288,15 +301,26 @@ fun EventListScreen(
                 rawMessage = closeEventBodyDefault,
                 rawSeverity = event.severity?.wireValue,
             )
-        }.onSuccess {
-            showToast(closeEventSuccessMessage)
-            if (selectedEvent?.eventId == event.eventId) {
-                selectedEvent = null
-                onEventDetailClosed()
+            withContext(Dispatchers.Main.immediate) {
+                Toast.makeText(appContext, closeEventSuccessMessage, Toast.LENGTH_SHORT).show()
+                if (selectedEvent?.eventId == event.eventId) {
+                    selectedEvent = null
+                    onEventDetailClosed()
+                }
             }
             reloadEventsInternal()
-        }.onFailure { error ->
-            showToast(error.toUserFacingText(context, R.string.error_event_close_failed))
+        } catch (error: Throwable) {
+            if (error is CancellationException) throw error
+            io.ethan.pushgo.util.SilentSink.w(
+                "EventListScreen",
+                "event close failed",
+                error,
+            )
+            closeEventErrorMessage = error.toUserFacingText(context, R.string.error_event_close_failed)
+        } finally {
+            if (closingEventId == event.eventId) {
+                closingEventId = null
+            }
         }
     }
 
@@ -320,7 +344,9 @@ fun EventListScreen(
             onCompletion = { result ->
                 val error = result.exceptionOrNull()
                 if (error != null) {
-                    showToast(error.toUserFacingText(context, R.string.error_request_failed))
+                    scope.launch {
+                        showToast(error.toUserFacingText(context, R.string.error_request_failed))
+                    }
                 }
             },
         )
@@ -509,8 +535,16 @@ fun EventListScreen(
 
     LaunchedEffect(openEventId, allEvents, hasMoreEvents, isLoadingMoreEvents) {
         val target = openEventId?.trim()?.takeIf { it.isNotEmpty() } ?: return@LaunchedEffect
+        if (effectivePendingScope.suppressesEvent(target, null)) {
+            targetUnavailableFeedback = targetUnavailableMessage
+            onOpenEventHandled()
+            return@LaunchedEffect
+        }
         val matched = allEvents.firstOrNull { it.eventId == target }
         if (matched != null) {
+            targetUnavailableFeedback = null
+            closeEventErrorMessage = null
+            closingEventId = null
             selectedEvent = loadEventDetailModel(target) ?: matched
             onEventDetailOpened(target)
             onOpenEventHandled()
@@ -518,6 +552,9 @@ fun EventListScreen(
         }
         val detailEvent = loadEventDetailModel(target)
         if (detailEvent != null) {
+            targetUnavailableFeedback = null
+            closeEventErrorMessage = null
+            closingEventId = null
             selectedEvent = detailEvent
             onEventDetailOpened(target)
             onOpenEventHandled()
@@ -525,12 +562,17 @@ fun EventListScreen(
         }
         if (hasMoreEvents && !isLoadingMoreEvents) {
             loadMoreEventsIfNeeded()
+        } else if (hasLoadedOnce && !isLoadingMoreEvents) {
+            targetUnavailableFeedback = targetUnavailableMessage
+            onOpenEventHandled()
         }
     }
 
     LaunchedEffect(effectivePendingScope) {
         val currentEvent = selectedEvent
         if (currentEvent != null && effectivePendingScope.suppressesEvent(currentEvent.eventId, currentEvent.channelId)) {
+            closeEventErrorMessage = null
+            closingEventId = null
             selectedEvent = null
             onEventDetailClosed()
         }
@@ -539,14 +581,24 @@ fun EventListScreen(
     if (selectedEvent != null) {
         val event = selectedEvent!!
         PushGoModalBottomSheet(
-            onDismissRequest = { selectedEvent = null; onEventDetailClosed() },
+            onDismissRequest = dismiss@{
+                if (closingEventId != null) return@dismiss
+                closeEventErrorMessage = null
+                selectedEvent = null
+                onEventDetailClosed()
+            },
             paneTitle = event.title,
         ) {
             EventDetailSheet(
                 event = event,
                 channelDisplayName = event.channelId?.let { channelNameMap[it] ?: it },
                 bottomGestureInset = bottomGestureInset,
-                onCloseEvent = { pendingCloseEvent = selectedEvent },
+                isClosing = closingEventId == event.eventId,
+                closeErrorMessage = closeEventErrorMessage,
+                onCloseEvent = {
+                    val targetEvent = selectedEvent ?: return@EventDetailSheet
+                    scope.launch { closeEvent(targetEvent) }
+                },
                 onDeleteEvent = {
                     val event = selectedEvent ?: return@EventDetailSheet
                     scope.launch {
@@ -557,7 +609,7 @@ fun EventListScreen(
         }
     }
 
-    Box(modifier = Modifier.fillMaxSize()) {
+    Box(modifier = Modifier.fillMaxSize().testTag("screen.events.list")) {
         PullToRefreshBox(
             isRefreshing = isPullRefreshing,
             onRefresh = { refreshProviderIngressFromPullDown() },
@@ -583,7 +635,10 @@ fun EventListScreen(
                                 ) {
                                     Box {
                                         var menuExpanded by remember { mutableStateOf(false) }
-                                        IconButton(onClick = { menuExpanded = true }) {
+                                        IconButton(
+                                            onClick = { menuExpanded = true },
+                                            modifier = Modifier.testTag("event.filters.action"),
+                                        ) {
                                             val active = selectedChannelFilters.isNotEmpty() || selectedTagFilters.isNotEmpty() || showOnlyOpen
                                             FilterMenuIcon(
                                                 active = active,
@@ -597,6 +652,7 @@ fun EventListScreen(
                                             DropdownMenuItem(
                                                 text = { Text(stringResource(R.string.filter_open_events)) },
                                                 onClick = { showOnlyOpen = !showOnlyOpen },
+                                                modifier = Modifier.testTag("event.filters.ongoing"),
                                                 trailingIcon = { if (showOnlyOpen) Icon(Icons.Outlined.Check, null, modifier = Modifier.size(18.dp)) }
                                             )
                                             if (channelOptions.isNotEmpty()) {
@@ -678,6 +734,11 @@ fun EventListScreen(
                     Text(text = stringResource(R.string.label_send_type_event), style = MaterialTheme.typography.headlineMedium.copy(fontWeight = FontWeight.SemiBold, letterSpacing = (-0.5).sp), color = uiColors.textPrimary, modifier = Modifier.padding(start = ScreenHorizontalPadding, top = 8.dp, bottom = 12.dp).semantics { heading() })
                 }
             }
+            targetUnavailableFeedback?.let { message ->
+                item {
+                    EntityTargetUnavailableNotice(message = message)
+                }
+            }
             if (filteredEvents.isEmpty()) {
                 item {
                     AppEmptyState(
@@ -693,6 +754,9 @@ fun EventListScreen(
                         event = event,
                         channelDisplayName = event.channelId?.let { channelNameMap[it] ?: it },
                         onClick = {
+                            targetUnavailableFeedback = null
+                            closeEventErrorMessage = null
+                            closingEventId = null
                             selectedEvent = event
                             onEventDetailOpened(event.eventId)
                         },
@@ -714,28 +778,6 @@ fun EventListScreen(
         }
     }
 
-    pendingCloseEvent?.let { targetEvent ->
-        AlertDialog(
-            onDismissRequest = { pendingCloseEvent = null },
-            title = { Text(text = stringResource(R.string.action_close_event)) },
-            text = { Text(text = targetEvent.title) },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        pendingCloseEvent = null
-                        scope.launch { closeEvent(targetEvent) }
-                    },
-                ) {
-                    Text(text = stringResource(R.string.label_confirm))
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { pendingCloseEvent = null }) {
-                    Text(text = stringResource(R.string.label_cancel))
-                }
-            },
-        )
-    }
 }
 
 @Composable
@@ -802,6 +844,7 @@ fun EventListRowItem(
             modifier = Modifier
                 .fillMaxWidth()
                 .background(uiColors.surfaceBase)
+                .testTag("event.row.${event.eventId}")
                 .clickable(onClick = onClick)
                 .pushGoMergedActionSemantics(
                     summary = rowSummary,
@@ -906,6 +949,8 @@ fun EventDetailSheet(
     event: EventCardModel,
     channelDisplayName: String?,
     bottomGestureInset: Dp,
+    isClosing: Boolean = false,
+    closeErrorMessage: String? = null,
     onCloseEvent: () -> Unit,
     onDeleteEvent: () -> Unit,
 ) {
@@ -922,6 +967,7 @@ fun EventDetailSheet(
     Column(
         modifier = Modifier
             .fillMaxWidth()
+            .testTag("sheet.event.detail")
             .verticalScroll(rememberScrollState())
             .padding(horizontal = 16.dp)
             .padding(bottom = bottomGestureInset + 24.dp),
@@ -951,16 +997,25 @@ fun EventDetailSheet(
                     )
                     Row {
                         if (!isEnded) {
-                            IconButton(
-                                modifier = Modifier.size(32.dp),
-                                onClick = { showCloseConfirmation = true },
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Outlined.CheckCircle,
-                                    contentDescription = stringResource(R.string.action_close_event),
-                                    tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.9f),
-                                    modifier = Modifier.size(20.dp),
+                            if (isClosing) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier
+                                        .size(24.dp)
+                                        .testTag("state.event.close.in_progress"),
+                                    strokeWidth = 2.dp,
                                 )
+                            } else {
+                                IconButton(
+                                    modifier = Modifier.size(32.dp).testTag("event.close.action"),
+                                    onClick = { showCloseConfirmation = true },
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Outlined.CheckCircle,
+                                        contentDescription = stringResource(R.string.action_close_event),
+                                        tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.9f),
+                                        modifier = Modifier.size(20.dp),
+                                    )
+                                }
                             }
                         }
                         IconButton(
@@ -977,6 +1032,17 @@ fun EventDetailSheet(
                     }
                 }
 
+                if (!closeErrorMessage.isNullOrBlank()) {
+                    Text(
+                        text = closeErrorMessage,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = uiColors.stateDanger.foreground,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("feedback.event.close"),
+                    )
+                }
+
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
@@ -986,6 +1052,9 @@ fun EventDetailSheet(
                         statusText = normalizedEventStatus(event.status) ?: stringResource(R.string.event_status_created_default),
                         state = event.state,
                         severity = event.severity,
+                        modifier = Modifier.testTag(
+                            "field.event.detail.status.${event.state.name.lowercase()}"
+                        ),
                     )
                     createdAt?.let { created ->
                         Text(
@@ -1020,6 +1089,7 @@ fun EventDetailSheet(
                             text = event.summary,
                             style = MaterialTheme.typography.bodyLarge,
                             color = MaterialTheme.colorScheme.onSurface,
+                            modifier = Modifier.testTag("field.event.detail.summary"),
                         )
                     }
                     if (!event.message.isNullOrBlank()) {
@@ -1097,7 +1167,10 @@ fun EventDetailSheet(
                 iconSize = 40.dp,
             )
         } else {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Column(
+                modifier = Modifier.testTag("event.timeline.count.${timelineDescending.size}"),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
                 timelineDescending.forEach { row ->
                     val pointAttrs = parseEventDisplayAttributes(row.attrsJson)
                     Surface(
@@ -1171,7 +1244,7 @@ fun EventDetailSheet(
         }
     }
 
-    if (showCloseConfirmation) {
+    if (showCloseConfirmation && !isClosing) {
         AlertDialog(
             onDismissRequest = { showCloseConfirmation = false },
             title = { Text(text = stringResource(R.string.action_close_event)) },
@@ -1181,12 +1254,16 @@ fun EventDetailSheet(
                         showCloseConfirmation = false
                         onCloseEvent()
                     },
+                    modifier = Modifier.testTag("event.close.confirm"),
                 ) {
                     Text(text = stringResource(R.string.action_close_event))
                 }
             },
             dismissButton = {
-                TextButton(onClick = { showCloseConfirmation = false }) {
+                TextButton(
+                    onClick = { showCloseConfirmation = false },
+                    modifier = Modifier.testTag("event.close.cancel"),
+                ) {
                     Text(text = stringResource(R.string.label_cancel))
                 }
             },
@@ -1200,9 +1277,18 @@ fun EventDetailSheet(
 }
 
 @Composable
-private fun EventStatusBadge(statusText: String, state: EventLifecycleState, severity: EventSeverity?) {
+private fun EventStatusBadge(
+    statusText: String,
+    state: EventLifecycleState,
+    severity: EventSeverity?,
+    modifier: Modifier = Modifier,
+) {
     val palette = eventSeverityPaletteInternal(severity) ?: eventStatePaletteInternal(state)
-    Surface(color = palette.background, shape = MaterialTheme.shapes.small) {
+    Surface(
+        modifier = modifier.semantics(mergeDescendants = true) {},
+        color = palette.background,
+        shape = MaterialTheme.shapes.small,
+    ) {
         Row(
             modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
             verticalAlignment = Alignment.CenterVertically,

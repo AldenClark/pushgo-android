@@ -35,6 +35,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInWindow
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
 import io.ethan.pushgo.ui.viewmodel.toUserFacingText
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.pluralStringResource
@@ -74,6 +75,7 @@ import io.ethan.pushgo.util.normalizeExternalImageUrl
 import io.ethan.pushgo.util.openExternalUrl
 import io.ethan.pushgo.ui.viewmodel.SettingsViewModel
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -204,6 +206,9 @@ fun ThingListScreen(
     var selectedRelatedMessage by remember { mutableStateOf<ThingRelatedMessage?>(null) }
     var selectedRelatedEvent by remember { mutableStateOf<EventCardModel?>(null) }
     var selectedRelatedUpdate by remember { mutableStateOf<ThingRelatedUpdate?>(null) }
+    var closingRelatedEventId by remember { mutableStateOf<String?>(null) }
+    var relatedEventCloseErrorMessage by remember { mutableStateOf<String?>(null) }
+    var targetUnavailableFeedback by remember { mutableStateOf<String?>(null) }
     
     var isPullRefreshing by remember { mutableStateOf(false) }
     var searchQuery by remember { mutableStateOf("") }
@@ -216,15 +221,18 @@ fun ThingListScreen(
     val effectivePendingScope by container.pendingLocalDeletionCoordinator.effectiveScope.collectAsStateWithLifecycle()
     val thingsLabel = stringResource(R.string.label_send_type_thing)
     val eventsLabel = stringResource(R.string.label_send_type_event)
-    val closeEventFailedMessage = stringResource(R.string.error_event_close_failed)
     val closeEventStatusDefault = stringResource(R.string.event_status_closed_default)
     val closeEventBodyDefault = stringResource(R.string.event_message_closed_default)
     val missingChannelMessage = stringResource(R.string.error_event_missing_channel)
+    val targetUnavailableMessage = stringResource(R.string.error_gateway_resource_not_found)
     val closeEventSuccessMessage = stringResource(R.string.message_event_closed)
     val scope = rememberCoroutineScope()
     val listState = rememberLazyListState()
     val bottomGestureInset = rememberBottomGestureInset()
-    val bottomBarNestedScrollConnection = rememberBottomBarNestedScrollConnection(onBottomBarVisibilityChanged)
+    val bottomBarNestedScrollConnection = rememberBottomBarNestedScrollConnection(
+        onBottomBarVisibilityChanged,
+        canScroll = listState.canScrollBackward || listState.canScrollForward,
+    )
     var listTopInWindow by remember { mutableFloatStateOf(0f) }
     
     var channelNameMap by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
@@ -557,8 +565,14 @@ fun ThingListScreen(
 
     LaunchedEffect(openThingId, allThings, hasMoreThings, isLoadingMoreThings) {
         val target = openThingId?.trim()?.takeIf { it.isNotEmpty() } ?: return@LaunchedEffect
+        if (effectivePendingScope.suppressesThing(target, null)) {
+            targetUnavailableFeedback = targetUnavailableMessage
+            onOpenThingHandled()
+            return@LaunchedEffect
+        }
         val matched = allThings.firstOrNull { it.thingId == target }
         if (matched != null) {
+            targetUnavailableFeedback = null
             selectedThingInitialTab = ThingDetailTab.fromWireValue(openThingDetailTab)
             selectedThing = loadThingDetailModel(target) ?: matched
             onThingDetailOpened(matched.thingId)
@@ -567,6 +581,7 @@ fun ThingListScreen(
         }
         val detailThing = loadThingDetailModel(target)
         if (detailThing != null) {
+            targetUnavailableFeedback = null
             selectedThingInitialTab = ThingDetailTab.fromWireValue(openThingDetailTab)
             selectedThing = detailThing
             onThingDetailOpened(target)
@@ -575,6 +590,9 @@ fun ThingListScreen(
         }
         if (hasMoreThings && !isLoadingMoreThings) {
             loadMoreThingsIfNeeded()
+        } else if (hasLoadedOnce && !isLoadingMoreThings) {
+            targetUnavailableFeedback = targetUnavailableMessage
+            onOpenThingHandled()
         }
     }
 
@@ -591,7 +609,12 @@ fun ThingListScreen(
         }
     }
 
-    if (selectedThing != null) {
+    if (
+        selectedThing != null &&
+        selectedRelatedMessage == null &&
+        selectedRelatedEvent == null &&
+        selectedRelatedUpdate == null
+    ) {
         val thing = selectedThing!!
         PushGoModalBottomSheet(
             onDismissRequest = {
@@ -607,9 +630,24 @@ fun ThingListScreen(
             ThingDetailSheet(
                 thing = thing,
                 initialTab = selectedThingInitialTab,
+                onSelectedTabChange = { selectedThingInitialTab = it },
                 channelNameMap = channelNameMap,
                 bottomGestureInset = bottomGestureInset,
-                onOpenRelatedEvent = { selectedRelatedEvent = it },
+                onOpenRelatedEvent = { relatedEvent ->
+                    closingRelatedEventId = null
+                    relatedEventCloseErrorMessage = null
+                    scope.launch {
+                        selectedRelatedEvent = container.entityRepository
+                            .getEventProjectionDetail(relatedEvent.eventId)
+                            ?.let { detail ->
+                                buildEventCardFromProjectionDetailInternal(
+                                    detail = detail,
+                                    eventId = relatedEvent.eventId,
+                                )
+                            }
+                            ?: relatedEvent
+                    }
+                },
                 onOpenRelatedMessage = { selectedRelatedMessage = it },
                 onOpenRelatedUpdate = { selectedRelatedUpdate = it },
                 onDelete = {
@@ -625,22 +663,31 @@ fun ThingListScreen(
     if (selectedRelatedEvent != null) {
         val event = selectedRelatedEvent!!
         PushGoModalBottomSheet(
-            onDismissRequest = { selectedRelatedEvent = null },
+            onDismissRequest = dismiss@{
+                if (closingRelatedEventId != null) return@dismiss
+                relatedEventCloseErrorMessage = null
+                selectedRelatedEvent = null
+            },
             paneTitle = event.title,
         ) {
             EventDetailSheet(
                 event = event,
                 channelDisplayName = event.channelId?.let { channelNameMap[it] ?: it },
                 bottomGestureInset = bottomGestureInset,
+                isClosing = closingRelatedEventId == event.eventId,
+                closeErrorMessage = relatedEventCloseErrorMessage,
                 onCloseEvent = {
                     val event = selectedRelatedEvent ?: return@EventDetailSheet
+                    if (closingRelatedEventId != null) return@EventDetailSheet
                     scope.launch {
                         val channelId = event.channelId.orEmpty().trim()
                         if (channelId.isEmpty()) {
-                            showToast(missingChannelMessage)
+                            relatedEventCloseErrorMessage = missingChannelMessage
                             return@launch
                         }
-                        runCatching {
+                        closingRelatedEventId = event.eventId
+                        relatedEventCloseErrorMessage = null
+                        try {
                             container.channelRepository.closeEvent(
                                 rawEventId = event.eventId,
                                 rawThingId = event.thingId,
@@ -649,12 +696,19 @@ fun ThingListScreen(
                                 rawMessage = closeEventBodyDefault,
                                 rawSeverity = event.severity?.wireValue,
                             )
-                        }.onSuccess {
                             showToast(closeEventSuccessMessage)
                             selectedRelatedEvent = null
                             reloadThingsInternal()
-                        }.onFailure { error ->
-                            showToast(error.toUserFacingText(context, R.string.error_event_close_failed))
+                        } catch (error: Throwable) {
+                            if (error is CancellationException) throw error
+                            relatedEventCloseErrorMessage = error.toUserFacingText(
+                                context,
+                                R.string.error_event_close_failed,
+                            )
+                        } finally {
+                            if (closingRelatedEventId == event.eventId) {
+                                closingRelatedEventId = null
+                            }
                         }
                     }
                 },
@@ -672,6 +726,7 @@ fun ThingListScreen(
     if (selectedRelatedMessage != null) {
         val message = selectedRelatedMessage!!
         PushGoModalBottomSheet(
+            modifier = Modifier.testTag("sheet.thing.related.message.detail"),
             onDismissRequest = { selectedRelatedMessage = null },
             paneTitle = message.message.title,
         ) {
@@ -682,6 +737,7 @@ fun ThingListScreen(
     if (selectedRelatedUpdate != null) {
         val update = selectedRelatedUpdate!!
         PushGoModalBottomSheet(
+            modifier = Modifier.testTag("sheet.thing.related.update.detail"),
             onDismissRequest = { selectedRelatedUpdate = null },
             paneTitle = update.title,
         ) {
@@ -689,7 +745,7 @@ fun ThingListScreen(
         }
     }
 
-    Box(modifier = Modifier.fillMaxSize()) {
+    Box(modifier = Modifier.fillMaxSize().testTag("screen.things.list")) {
         PullToRefreshBox(
             isRefreshing = isPullRefreshing,
             onRefresh = { refreshProviderIngressFromPullDown() },
@@ -711,7 +767,8 @@ fun ThingListScreen(
                                     value = searchQuery,
                                     onValueChange = { searchQuery = it },
                                     placeholderText = stringResource(R.string.label_search_things),
-                                    modifier = Modifier.weight(1f)
+                                    modifier = Modifier.weight(1f),
+                                    inputTestTag = "thing.search.input",
                                 ) {
                                     Box {
                                         var menuExpanded by remember { mutableStateOf(false) }
@@ -811,6 +868,11 @@ fun ThingListScreen(
                     Text(text = stringResource(R.string.label_send_type_thing), style = MaterialTheme.typography.headlineMedium.copy(fontWeight = FontWeight.SemiBold, letterSpacing = (-0.5).sp), color = uiColors.textPrimary, modifier = Modifier.padding(start = ScreenHorizontalPadding, top = 8.dp, bottom = 12.dp).semantics { heading() })
                 }
             }
+            targetUnavailableFeedback?.let { message ->
+                item {
+                    EntityTargetUnavailableNotice(message = message)
+                }
+            }
             if (filteredThings.isEmpty()) {
                 item {
                     AppEmptyState(
@@ -841,6 +903,7 @@ fun ThingListScreen(
                         thing = thing,
                         channelDisplayName = thing.channelId?.let { channelNameMap[it] ?: it },
                         onClick = {
+                            targetUnavailableFeedback = null
                             selectedThing = thing
                             onThingDetailOpened(thing.thingId)
                         },
@@ -942,6 +1005,7 @@ internal fun ThingRow(
             modifier = Modifier
                 .fillMaxWidth()
                 .background(uiColors.surfaceBase)
+                .testTag("thing.row.${thing.thingId}")
                 .clickable(onClick = onClick)
                 .pushGoMergedActionSemantics(
                     summary = rowSummary,
@@ -1322,6 +1386,7 @@ private fun mergeThingCardsInternal(existing: List<ThingCardModel>, incoming: Li
 private fun ThingDetailSheet(
     thing: ThingCardModel,
     initialTab: ThingDetailTab?,
+    onSelectedTabChange: (ThingDetailTab) -> Unit,
     channelNameMap: Map<String, String>,
     bottomGestureInset: Dp,
     onOpenRelatedEvent: (EventCardModel) -> Unit,
@@ -1332,6 +1397,7 @@ private fun ThingDetailSheet(
     var previewImageUrl by remember { mutableStateOf<String?>(null) }
     var showMetadataSheet by remember { mutableStateOf(false) }
     var selectedTab by remember(thing.thingId, initialTab) { mutableStateOf(initialTab ?: ThingDetailTab.Events) }
+    LaunchedEffect(selectedTab) { onSelectedTabChange(selectedTab) }
     val uiColors = PushGoThemeExtras.colors
     val attrsEntries = remember(thing.attrsJson) { parseThingDisplayAttributes(thing.attrsJson) }
     val metadataEntries = remember(thing.metadataJson) { parseThingDisplayAttributes(thing.metadataJson) }
@@ -1339,6 +1405,7 @@ private fun ThingDetailSheet(
     Column(
         modifier = Modifier
             .fillMaxWidth()
+            .testTag("sheet.thing.detail")
             .verticalScroll(rememberScrollState())
             .padding(horizontal = 16.dp)
             .padding(bottom = bottomGestureInset + 24.dp),
@@ -1367,7 +1434,9 @@ private fun ThingDetailSheet(
                         onClick = { url -> previewImageUrl = url },
                     )
                     IconButton(
-                        modifier = Modifier.size(32.dp),
+                        modifier = Modifier
+                            .size(32.dp)
+                            .testTag("action.thing.delete"),
                         onClick = onDelete,
                     ) {
                         Icon(
@@ -1489,7 +1558,7 @@ private fun ThingDetailSheet(
                 selected = selectedTab == ThingDetailTab.Events,
                 onClick = { selectedTab = ThingDetailTab.Events },
                 shape = SegmentedButtonDefaults.itemShape(index = 0, count = 3),
-                modifier = Modifier.weight(1f),
+                modifier = Modifier.weight(1f).testTag("tab.thing.detail.events"),
                 icon = {},
             ) {
                 Text(stringResource(R.string.thing_detail_tab_events))
@@ -1498,7 +1567,7 @@ private fun ThingDetailSheet(
                 selected = selectedTab == ThingDetailTab.Messages,
                 onClick = { selectedTab = ThingDetailTab.Messages },
                 shape = SegmentedButtonDefaults.itemShape(index = 1, count = 3),
-                modifier = Modifier.weight(1f),
+                modifier = Modifier.weight(1f).testTag("tab.thing.detail.messages"),
                 icon = {},
             ) {
                 Text(stringResource(R.string.thing_detail_tab_messages))
@@ -1507,7 +1576,7 @@ private fun ThingDetailSheet(
                 selected = selectedTab == ThingDetailTab.Updates,
                 onClick = { selectedTab = ThingDetailTab.Updates },
                 shape = SegmentedButtonDefaults.itemShape(index = 2, count = 3),
-                modifier = Modifier.weight(1f),
+                modifier = Modifier.weight(1f).testTag("tab.thing.detail.updates"),
                 icon = {},
             ) {
                 Text(stringResource(R.string.thing_detail_tab_updates))
@@ -1568,6 +1637,9 @@ private fun ThingDetailSheet(
                                     Column(
                                         modifier = Modifier
                                             .fillMaxWidth()
+                                            .testTag(
+                                                "thing.related.message.${rowMessage.messageId?.trim()?.takeIf { it.isNotEmpty() } ?: rowMessage.id}"
+                                            )
                                             .clickable { onOpenRelatedMessage(related) }
                                             .padding(vertical = 10.dp),
                                     ) {
@@ -1608,6 +1680,7 @@ private fun ThingDetailSheet(
                                 Column(
                                     modifier = Modifier
                                         .fillMaxWidth()
+                                        .testTag("thing.related.update.${update.updateId}")
                                         .clickable { onOpenRelatedUpdate(update) }
                                         .padding(vertical = 8.dp),
                                     verticalArrangement = Arrangement.spacedBy(5.dp),
@@ -1737,6 +1810,7 @@ private fun ThingUpdateDetailSheet(update: ThingRelatedUpdate) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
+            .testTag("content.thing.related.update.detail")
             .verticalScroll(rememberScrollState())
             .padding(horizontal = 24.dp)
             .padding(bottom = 32.dp),

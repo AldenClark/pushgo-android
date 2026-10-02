@@ -536,6 +536,7 @@ class EntityRepository(
                         )
                     )
                 }
+                synchronizeThingEventProjections(entity, eventId)
                 true
             }
         } else {
@@ -546,8 +547,40 @@ class EntityRepository(
                 false
             } else {
                 thingSubEventDao.insert(ThingSubEventEntity.fromIncoming(entity))
+                synchronizeTopLevelEventProjection(entity)
                 true
             }
+        }
+    }
+
+    private suspend fun synchronizeThingEventProjections(
+        entity: IncomingEntityRecord,
+        eventId: String,
+    ) {
+        thingSubEventDao.getByEventId(eventId)
+            .groupBy(ThingSubEventEntity::thingId)
+            .values
+            .mapNotNull { versions ->
+                versions.maxWithOrNull(
+                    compareBy<ThingSubEventEntity> { it.receivedAt }.thenBy { it.id }
+                )
+            }
+            .forEach { current ->
+                val merged = ThingSubEventEntity.fromMerged(current, entity)
+                if (merged.isNewerThan(current)) {
+                    thingSubEventDao.insert(merged)
+                }
+            }
+    }
+
+    private suspend fun synchronizeTopLevelEventProjection(entity: IncomingEntityRecord) {
+        val eventId = entity.eventId?.trim()?.takeIf { it.isNotEmpty() } ?: entity.entityId
+        val existing = topLevelEventHeadDao.getByEventId(eventId) ?: return
+        val incoming = TopLevelEventHeadEntity.fromIncoming(entity)
+        if (incoming.isNewerThan(existing)) {
+            topLevelEventHeadDao.upsert(
+                TopLevelEventHeadEntity.fromMerged(existing = existing, entity = entity)
+            )
         }
     }
 

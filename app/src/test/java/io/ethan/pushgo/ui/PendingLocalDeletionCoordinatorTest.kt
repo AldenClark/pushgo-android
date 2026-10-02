@@ -4,9 +4,13 @@ import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicLong
+import io.ethan.pushgo.data.InMemoryPendingLocalDeletionRepository
+import io.ethan.pushgo.data.PendingLocalDeletionRepository
 import kotlin.coroutines.CoroutineContext
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
@@ -370,6 +374,102 @@ class PendingLocalDeletionCoordinatorTest {
             assertEquals(1, commitCount.get())
             assertNull(coordinator.pendingDeletion.value)
         } finally {
+            scope.cancel()
+        }
+    }
+
+    @Test
+    fun staleBackgroundUpdateCannotCommitForegroundDeletionBeforeUndoDeadline() = runBlocking {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val commitCount = AtomicInteger(0)
+        try {
+            val coordinator = PendingLocalDeletionCoordinator(
+                appScope = scope,
+                countdownMillis = 5_000L,
+                elapsedRealtimeMillis = { System.nanoTime() / 1_000_000L },
+                completionDispatcher = Dispatchers.Unconfined,
+            )
+            coordinator.schedule(
+                summary = "message",
+                scope = PendingLocalDeletionCoordinator.Scope(messageIds = setOf("m1")),
+                onCommit = { commitCount.incrementAndGet() },
+            )
+
+            coordinator.setInteractionActive(true, generation = 2L)
+            coordinator.setInteractionActive(false, generation = 1L)
+
+            assertEquals(0, commitCount.get())
+            assertEquals(setOf("m1"), coordinator.pendingDeletion.value?.scope?.messageIds)
+            coordinator.undoCurrent()
+            assertEquals(0, commitCount.get())
+            assertNull(coordinator.pendingDeletion.value)
+        } finally {
+            scope.cancel()
+        }
+    }
+
+    @Test
+    fun acceptedBackgroundUpdateCannotCommitAfterNewerForegroundUpdate() = runBlocking {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val commitCount = AtomicInteger(0)
+        val queuedBackgroundRevision = AtomicLong(-1L)
+        val delegate = InMemoryPendingLocalDeletionRepository()
+        val backgroundDrainReached = CompletableDeferred<Unit>()
+        val resumeBackgroundDrain = CompletableDeferred<Unit>()
+        val recoverCalls = AtomicInteger(0)
+        val repository = object : PendingLocalDeletionRepository by delegate {
+            override suspend fun cancelPending(id: Long, nowEpochMillis: Long): Boolean =
+                delegate.cancelPending(id, nowEpochMillis)
+
+            override suspend fun recoverInterruptedClaims(nowEpochMillis: Long): Int {
+                if (recoverCalls.incrementAndGet() == 2) {
+                    backgroundDrainReached.complete(Unit)
+                    resumeBackgroundDrain.await()
+                }
+                return delegate.recoverInterruptedClaims(nowEpochMillis)
+            }
+        }
+        try {
+            val coordinator = PendingLocalDeletionCoordinator(
+                appScope = scope,
+                repository = repository,
+                drainScheduler = object : PendingLocalDeletionDrainScheduler {
+                    override fun scheduleImmediate() = Unit
+                    override fun scheduleImmediateForInteraction(revision: Long) {
+                        queuedBackgroundRevision.set(revision)
+                    }
+                    override fun scheduleAt(epochMillis: Long) = Unit
+                },
+                countdownMillis = 5_000L,
+                elapsedRealtimeMillis = { System.nanoTime() / 1_000_000L },
+                completionDispatcher = Dispatchers.Unconfined,
+            )
+            coordinator.schedule(
+                summary = "message",
+                scope = PendingLocalDeletionCoordinator.Scope(messageIds = setOf("m1")),
+                onCommit = { commitCount.incrementAndGet() },
+            )
+
+            val backgroundUpdate = scope.launch {
+                coordinator.setInteractionActive(false, generation = 1L)
+            }
+            backgroundDrainReached.await()
+            coordinator.setInteractionActive(true, generation = 2L)
+            resumeBackgroundDrain.complete(Unit)
+            backgroundUpdate.join()
+            assertTrue(queuedBackgroundRevision.get() > 0L)
+            coordinator.drainRecoverable(
+                force = true,
+                expectedBackgroundRevision = queuedBackgroundRevision.get(),
+            )
+
+            assertEquals(0, commitCount.get())
+            assertEquals(setOf("m1"), coordinator.pendingDeletion.value?.scope?.messageIds)
+            coordinator.undoCurrent()
+            assertEquals(0, commitCount.get())
+            assertNull(coordinator.pendingDeletion.value)
+        } finally {
+            resumeBackgroundDrain.complete(Unit)
             scope.cancel()
         }
     }

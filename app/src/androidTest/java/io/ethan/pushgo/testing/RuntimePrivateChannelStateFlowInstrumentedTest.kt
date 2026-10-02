@@ -12,17 +12,23 @@ import io.ethan.pushgo.data.ChannelSubscriptionStore
 import io.ethan.pushgo.data.EntityRepository
 import io.ethan.pushgo.data.InboundDeliveryLedgerRepository
 import io.ethan.pushgo.data.InboundDeliveryScope
+import io.ethan.pushgo.data.INBOUND_DELIVERY_ACK_STATE_ACKED
 import io.ethan.pushgo.data.MessageRepository
 import io.ethan.pushgo.data.PushTokenProvider
 import io.ethan.pushgo.data.SecureSecretStore
 import io.ethan.pushgo.data.SettingsRepository
+import io.ethan.pushgo.data.TransportSwitcher
 import io.ethan.pushgo.data.db.PushGoDatabase
 import io.ethan.pushgo.data.db.ChannelSubscriptionEntity
 import io.ethan.pushgo.data.db.PendingThingMessageEntity
+import io.ethan.pushgo.data.model.DecryptionState
 import io.ethan.pushgo.data.model.KeyEncoding
 import io.ethan.pushgo.data.model.MessageStatus
 import io.ethan.pushgo.data.model.PushMessage
 import io.ethan.pushgo.notifications.MessageStateCoordinator
+import io.ethan.pushgo.notifications.NotificationIngressParser
+import io.ethan.pushgo.notifications.PRIVATE_STREAM_ACK_STATUS_IGNORE
+import io.ethan.pushgo.notifications.PRIVATE_STREAM_ACK_STATUS_OK
 import io.ethan.pushgo.notifications.PrivateChannelClient
 import io.ethan.pushgo.notifications.WarpLinkNativeBridge
 import io.ethan.pushgo.ui.viewmodel.SettingsUiState
@@ -31,6 +37,11 @@ import io.ethan.pushgo.update.UpdateManager
 import java.io.File
 import java.time.Instant
 import java.util.ArrayDeque
+import java.util.Base64
+import javax.crypto.Cipher
+import javax.crypto.spec.GCMParameterSpec
+import javax.crypto.spec.SecretKeySpec
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
@@ -234,6 +245,172 @@ class RuntimePrivateChannelStateFlowInstrumentedTest {
     }
 
     @Test
+    fun encryptedPrivateDelivery_onlyCorrectReplayResolvesAndAcksWithoutDuplication() = runBlocking {
+        val scope = checkNotNull(
+            InboundDeliveryScope.create("https://gateway-encrypted.example", "device-encrypted")
+        )
+        val deliveryId = "encrypted-private-delivery"
+        val messageId = "encrypted-private-message"
+        val correctKey = "1234567890123456".toByteArray(Charsets.UTF_8)
+        val ciphertext = encryptForIngress(
+            plaintext = """{"title":"trusted title","body":"trusted body"}""",
+            keyBytes = correctKey,
+        )
+        val resumeSequenceBefore = privateLastAckedSequence()
+
+        harness.settingsRepository.setNotificationKeyBytes(ByteArray(16) { 0x5A.toByte() })
+        harness.privateChannelClient.injectSessionEventForTesting(
+            eventJson = encryptedMessageEventJson(
+                deliveryId = deliveryId,
+                messageId = messageId,
+                ackId = 301L,
+                seq = 31L,
+                ciphertext = ciphertext,
+            ),
+            deliveryScope = scope,
+        )
+
+        assertEquals(
+            listOf(FakeNativeRuntime.ResolveCall(301L, PRIVATE_STREAM_ACK_STATUS_IGNORE)),
+            fakeRuntime.resolveCalls(),
+        )
+        assertNull(harness.inboundDeliveryLedgerRepository.deliveryAckState(deliveryId, scope))
+        assertNull(harness.inboundDeliveryLedgerRepository.deliveryAckState(deliveryId, null))
+        assertEquals(resumeSequenceBefore, privateLastAckedSequence())
+        val quarantined = checkNotNull(harness.messageRepository.getByMessageId(messageId))
+        assertEquals(NotificationIngressParser.AUTHENTICATION_FAILED_TITLE, quarantined.title)
+        assertEquals(NotificationIngressParser.AUTHENTICATION_FAILED_BODY, quarantined.body)
+        assertEquals(DecryptionState.DECRYPT_FAILED, quarantined.decryptionState)
+        assertEquals(
+            1,
+            harness.messageRepository.loadAllForExport().count { it.messageId == messageId },
+        )
+
+        val corruptedCiphertext = Base64.getDecoder().decode(ciphertext).also { bytes ->
+            bytes[0] = (bytes[0].toInt() xor 0x01).toByte()
+        }.let(Base64.getEncoder()::encodeToString)
+        harness.settingsRepository.setNotificationKeyBytes(correctKey)
+        harness.privateChannelClient.injectSessionEventForTesting(
+            eventJson = encryptedMessageEventJson(
+                deliveryId = deliveryId,
+                messageId = messageId,
+                ackId = 302L,
+                seq = 32L,
+                ciphertext = corruptedCiphertext,
+            ),
+            deliveryScope = scope,
+        )
+
+        assertEquals(
+            listOf(
+                FakeNativeRuntime.ResolveCall(301L, PRIVATE_STREAM_ACK_STATUS_IGNORE),
+                FakeNativeRuntime.ResolveCall(302L, PRIVATE_STREAM_ACK_STATUS_IGNORE),
+            ),
+            fakeRuntime.resolveCalls(),
+        )
+        assertNull(harness.inboundDeliveryLedgerRepository.deliveryAckState(deliveryId, scope))
+        assertNull(harness.inboundDeliveryLedgerRepository.deliveryAckState(deliveryId, null))
+        assertEquals(resumeSequenceBefore, privateLastAckedSequence())
+        val canonicalRows = harness.messageRepository.loadAllForExport().filter { it.messageId == messageId }
+        assertEquals(1, canonicalRows.size)
+        assertEquals(NotificationIngressParser.AUTHENTICATION_FAILED_TITLE, canonicalRows.single().title)
+        assertEquals(NotificationIngressParser.AUTHENTICATION_FAILED_BODY, canonicalRows.single().body)
+        assertEquals(DecryptionState.DECRYPT_FAILED, canonicalRows.single().decryptionState)
+
+        val transplantedThingId = "transplanted-thing-owner"
+        val topologyMutation = JSONObject(
+            encryptedMessageEventJson(
+                deliveryId = deliveryId,
+                messageId = messageId,
+                ackId = 303L,
+                seq = 33L,
+                ciphertext = ciphertext,
+            )
+        ).apply {
+            getJSONObject("payload")
+                .put("thing_id", transplantedThingId)
+                .put("occurred_at", "1999999999999")
+        }.toString()
+        harness.privateChannelClient.injectSessionEventForTesting(
+            eventJson = topologyMutation,
+            deliveryScope = scope,
+        )
+
+        assertEquals(
+            FakeNativeRuntime.ResolveCall(303L, PRIVATE_STREAM_ACK_STATUS_IGNORE),
+            fakeRuntime.resolveCalls().last(),
+        )
+        assertNull(harness.inboundDeliveryLedgerRepository.deliveryAckState(deliveryId, scope))
+        assertNull(harness.inboundDeliveryLedgerRepository.deliveryAckState(deliveryId, null))
+        assertTrue(
+            harness.database.pendingThingMessageDao().loadByThingId(transplantedThingId).isEmpty(),
+        )
+        assertEquals(1, harness.messageRepository.loadAllForExport().count { it.messageId == messageId })
+
+        harness.privateChannelClient.injectSessionEventForTesting(
+            eventJson = encryptedMessageEventJson(
+                deliveryId = deliveryId,
+                messageId = messageId,
+                ackId = 304L,
+                seq = 34L,
+                ciphertext = ciphertext,
+            ),
+            deliveryScope = scope,
+        )
+
+        assertEquals(
+            listOf(
+                FakeNativeRuntime.ResolveCall(301L, PRIVATE_STREAM_ACK_STATUS_IGNORE),
+                FakeNativeRuntime.ResolveCall(302L, PRIVATE_STREAM_ACK_STATUS_IGNORE),
+                FakeNativeRuntime.ResolveCall(303L, PRIVATE_STREAM_ACK_STATUS_IGNORE),
+                FakeNativeRuntime.ResolveCall(304L, PRIVATE_STREAM_ACK_STATUS_OK),
+            ),
+            fakeRuntime.resolveCalls(),
+        )
+        assertEquals(
+            INBOUND_DELIVERY_ACK_STATE_ACKED,
+            harness.inboundDeliveryLedgerRepository.deliveryAckState(deliveryId, scope),
+        )
+        val recoveredRows = harness.messageRepository.loadAllForExport()
+            .filter { it.messageId == messageId }
+        assertEquals(1, recoveredRows.size)
+        assertEquals("trusted title", recoveredRows.single().title)
+        assertEquals("trusted body", recoveredRows.single().body)
+        assertEquals(DecryptionState.DECRYPT_OK, recoveredRows.single().decryptionState)
+
+        val trustedPlaintextId = "trusted-plaintext-target"
+        harness.messageRepository.insert(testMessage(trustedPlaintextId, "runtime-channel"))
+        val transplantDeliveryId = "encrypted-private-transplant"
+        harness.privateChannelClient.injectSessionEventForTesting(
+            eventJson = encryptedMessageEventJson(
+                deliveryId = transplantDeliveryId,
+                messageId = trustedPlaintextId,
+                ackId = 305L,
+                seq = 35L,
+                ciphertext = ciphertext,
+            ),
+            deliveryScope = scope,
+        )
+
+        assertEquals(
+            FakeNativeRuntime.ResolveCall(305L, PRIVATE_STREAM_ACK_STATUS_IGNORE),
+            fakeRuntime.resolveCalls().last(),
+        )
+        assertNull(
+            harness.inboundDeliveryLedgerRepository.deliveryAckState(transplantDeliveryId, scope),
+        )
+        assertNull(
+            harness.inboundDeliveryLedgerRepository.deliveryAckState(transplantDeliveryId, null),
+        )
+        val trustedPlaintext = checkNotNull(
+            harness.messageRepository.getByMessageId(trustedPlaintextId),
+        )
+        assertEquals(trustedPlaintextId, trustedPlaintext.title)
+        assertEquals("body", trustedPlaintext.body)
+        assertNull(trustedPlaintext.decryptionState)
+    }
+
+    @Test
     fun settingsViewModel_uiState_stays_consistent_with_repository_and_transport() = runBlocking {
         harness.settingsRepository.setServerAddress("http://127.0.0.1:9")
         harness.settingsRepository.setUseFcmChannel(true)
@@ -324,6 +501,35 @@ class RuntimePrivateChannelStateFlowInstrumentedTest {
             "RUNTIME_SETTINGS_UI " +
                 "switch_fcm_to_private_ui_ms=$switchToPrivateUiMs switch_private_to_fcm_ui_ms=$switchBackToFcmUiMs"
         )
+    }
+
+    @Test
+    fun settingsViewModel_untouchedKeySavePreservesStoredKeyWhileGatewayLoadIsPending() = runBlocking {
+        val original = ByteArray(32) { 0x31 }
+        harness.settingsRepository.setNotificationKeyBytes(original)
+        harness.settingsRepository.setKeyEncoding(KeyEncoding.HEX)
+        val originalTimestamp = harness.settingsRepository.getNotificationKeyUpdatedAt()
+        val gatewayEntered = CompletableDeferred<Unit>()
+        val releaseGateway = CompletableDeferred<Unit>()
+        val saved = CompletableDeferred<Unit>()
+        val vm = buildSettingsViewModelOnMain {
+            gatewayEntered.complete(Unit)
+            releaseGateway.await()
+            true
+        }
+        try {
+            withTimeout(8_000) { gatewayEntered.await() }
+            assertTrue("The remote capability query must still be pending", !releaseGateway.isCompleted)
+            withContext(Dispatchers.Main) {
+                vm.saveDecryptionConfig { saved.complete(Unit) }
+            }
+            withTimeout(8_000) { saved.await() }
+            assertArrayEquals(original, harness.settingsRepository.getNotificationKeyBytes())
+            assertEquals(originalTimestamp, harness.settingsRepository.getNotificationKeyUpdatedAt())
+            assertEquals(KeyEncoding.HEX, harness.settingsRepository.getKeyEncoding())
+        } finally {
+            releaseGateway.complete(Unit)
+        }
     }
 
     @Test
@@ -483,7 +689,9 @@ class RuntimePrivateChannelStateFlowInstrumentedTest {
         )
     }
 
-    private fun buildSettingsViewModel(): SettingsViewModel {
+    private fun buildSettingsViewModel(
+        gatewayPrivateChannelEnabledFetcher: suspend () -> Boolean? = { true },
+    ): SettingsViewModel {
         return SettingsViewModel(
             settingsRepository = harness.settingsRepository,
             channelRepository = harness.channelRepository,
@@ -494,14 +702,21 @@ class RuntimePrivateChannelStateFlowInstrumentedTest {
             pushTokenProvider = object : PushTokenProvider {
                 override suspend fun fetchToken(timeoutMs: Long): String? = null
             },
-            gatewayPrivateChannelEnabledFetcher = { true },
+            gatewayPrivateChannelEnabledFetcher = gatewayPrivateChannelEnabledFetcher,
+            transportSwitcher = object : TransportSwitcher {
+                override suspend fun switchToFcm(providerToken: String) = Unit
+                override suspend fun switchToPrivate() = Unit
+                override suspend fun recoverPending() = Unit
+            },
         )
     }
 
-    private fun buildSettingsViewModelOnMain(): SettingsViewModel {
+    private fun buildSettingsViewModelOnMain(
+        gatewayPrivateChannelEnabledFetcher: suspend () -> Boolean? = { true },
+    ): SettingsViewModel {
         lateinit var vm: SettingsViewModel
         InstrumentationRegistry.getInstrumentation().runOnMainSync {
-            vm = buildSettingsViewModel()
+            vm = buildSettingsViewModel(gatewayPrivateChannelEnabledFetcher)
         }
         settingsViewModels += vm
         return vm
@@ -617,6 +832,46 @@ class RuntimePrivateChannelStateFlowInstrumentedTest {
             .put("decode_ok", decodeOk)
             .put("payload", payload)
             .toString()
+    }
+
+    private fun encryptedMessageEventJson(
+        deliveryId: String,
+        messageId: String,
+        ackId: Long,
+        seq: Long,
+        ciphertext: String,
+    ): String {
+        return JSONObject(
+            messageEventJson(
+                deliveryId = deliveryId,
+                messageId = messageId,
+                ackId = ackId,
+                seq = seq,
+                decodeOk = true,
+            )
+        ).apply {
+            getJSONObject("payload")
+                .put("title", "untrusted companion title")
+                .put("body", "untrusted companion body")
+                .put("sent_at", "1788192000000")
+                .put("occurred_at", "1788192000000")
+                .put("ciphertext", ciphertext)
+        }.toString()
+    }
+
+    private fun encryptForIngress(plaintext: String, keyBytes: ByteArray): String {
+        val cipher = Cipher.getInstance("AES/GCM/NoPadding")
+        val iv = byteArrayOf(1, 3, 5, 7, 9, 11, 13, 15, 2, 4, 6, 8)
+        cipher.init(Cipher.ENCRYPT_MODE, SecretKeySpec(keyBytes, "AES"), GCMParameterSpec(128, iv))
+        val cipherAndTag = cipher.doFinal(plaintext.toByteArray(Charsets.UTF_8))
+        return Base64.getEncoder().encodeToString(cipherAndTag + iv)
+    }
+
+    private fun privateLastAckedSequence(): Long {
+        val raw = context.getSharedPreferences("private_push_client", Context.MODE_PRIVATE)
+            .getString("device_state", null)
+            ?: return 0L
+        return runCatching { JSONObject(raw).optLong("last_acked_seq", 0L) }.getOrDefault(0L)
     }
 
     private fun openHarness(): RuntimeHarness {
@@ -744,6 +999,16 @@ private class StateflowSecretStore(context: Context) : SecureSecretStore {
         prefs.edit().putString("fcm_token", token?.trim()?.ifEmpty { null }).commit()
     }
 
+    override fun pendingTransportToken(operationId: String): String? =
+        prefs.getString("pending_transport_token:${operationId.trim()}", null)
+            ?.trim()?.ifEmpty { null }
+
+    override fun setPendingTransportToken(operationId: String, token: String?) {
+        prefs.edit()
+            .putString("pending_transport_token:${operationId.trim()}", token?.trim()?.ifEmpty { null })
+            .commit()
+    }
+
     override fun deviceKey(): String? = prefs.getString("device_key", null)?.trim()?.ifEmpty { null }
     override fun setDeviceKey(deviceKey: String?) {
         prefs.edit().putString("device_key", deviceKey?.trim()?.ifEmpty { null }).commit()
@@ -783,10 +1048,18 @@ private class StateflowSecretStore(context: Context) : SecureSecretStore {
 private class FakeNativeRuntime : WarpLinkNativeBridge.SessionRuntime {
     private var nextHandle = 42L
     private val resolveResults = ArrayDeque<Boolean>()
+    private val resolved = mutableListOf<ResolveCall>()
+
+    data class ResolveCall(
+        val ackId: Long,
+        val status: Int,
+    )
 
     fun enqueueResolveResult(result: Boolean) {
         resolveResults.addLast(result)
     }
+
+    fun resolveCalls(): List<ResolveCall> = resolved.toList()
 
     override fun isAvailable(): Boolean = true
     override fun sessionStart(configJson: String): Long = nextHandle++
@@ -797,6 +1070,7 @@ private class FakeNativeRuntime : WarpLinkNativeBridge.SessionRuntime {
     override fun sessionStop(handle: Long) = Unit
     override fun sessionReplaceAuthToken(handle: Long, authToken: String?): Boolean = true
     override fun sessionResolveMessage(handle: Long, ackId: Long, status: Int): Boolean {
+        resolved += ResolveCall(ackId = ackId, status = status)
         return if (resolveResults.isEmpty()) true else resolveResults.removeFirst()
     }
     override fun sessionSetPowerHint(handle: Long, appState: String?, powerTier: String?): Boolean = true

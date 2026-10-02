@@ -7,6 +7,7 @@ import android.text.format.DateFormat
 import android.text.format.DateUtils
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.ReportDrawnWhen
 import androidx.core.content.ContextCompat
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.fadeIn
@@ -79,6 +80,7 @@ import io.ethan.pushgo.data.model.MessageSeverity
 import io.ethan.pushgo.notifications.ForegroundNotificationPresentationState
 import io.ethan.pushgo.notifications.ForegroundNotificationTopMetrics
 import io.ethan.pushgo.notifications.ProviderIngressCoordinator
+import io.ethan.pushgo.testing.QualityRuntime
 import io.ethan.pushgo.ui.viewmodel.toUserFacingText
 import io.ethan.pushgo.ui.PendingLocalDeletionCoordinator
 import io.ethan.pushgo.ui.PushGoViewModelFactory
@@ -92,7 +94,19 @@ import io.ethan.pushgo.ui.theme.PushGoThemeExtras
 import io.ethan.pushgo.ui.viewmodel.MessageListViewModel
 import io.ethan.pushgo.ui.viewmodel.MessageSearchViewModel
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.drop
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.Deferred
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -120,6 +134,11 @@ fun MessageListScreen(
     val searchViewModel: MessageSearchViewModel = viewModel(factory = factory)
     val uiColors = PushGoThemeExtras.colors
     val messages = viewModel.messages.collectAsLazyPagingItems()
+    var isMessageLoadSlow by remember { mutableStateOf(false) }
+    var isSearchLoadSlow by remember { mutableStateOf(false) }
+    var observedInitialMessageLoad by remember {
+        mutableStateOf(messages.loadState.refresh is LoadState.Loading)
+    }
     val filterState by viewModel.filterState.collectAsStateWithLifecycle()
     val currentScopeUnreadCount by viewModel.currentScopeUnreadCount.collectAsStateWithLifecycle()
     val facetChannelCounts by viewModel.facetChannelCounts.collectAsStateWithLifecycle()
@@ -134,11 +153,58 @@ fun MessageListScreen(
     val lifecycleOwner = LocalLifecycleOwner.current
     val listState = rememberLazyListState()
     val bottomGestureInset = rememberBottomGestureInset()
-    val bottomBarNestedScrollConnection = rememberBottomBarNestedScrollConnection(onBottomBarVisibilityChanged)
+    val bottomBarNestedScrollConnection = rememberBottomBarNestedScrollConnection(
+        onBottomBarVisibilityChanged,
+        canScroll = listState.canScrollBackward || listState.canScrollForward,
+    )
     var channelNameMap by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
     var isPullRefreshing by remember { mutableStateOf(false) }
+    var isPullRefreshSlow by remember { mutableStateOf(false) }
+    var didPullRefreshFail by remember { mutableStateOf(false) }
     var isHistoryCleanupSheetVisible by rememberSaveable { mutableStateOf(false) }
     val messagesTabLabel = stringResource(R.string.tab_messages)
+
+    LaunchedEffect(messages.loadState.refresh) {
+        if (messages.loadState.refresh is LoadState.Loading) {
+            observedInitialMessageLoad = true
+        }
+    }
+    val initialMessageResultIsDrawn = when (messages.loadState.refresh) {
+        is LoadState.Error -> true
+        is LoadState.NotLoading -> observedInitialMessageLoad || messages.itemCount > 0
+        is LoadState.Loading -> false
+    }
+    ReportDrawnWhen { initialMessageResultIsDrawn }
+
+    LaunchedEffect(messages.loadState.refresh) {
+        isMessageLoadSlow = false
+        if (messages.loadState.refresh is LoadState.Loading) {
+            delay(1_000)
+            if (messages.loadState.refresh is LoadState.Loading) {
+                isMessageLoadSlow = true
+            }
+        }
+    }
+
+    LaunchedEffect(searchResults.loadState.refresh, query) {
+        isSearchLoadSlow = false
+        if (query.isNotBlank() && searchResults.loadState.refresh is LoadState.Loading) {
+            delay(1_000)
+            if (query.isNotBlank() && searchResults.loadState.refresh is LoadState.Loading) {
+                isSearchLoadSlow = true
+            }
+        }
+    }
+
+    LaunchedEffect(isPullRefreshing) {
+        isPullRefreshSlow = false
+        if (isPullRefreshing) {
+            delay(1_000)
+            if (isPullRefreshing) {
+                isPullRefreshSlow = true
+            }
+        }
+    }
 
     fun isPendingLocalDeletion(message: MessageListItem): Boolean {
         return effectivePendingScope.suppressesMessage(
@@ -189,7 +255,32 @@ fun MessageListScreen(
         if (isPullRefreshing) return
         scope.launch {
             isPullRefreshing = true
-            runCatching {
+            var refreshCompleted = false
+            // Subscribe before provider persistence can invalidate Paging. Starting this
+            // observer after LoadState reaches terminal can miss the presentation emission
+            // that actually installed the new snapshot.
+            val nextPagingPresentation = async(start = CoroutineStart.UNDISPATCHED) {
+                snapshotFlow { MessagePagingSnapshotSignal(messages.itemSnapshotList) }
+                    .drop(1)
+                    .first()
+            }
+            // Start observing before the provider mutation. Room invalidation can create the
+            // replacement Paging generation before the provider call returns; subscribing later
+            // would mistake an already-terminal state for a completed refresh.
+            val nextPagingRefresh = async(start = CoroutineStart.UNDISPATCHED) {
+                awaitMessagePagingRefreshPresentation(
+                    presentationSignals = snapshotFlow {
+                        MessagePagingPresentationSignal(messages.loadState.refresh)
+                    },
+                )
+            }
+            try {
+                val baselineStoreRevision = container.messageRepository.currentStoreRevision()
+                // Arm before the provider mutation can invalidate Room/Paging. The mutation may
+                // start the real refresh generation before `messages.refresh()` below is called;
+                // arming afterward races that generation and makes the slow-state Oracle flaky.
+                QualityRuntime.armMessageRefreshPresentationDelay()
+                QualityRuntime.beforeMessageRefresh()
                 ProviderIngressCoordinator.pullPersistAndDrainAcks(
                     context = context,
                     channelRepository = container.channelRepository,
@@ -197,17 +288,51 @@ fun MessageListScreen(
                     entityRepository = container.entityRepository,
                     inboundDeliveryLedgerRepository = container.inboundDeliveryLedgerRepository,
                     settingsRepository = container.settingsRepository,
+                    reason = "messages_pull_to_refresh",
                 )
-            }.onFailure { error ->
+                val refreshedStoreRevision = container.messageRepository.currentStoreRevision()
+                channelNameMap = container.channelRepository.loadSubscriptionLookup(includeDeleted = true)
+                val messageStoreChanged = refreshedStoreRevision != baselineStoreRevision
+                if (!messageStoreChanged) {
+                    // A no-op provider pull has no Room invalidation to observe, so explicitly
+                    // request one refresh using the collector that was already armed above.
+                    messages.refresh()
+                }
+                nextPagingRefresh.await()
+                // A real message-store mutation must reach LazyPagingItems before refresh can
+                // succeed. Event/Thing-only pulls and duplicate/no-op pulls do not advance this
+                // revision and therefore do not wait on a message presentation that cannot change.
+                awaitRequiredMessagePagingSnapshotAdvance(
+                    messageStoreChanged = messageStoreChanged,
+                    presentationAdvance = nextPagingPresentation,
+                    timeoutMillis = 8_000L,
+                )
+                didPullRefreshFail = false
+                refreshCompleted = true
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Throwable) {
+                didPullRefreshFail = true
                 io.ethan.pushgo.util.SilentSink.w(
                     "MessageListScreen",
                     "provider ingress refresh failed",
                     error,
                 )
+            } finally {
+                nextPagingPresentation.cancel()
+                nextPagingRefresh.cancel()
+                // Keep the visible refresh state until the successful result is actually at a
+                // user-operable position. Clearing it before this suspend point lets callers
+                // observe "complete" while LazyColumn still holds the old keyed anchor.
+                if (refreshCompleted && query.isBlank() && messages.itemCount > 0) {
+                    val firstMessageIndex = 1 + if (isPullRefreshSlow) 1 else 0
+                    positionMessageRefreshResult(firstMessageIndex) { index ->
+                        listState.scrollToItem(index)
+                    }
+                }
+                isPullRefreshSlow = false
+                isPullRefreshing = false
             }
-            channelNameMap = container.channelRepository.loadSubscriptionLookup(includeDeleted = true)
-            messages.refresh()
-            isPullRefreshing = false
         }
     }
 
@@ -329,7 +454,7 @@ fun MessageListScreen(
                     .thenBy { it.first },
             )
     }
-    Box(modifier = Modifier.fillMaxSize()) {
+    Box(modifier = Modifier.fillMaxSize().testTag("screen.messages.list")) {
         PullToRefreshBox(
             isRefreshing = isPullRefreshing,
             onRefresh = { refreshProviderIngressFromPullDown() },
@@ -339,7 +464,8 @@ fun MessageListScreen(
                 modifier = Modifier
                     .fillMaxSize()
                     .background(uiColors.surfaceBase)
-                    .nestedScroll(bottomBarNestedScrollConnection),
+                    .nestedScroll(bottomBarNestedScrollConnection)
+                    .testTag("messages.list.scroll"),
                 state = listState,
                 contentPadding = PaddingValues(bottom = bottomGestureInset + 24.dp),
             ) {
@@ -352,7 +478,8 @@ fun MessageListScreen(
                                         value = query,
                                         onValueChange = searchViewModel::updateQuery,
                                         placeholderText = stringResource(R.string.label_search),
-                                        modifier = Modifier.weight(1f).testTag("field.message.search")
+                                        modifier = Modifier.weight(1f),
+                                        inputTestTag = "field.message.search",
                                     ) {
                                         val hasActiveFilter = filterState.channels.isNotEmpty()
                                             || filterState.tags.isNotEmpty()
@@ -362,17 +489,20 @@ fun MessageListScreen(
                                             Row(verticalAlignment = Alignment.CenterVertically) {
                                                 if (query.isBlank() && currentScopeUnreadCount > 0) {
                                                     IconButton(
+                                                        modifier = Modifier.testTag("action.messages.mark_all_read"),
                                                         onClick = {
                                                             scope.launch {
                                                                 val changed = viewModel.markCurrentScopeRead()
                                                                 if (changed <= 0) return@launch
                                                                 val localizedToastText = resources.getQuantityString(R.plurals.message_marked_read_selected_count, changed, changed)
-                                                                Toast.makeText(
-                                                                    context,
-                                                                    localizedToastText,
-                                                                    Toast.LENGTH_SHORT,
-                                                                ).show()
-                                                                announceForAccessibility(context, localizedToastText)
+                                                                withContext(Dispatchers.Main.immediate) {
+                                                                    Toast.makeText(
+                                                                        context,
+                                                                        localizedToastText,
+                                                                        Toast.LENGTH_SHORT,
+                                                                    ).show()
+                                                                    announceForAccessibility(context, localizedToastText)
+                                                                }
                                                             }
                                                         }
                                                     ) {
@@ -383,7 +513,10 @@ fun MessageListScreen(
                                                         )
                                                     }
                                                 }
-                                                IconButton(onClick = { searchMenuExpanded = true }) {
+                                                IconButton(
+                                                    modifier = Modifier.testTag("action.messages.filter"),
+                                                    onClick = { searchMenuExpanded = true },
+                                                ) {
                                                     FilterMenuIcon(
                                                         active = hasActiveFilter,
                                                         inactiveTint = uiColors.iconMuted,
@@ -391,7 +524,11 @@ fun MessageListScreen(
                                                     )
                                                 }
                                             }
-                                            DropdownMenu(expanded = searchMenuExpanded, onDismissRequest = { searchMenuExpanded = false }) {
+                                            DropdownMenu(
+                                                modifier = Modifier.testTag("filter.surface"),
+                                                expanded = searchMenuExpanded,
+                                                onDismissRequest = { searchMenuExpanded = false },
+                                            ) {
                                                 FlowRow(
                                                     modifier = Modifier
                                                         .widthIn(max = 320.dp)
@@ -400,11 +537,15 @@ fun MessageListScreen(
                                                     verticalArrangement = Arrangement.spacedBy(8.dp),
                                                 ) {
                                                     FilterChip(
+                                                        modifier = Modifier.testTag("filter.unread_only"),
                                                         selected = filterState.unreadOnly,
                                                         onClick = viewModel::toggleUnreadOnlyFilter,
                                                         label = { Text(stringResource(R.string.message_show_unread_only)) },
                                                     )
                                                     AssistChip(
+                                                        modifier = Modifier.testTag(
+                                                            "action.messages.history_cleanup"
+                                                        ),
                                                         onClick = {
                                                             searchMenuExpanded = false
                                                             isHistoryCleanupSheetVisible = true
@@ -431,6 +572,9 @@ fun MessageListScreen(
                                                 if (channelOptions.isNotEmpty()) {
                                                     channelOptions.forEach { (channel, _) ->
                                                         DropdownMenuItem(
+                                                            modifier = Modifier.testTag(
+                                                                "filter.channel.${channel.ifBlank { "ungrouped" }}"
+                                                            ),
                                                             text = {
                                                                 val baseName = if (channel.isBlank()) {
                                                                     stringResource(R.string.label_group_ungrouped)
@@ -472,6 +616,7 @@ fun MessageListScreen(
                                                         tagOptions.forEach { (tag, _) ->
                                                             val selected = filterState.tags.contains(tag)
                                                             FilterChip(
+                                                                    modifier = Modifier.testTag("filter.tag.$tag"),
                                                                     selected = selected,
                                                                     onClick = {
                                                                         viewModel.toggleTag(tag)
@@ -497,8 +642,90 @@ fun MessageListScreen(
                 }
 
                 if (query.isBlank()) {
-                    if (filteredPagedItems.isEmpty() && messages.loadState.refresh is LoadState.NotLoading) {
-                        item { AppEmptyState(icon = Icons.Outlined.Email, title = stringResource(R.string.message_list_empty_title), description = stringResource(R.string.message_list_empty_hint)) }
+                    if (didPullRefreshFail) {
+                        item(key = "message-refresh-failed") {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = ScreenHorizontalPadding, vertical = 8.dp)
+                                    .testTag("state.messages.refresh.failed"),
+                                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Icon(Icons.Outlined.Warning, contentDescription = null)
+                                Text(
+                                    text = stringResource(R.string.message_refresh_failed),
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = uiColors.textSecondary,
+                                    modifier = Modifier.weight(1f),
+                                )
+                                TextButton(
+                                    onClick = { refreshProviderIngressFromPullDown() },
+                                    modifier = Modifier.testTag("action.messages.refresh.retry"),
+                                ) {
+                                    Text(stringResource(R.string.action_retry))
+                                }
+                            }
+                        }
+                    }
+                    if (!didPullRefreshFail && isPullRefreshSlow && filteredPagedItems.isNotEmpty()) {
+                        item(key = "message-refresh-slow") {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = ScreenHorizontalPadding, vertical = 8.dp)
+                                    .testTag("state.messages.refresh.slow"),
+                                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+                                Text(
+                                    text = stringResource(R.string.message_loading_slow),
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = uiColors.textSecondary,
+                                )
+                            }
+                        }
+                    }
+                    when {
+                        filteredPagedItems.isEmpty() && messages.loadState.refresh is LoadState.Loading -> {
+                            item {
+                                MessageLoadStatePanel(
+                                    message = stringResource(
+                                        if (isMessageLoadSlow) R.string.message_loading_slow
+                                        else R.string.label_loading
+                                    ),
+                                    stateTag = if (isMessageLoadSlow) {
+                                        "state.messages.loading.slow"
+                                    } else {
+                                        "state.messages.loading"
+                                    },
+                                )
+                            }
+                        }
+                        messages.loadState.refresh is LoadState.Error -> {
+                            item {
+                                MessageLoadStatePanel(
+                                    message = stringResource(R.string.message_load_failed),
+                                    stateTag = "state.messages.load_failed",
+                                    onRetry = messages::retry,
+                                )
+                            }
+                        }
+                    }
+                    if (
+                        !didPullRefreshFail &&
+                        filteredPagedItems.isEmpty() &&
+                        messages.loadState.refresh is LoadState.NotLoading
+                    ) {
+                        item {
+                            AppEmptyState(
+                                icon = Icons.Outlined.Email,
+                                title = stringResource(R.string.message_list_empty_title),
+                                description = stringResource(R.string.message_list_empty_hint),
+                                modifier = Modifier.testTag("state.messages.empty"),
+                            )
+                        }
                     } else {
                         items(
                             count = messages.itemCount,
@@ -514,7 +741,7 @@ fun MessageListScreen(
                                     container.messageImageStore.resolveListImageModels(message.listPayloadJson, MessageListImagePreviewMaxItems)
                                 }
                                 MessageRow(
-                                    modifier = Modifier.animateItem().testTag("message.row.${message.id}"),
+                                    rowTag = messageRowTag(message),
                                     message = message,
                                     imageModels = listImageModels,
                                     channelDisplayName = resolveChannelDisplayName(
@@ -527,29 +754,93 @@ fun MessageListScreen(
                                 )
                             }
                         }
+                        when (messages.loadState.append) {
+                            is LoadState.Loading -> {
+                                item(key = "message-page-loading") {
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(vertical = 16.dp)
+                                            .testTag("state.messages.page.loading"),
+                                        contentAlignment = Alignment.Center,
+                                    ) {
+                                        CircularProgressIndicator(
+                                            modifier = Modifier.size(24.dp),
+                                            strokeWidth = 2.dp,
+                                        )
+                                    }
+                                }
+                            }
+                            is LoadState.Error -> {
+                                item(key = "message-page-failed") {
+                                    MessageLoadStatePanel(
+                                        message = stringResource(R.string.message_load_failed),
+                                        stateTag = "state.messages.page.failed",
+                                        retryActionTag = "action.messages.page.retry",
+                                        onRetry = messages::retry,
+                                    )
+                                }
+                            }
+                            is LoadState.NotLoading -> Unit
+                        }
                     }
                 } else {
-                    if (filteredSearchResults.isEmpty() && searchResults.loadState.refresh is LoadState.NotLoading) {
-                        item { AppEmptyState(icon = Icons.Default.Search, title = stringResource(R.string.label_no_search_results), description = stringResource(R.string.message_list_empty_hint)) }
-                    } else {
-                        items(count = searchResults.itemCount, key = searchResults.itemKey { it.id }) { index ->
-                            val message = searchResults[index]
-                            if (message != null && !isPendingLocalDeletion(message)) {
-                                val listImageModels = remember(message.listPayloadJson) {
-                                    container.messageImageStore.resolveListImageModels(message.listPayloadJson, MessageListImagePreviewMaxItems)
-                                }
-                                MessageRow(
-                                    modifier = Modifier.animateItem().testTag("message.row.${message.id}"),
-                                    message = message,
-                                    imageModels = listImageModels,
-                                    channelDisplayName = resolveChannelDisplayName(
-                                        rawChannelId = message.channel,
-                                        channelNameMap = channelNameMap,
+                    when (searchResults.loadState.refresh) {
+                        is LoadState.Loading -> {
+                            item {
+                                MessageLoadStatePanel(
+                                    message = stringResource(
+                                        if (isSearchLoadSlow) R.string.message_loading_slow
+                                        else R.string.label_loading,
                                     ),
-                                    onClick = { onMessageClick(message.id) },
-                                    onMarkRead = { viewModel.markRead(message.id) },
-                                    onDelete = { scope.launch { scheduleDeletion(listOf(message)) } },
+                                    stateTag = if (isSearchLoadSlow) {
+                                        "state.messages.search.loading.slow"
+                                    } else {
+                                        "state.messages.search.loading"
+                                    },
                                 )
+                            }
+                        }
+                        is LoadState.Error -> {
+                            item {
+                                MessageLoadStatePanel(
+                                    message = stringResource(R.string.message_load_failed),
+                                    stateTag = "state.messages.search.failed",
+                                    retryActionTag = "action.messages.search.retry",
+                                    onRetry = searchResults::retry,
+                                )
+                            }
+                        }
+                        is LoadState.NotLoading -> if (filteredSearchResults.isEmpty()) {
+                            item {
+                                AppEmptyState(
+                                    icon = Icons.Default.Search,
+                                    title = stringResource(R.string.label_no_search_results),
+                                    description = stringResource(R.string.message_list_empty_hint),
+                                    modifier = Modifier.testTag("state.messages.search.empty"),
+                                )
+                            }
+                        } else {
+                            items(count = searchResults.itemCount, key = searchResults.itemKey { it.id }) { index ->
+                                val message = searchResults[index]
+                                if (message != null && !isPendingLocalDeletion(message)) {
+                                    val listImageModels = remember(message.listPayloadJson) {
+                                        container.messageImageStore.resolveListImageModels(message.listPayloadJson, MessageListImagePreviewMaxItems)
+                                    }
+                                    MessageRow(
+                                        modifier = Modifier.animateItem(),
+                                        rowTag = messageRowTag(message),
+                                        message = message,
+                                        imageModels = listImageModels,
+                                        channelDisplayName = resolveChannelDisplayName(
+                                            rawChannelId = message.channel,
+                                            channelNameMap = channelNameMap,
+                                        ),
+                                        onClick = { onMessageClick(message.id) },
+                                        onMarkRead = { viewModel.markRead(message.id) },
+                                        onDelete = { scope.launch { scheduleDeletion(listOf(message)) } },
+                                    )
+                                }
                             }
                         }
                     }
@@ -576,6 +867,61 @@ fun MessageListScreen(
 
 }
 
+internal suspend fun positionMessageRefreshResult(
+    firstMessageIndex: Int,
+    scrollToItem: suspend (Int) -> Unit,
+) {
+    // Paging completion can resume on a database thread; scrolling forces UI layout.
+    withContext(Dispatchers.Main.immediate) {
+        scrollToItem(firstMessageIndex)
+    }
+}
+
+@Composable
+private fun MessageLoadStatePanel(
+    message: String,
+    stateTag: String,
+    retryActionTag: String = "action.messages.retry",
+    onRetry: (() -> Unit)? = null,
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 24.dp, vertical = 32.dp)
+            .testTag(stateTag),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        if (onRetry == null) {
+            CircularProgressIndicator(modifier = Modifier.size(28.dp))
+        } else {
+            Icon(
+                imageVector = Icons.Outlined.WarningAmber,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        Text(
+            text = message,
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        onRetry?.let { retry ->
+            Button(
+                onClick = retry,
+                modifier = Modifier.testTag(retryActionTag),
+            ) {
+                Text(stringResource(R.string.action_retry))
+            }
+        }
+    }
+}
+
+private fun messageRowTag(message: MessageListItem): String {
+    val stableBusinessId = message.messageId?.trim()?.takeIf(String::isNotEmpty) ?: message.id
+    return "message.row.$stableBusinessId"
+}
+
 @Composable
 private fun FilterMenuIcon(
     active: Boolean,
@@ -600,6 +946,7 @@ private fun FilterMenuIcon(
 @Composable
 internal fun MessageRow(
     modifier: Modifier = Modifier,
+    rowTag: String? = null,
     message: MessageListItem,
     imageModels: List<Any>,
     channelDisplayName: String?,
@@ -633,6 +980,30 @@ internal fun MessageRow(
     val rowStateDescription = messageReadStateDescription(message.isRead)
     val markMessageReadActionLabel = stringResource(R.string.a11y_action_mark_message_read)
     val deleteMessageActionLabel = stringResource(R.string.a11y_action_delete_message)
+    val accessibilityActions = buildList {
+        if (hasMarkReadAction) {
+            add(
+                CustomAccessibilityAction(
+                    label = markMessageReadActionLabel,
+                    action = {
+                        offsetX = 0f
+                        onMarkRead()
+                        true
+                    },
+                )
+            )
+        }
+        add(
+            CustomAccessibilityAction(
+                label = deleteMessageActionLabel,
+                action = {
+                    offsetX = 0f
+                    onDelete()
+                    true
+                },
+            )
+        )
+    }
 
     val uiColors = PushGoThemeExtras.colors
     Box(modifier = modifier.fillMaxWidth().background(uiColors.fieldContainer)) {
@@ -658,12 +1029,6 @@ internal fun MessageRow(
         Column(
             modifier = Modifier.offset { IntOffset(offsetX.roundToInt(), 0) }.fillMaxWidth()
                 .background(uiColors.surfaceBase)
-                .clickable(onClick = onClick)
-                .draggable(
-                        state = rememberDraggableState { delta -> offsetX = (offsetX + delta).coerceIn(-actionWidthPx, 0f) },
-                        orientation = Orientation.Horizontal,
-                        onDragStopped = { offsetX = if (offsetX < -actionWidthPx / 2) -actionWidthPx else 0f }
-                )
                 .pushGoMergedActionSemantics(
                     summary = rowSummary,
                     stateDescription = rowStateDescription,
@@ -672,30 +1037,14 @@ internal fun MessageRow(
                     onClickAction = onClick,
                     onLongClickLabel = null,
                     onLongClickAction = null,
-                    customActions = buildList {
-                            if (hasMarkReadAction) {
-                                add(
-                                    CustomAccessibilityAction(
-                                        label = markMessageReadActionLabel,
-                                        action = {
-                                            offsetX = 0f
-                                            onMarkRead()
-                                            true
-                                        },
-                                    )
-                                )
-                            }
-                            add(
-                                CustomAccessibilityAction(
-                                    label = deleteMessageActionLabel,
-                                    action = {
-                                        offsetX = 0f
-                                        onDelete()
-                                        true
-                                    },
-                                )
-                            )
-                    },
+                    customActions = accessibilityActions,
+                    testTag = rowTag,
+                )
+                .clickable(onClick = onClick)
+                .draggable(
+                        state = rememberDraggableState { delta -> offsetX = (offsetX + delta).coerceIn(-actionWidthPx, 0f) },
+                        orientation = Orientation.Horizontal,
+                        onDragStopped = { offsetX = if (offsetX < -actionWidthPx / 2) -actionWidthPx else 0f }
                 )
                 .padding(horizontal = ScreenHorizontalPadding, vertical = 12.dp)
         ) {
@@ -782,6 +1131,80 @@ private fun resolveChannelDisplayName(
     }
     return channelNameMap[channelId] ?: channelId
 }
+
+/**
+ * A provider refresh is complete only after the requested Paging generation has entered Loading
+ * and reached a terminal state. Network completion, Room commit, and `refresh()` dispatch are
+ * earlier milestones; exact displayed data remains a UI oracle rather than a collection identity.
+ */
+internal suspend fun awaitPresentedMessageRefresh(
+    presentationSignals: Flow<MessagePagingPresentationSignal>,
+    requestRefresh: () -> Unit,
+    timeoutMillis: Long = 35_000L,
+) = coroutineScope {
+    val completion = async(start = CoroutineStart.UNDISPATCHED) {
+        awaitMessagePagingRefreshPresentation(presentationSignals, timeoutMillis)
+    }
+    requestRefresh()
+    completion.await()
+}
+
+internal suspend fun awaitMessagePagingRefreshPresentation(
+    presentationSignals: Flow<MessagePagingPresentationSignal>,
+    timeoutMillis: Long = 35_000L,
+) {
+    val terminal = withTimeoutOrNull(timeoutMillis) {
+        var sawTargetLoading = false
+        presentationSignals
+            .drop(1) // snapshotFlow's pre-request state
+            .first { signal ->
+                when (signal.refreshState) {
+                    is LoadState.Error -> true
+                    is LoadState.Loading -> {
+                        sawTargetLoading = true
+                        false
+                    }
+                    is LoadState.NotLoading -> sawTargetLoading
+                }
+            }
+    }
+    if (terminal == null) throw MessageRefreshPresentationTimeoutException(timeoutMillis)
+    (terminal.refreshState as? LoadState.Error)?.error?.let { throw it }
+}
+
+internal data class MessagePagingPresentationSignal(
+    val refreshState: LoadState,
+)
+
+internal class MessageRefreshPresentationTimeoutException(timeoutMillis: Long) :
+    IllegalStateException("message refresh presentation timed out after ${timeoutMillis}ms")
+
+/** Structural list equality must not hide a replacement Paging presentation. */
+internal class MessagePagingSnapshotSignal(val snapshot: Any) {
+    override fun equals(other: Any?): Boolean =
+        other is MessagePagingSnapshotSignal && other.snapshot === snapshot
+
+    override fun hashCode(): Int = System.identityHashCode(snapshot)
+}
+
+internal suspend fun awaitRequiredMessagePagingSnapshotAdvance(
+    messageStoreChanged: Boolean,
+    presentationAdvance: Deferred<MessagePagingSnapshotSignal>,
+    timeoutMillis: Long = 5_000L,
+) {
+    if (!messageStoreChanged) {
+        presentationAdvance.cancel()
+        return
+    }
+    val advanced = withTimeoutOrNull(timeoutMillis) { presentationAdvance.await() }
+    if (advanced == null) {
+        presentationAdvance.cancel()
+        throw MessageRefreshSnapshotTimeoutException(timeoutMillis)
+    }
+}
+
+internal class MessageRefreshSnapshotTimeoutException(timeoutMillis: Long) :
+    IllegalStateException("message refresh snapshot timed out after ${timeoutMillis}ms")
 
 internal fun formatMessageTime(context: Context, receivedAt: Instant, zoneId: ZoneId, nowInstant: Instant = Instant.now()): String {
     val millis = receivedAt.toEpochMilli()

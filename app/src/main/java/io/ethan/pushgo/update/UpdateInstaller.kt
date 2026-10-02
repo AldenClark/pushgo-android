@@ -154,9 +154,9 @@ class UpdateInstaller(private val context: Context) {
     }
 
     private fun hasTrustedSigner(archiveInfo: PackageInfo): Boolean {
-        val signingInfo = archiveInfo.signingInfo ?: return true
-        val signers = signingInfo.apkContentsSigners ?: return true
-        if (signers.isEmpty()) return true
+        val signingInfo = archiveInfo.signingInfo ?: return false
+        val signers = signingInfo.apkContentsSigners ?: return false
+        if (signers.isEmpty()) return false
         return signers.any { signer ->
             val digest = MessageDigest.getInstance("SHA-256").digest(signer.toByteArray())
             context.packageManager.hasSigningCertificate(

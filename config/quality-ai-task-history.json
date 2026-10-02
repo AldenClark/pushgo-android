@@ -1,0 +1,236 @@
+{
+  "schema_version": 1,
+  "platform": "android",
+  "tasks": [
+    {
+      "id": "sheet-error-ownership-and-gateway-validation",
+      "commit": "364eb23",
+      "task_prompt": "修正设置或频道 sheet 内业务错误泄漏到宿主页面的问题；修改网关时必须先验证候选网关并完成注册，失败不得覆盖旧网关。",
+      "user_outcome": "错误只属于发起操作的 sheet；候选网关在验证和注册成功前不能成为活动配置，失败后旧网关和既有数据仍可使用。",
+      "credible_counterexample": "测试只看到错误文本或保存按钮可点，却没有证明宿主无错误、旧网关未变、失败后可重试成功。",
+      "minimum_lane": "release",
+      "required_capabilities": ["channels", "gateway-settings", "release-runtime-isolation"],
+      "required_changed_path_groups": [
+        {"description": "production ownership or transactional behavior", "patterns": ["app/src/main/java/**/ChannelSubscriptionRepository.kt", "app/src/main/java/**/SettingsViewModel.kt", "app/src/main/java/**/SettingsScreen.kt", "app/src/main/java/**/ChannelListScreen.kt"]},
+        {"description": "real Android UI journey", "patterns": ["app/src/androidTest/**/QualityChannelJourneyInstrumentedTest.kt", "app/src/androidTest/**/QualitySettingsJourneyInstrumentedTest.kt"]}
+      ],
+      "semantic_review": {
+        "reachable_entry": "从真实频道列表或设置页打开对应 sheet。",
+        "user_action": "制造远端拒绝或候选网关注册失败，再关闭 sheet、检查宿主并重试。",
+        "observable_outcomes": ["错误只在 sheet 内出现且宿主无残留错误", "失败时旧网关、频道和活动传输保持不变", "成功重试后新网关才提交且重启后仍一致"],
+        "error_or_recovery": "覆盖失败不提交、关闭后清理局部错误、重试成功三个状态转换。",
+        "persistence_or_system_boundary": "检查 Room/设置仓储重建后的活动网关，而非只读 Compose state。",
+        "negative_control": "若实现提前提交候选网关或把错误提升到宿主，旅程必须失败。",
+        "weak_oracle_rejected": "拒绝以按钮存在、错误字符串资源存在或版本号正确作为通过条件。",
+        "evidence": ["QualitySettingsJourneyInstrumentedTest 的失败不提交与重启断言", "QualityChannelJourneyInstrumentedTest 的 sheet 错误归属断言", "SettingsViewModel 的 prepare-before-commit 实现"]
+      }
+    },
+    {
+      "id": "channel-remote-rejection-compensation",
+      "commit": "aefca33",
+      "task_prompt": "频道创建遇到远端密码拒绝时不得落本地；远端已创建但本地持久化失败时要补偿删除，并允许用户重试。",
+      "user_outcome": "用户不会看到半完成或幽灵频道，失败原因明确，恢复后可成功创建且重启后只有一条正确记录。",
+      "credible_counterexample": "只验证抛出了异常，没有检查远端补偿、Room 为空、列表无频道或重试后去重。",
+      "minimum_lane": "release",
+      "required_capabilities": ["channels", "release-runtime-isolation"],
+      "required_changed_path_groups": [
+        {"description": "production channel transaction", "patterns": ["app/src/main/java/**/ChannelSubscriptionRepository.kt", "app/src/main/java/**/ChannelSubscriptionStore.kt"]},
+        {"description": "channel device journey", "patterns": ["app/src/androidTest/**/QualityChannelJourneyInstrumentedTest.kt"]}
+      ],
+      "semantic_review": {
+        "reachable_entry": "频道列表的添加频道 sheet。",
+        "user_action": "分别触发密码拒绝和本地保存失败，再修复故障重试。",
+        "observable_outcomes": ["拒绝时列表和本地仓储都无新增频道", "远端创建后本地失败会发出补偿删除", "重试成功后 UI 与重启后的仓储只有一个频道"],
+        "error_or_recovery": "证明远端拒绝、本地失败补偿和恢复重试，不把异常当成测试系统失败。",
+        "persistence_or_system_boundary": "跨远端适配器、Room 持久化和 Activity 重启。",
+        "negative_control": "禁用补偿删除或提前插入本地记录时测试应失败。",
+        "weak_oracle_rejected": "拒绝只断言错误对象类型、mock 调用开始或 sheet 消失。",
+        "evidence": ["真实 Compose 创建旅程", "远端适配器调用与本地最终状态断言", "重启后的唯一频道断言"]
+      }
+    },
+    {
+      "id": "encrypted-corruption-safe-recovery",
+      "commit": "1c38d1e",
+      "task_prompt": "错误密钥或损坏密文不能显示伪明文或错误 ACK；用户修正密钥后应恢复出准确内容并持久化。",
+      "user_outcome": "无法解密时安全失败且消息状态诚实；输入正确密钥后同一消息恢复为准确明文，重启后仍正确。",
+      "credible_counterexample": "页面显示一条消息或测试未崩溃，但内容错误、错误 ACK、明文泄漏或重启后丢失。",
+      "minimum_lane": "release",
+      "required_capabilities": ["decryption-settings", "messages", "ingress-ack", "release-runtime-isolation"],
+      "required_changed_path_groups": [
+        {"description": "quality-controlled production ingress", "patterns": ["app/src/main/java/**/QualityRuntime.kt", "app/src/main/java/**/AppContainer.kt"]},
+        {"description": "decryption and data-boundary tests", "patterns": ["app/src/androidTest/**/QualitySettingsJourneyInstrumentedTest.kt", "app/src/androidTest/**/RuntimeDataLayerInstrumentedTest.kt"]}
+      ],
+      "semantic_review": {
+        "reachable_entry": "从设置页配置解密密钥，并从正常消息列表打开真实入站消息。",
+        "user_action": "注入损坏密文或错误密钥，观察失败，再输入正确密钥恢复。",
+        "observable_outcomes": ["失败时不显示猜测明文且状态可解释", "失败不得产生成功 ACK", "修正后显示精确明文并在仓储重建后保持"],
+        "error_or_recovery": "同一用例覆盖安全失败、修正和恢复，而非只测 happy path。",
+        "persistence_or_system_boundary": "跨密钥安全存储、入站处理、Room 与 UI 重建。",
+        "negative_control": "把错误密文当明文或提前 ACK 时断言必须失败。",
+        "weak_oracle_rejected": "拒绝只检查密钥文件存在、状态码非空或消息行数量。",
+        "evidence": ["QualitySettingsJourneyInstrumentedTest 的错误密钥修复流程", "RuntimeDataLayerInstrumentedTest 的损坏密文/ACK/持久化断言"]
+      }
+    },
+    {
+      "id": "thing-relation-journey",
+      "commit": "4e4e085",
+      "task_prompt": "证明 Thing 列表、详情和关联消息是用户可达且数据显示正确，重启后关系仍存在。",
+      "user_outcome": "用户能从 Thing 列表进入正确详情，看到属于该 Thing 的准确消息关系，返回和重启不串数据。",
+      "credible_counterexample": "只验证页面标题或 testTag，关联消息来自其他 Thing 或重启后关系消失仍会假绿。",
+      "minimum_lane": "device",
+      "required_capabilities": ["things", "messages"],
+      "required_changed_path_groups": [
+        {"description": "Thing production surfaces", "patterns": ["app/src/main/java/**/ThingListScreen.kt", "app/src/main/java/**/MessageDetailScreen.kt"]},
+        {"description": "entity device journey", "patterns": ["app/src/androidTest/**/QualityEntityJourneyInstrumentedTest.kt"]}
+      ],
+      "semantic_review": {
+        "reachable_entry": "主导航 Thing 页和真实列表项。",
+        "user_action": "选择有区分度的 Thing，进入详情和关联消息，再重启复查。",
+        "observable_outcomes": ["列表显示精确 Thing 名称与标识", "详情只显示该 Thing 的准确字段和关联消息", "重启后关系仍一致且无其他 Thing 数据"],
+        "error_or_recovery": "至少覆盖空关系与有关系，避免把任意列表存在当成功。",
+        "persistence_or_system_boundary": "基于 Room 规范化关系并经 Activity 重启复核。",
+        "negative_control": "将关联查询改成返回全部消息时用例应失败。",
+        "weak_oracle_rejected": "拒绝只看详情页存在或导航成功。",
+        "evidence": ["QualityEntityJourneyInstrumentedTest 的精确关系断言", "Thing/Message 生产页面的用户入口"]
+      }
+    },
+    {
+      "id": "message-refresh-result-and-recovery",
+      "commit": "923f27e",
+      "task_prompt": "消息刷新必须等待真实新结果，慢加载要有可观测状态，失败后用户可重试恢复且不能展示旧成功假象。",
+      "user_outcome": "用户发起刷新后能区分加载、失败和新内容；恢复后看到精确新增消息，重启后仍存在。",
+      "credible_counterexample": "刷新图标转过或请求函数被调用就算通过，即便一直加载、错误被吞掉或数据没更新。",
+      "minimum_lane": "nightly",
+      "required_capabilities": ["messages", "ingress-ack"],
+      "required_changed_path_groups": [
+        {"description": "production refresh/ingress behavior", "patterns": ["app/src/main/java/**/ProviderIngressCoordinator.kt", "app/src/main/java/**/MessageListScreen.kt"]},
+        {"description": "message refresh device journey", "patterns": ["app/src/androidTest/**/QualityMessageJourneyInstrumentedTest.kt"]}
+      ],
+      "semantic_review": {
+        "reachable_entry": "消息列表的真实下拉刷新入口。",
+        "user_action": "分别控制慢响应、失败和恢复成功，等待业务状态而非固定 sleep。",
+        "observable_outcomes": ["慢响应期间仍显示明确加载反馈且最终不会无限等待", "失败显示用户可操作错误且旧数据不冒充新结果", "重试后出现唯一且内容精确的新消息，重启仍在"],
+        "error_or_recovery": "覆盖 loading→error→retry→content 状态机。",
+        "persistence_or_system_boundary": "跨 provider ingress、Room、Compose 列表和 Activity 重启。",
+        "negative_control": "让刷新成功但不插入新消息时必须因精确内容缺失失败。",
+        "weak_oracle_rejected": "拒绝只等待进度条消失或断言请求次数。",
+        "evidence": ["QualityMessageJourneyInstrumentedTest 的慢/失败/新结果恢复旅程", "ProviderIngressCoordinator 的可控边界"]
+      }
+    },
+    {
+      "id": "large-font-localized-core-task",
+      "commit": "ba97eb2",
+      "task_prompt": "在简体中文和 1.5 倍字体下完成一条真实核心任务，验证文本、控件可达性和错误归属，而非只检查资源齐全。",
+      "user_outcome": "大字体中文用户仍能读懂并完成频道创建/错误恢复，关键控件不被裁切或遮挡。",
+      "credible_counterexample": "strings.xml 键齐全但运行页面混用英文、按钮出屏、sheet 无法滚动。",
+      "minimum_lane": "release",
+      "required_capabilities": ["accessibility-localization", "channels"],
+      "required_changed_path_groups": [
+        {"description": "localized accessible production surface", "patterns": ["app/src/main/java/**/ChannelListScreen.kt", "app/src/main/res/values-zh-rCN/strings.xml", "app/src/main/res/xml/locales_config.xml"]},
+        {"description": "real large-font localized task", "patterns": ["app/src/androidTest/**/QualityAccessibilityLocalizationJourneyInstrumentedTest.kt"]}
+      ],
+      "semantic_review": {
+        "reachable_entry": "以 zh-CN、fontScale 1.5 启动应用，从频道页打开创建 sheet。",
+        "user_action": "输入、触发错误、滚动到恢复操作并完成核心任务。",
+        "observable_outcomes": ["关键文案为目标语言且语义正确", "标题、输入框、错误和主操作均可见可点击", "任务成功后列表显示准确频道"],
+        "error_or_recovery": "大字体下错误与恢复操作必须同样可达。",
+        "persistence_or_system_boundary": "通过真实配置变更和 Activity 重建验证，不只读资源文件。",
+        "negative_control": "删掉滚动容器或把关键按钮移出可视区域时任务应失败。",
+        "weak_oracle_rejected": "资源键存在、locale 配置存在、截图生成都不是功能通过。",
+        "evidence": ["QualityAccessibilityLocalizationJourneyInstrumentedTest 的真实中文大字体任务", "本地化完整性脚本作为补充而非主 Oracle"]
+      }
+    },
+    {
+      "id": "purpose-level-android-performance",
+      "commit": "e6bfc1a",
+      "task_prompt": "建立 Android 性能门禁：测量 1k 消息启动到准确内容、详情帧性能和基线配置，同时把模拟器与物理设备证据分开。",
+      "user_outcome": "规模化数据下用户在预算内看到准确首屏并流畅打开详情；性能绿色不能以空页面或错误数据换取。",
+      "credible_counterexample": "TTID 很快但首屏仍是占位/空数据，或只在模拟器计时却声称物理设备通过。",
+      "minimum_lane": "release",
+      "required_capabilities": ["app-launch-performance", "message-detail-frame-performance", "baseline-profile", "release-runtime-isolation"],
+      "required_changed_path_groups": [
+        {"description": "production prepared-state and accurate-content marker", "patterns": ["app/src/main/java/**/MainActivity.kt", "app/src/main/java/**/MessageListScreen.kt", "app/src/benchmark/**"]},
+        {"description": "macrobenchmark and contract runners", "patterns": ["macrobenchmark/**", "scripts/validate_android_macrobenchmark.py", "scripts/verify_android_performance_contract.py"]}
+      ],
+      "semantic_review": {
+        "reachable_entry": "Release-like 包从真实 launcher 冷启动，并从首屏打开有区分度的消息详情。",
+        "user_action": "准备 1k 规范数据，冷启动等待精确首屏，再打开精确详情。",
+        "observable_outcomes": ["被测区间结束时精确消息标题和正文已显示", "启动/帧指标绑定固定设备合同与构建身份", "模拟器仅报告结构性证据或 NOT RUN，不冒充物理预算"],
+        "error_or_recovery": "fixture 准备失败、指标缺失或内容错误分别归因，不用重试掩盖。",
+        "persistence_or_system_boundary": "跨 app-owned Room、Release APK、Macrobenchmark 进程和结果 JSON。",
+        "negative_control": "错误首条消息或缺失指标会让合同验证失败。",
+        "weak_oracle_rejected": "拒绝以 APK 存在、baseline 文件存在或进程启动作为性能通过。",
+        "evidence": ["PushGoMacrobenchmark 的准确内容终点", "性能 JSON 合同负控", "物理设备无合同场景的明确 NOT RUN"]
+      }
+    },
+    {
+      "id": "transactional-transport-switch",
+      "commit": "44cfacc",
+      "task_prompt": "FCM/private 传输切换必须 prepare-before-commit；本地提交失败要回滚远端，重试成功后才替换活动路线。",
+      "user_outcome": "传输切换失败不会破坏当前可用路线；用户修复问题并重试后，新路线才生效且重启后一致。",
+      "credible_counterexample": "只验证 selector 值改变或远端调用成功，没有检查旧路线、回滚、失败提示和重启。",
+      "minimum_lane": "release",
+      "required_capabilities": ["transport-selector", "gateway-settings", "release-runtime-isolation"],
+      "required_changed_path_groups": [
+        {"description": "production transactional selector", "patterns": ["app/src/main/java/**/SettingsViewModel.kt", "app/src/main/java/**/SettingsUiState.kt"]},
+        {"description": "settings device transaction journey", "patterns": ["app/src/androidTest/**/QualitySettingsJourneyInstrumentedTest.kt"]}
+      ],
+      "semantic_review": {
+        "reachable_entry": "设置页的真实传输选择器。",
+        "user_action": "触发候选路线准备拒绝、本地提交失败和恢复重试。",
+        "observable_outcomes": ["准备拒绝时活动路线不变", "本地提交失败会回滚候选远端注册并保留旧路线", "重试成功后新路线生效且重启保持"],
+        "error_or_recovery": "覆盖两种失败阶段及可恢复成功。",
+        "persistence_or_system_boundary": "跨远端 transport port、SettingsRepository 和重启。",
+        "negative_control": "把 selector 提前写入本地时旧路线保持断言应失败。",
+        "weak_oracle_rejected": "拒绝只断言下拉框选中值或 mock 被调用。",
+        "evidence": ["QualitySettingsJourneyInstrumentedTest 的切换事务旅程", "SettingsViewModel 的 prepare/commit/rollback 顺序"]
+      }
+    },
+    {
+      "id": "protected-settings-write-failure",
+      "commit": "6e7deca",
+      "task_prompt": "KeyStore 或受保护设置写入失败必须向用户显式反馈，不得假装保存；相关频道/网关状态不得部分提交，恢复后可重试。",
+      "user_outcome": "敏感配置保存失败时用户知道没有生效，旧设置继续可用；恢复安全存储后一次重试完成且重启后正确。",
+      "credible_counterexample": "UI 显示保存成功但 KeyStore 没写入，或 Room 与安全存储只有一边更新。",
+      "minimum_lane": "release",
+      "required_capabilities": ["channels", "gateway-settings", "decryption-settings", "release-runtime-isolation"],
+      "required_changed_path_groups": [
+        {"description": "production secure write propagation", "patterns": ["app/src/main/java/**/AndroidKeystoreSecretStore.kt", "app/src/main/java/**/SettingsRepository.kt", "app/src/main/java/**/ChannelSubscriptionRepository.kt"]},
+        {"description": "settings secure-write device journey", "patterns": ["app/src/androidTest/**/QualitySettingsJourneyInstrumentedTest.kt"]}
+      ],
+      "semantic_review": {
+        "reachable_entry": "设置或频道 sheet 的敏感配置保存入口。",
+        "user_action": "注入安全存储写失败，检查错误和旧值，再恢复并重试。",
+        "observable_outcomes": ["失败错误归属当前交互且不显示成功", "安全存储、Room 与活动配置保持旧值", "重试成功后新值生效且重启保持，但 UI 不回显密钥"],
+        "error_or_recovery": "安全存储故障属于产品失败并可恢复，不误判为测试环境。",
+        "persistence_or_system_boundary": "跨 AndroidKeyStore 抽象、仓储事务、UI 和重启。",
+        "negative_control": "吞掉 KeyStore 异常或部分提交时测试必须失败。",
+        "weak_oracle_rejected": "拒绝只检查异常类型、文件存在或输入框已清空。",
+        "evidence": ["QualitySettingsJourneyInstrumentedTest 的失败/无提交/恢复断言", "安全存储仓储的错误传播测试"]
+      }
+    },
+    {
+      "id": "android-system-notification-route",
+      "commit": "d9f39c9",
+      "task_prompt": "从产品 InboundMessageWorker 到系统通知、PendingIntent、准确详情、已读和重启持久化建立真实 Android 系统通知旅程。",
+      "user_outcome": "收到消息时系统通知显示准确标题正文；点击进入正确消息详情并标记已读，重启后同一规范记录仍正确且不重复。",
+      "credible_counterexample": "直接启动详情 Activity、只检查 NotificationManager 有对象或共享读取测试数据库，绕过真实用户路径仍假绿。",
+      "minimum_lane": "nightly",
+      "required_capabilities": ["notification-system-route", "quality-system-trustworthiness"],
+      "required_changed_path_groups": [
+        {"description": "real system notification device journey", "patterns": ["app/src/androidTest/**/QualitySystemNotificationJourneyInstrumentedTest.kt"]},
+        {"description": "permission and attribution support", "patterns": ["app/src/androidTest/**/NotificationPermissionTestSupport.kt", "scripts/classify_android_test_failure.py"]}
+      ],
+      "semantic_review": {
+        "reachable_entry": "App-owned 清空会话后经生产 InboundMessageWorker 进入系统通知栏。",
+        "user_action": "授予真实通知权限，注入唯一消息，打开通知栏核对并点击通知。",
+        "observable_outcomes": ["系统通知栏显示本次唯一且精确标题/正文", "PendingIntent 打开同一消息详情并完成已读", "Room 只有一条规范记录且重启后正文与已读保持，通知消失"],
+        "error_or_recovery": "权限或 runner 前置故障只在注入前标为测试系统问题；注入后任何偏差都是产品失败。",
+        "persistence_or_system_boundary": "跨 WorkManager、Room、NotificationManager、系统通知栏、PendingIntent 和进程重启。",
+        "negative_control": "把期望正文改错时必须在系统通知栏精确内容断言失败。",
+        "weak_oracle_rejected": "拒绝只看通知数量、Activity 类名、数据库文件存在或测试运行完成。",
+        "evidence": ["QualitySystemNotificationJourneyInstrumentedTest 的全路径", "错误正文负控", "六态执行回执与受控 emulator 身份"]
+      }
+    }
+  ]
+}

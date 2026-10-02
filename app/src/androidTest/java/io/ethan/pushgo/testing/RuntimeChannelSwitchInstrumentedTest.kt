@@ -533,6 +533,16 @@ private class SharedPrefsSecretStore(context: Context) : SecureSecretStore {
         prefs.edit().putString("fcm_token", token?.trim()?.ifEmpty { null }).commit()
     }
 
+    override fun pendingTransportToken(operationId: String): String? =
+        prefs.getString("pending_transport_token:${operationId.trim()}", null)
+            ?.trim()?.ifEmpty { null }
+
+    override fun setPendingTransportToken(operationId: String, token: String?) {
+        prefs.edit()
+            .putString("pending_transport_token:${operationId.trim()}", token?.trim()?.ifEmpty { null })
+            .commit()
+    }
+
     override fun deviceKey(): String? = prefs.getString("device_key", null)?.trim()?.ifEmpty { null }
     override fun setDeviceKey(deviceKey: String?) {
         prefs.edit().putString("device_key", deviceKey?.trim()?.ifEmpty { null }).commit()

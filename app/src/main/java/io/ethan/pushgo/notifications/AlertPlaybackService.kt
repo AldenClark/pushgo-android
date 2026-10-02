@@ -57,7 +57,9 @@ class AlertPlaybackService : Service() {
             }
             ACTION_STOP_FOR_NOTIFICATION -> {
                 val notificationId = intent.getIntExtra(EXTRA_NOTIFICATION_ID, 0)
-                if (notificationId != 0 && notificationId == currentNotificationId) {
+                if (currentNotificationId == null ||
+                    (notificationId != 0 && notificationId == currentNotificationId)
+                ) {
                     stopSelf()
                 }
             }

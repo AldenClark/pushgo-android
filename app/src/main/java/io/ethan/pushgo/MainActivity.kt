@@ -30,6 +30,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -38,6 +39,8 @@ import androidx.core.content.ContextCompat
 import androidx.core.content.edit
 import io.ethan.pushgo.automation.PushGoAutomation
 import io.ethan.pushgo.notifications.NotificationHelper
+import io.ethan.pushgo.testing.QualityRuntime
+import io.ethan.pushgo.testing.QualitySystemCapability
 import io.ethan.pushgo.ui.PushGoAppRoot
 import io.ethan.pushgo.ui.screens.PushGoAlertDialog
 import io.ethan.pushgo.ui.theme.PushGoTheme
@@ -181,7 +184,22 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun evaluateStartupDeliveryGuards(requestNotificationRuntimePermission: Boolean) {
-        if (PushGoAutomation.isSessionConfigured()) {
+        val exercisesNotificationPermissionJourney = QualityRuntime.allowsSystemCapability(
+            QualitySystemCapability.NOTIFICATION_PERMISSION_JOURNEY,
+        )
+        val exercisesDozeReminderJourney = QualityRuntime.allowsSystemCapability(
+            QualitySystemCapability.DOZE_REMINDER_JOURNEY,
+        )
+        val appOwnedQualitySession = QualityRuntime.isAppOwnedSessionConfigured()
+        val legacyAutomationSession = PushGoAutomation.isSessionConfigured() && !appOwnedQualitySession
+        if (
+            legacyAutomationSession ||
+            (
+                appOwnedQualitySession &&
+                    !exercisesNotificationPermissionJourney &&
+                    !exercisesDozeReminderJourney
+            )
+        ) {
             showNotificationPermissionDialog = false
             showDozeModeDialog = false
             return
@@ -205,6 +223,13 @@ class MainActivity : AppCompatActivity() {
                 showDozeModeDialog = false
                 return
             }
+        }
+        // The typed quality capability owns only the notification-permission journey. Once that
+        // real system outcome is healthy, keep the unrelated Doze reminder out of this test.
+        if (exercisesNotificationPermissionJourney) {
+            showNotificationPermissionDialog = false
+            showDozeModeDialog = false
+            return
         }
         if (!NotificationManagerCompat.from(this).areNotificationsEnabled()) {
             showNotificationPermissionDialog = true
@@ -259,6 +284,7 @@ class MainActivity : AppCompatActivity() {
                         )
                         Text(
                             text = title,
+                            modifier = Modifier.testTag("field.delivery_guard.title"),
                             style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
                             color = uiColors.textPrimary,
                         )
@@ -269,11 +295,13 @@ class MainActivity : AppCompatActivity() {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(
                         text = message,
+                        modifier = Modifier.testTag("field.delivery_guard.message"),
                         style = MaterialTheme.typography.bodyMedium,
                         color = uiColors.textPrimary,
                     )
                     Text(
                         text = urgencyHint,
+                        modifier = Modifier.testTag("field.delivery_guard.urgency"),
                         style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold),
                         color = uiColors.stateDanger.foreground,
                     )
@@ -282,6 +310,7 @@ class MainActivity : AppCompatActivity() {
             confirmButton = {
                 Button(
                     onClick = onConfirm,
+                    modifier = Modifier.testTag("action.delivery_guard.confirm"),
                     colors = pushGoDangerButtonColors(),
                 ) {
                     Text(confirmText)
@@ -307,18 +336,22 @@ class MainActivity : AppCompatActivity() {
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(24.dp),
+                .padding(24.dp)
+                .testTag("state.storage.unavailable"),
             verticalArrangement = Arrangement.Center,
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            Text("本地数据库不可用")
+            Text(stringResource(R.string.label_local_storage_unavailable))
             Spacer(modifier = Modifier.height(12.dp))
-            Text("为防止数据被破坏，应用已停止读写。")
+            Text(stringResource(R.string.label_local_storage_unavailable_safety))
             Spacer(modifier = Modifier.height(8.dp))
-            Text(reason)
+            Text(reason, modifier = Modifier.testTag("field.storage.failure_reason"))
             Spacer(modifier = Modifier.height(20.dp))
-            Button(onClick = onExit) {
-                Text("退出应用")
+            Button(
+                onClick = onExit,
+                modifier = Modifier.testTag("action.storage.exit"),
+            ) {
+                Text(stringResource(R.string.action_exit_app))
             }
         }
     }

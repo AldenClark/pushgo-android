@@ -1,0 +1,292 @@
+{
+  "formal_host_receipt": {
+    "schema_version": 2,
+    "recorded_at": "2026-09-30T18:47:43.138768+00:00",
+    "source_revision": "b3109b85246143770b2e16a686bb8aacf5b586a8",
+    "source_dirty": false,
+    "run_identity": null,
+    "platform": "android",
+    "lane": "pr",
+    "product_capability_status": "PASSED",
+    "test_system_status": "PASSED",
+    "selected_claims": [
+      "Android JNI/toolchain/schema/release static contracts",
+      "Android signed update feed contract",
+      "Android JVM behavior suite, localization completeness, and androidTest compilation"
+    ],
+    "executed_claims": [
+      "Android JNI/toolchain/schema/release static contracts",
+      "Android signed update feed contract",
+      "Android JVM behavior suite, localization completeness, and androidTest compilation"
+    ],
+    "incomplete_selected_claims": [],
+    "not_run": [
+      "real FCM/private delivery, reboot, production-distributed/OEM install policy, physical audio, and physical accessibility evidence",
+      "controlled-emulator notification permission, Doze, system notification, and Private Service journeys",
+      "opt-in 100k production Room performance evidence",
+      "Release-like Macrobenchmark mechanics and physical-device performance evidence",
+      "Android App-owned device preparation contract runs in the device lane; host pr does not claim it."
+    ],
+    "test_system_issue_ids": [],
+    "waiver_id": null,
+    "reason": null,
+    "scope_notice": "PASSED applies only to executed_claims. Selected claims absent from executed_claims failed or were blocked; this is not whole-product coverage."
+  },
+  "root_counts": {
+    "tests": 311,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  "exact_unique_selector_count": 311,
+  "actual_xml_files": [
+    {
+      "relative_path": "app/build/test-results/testDebugUnitTest/TEST-io.ethan.pushgo.ConflatedRecoveryDispatcherTest.xml",
+      "sha256": "ed12a02e351feca6cc06c59074d8f606e4ec9b150e1abe90aa5104275ffa8ddb",
+      "mtime_epoch": 1790794052.6736948
+    },
+    {
+      "relative_path": "app/build/test-results/testDebugUnitTest/TEST-io.ethan.pushgo.StartedActivityInteractionBoundaryTest.xml",
+      "sha256": "e12fa0d5da92d5be043a62c192d608bb40307d0f312a83dc10e3ab8135a112d9",
+      "mtime_epoch": 1790794052.6631243
+    },
+    {
+      "relative_path": "app/build/test-results/testDebugUnitTest/TEST-io.ethan.pushgo.data.ChannelMutationBarrierTest.xml",
+      "sha256": "945b02b3d5cc1e5dd310435d45376790f04946284282627859c551e8d6806e0a",
+      "mtime_epoch": 1790794052.6636002
+    },
+    {
+      "relative_path": "app/build/test-results/testDebugUnitTest/TEST-io.ethan.pushgo.data.ChannelSubscriptionServiceEndpointsTest.xml",
+      "sha256": "86799bafb76694587f9d1007d8d53c5c5c990412ee3f8ee55b02dd17dbec2be2",
+      "mtime_epoch": 1790794052.6638234
+    },
+    {
+      "relative_path": "app/build/test-results/testDebugUnitTest/TEST-io.ethan.pushgo.data.ChannelSubscriptionServiceIngressContractTest.xml",
+      "sha256": "80fd9db5bf142c15f2e91fc79612077236977b26bc45b4b15ba86b925d2d5b5a",
+      "mtime_epoch": 1790794052.6640844
+    },
+    {
+      "relative_path": "app/build/test-results/testDebugUnitTest/TEST-io.ethan.pushgo.data.ChannelValidatorsTest.xml",
+      "sha256": "043579f51c1d7579a97200d628a708c6efe1b9eaaba7f992cca88e4d1a4b7105",
+      "mtime_epoch": 1790794052.664232
+    },
+    {
+      "relative_path": "app/build/test-results/testDebugUnitTest/TEST-io.ethan.pushgo.data.DurablePendingChannelDeletionExecutorTest.xml",
+      "sha256": "ca9144dbfa2393b06c41a8f1cd200796803bf2b36d6542de7f172599002d783d",
+      "mtime_epoch": 1790794052.6646862
+    },
+    {
+      "relative_path": "app/build/test-results/testDebugUnitTest/TEST-io.ethan.pushgo.data.EntityBatchDeletePathContractTest.xml",
+      "sha256": "0ae20bc0663de7c2fd4d214986dee2e7d10f11ca52d78b703e73341125e0f08b",
+      "mtime_epoch": 1790794052.6650012
+    },
+    {
+      "relative_path": "app/build/test-results/testDebugUnitTest/TEST-io.ethan.pushgo.data.GatewayTransitionJournalTest.xml",
+      "sha256": "360a40ecc0f847cd392c38a35fa7fd9f4f7fa2ecff08116d5f2d4e6db0e05642",
+      "mtime_epoch": 1790794052.6652763
+    },
+    {
+      "relative_path": "app/build/test-results/testDebugUnitTest/TEST-io.ethan.pushgo.data.MessagePerformanceArchitectureContractTest.xml",
+      "sha256": "d9409b33788a220de14ee7a178ffaeea1924a7fa4a30369cc5fb5653b547658e",
+      "mtime_epoch": 1790794052.6657546
+    },
+    {
+      "relative_path": "app/build/test-results/testDebugUnitTest/TEST-io.ethan.pushgo.data.NotificationKeyValidatorTest.xml",
+      "sha256": "f7c4aab23e54837d9446294fdccc3ecbd5ecd97332542a25e3053f79ee46542a",
+      "mtime_epoch": 1790794052.6659746
+    },
+    {
+      "relative_path": "app/build/test-results/testDebugUnitTest/TEST-io.ethan.pushgo.data.TransportSwitchCoordinatorTest.xml",
+      "sha256": "de5ce39460d540d017490c8980cec36c609f54feb5af869ffeb055228f6dadfa",
+      "mtime_epoch": 1790794052.6663952
+    },
+    {
+      "relative_path": "app/build/test-results/testDebugUnitTest/TEST-io.ethan.pushgo.data.db.LegacyDatabaseBootstrapPolicyTest.xml",
+      "sha256": "e93e3b4b2e5b2c5f5a017f8121c62ed08eff3fe6549bd47d07b066c8332595d1",
+      "mtime_epoch": 1790794052.6666007
+    },
+    {
+      "relative_path": "app/build/test-results/testDebugUnitTest/TEST-io.ethan.pushgo.data.db.MessageListPayloadProjectionTest.xml",
+      "sha256": "20f5973d889a8cebb03fee28f7a648ef6cfd6117acb32be349ea2e39db06637e",
+      "mtime_epoch": 1790794052.6667714
+    },
+    {
+      "relative_path": "app/build/test-results/testDebugUnitTest/TEST-io.ethan.pushgo.data.model.PushMessageSemanticsTest.xml",
+      "sha256": "ddbf6a312bbd34f532beb04d7dbb9ebd592374909ab15b9dee57b126a9e19374",
+      "mtime_epoch": 1790794052.6670897
+    },
+    {
+      "relative_path": "app/build/test-results/testDebugUnitTest/TEST-io.ethan.pushgo.markdown.PushGoMarkdownSemanticsTest.xml",
+      "sha256": "fa6796387b2e004e22a3c8d198974502a867eaadf075af758fb3a553d658c3ef",
+      "mtime_epoch": 1790794052.6674168
+    },
+    {
+      "relative_path": "app/build/test-results/testDebugUnitTest/TEST-io.ethan.pushgo.notifications.AlertPlaybackPolicyTest.xml",
+      "sha256": "66adf31c40f3b97a2f1bdf6639b6a37445ea45403eee99c1d5b229eee030b798",
+      "mtime_epoch": 1790794052.6676266
+    },
+    {
+      "relative_path": "app/build/test-results/testDebugUnitTest/TEST-io.ethan.pushgo.notifications.ForegroundNotificationPresentationStateTest.xml",
+      "sha256": "4fd76f89110a5c7308eb991de3d7f93ddf86e74795f084c9f6b79a5763b36d54",
+      "mtime_epoch": 1790794052.6678002
+    },
+    {
+      "relative_path": "app/build/test-results/testDebugUnitTest/TEST-io.ethan.pushgo.notifications.InboundDeliveryAckWorkerPolicyTest.xml",
+      "sha256": "e90323da95328e97978fca40846278eea8f25b9fd61b1d19d9f88d392c95e062",
+      "mtime_epoch": 1790794052.6679947
+    },
+    {
+      "relative_path": "app/build/test-results/testDebugUnitTest/TEST-io.ethan.pushgo.notifications.InboundIngressRouteResolverTest.xml",
+      "sha256": "bf58c1bd79585db421cd9925b178c0cc0ae43c9831f291f025900d7ef5e281a2",
+      "mtime_epoch": 1790794052.66817
+    },
+    {
+      "relative_path": "app/build/test-results/testDebugUnitTest/TEST-io.ethan.pushgo.notifications.InboundMessageProcessorTest.xml",
+      "sha256": "ec55caeda4babdbc63c8a4e8ae611e3e9f565f27eb7bc9ee6177a88743f182fb",
+      "mtime_epoch": 1790794052.6683826
+    },
+    {
+      "relative_path": "app/build/test-results/testDebugUnitTest/TEST-io.ethan.pushgo.notifications.InboundMessageWorkerFailurePolicyTest.xml",
+      "sha256": "8e5d4354ee31eaf9d59a65d18961562e2075a95f500808eb39c5c48e8b7f4862",
+      "mtime_epoch": 1790794052.6686196
+    },
+    {
+      "relative_path": "app/build/test-results/testDebugUnitTest/TEST-io.ethan.pushgo.notifications.InboundMessageWorkerPayloadCodecTest.xml",
+      "sha256": "9fe0d1eed4d08e3c138857fac7072dfad2a1908e55522de8914be30dcd53ad03",
+      "mtime_epoch": 1790794052.6689396
+    },
+    {
+      "relative_path": "app/build/test-results/testDebugUnitTest/TEST-io.ethan.pushgo.notifications.NotificationDecryptorTest.xml",
+      "sha256": "8b1595d7db4d2c97310de7c09eed8f33ce6bff6639c404488559613fcaeddbc0",
+      "mtime_epoch": 1790794052.6691236
+    },
+    {
+      "relative_path": "app/build/test-results/testDebugUnitTest/TEST-io.ethan.pushgo.notifications.NotificationHelperLevelMappingTest.xml",
+      "sha256": "9a4d616c8abca3d454f0d1a74fdf3e68b718aefbdec9ad0256e9c31af3140cbc",
+      "mtime_epoch": 1790794052.6693382
+    },
+    {
+      "relative_path": "app/build/test-results/testDebugUnitTest/TEST-io.ethan.pushgo.notifications.NotificationIngressParserTest.xml",
+      "sha256": "6f9c581cb78fbc9f32661556221869086ce088f2beec08deef6a67db5a7aee1f",
+      "mtime_epoch": 1790794052.6696837
+    },
+    {
+      "relative_path": "app/build/test-results/testDebugUnitTest/TEST-io.ethan.pushgo.notifications.NotificationReplayPolicyTest.xml",
+      "sha256": "01ee4aebc784ded4e003716509c84b26266814e99c1c642d2371140a64a60265",
+      "mtime_epoch": 1790794052.6699214
+    },
+    {
+      "relative_path": "app/build/test-results/testDebugUnitTest/TEST-io.ethan.pushgo.notifications.PrivateChannelDeliveryReliabilityTest.xml",
+      "sha256": "fd0212efbfb4501520b21154f747fe9e5828c7303113280e5162e571d483463f",
+      "mtime_epoch": 1790794052.6701276
+    },
+    {
+      "relative_path": "app/build/test-results/testDebugUnitTest/TEST-io.ethan.pushgo.notifications.PrivateChannelGatewaySnapshotTest.xml",
+      "sha256": "adb974c513790e4e90f8615087c6e788e481d3bb13abeefa2e7dcb5a90c09a85",
+      "mtime_epoch": 1790794052.6702914
+    },
+    {
+      "relative_path": "app/build/test-results/testDebugUnitTest/TEST-io.ethan.pushgo.notifications.ProviderAckDrainCoordinatorTest.xml",
+      "sha256": "9293b273a96e613059868b83978271509a263b5d0c560682fbed79fa0fe2cdc5",
+      "mtime_epoch": 1790794052.670519
+    },
+    {
+      "relative_path": "app/build/test-results/testDebugUnitTest/TEST-io.ethan.pushgo.notifications.ProviderIngressPagingContractTest.xml",
+      "sha256": "442bb8343829adb7efa501364394218e7347c082e46b21c7e146aa467706bd5c",
+      "mtime_epoch": 1790794052.6707244
+    },
+    {
+      "relative_path": "app/build/test-results/testDebugUnitTest/TEST-io.ethan.pushgo.notifications.WarpLinkNativeBridgeContractTest.xml",
+      "sha256": "87a9e30c64468c82d9233e40ac08a517afbba2afc5109cefba80bdcf9c6fa440",
+      "mtime_epoch": 1790794052.6709063
+    },
+    {
+      "relative_path": "app/build/test-results/testDebugUnitTest/TEST-io.ethan.pushgo.testing.QualityRuntimeTest.xml",
+      "sha256": "992dd1dcc24ccaf4698e738881ab1538e1f8264def35e26df05a83f090526ed9",
+      "mtime_epoch": 1790794052.6711538
+    },
+    {
+      "relative_path": "app/build/test-results/testDebugUnitTest/TEST-io.ethan.pushgo.ui.DurablePendingLocalDeletionTest.xml",
+      "sha256": "ca15bbe49744b10cc94e078be344772de1f6c66d5d8efb05eb7948f3d369c26e",
+      "mtime_epoch": 1790794052.671337
+    },
+    {
+      "relative_path": "app/build/test-results/testDebugUnitTest/TEST-io.ethan.pushgo.ui.PendingLocalDeletionCoordinatorTest.xml",
+      "sha256": "3fd3babc4de45f13e9b2e50293e1d7250a387397841cbbb029f4e9091c611e99",
+      "mtime_epoch": 1790794052.6715047
+    },
+    {
+      "relative_path": "app/build/test-results/testDebugUnitTest/TEST-io.ethan.pushgo.ui.screens.EntityProjectionDetailModelTest.xml",
+      "sha256": "c2ea6a07a952578d2905be73e1888d1506ca85b3ad76b2a37d041a397a7fe333",
+      "mtime_epoch": 1790794052.6716044
+    },
+    {
+      "relative_path": "app/build/test-results/testDebugUnitTest/TEST-io.ethan.pushgo.ui.screens.EntitySearchSemanticsTest.xml",
+      "sha256": "8999773119247edcfa92880897eecd2e44cacdd523520d7f05e1eec5314c952a",
+      "mtime_epoch": 1790794052.6718676
+    },
+    {
+      "relative_path": "app/build/test-results/testDebugUnitTest/TEST-io.ethan.pushgo.ui.screens.MessageRefreshPresentationTest.xml",
+      "sha256": "5f47abd9f7d0d9f517bce96c74505f0fd04ed14f3c19e3d4cf2b7f579c2bd003",
+      "mtime_epoch": 1790794052.672041
+    },
+    {
+      "relative_path": "app/build/test-results/testDebugUnitTest/TEST-io.ethan.pushgo.ui.screens.PushGoDocumentationTest.xml",
+      "sha256": "9c5302b7e3ba30c20444a6a7a03bee143427b2f7652a43618296789ea92ea37b",
+      "mtime_epoch": 1790794052.6722808
+    },
+    {
+      "relative_path": "app/build/test-results/testDebugUnitTest/TEST-io.ethan.pushgo.ui.screens.PushGoPlayableImageTest.xml",
+      "sha256": "2ace15a1eb523db08cb70f96a04a00a8bc81edd7fecb86f2597d8ef59cdeabfb",
+      "mtime_epoch": 1790794052.672429
+    },
+    {
+      "relative_path": "app/build/test-results/testDebugUnitTest/TEST-io.ethan.pushgo.ui.theme.AccessibilityColorContrastTest.xml",
+      "sha256": "ff1a0d2fe4e0959a8ed6c8a4942c7c2a1ea339be9e6f7471610959bb3a03f011",
+      "mtime_epoch": 1790794052.6725233
+    },
+    {
+      "relative_path": "app/build/test-results/testDebugUnitTest/TEST-io.ethan.pushgo.ui.viewmodel.GatewayErrorUiTest.xml",
+      "sha256": "c0c667e10013071e70865d062dc523d600ba256b6bb2b62a784cbc0d6ff81e1b",
+      "mtime_epoch": 1790794052.672617
+    },
+    {
+      "relative_path": "app/build/test-results/testDebugUnitTest/TEST-io.ethan.pushgo.update.UpdateCandidateSelectorTest.xml",
+      "sha256": "a4786afc0343b8e9c56d3c51f009d1c27a440073ed5152feaf2f84a376d7a162",
+      "mtime_epoch": 1790794052.6727538
+    },
+    {
+      "relative_path": "app/build/test-results/testDebugUnitTest/TEST-io.ethan.pushgo.update.UpdateFeedSignatureRegressionTest.xml",
+      "sha256": "0bdfe59b4e1ab060eba650063385855eb141419ccb1a9b763af97bcfb9a7639e",
+      "mtime_epoch": 1790794052.672988
+    },
+    {
+      "relative_path": "app/build/test-results/testDebugUnitTest/TEST-io.ethan.pushgo.update.UpdateInstallFailureClassifierTest.xml",
+      "sha256": "7f2b3219558991ac532e2d404edbaf847200cc37c5631e55bfffe1ed1374a72d",
+      "mtime_epoch": 1790794052.6731036
+    },
+    {
+      "relative_path": "app/build/test-results/testDebugUnitTest/TEST-io.ethan.pushgo.update.UpdateInstallStatusReceiverTest.xml",
+      "sha256": "df9bc04fa71f77608147a8b6a083d950c2ec4b525226944715c4529f74348ce3",
+      "mtime_epoch": 1790794052.6731935
+    },
+    {
+      "relative_path": "app/build/test-results/testDebugUnitTest/TEST-io.ethan.pushgo.update.UpdatePromptPolicyTest.xml",
+      "sha256": "c9eab1abadc2849efed2bf39bc93ad7a2c4c1477f3eea72d14e1ad62df47264e",
+      "mtime_epoch": 1790794052.6732907
+    },
+    {
+      "relative_path": "app/build/test-results/testDebugUnitTest/TEST-io.ethan.pushgo.util.ExternalNavigationTest.xml",
+      "sha256": "f2a4f9247a5b29b6a77f6897f80cc69499674291852ae0c8664090617ed6a8c7",
+      "mtime_epoch": 1790794052.6734605
+    },
+    {
+      "relative_path": "app/build/test-results/testDebugUnitTest/TEST-io.ethan.pushgo.util.SearchTextNormalizerTest.xml",
+      "sha256": "d6b693aab4330541df7c7743236e102e8d61181835de7e67515655314d4d5330",
+      "mtime_epoch": 1790794052.6735578
+    }
+  ],
+  "formal_log_sha256": "4998f6c6ab621378248f15459b5356ac1ead3a8cb28efdc8d50feadc949eab46",
+  "source_frozen_after": true,
+  "limits": "Formal host pr and impacted static contracts only; device preparation is explicitly not_run here, and device Release/signing require separate actual evidence."
+}

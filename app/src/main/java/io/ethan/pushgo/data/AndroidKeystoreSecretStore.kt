@@ -4,7 +4,6 @@ import android.content.Context
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 import android.util.Base64
-import androidx.core.content.edit
 import java.security.KeyStore
 import java.security.MessageDigest
 import javax.crypto.Cipher
@@ -12,11 +11,14 @@ import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
 
-class AndroidKeystoreSecretStore(context: Context) : SecureSecretStore {
+class AndroidKeystoreSecretStore(
+    context: Context,
+    preferenceFileName: String = PRODUCTION_PREFERENCE_FILE,
+) : SecureSecretStore {
     companion object {
         private const val KEYSTORE_PROVIDER = "AndroidKeyStore"
         private const val KEY_ALIAS = "pushgo.secure.secrets.v1"
-        private const val PREF_FILE = "pushgo_secure_secrets_v1"
+        internal const val PRODUCTION_PREFERENCE_FILE = "pushgo_secure_secrets_v1"
         private const val GCM_TAG_LENGTH_BITS = 128
         private const val GCM_MIN_PAYLOAD_SIZE = 13
         private const val SECRET_GATEWAY_TOKEN = "gateway_token"
@@ -26,7 +28,7 @@ class AndroidKeystoreSecretStore(context: Context) : SecureSecretStore {
     }
 
     private val prefs = context.applicationContext
-        .getSharedPreferences(PREF_FILE, Context.MODE_PRIVATE)
+        .getSharedPreferences(preferenceFileName, Context.MODE_PRIVATE)
 
     override fun gatewayToken(): String? {
         return getString(SECRET_GATEWAY_TOKEN)?.trim()?.ifEmpty { null }
@@ -50,6 +52,17 @@ class AndroidKeystoreSecretStore(context: Context) : SecureSecretStore {
 
     override fun setFcmToken(token: String?) {
         putString(SECRET_FCM_TOKEN, token?.trim()?.ifEmpty { null })
+    }
+
+    override fun pendingTransportToken(operationId: String): String? {
+        return getString(pendingTransportTokenKey(operationId))?.trim()?.ifEmpty { null }
+    }
+
+    override fun setPendingTransportToken(operationId: String, token: String?) {
+        putString(
+            pendingTransportTokenKey(operationId),
+            token?.trim()?.ifEmpty { null },
+        )
     }
 
     override fun deviceKey(): String? {
@@ -84,9 +97,7 @@ class AndroidKeystoreSecretStore(context: Context) : SecureSecretStore {
     }
 
     override fun clearAll() {
-        prefs.edit {
-            clear()
-        }
+        check(prefs.edit().clear().commit()) { "Protected secret store clear failed" }
     }
 
     private fun getString(key: String): String? {
@@ -115,16 +126,14 @@ class AndroidKeystoreSecretStore(context: Context) : SecureSecretStore {
             delete(key)
             return
         }
-        val encrypted = encrypt(normalized) ?: return
-        prefs.edit {
-            putString(key, encrypted)
+        val encrypted = encrypt(normalized)
+        check(prefs.edit().putString(key, encrypted).commit()) {
+            "Protected secret store write failed"
         }
     }
 
     private fun delete(key: String) {
-        prefs.edit {
-            remove(key)
-        }
+        check(prefs.edit().remove(key).commit()) { "Protected secret store delete failed" }
     }
 
     private fun channelPasswordKey(gatewayUrl: String, channelId: String): String {
@@ -133,6 +142,12 @@ class AndroidKeystoreSecretStore(context: Context) : SecureSecretStore {
 
     private fun gatewayAckTokenKey(gatewayUrl: String): String {
         return "gateway_ack_token_${sha256Hex(gatewayUrl.trim())}"
+    }
+
+    private fun pendingTransportTokenKey(operationId: String): String {
+        val normalized = operationId.trim()
+        require(normalized.isNotEmpty()) { "transport operation id is required" }
+        return "pending_transport_token_${sha256Hex(normalized)}"
     }
 
     private fun sha256Hex(value: String): String {
@@ -145,7 +160,7 @@ class AndroidKeystoreSecretStore(context: Context) : SecureSecretStore {
         return builder.toString()
     }
 
-    private fun encrypt(plaintext: ByteArray): String? {
+    private fun encrypt(plaintext: ByteArray): String {
         return runCatching {
             val key = loadOrCreateKey()
             val cipher = Cipher.getInstance("AES/GCM/NoPadding")
@@ -157,7 +172,9 @@ class AndroidKeystoreSecretStore(context: Context) : SecureSecretStore {
             System.arraycopy(iv, 0, payload, 1, iv.size)
             System.arraycopy(encrypted, 0, payload, 1 + iv.size, encrypted.size)
             Base64.encodeToString(payload, Base64.NO_WRAP)
-        }.getOrNull()
+        }.getOrElse { error ->
+            throw IllegalStateException("Protected secret encryption failed", error)
+        }
     }
 
     private fun decrypt(encoded: String): ByteArray? {

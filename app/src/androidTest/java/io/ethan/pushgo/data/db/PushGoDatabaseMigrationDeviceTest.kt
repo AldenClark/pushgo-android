@@ -1,7 +1,17 @@
 package io.ethan.pushgo.data.db
 
+import android.Manifest
 import android.content.Context
+import android.content.Intent
 import android.database.sqlite.SQLiteDatabase
+import android.os.Build
+import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertTextContains
+import androidx.compose.ui.test.junit4.createEmptyComposeRule
+import androidx.compose.ui.test.onAllNodesWithText
+import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.performClick
 import androidx.room.ColumnInfo
 import androidx.room.Database
 import androidx.room.Entity
@@ -10,25 +20,35 @@ import androidx.room.Index
 import androidx.room.PrimaryKey
 import androidx.room.Room
 import androidx.room.RoomDatabase
+import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import io.ethan.pushgo.MainActivity
 import io.ethan.pushgo.PushGoApp
 import io.ethan.pushgo.data.AppContainer
 import io.ethan.pushgo.data.model.KeyEncoding
+import io.ethan.pushgo.testing.QualityRuntime
+import io.ethan.pushgo.testing.QualityUiFailureDiagnostics
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.SupervisorJob
+import org.json.JSONObject
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Before
+import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 
 @RunWith(AndroidJUnit4::class)
 class PushGoDatabaseMigrationDeviceTest {
     private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private var scenario: ActivityScenario<MainActivity>? = null
+
+    @get:Rule
+    val composeRule = createEmptyComposeRule()
 
     private val context: Context
         get() = InstrumentationRegistry.getInstrumentation().targetContext
@@ -39,10 +59,19 @@ class PushGoDatabaseMigrationDeviceTest {
         cleanupDatabaseFamily("pushgo.db")
         cleanupDatabaseFamily("pushgo-v21.db")
         cleanupDatabaseFamily("pushgo-v22.db")
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            InstrumentationRegistry.getInstrumentation().uiAutomation.grantRuntimePermission(
+                context.packageName,
+                Manifest.permission.POST_NOTIFICATIONS,
+            )
+        }
     }
 
     @After
     fun tearDown() {
+        scenario?.close()
+        scenario = null
+        (context.applicationContext as PushGoApp).releaseStorageForInstrumentationTest()
         cleanupDatabaseFamily("pushgo.db")
         cleanupDatabaseFamily("pushgo-v21.db")
         cleanupDatabaseFamily("pushgo-v22.db")
@@ -51,25 +80,52 @@ class PushGoDatabaseMigrationDeviceTest {
     @Test
     fun appContainer_bootstrapsFromLegacyV21AndPreservesBusinessData() = runBlocking {
         seedLegacyV21Database()
+        QualityUiFailureDiagnostics.logText(
+            "legacy V21 bootstrap boundary",
+            "qualityDatabase=${QualityRuntime.currentSession()?.databaseName}, " +
+                "targetExists=${context.getDatabasePath("pushgo.db").exists()}, " +
+                "legacyBytes=${context.getDatabasePath("pushgo-v21.db").length()}, " +
+                "legacyWalBytes=${context.getDatabasePath("pushgo-v21.db-wal").length()}",
+        )
 
         val container = AppContainer(context, appScope)
         val subscriptions = container.channelStore.loadSubscriptions(GATEWAY_URL)
         val messages = container.messageRepository.loadAllForExport()
 
-        assertEquals(GATEWAY_URL, container.settingsRepository.getServerAddress())
+        val restoredGateway = container.settingsRepository.getServerAddress()
+        QualityUiFailureDiagnostics.logText(
+            "legacy V21 bootstrap result",
+            "database=${container.database.openHelper.databaseName}, gateway=$restoredGateway, " +
+                "subscriptions=${subscriptions.size}, messages=${messages.size}",
+        )
+        assertEquals(GATEWAY_URL, restoredGateway)
         assertEquals(true, container.settingsRepository.getUpdateAutoCheckEnabled())
         assertEquals(false, container.settingsRepository.getUpdateBetaChannelEnabled())
         assertEquals(1, subscriptions.size)
         assertEquals(CHANNEL_ID, subscriptions.single().channelId)
         assertEquals(1, messages.size)
         assertEquals(MESSAGE_ID, messages.single().messageId)
-        assertEquals(30, readUserVersion(context.getDatabasePath("pushgo.db")))
+        assertEquals(31, readUserVersion(context.getDatabasePath("pushgo.db")))
         assertEquals(1, container.messageRepository.totalCount())
         assertEquals(1, container.messageRepository.unreadCount())
         assertTrue(context.getDatabasePath("pushgo.db").exists())
         assertTrue(context.getDatabasePath("pushgo-v21.db").exists())
 
         container.database.close()
+
+        scenario = ActivityScenario.launch(
+            Intent(context, MainActivity::class.java).apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
+            }
+        )
+        composeRule.waitUntil(timeoutMillis = 8_000) {
+            composeRule.onAllNodesWithText("Legacy title").fetchSemanticsNodes().isNotEmpty()
+        }
+        composeRule.onNodeWithText("Legacy title").assertIsDisplayed().performClick()
+        composeRule.onNodeWithTag("field.message.detail.body")
+            .assertIsDisplayed()
+            .assertTextContains("Legacy body")
+        Unit
     }
 
     @Test
@@ -98,7 +154,7 @@ class PushGoDatabaseMigrationDeviceTest {
         assertEquals(MESSAGE_ID, messages.single().messageId)
         assertEquals(1, container.messageRepository.totalCount())
         assertEquals(1, container.messageRepository.unreadCount())
-        assertEquals(30, readUserVersion(context.getDatabasePath("pushgo.db")))
+        assertEquals(31, readUserVersion(context.getDatabasePath("pushgo.db")))
         val sqlite = container.database.openHelper.writableDatabase
         val revision = sqlite.query(
             "SELECT revision FROM message_store_revision WHERE id = 1"
@@ -193,7 +249,7 @@ class PushGoDatabaseMigrationDeviceTest {
             cursor.getString(0) to cursor.getString(1)
         }
 
-        assertEquals(30, readUserVersion(context.getDatabasePath("pushgo.db")))
+        assertEquals(31, readUserVersion(context.getDatabasePath("pushgo.db")))
         assertEquals(0, pendingOutbox)
         assertEquals(1, retainedLedger)
         assertEquals("" to "", retainedLedgerScope)
@@ -288,7 +344,7 @@ class PushGoDatabaseMigrationDeviceTest {
             found
         }
 
-        assertEquals(30, readUserVersion(context.getDatabasePath("pushgo.db")))
+        assertEquals(31, readUserVersion(context.getDatabasePath("pushgo.db")))
         assertEquals(Triple("", "", "pending"), legacyLedger)
         assertEquals(
             listOf("https://gateway-a.example", "device-a", "legacy_single", 0),
@@ -297,6 +353,161 @@ class PushGoDatabaseMigrationDeviceTest {
         assertEquals(0, pendingDeliveryIndexUnique)
         assertTrue(ackTombstoneIndexExists)
         database.close()
+    }
+
+    @Test
+    fun productionDatabase_migratesV27LegacyIngressWithoutLosingQueuedPayloadAndReopens() {
+        seedDatabaseFromExportedSchema(27)
+        SQLiteDatabase.openDatabase(
+            context.getDatabasePath("pushgo.db").path,
+            null,
+            SQLiteDatabase.OPEN_READWRITE,
+        ).use { database ->
+            database.execSQL(
+                """
+                INSERT INTO legacy_provider_ingress(
+                    gateway_url, device_key, delivery_id, payload_json, enqueued_at
+                ) VALUES(?, ?, ?, ?, ?)
+                """.trimIndent(),
+                arrayOf<Any>(
+                    LEGACY_INGRESS_GATEWAY,
+                    LEGACY_INGRESS_DEVICE,
+                    LEGACY_INGRESS_DELIVERY,
+                    LEGACY_INGRESS_PAYLOAD,
+                    LEGACY_INGRESS_ENQUEUED_AT,
+                ),
+            )
+        }
+
+        val migrated = PushGoDatabase.build(context)
+        try {
+            assertLegacyIngressBusinessState(migrated)
+            assertEquals(31, readUserVersion(context.getDatabasePath("pushgo.db")))
+            runBlocking {
+                migrated.transportTransitionDao().insert(
+                    TransportTransitionEntity(
+                    operationId = "migration-transition-operation",
+                    gatewayUrl = GATEWAY_URL,
+                    deviceKey = "migration-transition-device",
+                    targetChannelType = "private",
+                    transitionId = null,
+                    baseRevision = 7,
+                    committedRevision = null,
+                    phase = "LOCAL_INTENT",
+                    candidateTokenFingerprint = null,
+                    createdAt = 1_710_000_400_000L,
+                    updatedAt = 1_710_000_400_000L,
+                    lastError = null,
+                    )
+                )
+            }
+        } finally {
+            migrated.close()
+        }
+        val reopened = PushGoDatabase.build(context)
+        try {
+            assertLegacyIngressBusinessState(reopened)
+            val transition = runBlocking { reopened.transportTransitionDao().getPending() }
+            assertEquals("migration-transition-operation", transition?.operationId)
+            assertEquals("private", transition?.targetChannelType)
+            assertEquals(7L, transition?.baseRevision)
+        } finally {
+            reopened.close()
+        }
+    }
+
+    @Test
+    fun productionDatabase_migratesV30ToV31AndPersistsTransportTransitionAcrossReopen() {
+        seedDatabaseFromExportedSchema(30)
+
+        val migrated = PushGoDatabase.build(context)
+        try {
+            migrated.openHelper.writableDatabase
+            assertEquals(31, readUserVersion(context.getDatabasePath("pushgo.db")))
+            runBlocking {
+                migrated.transportTransitionDao().insert(
+                    TransportTransitionEntity(
+                        operationId = "v30-transition-operation",
+                        gatewayUrl = GATEWAY_URL,
+                        deviceKey = "v30-transition-device",
+                        targetChannelType = "private",
+                        transitionId = "gateway-transition-id",
+                        baseRevision = 11,
+                        committedRevision = 12,
+                        phase = "REMOTE_COMMITTED",
+                        candidateTokenFingerprint = "candidate-token-fingerprint",
+                        createdAt = 1_710_000_500_000L,
+                        updatedAt = 1_710_000_500_100L,
+                        lastError = null,
+                    )
+                )
+            }
+        } finally {
+            migrated.close()
+        }
+
+        val reopened = PushGoDatabase.build(context)
+        try {
+            val transition = runBlocking { reopened.transportTransitionDao().getPending() }
+            assertEquals("v30-transition-operation", transition?.operationId)
+            assertEquals("gateway-transition-id", transition?.transitionId)
+            assertEquals("REMOTE_COMMITTED", transition?.phase)
+            assertEquals(12L, transition?.committedRevision)
+            assertEquals("candidate-token-fingerprint", transition?.candidateTokenFingerprint)
+        } finally {
+            reopened.close()
+        }
+    }
+
+    @Test
+    fun productionDatabase_migratesV28PendingDeletionWithoutLosingIntentAndReopens() {
+        seedDatabaseFromExportedSchema(28)
+        SQLiteDatabase.openDatabase(
+            context.getDatabasePath("pushgo.db").path,
+            null,
+            SQLiteDatabase.OPEN_READWRITE,
+        ).use { database ->
+            database.execSQL(
+                """
+                INSERT INTO pending_local_deletions(
+                    id, summary, operation_kind, target_ids_json,
+                    expected_gateway_url, expected_updated_at, expected_use_provider,
+                    requested_at_epoch_ms, undo_deadline_epoch_ms, state, attempt_count,
+                    next_attempt_at_epoch_ms, updated_at_epoch_ms, last_error
+                ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """.trimIndent(),
+                arrayOf<Any>(
+                    PENDING_DELETION_ID,
+                    PENDING_DELETION_SUMMARY,
+                    PENDING_DELETION_KIND,
+                    PENDING_DELETION_TARGETS,
+                    PENDING_DELETION_GATEWAY,
+                    PENDING_DELETION_EXPECTED_UPDATED_AT,
+                    1,
+                    PENDING_DELETION_REQUESTED_AT,
+                    PENDING_DELETION_UNDO_DEADLINE,
+                    PENDING_DELETION_STATE,
+                    PENDING_DELETION_ATTEMPT_COUNT,
+                    PENDING_DELETION_NEXT_ATTEMPT_AT,
+                    PENDING_DELETION_UPDATED_AT,
+                    PENDING_DELETION_LAST_ERROR,
+                ),
+            )
+        }
+
+        val migrated = PushGoDatabase.build(context)
+        try {
+            assertPendingDeletionBusinessState(migrated)
+            assertEquals(31, readUserVersion(context.getDatabasePath("pushgo.db")))
+        } finally {
+            migrated.close()
+        }
+        val reopened = PushGoDatabase.build(context)
+        try {
+            assertPendingDeletionBusinessState(reopened)
+        } finally {
+            reopened.close()
+        }
     }
 
     private fun seedLegacyV21Database() {
@@ -385,6 +596,116 @@ class PushGoDatabaseMigrationDeviceTest {
         db.close()
     }
 
+    private fun seedDatabaseFromExportedSchema(version: Int) {
+        val schema = InstrumentationRegistry.getInstrumentation().context.assets
+            .open("$version.json")
+            .bufferedReader()
+            .use { JSONObject(it.readText()).getJSONObject("database") }
+        assertEquals(version, schema.getInt("version"))
+
+        val file = context.getDatabasePath("pushgo.db")
+        file.parentFile?.mkdirs()
+        SQLiteDatabase.openOrCreateDatabase(file, null).use { database ->
+            database.beginTransaction()
+            try {
+                val entities = schema.getJSONArray("entities")
+                for (entityIndex in 0 until entities.length()) {
+                    val entity = entities.getJSONObject(entityIndex)
+                    val tableName = entity.getString("tableName")
+                    database.execSQL(resolveSchemaTable(entity.getString("createSql"), tableName))
+                    val indices = entity.optJSONArray("indices") ?: continue
+                    for (index in 0 until indices.length()) {
+                        database.execSQL(
+                            resolveSchemaTable(indices.getJSONObject(index).getString("createSql"), tableName)
+                        )
+                    }
+                }
+                val setupQueries = schema.getJSONArray("setupQueries")
+                for (index in 0 until setupQueries.length()) {
+                    database.execSQL(setupQueries.getString(index))
+                }
+                database.execSQL("PRAGMA user_version = $version")
+                database.setTransactionSuccessful()
+            } finally {
+                database.endTransaction()
+            }
+        }
+    }
+
+    private fun resolveSchemaTable(sql: String, tableName: String): String =
+        sql.replace("\${TABLE_NAME}", tableName)
+
+    private fun assertLegacyIngressBusinessState(database: PushGoDatabase) {
+        val state = database.openHelper.writableDatabase.query(
+            """
+            SELECT gateway_url, device_key, delivery_id, payload_json, enqueued_at
+            FROM legacy_provider_ingress
+            WHERE gateway_url = ? AND device_key = ? AND delivery_id = ?
+            """.trimIndent(),
+            arrayOf(LEGACY_INGRESS_GATEWAY, LEGACY_INGRESS_DEVICE, LEGACY_INGRESS_DELIVERY),
+        ).use { cursor ->
+            assertTrue(cursor.moveToFirst())
+            listOf(
+                cursor.getString(0),
+                cursor.getString(1),
+                cursor.getString(2),
+                cursor.getString(3),
+                cursor.getLong(4),
+            )
+        }
+        assertEquals(
+            listOf(
+                LEGACY_INGRESS_GATEWAY,
+                LEGACY_INGRESS_DEVICE,
+                LEGACY_INGRESS_DELIVERY,
+                LEGACY_INGRESS_PAYLOAD,
+                LEGACY_INGRESS_ENQUEUED_AT,
+            ),
+            state,
+        )
+    }
+
+    private fun assertPendingDeletionBusinessState(database: PushGoDatabase) {
+        val state = database.openHelper.writableDatabase.query(
+            """
+            SELECT id, summary, operation_kind, target_ids_json,
+                expected_gateway_url, expected_updated_at, expected_use_provider,
+                requested_at_epoch_ms, undo_deadline_epoch_ms, state, attempt_count,
+                next_attempt_at_epoch_ms, updated_at_epoch_ms, last_error
+            FROM pending_local_deletions
+            WHERE id = ?
+            """.trimIndent(),
+            arrayOf(PENDING_DELETION_ID.toString()),
+        ).use { cursor ->
+            assertTrue(cursor.moveToFirst())
+            listOf(
+                cursor.getLong(0), cursor.getString(1), cursor.getString(2), cursor.getString(3),
+                cursor.getString(4), cursor.getLong(5), cursor.getInt(6), cursor.getLong(7),
+                cursor.getLong(8), cursor.getString(9), cursor.getInt(10), cursor.getLong(11),
+                cursor.getLong(12), cursor.getString(13),
+            )
+        }
+        assertEquals(
+            listOf(
+                PENDING_DELETION_ID,
+                PENDING_DELETION_SUMMARY,
+                PENDING_DELETION_KIND,
+                PENDING_DELETION_TARGETS,
+                PENDING_DELETION_GATEWAY,
+                PENDING_DELETION_EXPECTED_UPDATED_AT,
+                1,
+                PENDING_DELETION_REQUESTED_AT,
+                PENDING_DELETION_UNDO_DEADLINE,
+                PENDING_DELETION_STATE,
+                PENDING_DELETION_ATTEMPT_COUNT,
+                PENDING_DELETION_NEXT_ATTEMPT_AT,
+                PENDING_DELETION_UPDATED_AT,
+                PENDING_DELETION_LAST_ERROR,
+            ),
+            state,
+        )
+    }
+
     private fun cleanupDatabaseFamily(name: String) {
         context.deleteDatabase(name)
         context.getDatabasePath(name).delete()
@@ -405,6 +726,25 @@ class PushGoDatabaseMigrationDeviceTest {
         private const val GATEWAY_URL = "https://gateway.pushgo.cn"
         private const val CHANNEL_ID = "alpha-channel"
         private const val MESSAGE_ID = "legacy-message-001"
+        private const val LEGACY_INGRESS_GATEWAY = "https://migration-gateway.example"
+        private const val LEGACY_INGRESS_DEVICE = "migration-device"
+        private const val LEGACY_INGRESS_DELIVERY = "delivery-before-v28"
+        private const val LEGACY_INGRESS_PAYLOAD =
+            "{\"entity_type\":\"message\",\"title\":\"queued-before-upgrade\"}"
+        private const val LEGACY_INGRESS_ENQUEUED_AT = 1_710_000_300_001L
+        private const val PENDING_DELETION_ID = 28L
+        private const val PENDING_DELETION_SUMMARY = "Delete stale channel after undo window"
+        private const val PENDING_DELETION_KIND = "channel"
+        private const val PENDING_DELETION_TARGETS = "[\"stale-channel\"]"
+        private const val PENDING_DELETION_GATEWAY = "https://migration-gateway.example"
+        private const val PENDING_DELETION_EXPECTED_UPDATED_AT = 1_710_000_300_002L
+        private const val PENDING_DELETION_REQUESTED_AT = 1_710_000_300_003L
+        private const val PENDING_DELETION_UNDO_DEADLINE = 1_710_000_330_003L
+        private const val PENDING_DELETION_STATE = "pending"
+        private const val PENDING_DELETION_ATTEMPT_COUNT = 2
+        private const val PENDING_DELETION_NEXT_ATTEMPT_AT = 1_710_000_340_003L
+        private const val PENDING_DELETION_UPDATED_AT = 1_710_000_305_003L
+        private const val PENDING_DELETION_LAST_ERROR = "temporary gateway timeout"
     }
 }
 

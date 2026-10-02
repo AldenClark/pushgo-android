@@ -14,7 +14,6 @@ import io.ethan.pushgo.data.MessageImageStore
 import io.ethan.pushgo.data.model.KeyEncoding
 import io.ethan.pushgo.data.model.MessageStatus
 import io.ethan.pushgo.data.model.PushMessage
-import io.ethan.pushgo.util.snoozeDozeReminderForOneMonth
 import java.io.File
 import java.time.Instant
 import kotlinx.coroutines.runBlocking
@@ -52,8 +51,6 @@ class AccessibilityAcceptanceFixtureInstrumentedTest {
         container.settingsRepository.setMessagePageEnabled(true)
         container.settingsRepository.setEventPageEnabled(true)
         container.settingsRepository.setThingPageEnabled(true)
-        context.snoozeDozeReminderForOneMonth()
-
         val imageAssets = writeFixtureImages(context)
         val fixtureFile = writeFixtureFile(container, imageAssets)
         val messages = buildSeedMessages(imageAssets)

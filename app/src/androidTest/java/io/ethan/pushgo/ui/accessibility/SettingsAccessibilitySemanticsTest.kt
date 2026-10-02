@@ -68,6 +68,7 @@ class SettingsAccessibilitySemanticsTest {
             PushGoTheme {
                 ChannelRow(
                     subscription = subscription,
+                    activityText = "1 message · 1 unread · Latest now",
                     onRename = {},
                     onDelete = {},
                     onCopy = { copied = true },

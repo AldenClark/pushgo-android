@@ -6,6 +6,7 @@ import java.time.Instant
 
 data class SettingsUiState(
     val gatewayAddress: String = "",
+    val savedGatewayAddress: String = "",
     val gatewayToken: String = "",
     val deviceToken: String? = null,
     val useFcmChannel: Boolean = true,
@@ -13,6 +14,8 @@ data class SettingsUiState(
     val gatewayPrivateChannelEnabled: Boolean? = null,
     val isChannelModeLoaded: Boolean = false,
     val privateTransportStatus: String = "未连接",
+    val isSwitchingTransport: Boolean = false,
+    val transportErrorMessage: UiMessage? = null,
     val decryptionKeyInput: String = "",
     val keyEncoding: KeyEncoding = KeyEncoding.BASE64,
     val decryptionUpdatedAt: Instant? = null,

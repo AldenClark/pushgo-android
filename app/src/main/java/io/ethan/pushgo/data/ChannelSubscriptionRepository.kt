@@ -1,13 +1,95 @@
 package io.ethan.pushgo.data
 
 import androidx.room.withTransaction
+import io.ethan.pushgo.BuildConfig
 import io.ethan.pushgo.data.db.PushGoDatabase
 import io.ethan.pushgo.data.model.ChannelSubscription
 import io.ethan.pushgo.notifications.MessageStateCoordinator
+import io.ethan.pushgo.testing.QualityRuntime
 import io.ethan.pushgo.util.UrlValidators
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import org.json.JSONObject
 import java.net.URLEncoder
+
+fun interface EventCloseRoundTrip {
+    suspend fun deliver(outboundPayload: JSONObject)
+}
+
+interface ChannelMutationRoundTrip {
+    suspend fun ensureProviderRoute(gatewayUrl: String, providerToken: String): String
+    suspend fun sync(
+        gatewayUrl: String,
+        channels: List<ChannelSyncItem>,
+    ): List<ChannelSyncResult> = channels.map { item ->
+        ChannelSyncResult(
+            channelId = item.channelId,
+            channelName = null,
+            subscribed = true,
+            errorCode = null,
+            error = null,
+        )
+    }
+    suspend fun subscribe(
+        gatewayUrl: String,
+        channelId: String?,
+        channelName: String?,
+        password: String,
+    ): ChannelSubscribeResult
+    suspend fun rename(
+        gatewayUrl: String,
+        channelId: String,
+        channelName: String,
+        password: String,
+    ): ChannelRenameResult
+    suspend fun unsubscribe(gatewayUrl: String, channelId: String)
+}
+
+/** Classification used by durable old-route cleanup and its focused tests. */
+internal enum class GatewayRouteRetirement {
+    SUCCESS,
+    ALREADY_GONE,
+    CHANNEL_TYPE_MISMATCH,
+    RETRY,
+}
+
+internal fun classifyGatewayRouteRetirement(
+    error: ChannelSubscriptionException,
+): GatewayRouteRetirement = when {
+    error.matchesCode("device_key_not_found") ||
+        error.matchesCode("device_not_found") ||
+        error.matchesCode("route_not_found") -> GatewayRouteRetirement.ALREADY_GONE
+    error.matchesCode("channel_type_mismatch") -> GatewayRouteRetirement.CHANNEL_TYPE_MISMATCH
+    else -> GatewayRouteRetirement.RETRY
+}
+
+/**
+ * Applies one route-retirement result to the durable cleanup obligations.
+ * A channel-type mismatch is not success for the old route: it closes the
+ * attempted route and carries the obligation to the alternate transport.
+ */
+internal fun advanceGatewayRouteCleanupFlags(
+    fcmPending: Boolean,
+    privatePending: Boolean,
+    route: String,
+    result: GatewayRouteRetirement,
+): Pair<Boolean, Boolean> = when (route) {
+    "fcm" -> when (result) {
+        GatewayRouteRetirement.SUCCESS,
+        GatewayRouteRetirement.ALREADY_GONE -> false to privatePending
+        GatewayRouteRetirement.CHANNEL_TYPE_MISMATCH -> false to true
+        GatewayRouteRetirement.RETRY -> fcmPending to privatePending
+    }
+    "private" -> when (result) {
+        GatewayRouteRetirement.SUCCESS,
+        GatewayRouteRetirement.ALREADY_GONE,
+        GatewayRouteRetirement.CHANNEL_TYPE_MISMATCH -> fcmPending to false
+        GatewayRouteRetirement.RETRY -> fcmPending to privatePending
+    }
+    else -> error("Unknown gateway cleanup route: $route")
+}
 
 class ChannelSubscriptionRepository(
     private val store: ChannelSubscriptionStore,
@@ -17,7 +99,11 @@ class ChannelSubscriptionRepository(
     private val entityRepository: EntityRepository,
     private val database: PushGoDatabase,
     private val pushTokenProvider: PushTokenProvider,
+    private val awaitTransportRecovery: suspend () -> Unit = {},
+    private val transportRouteWriterGate: TransportRouteWriterGate = UnlockedTransportRouteWriterGate,
     service: ChannelSubscriptionService? = null,
+    private val eventCloseRoundTrip: EventCloseRoundTrip? = null,
+    private val channelMutationRoundTrip: ChannelMutationRoundTrip? = null,
 ) {
     companion object {
         private const val FCM_CHANNEL_TYPE = "fcm"
@@ -237,13 +323,14 @@ class ChannelSubscriptionRepository(
                     category = GatewayErrorCategory.VALIDATION,
                 )
 
-            val result = service.renameChannel(
-                baseUrl = config.address,
-                token = config.token,
-                channelId = channelId,
-                channelName = alias,
-                password = password,
-            )
+            val result = channelMutationRoundTrip?.rename(config.address, channelId, alias, password)
+                ?: service.renameChannel(
+                    baseUrl = config.address,
+                    token = config.token,
+                    channelId = channelId,
+                    channelName = alias,
+                    password = password,
+                )
             store.updateDisplayName(config.address, result.channelId, result.channelName)
             result
         }
@@ -283,6 +370,11 @@ class ChannelSubscriptionRepository(
                 code = "provider_token_missing",
                 category = GatewayErrorCategory.VALIDATION,
             )
+        if (channelMutationRoundTrip != null) {
+            ensureProviderRoute(token, config)
+            channelMutationRoundTrip.unsubscribe(config.address, channelId)
+            return
+        }
         var deviceKey = ensureProviderRoute(token, config)
         try {
             service.unsubscribe(
@@ -321,6 +413,23 @@ class ChannelSubscriptionRepository(
             )
         val config = resolveServerConfig()
         requireExpectedGateway(config, expectedGatewayUrl)
+        if (channelMutationRoundTrip != null) {
+            ensureProviderRoute(token, config)
+            val result = channelMutationRoundTrip.subscribe(
+                config.address,
+                channelId,
+                null,
+                normalizedPassword,
+            )
+            if (!result.subscribed) {
+                throw ChannelSubscriptionException.local(
+                    message = "Request failed",
+                    code = "channel_subscribe_failed",
+                    category = GatewayErrorCategory.INTERNAL,
+                )
+            }
+            return
+        }
         suspend fun subscribe(deviceKey: String): ChannelSubscribeResult {
             return service.subscribe(
                 baseUrl = config.address,
@@ -369,41 +478,344 @@ class ChannelSubscriptionRepository(
         return ensureProviderRoute(normalized, config)
     }
 
-    suspend fun cleanupPreviousGatewayDeviceRoute(
-        previousBaseUrl: String,
-        previousToken: String?,
-        previousDeviceKey: String,
-    ) {
-        val deviceKey = previousDeviceKey.trim()
-        if (deviceKey.isEmpty()) return
-        runCatching {
-            service.deleteDeviceChannel(
-                baseUrl = previousBaseUrl,
-                token = previousToken,
-                deviceKey = deviceKey,
-                channelType = FCM_CHANNEL_TYPE,
+    /**
+     * Registers a candidate gateway and its delivery route without changing
+     * the locally active gateway, token, device key, or ACK destination.
+     */
+    suspend fun prepareGatewaySwitch(
+        address: String,
+        gatewayToken: String?,
+        providerToken: String?,
+        channelType: String,
+    ): PreparedGatewaySwitch {
+        awaitTransportRecovery()
+        return transportRouteWriterGate.run(channelType.trim().lowercase()) {
+            val sourceGatewayConfig = loadGatewayConfig()
+            prepareGatewaySwitchUnderGate(
+                address, gatewayToken, providerToken, channelType, sourceGatewayConfig,
             )
         }
-        runCatching {
-            service.deleteDeviceChannel(
-                baseUrl = previousBaseUrl,
-                token = previousToken,
-                deviceKey = deviceKey,
-                channelType = "private",
+    }
+
+    private suspend fun prepareGatewaySwitchUnderGate(
+        address: String,
+        gatewayToken: String?,
+        providerToken: String?,
+        channelType: String,
+        sourceGatewayConfig: Pair<String, String?>,
+    ): PreparedGatewaySwitch {
+        val normalizedAddress = UrlValidators.normalizeGatewayBaseUrl(address)
+            ?: throw ChannelSubscriptionException.local(
+                message = "Request failed",
+                code = "invalid_gateway_address",
+                category = GatewayErrorCategory.VALIDATION,
+            )
+        val normalizedGatewayToken = gatewayToken?.trim()?.ifEmpty { null }
+        val normalizedProviderToken = providerToken?.trim()?.ifEmpty { null }
+        val normalizedChannelType = channelType.trim().lowercase()
+        if (normalizedChannelType !in setOf(FCM_CHANNEL_TYPE, "private")) {
+            throw ChannelSubscriptionException.local(
+                message = "Request failed",
+                code = "invalid_channel_type",
+                category = GatewayErrorCategory.VALIDATION,
             )
         }
+        if (normalizedChannelType == FCM_CHANNEL_TYPE && normalizedProviderToken == null) {
+            throw ChannelSubscriptionException.local(
+                message = "Request failed",
+                code = "provider_token_missing",
+                category = GatewayErrorCategory.VALIDATION,
+            )
+        }
+
+        val resolvedDeviceKey = if (channelMutationRoundTrip != null) {
+            channelMutationRoundTrip.ensureProviderRoute(
+                normalizedAddress,
+                normalizedProviderToken ?: "quality-private-route"
+            ).trim()
+        } else {
+            val registered = service.registerDevice(
+                baseUrl = normalizedAddress,
+                token = normalizedGatewayToken,
+                platform = "android",
+                // Device keys are gateway-scoped identities. A candidate must
+                // obtain its own identity instead of presenting the key issued
+                // by the currently active gateway.
+                deviceKey = null,
+            )
+            service.upsertDeviceChannel(
+                baseUrl = normalizedAddress,
+                token = normalizedGatewayToken,
+                deviceKey = registered.deviceKey,
+                platform = "android",
+                channelType = normalizedChannelType,
+                providerToken = normalizedProviderToken,
+            ).deviceKey.trim()
+        }
+        if (resolvedDeviceKey.isEmpty()) {
+            throw ChannelSubscriptionException.local(
+                message = "Request failed",
+                code = "gateway_response_missing_device_key",
+                category = GatewayErrorCategory.INTERNAL,
+            )
+        }
+        return PreparedGatewaySwitch(
+            address = normalizedAddress,
+            gatewayToken = normalizedGatewayToken,
+            providerToken = normalizedProviderToken,
+            channelType = normalizedChannelType,
+            deviceKey = resolvedDeviceKey,
+            sourceGatewayUrl = sourceGatewayConfig.first,
+            sourceGatewayToken = sourceGatewayConfig.second,
+        )
+    }
+
+    /**
+     * Commits only a candidate that already completed remote registration.
+     * The journal makes a cross-store write recoverable after process death or
+     * coroutine cancellation; there is no point at which a partial candidate
+     * is silently accepted as the active gateway.
+     */
+    suspend fun commitGatewaySwitch(prepared: PreparedGatewaySwitch) {
+        awaitTransportRecovery()
+        transportRouteWriterGate.run(prepared.channelType) {
+            if (loadGatewayConfig() != (prepared.sourceGatewayUrl to prepared.sourceGatewayToken)) {
+                throw TransportTransitionUnavailableException(
+                    "Gateway changed after switch preparation"
+                )
+            }
+            commitGatewaySwitchUnderGate(prepared)
+        }
+    }
+
+    private suspend fun commitGatewaySwitchUnderGate(prepared: PreparedGatewaySwitch) {
+        when (recoverGatewaySwitchIfNeeded()) {
+            GatewaySwitchRecovery.COMMITTED -> throw IllegalStateException(
+                "Previous gateway switch still needs recovery before another switch can start",
+            )
+            GatewaySwitchRecovery.NONE,
+            GatewaySwitchRecovery.ROLLED_BACK -> Unit
+        }
+        // Snapshot the effective configuration, including defaults.  Reading
+        // raw nullable fields here would create a cleanup journal that points
+        // at an empty URL/token when the user is still on the built-in gateway.
+        val (previousAddress, previousGatewayToken) = loadGatewayConfig()
+        val previousFcmToken = settingsRepository.getFcmToken()
+        val previousChannelType = if (settingsRepository.getUseFcmChannel()) {
+            FCM_CHANNEL_TYPE
+        } else {
+            "private"
+        }
+        val previousDeviceKey = settingsRepository.getDeviceKey()
+        val journal = GatewayTransitionJournal(
+            previous = GatewayTransitionSnapshot(
+                address = previousAddress,
+                gatewayToken = previousGatewayToken,
+                fcmToken = previousFcmToken,
+                deviceKey = previousDeviceKey,
+                candidateAckToken = null,
+            ),
+            candidate = GatewayTransitionSnapshot(
+                address = prepared.address,
+                gatewayToken = prepared.gatewayToken,
+                fcmToken = if (prepared.channelType == FCM_CHANNEL_TYPE) {
+                    prepared.providerToken
+                } else {
+                    previousFcmToken
+                },
+                deviceKey = prepared.deviceKey,
+                candidateAckToken = settingsRepository.getGatewayAckToken(prepared.address),
+            ),
+            stage = GatewayTransitionStage.PREPARED,
+            fcmCleanupPending = !previousDeviceKey.isNullOrBlank() && previousChannelType == FCM_CHANNEL_TYPE,
+            privateCleanupPending = !previousDeviceKey.isNullOrBlank() && previousChannelType == "private",
+            previousChannelType = previousChannelType,
+        )
+        settingsRepository.beginGatewayTransition(journal)
+        try {
+            settingsRepository.setServerAddress(prepared.address)
+            settingsRepository.advanceGatewayTransition(GatewayTransitionStage.ADDRESS_WRITTEN)
+            if (BuildConfig.DEBUG) {
+                QualityRuntime.afterGatewayAddressPersistence()
+            }
+            settingsRepository.setGatewayToken(prepared.gatewayToken)
+            settingsRepository.advanceGatewayTransition(GatewayTransitionStage.GATEWAY_TOKEN_WRITTEN)
+            settingsRepository.setDeviceKey(prepared.deviceKey)
+            settingsRepository.advanceGatewayTransition(GatewayTransitionStage.DEVICE_KEY_WRITTEN)
+            if (prepared.channelType == FCM_CHANNEL_TYPE) {
+                settingsRepository.setFcmToken(prepared.providerToken)
+            }
+            settingsRepository.advanceGatewayTransition(GatewayTransitionStage.FCM_TOKEN_WRITTEN)
+            settingsRepository.setGatewayAckToken(prepared.address, prepared.gatewayToken)
+            settingsRepository.advanceGatewayTransition(GatewayTransitionStage.ACK_WRITTEN)
+            withContext(NonCancellable) {
+                settingsRepository.advanceGatewayTransition(GatewayTransitionStage.COMMITTED)
+                settingsRepository.setGatewayRecoveryPending(true)
+            }
+        } catch (error: Throwable) {
+            val rollbackError = withContext(NonCancellable) {
+                runCatching { settingsRepository.rollbackGatewayTransition(journal) }.exceptionOrNull()
+            }
+            if (rollbackError != null) {
+                throw IllegalStateException("Gateway local commit failed and rollback was incomplete", error)
+                    .also { it.addSuppressed(rollbackError) }
+            }
+            throw error
+        }
+    }
+
+    /**
+     * Recovers an interrupted local switch before any new one can start.
+     * A committed stage means all active fields were written; every earlier
+     * stage is restored to the prior complete snapshot.
+     */
+    suspend fun recoverGatewaySwitchIfNeeded(): GatewaySwitchRecovery {
+        return when (settingsRepository.recoverGatewayTransitionAtStartup()) {
+            GatewayTransitionStartupRecovery.NONE -> GatewaySwitchRecovery.NONE
+            GatewayTransitionStartupRecovery.ROLLED_BACK -> GatewaySwitchRecovery.ROLLED_BACK
+            GatewayTransitionStartupRecovery.COMMITTED -> GatewaySwitchRecovery.COMMITTED
+        }
+    }
+
+    /**
+     * Retires only the old routes still recorded as pending. A successful FCM
+     * retirement is never retried when the private route fails, and vice versa.
+     */
+    suspend fun cleanupCommittedGatewayTransition(): GatewayRouteCleanupOutcome {
+        val journal = settingsRepository.getGatewayTransitionJournal()
+            ?: return GatewayRouteCleanupOutcome.COMPLETE
+        if (journal.stage != GatewayTransitionStage.COMMITTED) {
+            throw IllegalStateException("Cannot clean an uncommitted gateway transition")
+        }
+        val prior = journal.previous
+        val deviceKey = prior.deviceKey?.trim().orEmpty()
+        if (deviceKey.isEmpty()) {
+            settingsRepository.markGatewayTransitionRouteCleanup(
+                fcmPending = false,
+                privatePending = false,
+            )
+            settingsRepository.clearGatewayTransitionJournal()
+            return GatewayRouteCleanupOutcome.COMPLETE
+        }
+        var fcmPending = journal.fcmCleanupPending
+        var privatePending = journal.privateCleanupPending
+        if (fcmPending) {
+            val result = retireGatewayRoute(prior, deviceKey, FCM_CHANNEL_TYPE)
+            // A legacy journal may not know the old route type, and a user can
+            // also have changed transport mode before the cleanup retry. Carry
+            // the obligation to the one valid route exactly once.
+            advanceGatewayRouteCleanupFlags(
+                fcmPending = fcmPending,
+                privatePending = privatePending,
+                route = FCM_CHANNEL_TYPE,
+                result = result,
+            ).also { (nextFcmPending, nextPrivatePending) ->
+                fcmPending = nextFcmPending
+                privatePending = nextPrivatePending
+            }
+            settingsRepository.markGatewayTransitionRouteCleanup(
+                fcmPending = fcmPending,
+                privatePending = privatePending,
+            )
+        }
+        if (privatePending) {
+            advanceGatewayRouteCleanupFlags(
+                fcmPending = fcmPending,
+                privatePending = privatePending,
+                route = "private",
+                result = retireGatewayRoute(prior, deviceKey, "private"),
+            ).also { (nextFcmPending, nextPrivatePending) ->
+                fcmPending = nextFcmPending
+                privatePending = nextPrivatePending
+            }
+            settingsRepository.markGatewayTransitionRouteCleanup(
+                fcmPending = fcmPending,
+                privatePending = privatePending,
+            )
+        }
+        if (!fcmPending && !privatePending) {
+            settingsRepository.clearGatewayTransitionJournal()
+            return GatewayRouteCleanupOutcome.COMPLETE
+        }
+        return GatewayRouteCleanupOutcome(
+            fcmPending = fcmPending,
+            privatePending = privatePending,
+        )
+    }
+
+    private suspend fun retireGatewayRoute(
+        previous: GatewayTransitionSnapshot,
+        deviceKey: String,
+        channelType: String,
+    ): GatewayRouteRetirement = try {
+        service.deleteDeviceChannel(
+            baseUrl = previous.address.orEmpty(),
+            token = previous.gatewayToken,
+            deviceKey = deviceKey,
+            channelType = channelType,
+        )
+        GatewayRouteRetirement.SUCCESS
+    } catch (error: CancellationException) {
+        throw error
+    } catch (error: ChannelSubscriptionException) {
+        classifyGatewayRouteRetirement(error)
+    } catch (_: Exception) {
+        GatewayRouteRetirement.RETRY
     }
 
     suspend fun syncSubscriptionsIfNeeded(deviceToken: String): SyncOutcome {
         val normalizedToken = deviceToken.trim()
         if (normalizedToken.isEmpty()) return SyncOutcome()
+        // This is the real repository boundary for post-commit subscription
+        // reconciliation. Injecting here keeps the quality fault meaningful
+        // even when the candidate gateway has no local credentials yet, and
+        // avoids a ViewModel-only shortcut that production code never sees.
+        if (BuildConfig.DEBUG) {
+            QualityRuntime.beforeGatewayPostCommitSync()
+        }
         val config = resolveServerConfig()
         val credentials = store.loadActiveCredentials(config.address)
         if (credentials.isEmpty()) return SyncOutcome()
-        var deviceKey = ensureProviderRoute(normalizedToken, config)
         val channels = credentials.map { (channelId, password) ->
             ChannelSyncItem(channelId = channelId, password = password)
         }
+        if (channelMutationRoundTrip != null) {
+            ensureProviderRoute(normalizedToken, config)
+            val results = channelMutationRoundTrip.sync(config.address, channels)
+            val now = System.currentTimeMillis()
+            val staleChannels = mutableListOf<String>()
+            val passwordMismatchChannels = mutableListOf<String>()
+            results.forEach { result ->
+                if (result.subscribed) {
+                    // A sync response may intentionally omit channel_name. The
+                    // locally committed label is the user's durable projection;
+                    // only replace it when the gateway supplies a real name.
+                    result.channelName
+                        ?.trim()
+                        ?.takeIf { it.isNotEmpty() }
+                        ?.let { displayName ->
+                            store.updateDisplayName(config.address, result.channelId, displayName)
+                        }
+                    store.updateLastSynced(config.address, result.channelId, now)
+                } else {
+                    when (result.resolvedErrorCode?.lowercase()) {
+                        "channel_not_found" -> staleChannels += result.channelId
+                        "password_mismatch" -> passwordMismatchChannels += result.channelId
+                    }
+                }
+            }
+            val invalidChannels = (staleChannels + passwordMismatchChannels).distinct()
+            invalidChannels.forEach { channelId ->
+                store.withChannelMutation(config.address, channelId) {
+                    store.softDeleteSubscription(config.address, channelId)
+                }
+            }
+            return SyncOutcome(
+                staleChannels = staleChannels,
+                passwordMismatchChannels = passwordMismatchChannels,
+            )
+        }
+        var deviceKey = ensureProviderRoute(normalizedToken, config)
         val payload = try {
             service.sync(
                 baseUrl = config.address,
@@ -428,8 +840,15 @@ class ChannelSubscriptionRepository(
         val passwordMismatchChannels = mutableListOf<String>()
         payload.channels.forEach { result ->
             if (result.subscribed) {
-                val displayName = result.channelName?.ifEmpty { null } ?: result.channelId
-                store.updateDisplayName(config.address, result.channelId, displayName)
+                // Do not turn a missing remote name into the channel ID: that
+                // would overwrite a user-created or user-renamed local label
+                // during the next launch/reconciliation.
+                result.channelName
+                    ?.trim()
+                    ?.takeIf { it.isNotEmpty() }
+                    ?.let { displayName ->
+                        store.updateDisplayName(config.address, result.channelId, displayName)
+                    }
                 store.updateLastSynced(config.address, result.channelId, now)
                 return@forEach
             }
@@ -451,6 +870,19 @@ class ChannelSubscriptionRepository(
     }
 
     private suspend fun ensureProviderRoute(deviceToken: String, config: ServerConfig): String {
+        awaitTransportRecovery()
+        return transportRouteWriterGate.run(FCM_CHANNEL_TYPE) {
+            val currentConfig = resolveServerConfig()
+            if (currentConfig.address != config.address || currentConfig.token != config.token) {
+                throw TransportTransitionUnavailableException(
+                    "Gateway changed before the provider route write"
+                )
+            }
+            ensureProviderRouteUnderGate(deviceToken, currentConfig)
+        }
+    }
+
+    private suspend fun ensureProviderRouteUnderGate(deviceToken: String, config: ServerConfig): String {
         val normalizedToken = deviceToken.trim()
         if (normalizedToken.isEmpty()) {
             throw ChannelSubscriptionException.local(
@@ -458,6 +890,38 @@ class ChannelSubscriptionRepository(
                 code = "provider_token_missing",
                 category = GatewayErrorCategory.VALIDATION,
             )
+        }
+        val storedToken = settingsRepository.getFcmToken()?.trim()?.ifEmpty { null }
+        if (storedToken != null && storedToken != normalizedToken) {
+            // A queued startup/ingress write may carry the old token after a newer
+            // Firebase callback has already changed the active provider route.
+            val systemToken = runCatching {
+                withTimeout(FCM_TOKEN_BOOTSTRAP_TIMEOUT_MS) {
+                    pushTokenProvider.fetchToken(FCM_TOKEN_BOOTSTRAP_TIMEOUT_MS)
+                }
+            }.getOrNull()?.trim()?.ifEmpty { null }
+            if (systemToken != normalizedToken) {
+                throw TransportTransitionUnavailableException(
+                    "Provider token changed before the route write"
+                )
+            }
+        }
+        if (channelMutationRoundTrip != null) {
+            val deviceKey = channelMutationRoundTrip.ensureProviderRoute(
+                config.address,
+                normalizedToken,
+            ).trim()
+            if (deviceKey.isEmpty()) {
+                throw ChannelSubscriptionException.local(
+                    message = "Request failed",
+                    code = "gateway_response_missing_device_key",
+                    category = GatewayErrorCategory.INTERNAL,
+                )
+            }
+            settingsRepository.setFcmToken(normalizedToken)
+            settingsRepository.setDeviceKey(deviceKey)
+            rememberAckCredential(config)
+            return deviceKey
         }
         val deviceKey = ensureDeviceIdentity(config)
         val previousToken = settingsRepository.getFcmToken()?.trim()?.ifEmpty { null }
@@ -535,9 +999,6 @@ class ChannelSubscriptionRepository(
         }.getOrNull()
             ?.trim()
             ?.ifEmpty { null }
-            ?.also { token ->
-                settingsRepository.setFcmToken(token)
-            }
     }
 
     private suspend fun subscribeInternal(
@@ -553,6 +1014,34 @@ class ChannelSubscriptionRepository(
                 category = GatewayErrorCategory.VALIDATION,
             )
         val config = resolveServerConfig()
+        if (channelMutationRoundTrip != null) {
+            ensureProviderRoute(token, config)
+            val result = channelMutationRoundTrip.subscribe(
+                config.address,
+                channelId,
+                channelName,
+                password,
+            )
+            if (!result.subscribed) {
+                throw ChannelSubscriptionException.local(
+                    message = "Request failed",
+                    code = "channel_subscribe_failed",
+                    category = GatewayErrorCategory.INTERNAL,
+                )
+            }
+            commitRemoteSubscriptionLocally(
+                requestedChannelId = channelId,
+                providerToken = token,
+                config = config,
+                result = result,
+                gatewayUrl = config.address,
+                channelId = result.channelId,
+                displayName = result.channelName,
+                password = password,
+                lastSyncedAt = System.currentTimeMillis(),
+            )
+            return result
+        }
         suspend fun doSubscribe(activeDeviceKey: String): ChannelSubscribeResult {
             return service.subscribe(
                 baseUrl = config.address,
@@ -586,7 +1075,11 @@ class ChannelSubscriptionRepository(
             )
         }
         val now = System.currentTimeMillis()
-        store.upsertSubscription(
+        commitRemoteSubscriptionLocally(
+            requestedChannelId = channelId,
+            providerToken = token,
+            config = config,
+            result = result,
             gatewayUrl = config.address,
             channelId = result.channelId,
             displayName = result.channelName,
@@ -594,6 +1087,64 @@ class ChannelSubscriptionRepository(
             lastSyncedAt = now,
         )
         return result
+    }
+
+    private suspend fun commitRemoteSubscriptionLocally(
+        requestedChannelId: String?,
+        providerToken: String,
+        config: ServerConfig,
+        result: ChannelSubscribeResult,
+        gatewayUrl: String,
+        channelId: String,
+        displayName: String,
+        password: String,
+        lastSyncedAt: Long,
+    ) {
+        // A subscribe response commonly omits a user-facing name and the
+        // service model normalizes that omission to the channel ID.  For an
+        // existing subscription, the local label is the durable user-owned
+        // projection and must survive a re-subscribe (including a retry after
+        // a local persistence failure).  Newly created channels still use the
+        // name returned by the remote create operation.
+        val effectiveDisplayName = if (requestedChannelId != null) {
+            store.loadSubscription(
+                gatewayUrl = gatewayUrl,
+                channelId = channelId,
+                includeDeleted = true,
+            )?.displayName
+                ?.trim()
+                ?.takeIf { it.isNotEmpty() }
+                ?: displayName
+        } else {
+            displayName
+        }
+        try {
+            QualityRuntime.armChannelSubscriptionPersistenceFailure()
+            store.upsertSubscription(
+                gatewayUrl = gatewayUrl,
+                channelId = channelId,
+                displayName = effectiveDisplayName,
+                password = password,
+                lastSyncedAt = lastSyncedAt,
+            )
+        } catch (localError: Exception) {
+            // A create attempt owns its new remote route. Existing-channel subscribe does not
+            // reveal whether the route already existed, so blindly unsubscribing that path could
+            // destroy a valid subscription.
+            if (requestedChannelId == null && result.created) {
+                try {
+                    unsubscribeProviderRemote(result.channelId, providerToken, config)
+                } catch (compensationError: Exception) {
+                    throw ChannelSubscriptionException(
+                        message = "Channel creation local commit and remote compensation failed",
+                        code = "channel_create_compensation_failed",
+                        category = GatewayErrorCategory.LOCAL,
+                        detail = "local=${localError.message}; compensation=${compensationError.message}",
+                    )
+                }
+            }
+            throw localError
+        }
     }
 
     private fun isDeviceKeyMissingError(error: ChannelSubscriptionException): Boolean {
@@ -756,12 +1307,17 @@ class ChannelSubscriptionRepository(
         } else {
             "/event/close"
         }
-        service.eventToChannel(
-            baseUrl = config.address,
-            token = config.token,
-            payload = payload,
-            endpointPath = endpointPath,
-        )
+        val roundTrip = eventCloseRoundTrip
+        if (roundTrip != null) {
+            roundTrip.deliver(payload)
+        } else {
+            service.eventToChannel(
+                baseUrl = config.address,
+                token = config.token,
+                payload = payload,
+                endpointPath = endpointPath,
+            )
+        }
     }
 
     private suspend fun resolveServerConfig(): ServerConfig {
@@ -790,6 +1346,37 @@ class ChannelSubscriptionRepository(
     ) {
         val invalidChannels: List<String>
             get() = (staleChannels + passwordMismatchChannels).distinct()
+    }
+
+    data class PreparedGatewaySwitch(
+        val address: String,
+        val gatewayToken: String?,
+        val providerToken: String?,
+        val channelType: String,
+        val deviceKey: String,
+        val sourceGatewayUrl: String,
+        val sourceGatewayToken: String?,
+    )
+
+    enum class GatewaySwitchRecovery {
+        NONE,
+        ROLLED_BACK,
+        COMMITTED,
+    }
+
+    data class GatewayRouteCleanupOutcome(
+        val fcmPending: Boolean,
+        val privatePending: Boolean,
+    ) {
+        val completed: Boolean
+            get() = !fcmPending && !privatePending
+
+        companion object {
+            val COMPLETE = GatewayRouteCleanupOutcome(
+                fcmPending = false,
+                privatePending = false,
+            )
+        }
     }
 
     private fun shouldSoftDeleteForServerError(error: ChannelSubscriptionException): Boolean {

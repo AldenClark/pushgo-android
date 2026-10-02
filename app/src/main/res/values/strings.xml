@@ -1,5 +1,8 @@
 <resources xmlns:tools="http://schemas.android.com/tools">
     <string name="app_name">PushGo</string>
+    <string name="label_local_storage_unavailable">Local storage unavailable</string>
+    <string name="label_local_storage_unavailable_safety">To protect your data, the app has stopped reading and writing.</string>
+    <string name="action_exit_app">Exit app</string>
     <string name="tab_messages">Messages</string>
     <string name="tab_settings">Settings</string>
     <string name="action_mark_all_read">Mark all as read</string>
@@ -102,6 +105,10 @@
     <string name="label_no_title">(No title)</string>
     <string name="label_group_ungrouped">No channel</string>
     <string name="label_loading">Loading…</string>
+    <string name="message_loading_slow">Messages are still loading. Please wait…</string>
+    <string name="message_load_failed">Unable to load messages. Please try again.</string>
+    <string name="message_refresh_failed">Refresh failed. Please retry.</string>
+    <string name="action_retry">Retry</string>
     <string name="section_connection_device">Connection &amp; Device</string><string name="section_channels">Channels</string>
     <string name="section_notification_settings">Notification Settings</string>
     <string name="label_notification_transport">Notification transport</string>
@@ -109,6 +116,11 @@
     <string name="label_notification_transport_private_only_hint">This device does not support FCM. Pushes will use the private channel.</string>
     <string name="label_notification_transport_gateway_private_disabled_hint">Gateway private channel is disabled. Android can only use FCM on this gateway.</string>
     <string name="label_notification_transport_unavailable_hint">Gateway private channel is disabled and this device does not support FCM. Push delivery is unavailable.</string>
+    <string name="error_notification_transport_switch_failed">Unable to switch to the private transport. FCM remains active. Please try again.</string>
+    <string name="message_notification_transport_recovering">The transport switch is being verified. The active route will update after recovery; you can retry if needed.</string>
+    <string name="error_notification_transport_private_compensation_failed">Unable to switch to the private transport, and cleanup could not be completed. FCM remains selected, but push delivery may be interrupted. Please reopen Settings and try again.</string>
+    <string name="error_notification_transport_fcm_switch_failed">Unable to switch to FCM. The private transport remains active. Please try again.</string>
+    <string name="error_notification_transport_fcm_compensation_failed">Unable to switch to FCM, and cleanup could not be completed. The private transport remains selected, but push delivery may be duplicated. Please reopen Settings and try again.</string>
     <string name="label_notification_settings">Notification settings</string>
     <string name="label_notification_settings_hint">Open system notification settings for PushGo.</string>
     <string name="label_transport_fcm">FCM</string>
@@ -159,6 +171,8 @@
     <string name="label_send_type_event">Events</string>
     <string name="label_send_type_thing">Objects</string>
     <string name="message_gateway_saved">Gateway saved</string>
+    <string name="message_gateway_saved_sync_pending">Gateway saved; channel sync is pending and will retry automatically.</string>
+    <string name="message_gateway_saved_recovery_pending">Gateway switched; notification setup is pending. Please try again later.</string>
     <string name="dialog_private_channel_whitelist_title">Keep PushGo running in background</string>
     <string name="dialog_private_channel_whitelist_body">Private channel needs persistent background connectivity. Please add PushGo to your system battery/background whitelist and disable aggressive cleanup, otherwise messages may be delayed or missed.</string>
     <string name="message_decryption_saved">Decryption settings saved</string><string name="message_channel_created_and_subscribed">Channel created and subscribed</string>
@@ -342,4 +356,9 @@
     <string name="label_docs_e2ee_hint">Configure payload encryption and client decryption keys.</string>
     <string name="a11y_open_documentation">%1$s. %2$s Opens in browser.</string>
     <string name="error_open_documentation">Unable to open documentation.</string>
+    <string name="channel_stats_empty">No messages</string>
+    <string name="channel_stats_loading">Loading activity…</string>
+    <string name="channel_stats_no_recent">No recent message</string>
+    <string name="channel_stats_summary">%1$d messages · %2$d unread · Latest %3$s</string>
+    <string name="channel_stats_unavailable">Activity unavailable</string>
 </resources>
