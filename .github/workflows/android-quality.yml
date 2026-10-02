@@ -21,6 +21,7 @@ on:
           - accessibility
           - performance
           - release-isolation
+          - update-install
           - release
 
 permissions:
@@ -278,6 +279,7 @@ jobs:
             build/quality-results/android-doze-positive/
             build/quality-results/android-process-restart/
             build/quality-results/android-pending-deletion-process-restart/
+            build/quality-results/android-update-install/
             build/quality-results/failure-*/
             build/quality-results/*.json
             !build/quality-results/*-summary.json
