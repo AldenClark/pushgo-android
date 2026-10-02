@@ -16,6 +16,7 @@ Policy:
 ## [v1.3.3]
 
 ### Improved
+- Improved QUIC connection security against malicious peers.
 - Kept message history and search results available when an incoming message cannot be projected into an Event or Thing, with clearer progress during slow searches.
 - Kept existing channel names and aliases during resubscription and Gateway synchronization.
 - Kept Gateway settings open with the entered values when saving fails, and surfaced protected settings write errors.

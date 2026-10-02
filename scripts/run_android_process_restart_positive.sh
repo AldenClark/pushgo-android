@@ -382,6 +382,38 @@ tap_node() {
   adb_with_timeout -s "$device_serial" shell input tap "${center%,*}" "${center#*,}"
 }
 
+scroll_settings_content() {
+  local gesture
+  gesture="$(python3 - "$ui_dump" <<'PY'
+import re
+import sys
+import xml.etree.ElementTree as ET
+
+root = ET.parse(sys.argv[1]).getroot()
+for node in root.iter("node"):
+    resource_id = node.attrib.get("resource-id", "")
+    if resource_id not in {"screen.settings.content", "io.ethan.pushgo:id/screen.settings.content"}:
+        continue
+    if node.attrib.get("scrollable") != "true":
+        continue
+    match = re.fullmatch(r"\[(\d+),(\d+)\]\[(\d+),(\d+)\]", node.attrib.get("bounds", ""))
+    if not match:
+        continue
+    left, top, right, bottom = map(int, match.groups())
+    if right - left < 2 or bottom - top < 5:
+        continue
+    x = (left + right) // 2
+    inset = max(1, (bottom - top) // 10)
+    print(f"{x} {bottom - inset} {x} {top + inset}")
+    raise SystemExit(0)
+raise SystemExit("visible scrollable Settings content bounds were unavailable")
+PY
+  )" || failed "Settings list had no valid visible scroll bounds"
+  local x1 y1 x2 y2
+  read -r x1 y1 x2 y2 <<<"$gesture"
+  adb_with_timeout -s "$device_serial" shell input swipe "$x1" "$y1" "$x2" "$y2" 300
+}
+
 adb_with_timeout -s "$device_serial" shell am force-stop "$package_name"
 adb_with_timeout -s "$device_serial" shell am start -W -n "$package_name/.MainActivity" >/dev/null
 wait_for_node resource "quality-runtime.ready" 20 || failed "first App process did not become ready"
@@ -536,7 +568,7 @@ for _ in 1 2 3 4 5; do
   if wait_for_node resource "row.settings.docs.getting_started" 1; then
     break
   fi
-  adb_with_timeout -s "$device_serial" shell input swipe 500 1650 500 550 300
+  scroll_settings_content
 done
 wait_for_node resource "row.settings.docs.getting_started" 3 || \
   failed "the visible Getting Started documentation row was not reachable"

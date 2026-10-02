@@ -14,6 +14,52 @@ REPO = Path(__file__).resolve().parents[2]
 
 
 class QualityLaneCostContractTests(unittest.TestCase):
+    def test_process_restart_scroll_uses_the_visible_settings_viewport(self):
+        script = (REPO / "scripts/run_android_process_restart_positive.sh").read_text()
+        helper = ""
+        if "scroll_settings_content() {" in script:
+            helper = "scroll_settings_content() {" + script.split(
+                "scroll_settings_content() {", 1,
+            )[1].split('\nadb_with_timeout -s "$device_serial" shell am force-stop', 1)[0]
+        start = script.index("for _ in 1 2 3 4 5; do")
+        end = script.index('tap_node resource "row.settings.docs.getting_started"', start)
+        scroll = script[start:end]
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            for right, bottom, scrollable in [(720, 1200, True), (1080, 1800, True), (720, 1200, False)]:
+                with self.subTest(viewport=(right, bottom), scrollable=scrollable):
+                    ui = root / "window.xml"
+                    marker = root / "reachable"
+                    marker.unlink(missing_ok=True)
+                    ui.write_text(
+                        '<hierarchy><node resource-id="screen.settings.content" '
+                        f'package="io.ethan.pushgo" scrollable="{str(scrollable).lower()}" '
+                        f'bounds="[0,50][{right},{bottom}]" /></hierarchy>',
+                    )
+                    harness = r'''
+set -eu
+failed() { printf 'reason=%s\n' "$1"; exit 1; }
+wait_for_node() { [[ -f "$MARKER" ]]; }
+adb_with_timeout() {
+  [[ "$3 $4 $5" == "shell input swipe" ]] || exit 3
+  if (( $6 > 0 && $6 < RIGHT && $8 > 0 && $8 < RIGHT && $7 > 50 && $7 < BOTTOM && $9 > 50 && $9 < $7 )); then
+    touch "$MARKER"
+  fi
+}
+'''
+                    process = subprocess.run(
+                        ["bash", "-c", harness + helper + "\n" + scroll],
+                        env={**os.environ, "ui_dump": str(ui), "device_serial": "owned-emulator",
+                             "MARKER": str(marker), "RIGHT": str(right), "BOTTOM": str(bottom)},
+                        text=True, capture_output=True, timeout=5,
+                    )
+                    if scrollable:
+                        self.assertEqual(0, process.returncode, process.stdout + process.stderr)
+                        self.assertTrue(marker.exists(), "No in-viewport upward Settings swipe reached the row")
+                    else:
+                        self.assertEqual(1, process.returncode, process.stdout + process.stderr)
+                        self.assertFalse(marker.exists(), "An unscrollable surface must not receive a guessed swipe")
+
     def test_permission_runner_stops_without_ripgrep_before_any_device_call(self):
         script = REPO / "scripts/run_android_notification_permission_positive.sh"
         with tempfile.TemporaryDirectory() as directory:

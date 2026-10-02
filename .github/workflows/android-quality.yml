@@ -240,6 +240,7 @@ jobs:
           api-level: 35
           arch: x86_64
           target: google_apis
+          profile: pixel_2
           disable-animations: true
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none -no-snapshot-save
           script: ./scripts/quality_test.sh "$QUALITY_LANE"
@@ -273,6 +274,10 @@ jobs:
             build/quality-results/*.log
             build/quality-results/android-preparation-contract/
             build/quality-results/android-notification-permission/
+            build/quality-results/android-doze-positive/
+            build/quality-results/android-process-restart/
+            build/quality-results/android-pending-deletion-process-restart/
+            build/quality-results/failure-*/
             build/quality-results/*.json
             !build/quality-results/*-summary.json
 
