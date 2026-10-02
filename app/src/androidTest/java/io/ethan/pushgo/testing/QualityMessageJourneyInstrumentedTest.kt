@@ -17,6 +17,7 @@ import androidx.test.espresso.Espresso.pressBack
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.uiautomator.By
+import androidx.test.uiautomator.Condition
 import androidx.test.uiautomator.UiDevice
 import androidx.test.uiautomator.Until
 import io.ethan.pushgo.R
@@ -240,26 +241,42 @@ class QualityMessageJourneyInstrumentedTest : QualityAppJourneyTestCase() {
             device.wait(Until.hasObject(By.pkg(checkNotNull(browserPackage)).depth(0)), 10_000),
         )
         val browserUrlBar = By.res(checkNotNull(browserPackage), "url_bar")
-        if (browserPackage == "com.android.chrome") {
-            // A fresh emulator may show Chrome's exact one-time preparation
-            // surfaces before it consumes the already-delivered VIEW intent.
-            repeat(2) {
-                if (device.hasObject(browserUrlBar)) return@repeat
-                device.findObject(By.res(browserPackage, "signin_fre_dismiss_button"))
-                    ?.click()
-                val chromeNotificationPrompt =
-                    device.hasObject(By.res(browserPackage, "notification_permission_rationale_title")) ||
-                    (
-                        device.hasObject(By.res(browserPackage, "modal_dialog_view")) &&
-                            device.hasObject(By.text("Chrome notifications make things easier"))
-                    )
-                if (chromeNotificationPrompt) {
-                    device.findObject(By.res(browserPackage, "negative_button"))?.click()
+        var chromeSigninDismissed = false
+        var chromeNotificationDismissed = false
+        val browserAddressBarVisible = device.wait(
+            Condition<UiDevice, Boolean> { currentDevice ->
+                if (currentDevice.hasObject(browserUrlBar)) {
+                    return@Condition true
                 }
-                device.wait(Until.hasObject(browserUrlBar), 2_000)
-            }
-        }
-        val browserAddressBarVisible = device.wait(Until.hasObject(browserUrlBar), 10_000)
+                if (browserPackage == "com.android.chrome") {
+                    // First-run surfaces can arrive after Chrome is foreground.
+                    // Observe them within the original address-bar deadline and
+                    // dismiss each known preparation surface at most once.
+                    if (!chromeSigninDismissed) {
+                        currentDevice.findObject(By.res(browserPackage, "signin_fre_dismiss_button"))
+                            ?.let { button ->
+                                button.click()
+                                chromeSigninDismissed = true
+                            }
+                    }
+                    val chromeNotificationPrompt =
+                        currentDevice.hasObject(By.res(browserPackage, "notification_permission_rationale_title")) ||
+                            (
+                                currentDevice.hasObject(By.res(browserPackage, "modal_dialog_view")) &&
+                                    currentDevice.hasObject(By.text("Chrome notifications make things easier"))
+                            )
+                    if (chromeNotificationPrompt && !chromeNotificationDismissed) {
+                        currentDevice.findObject(By.res(browserPackage, "negative_button"))
+                            ?.let { button ->
+                                button.click()
+                                chromeNotificationDismissed = true
+                            }
+                    }
+                }
+                false
+            },
+            10_000,
+        )
         if (!browserAddressBarVisible) {
             QualityUiFailureDiagnostics.logWindowHierarchy(device, "canonical URL browser address bar")
         }
