@@ -33,6 +33,7 @@ import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
+import org.json.JSONObject
 import kotlinx.coroutines.runBlocking
 
 @RunWith(AndroidJUnit4::class)
@@ -904,6 +905,31 @@ class QualityMessageJourneyInstrumentedTest : QualityAppJourneyTestCase() {
             ),
             absent = setOf("Quality filter alpha odd"),
         )
+        // Four rows fit on supported larger viewports. Establish actual overflow
+        // before testing the long-list -> one-row navigation recovery boundary.
+        val overflowIds = (1..20).map { "quality-filter-scroll-$it" }
+        runBlocking {
+            val repository = checkNotNull(app.containerOrNull()).messageRepository
+            val template = checkNotNull(repository.getById("quality-filter-alpha-even"))
+            repository.insertAll(overflowIds.map { id ->
+                val title = "Quality filter scroll filler $id"
+                template.copy(
+                    id = id,
+                    messageId = id,
+                    title = title,
+                    rawPayloadJson = JSONObject(template.rawPayloadJson)
+                        .put("message_id", id)
+                        .put("delivery_id", "quality-delivery-$id")
+                        .put("title", title)
+                        .toString(),
+                )
+            })
+        }
+        waitForCanonicalUnreadCount(4 + overflowIds.size)
+        waitForMessageSet(
+            present = setOf("Quality filter alpha even"),
+            expectedVisibleCount = 4 + overflowIds.size,
+        )
         val list = composeRule.onNodeWithTag("messages.list.scroll")
         list.performScrollToIndex(0)
         list.performTouchInput { swipeUp() }
@@ -913,10 +939,10 @@ class QualityMessageJourneyInstrumentedTest : QualityAppJourneyTestCase() {
         }
         val markedRead = runBlocking {
             checkNotNull(app.containerOrNull()).messageRepository.markRead(
-                listOf("quality-filter-beta-odd", "quality-filter-beta-even", "quality-filter-ungrouped"),
+                listOf("quality-filter-beta-odd", "quality-filter-beta-even", "quality-filter-ungrouped") + overflowIds,
             )
         }
-        assertEquals(3, markedRead)
+        assertEquals(3 + overflowIds.size, markedRead)
         waitForCanonicalUnreadCount(1)
         waitForMessageSet(
             present = setOf("Quality filter alpha even"),

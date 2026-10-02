@@ -11,6 +11,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.relocation.BringIntoViewRequester
+import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -70,6 +72,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -1132,12 +1135,20 @@ private fun TransportSelectorRow(
                 },
             )
             if (!errorMessage.isNullOrBlank()) {
+                val feedbackBringIntoView = remember { BringIntoViewRequester() }
+                LaunchedEffect(errorMessage) {
+                    // The rejection adds this row after the user taps the selector.
+                    // Wait for its first layout before revealing the actual feedback.
+                    withFrameNanos { }
+                    feedbackBringIntoView.bringIntoView()
+                }
                 Text(
                     text = errorMessage,
                     color = MaterialTheme.colorScheme.error,
                     style = MaterialTheme.typography.bodySmall,
                     modifier = Modifier
                         .testTag("feedback.settings.notification_transport")
+                        .bringIntoViewRequester(feedbackBringIntoView)
                         .padding(start = 56.dp, end = 16.dp, bottom = 16.dp),
                 )
             }
