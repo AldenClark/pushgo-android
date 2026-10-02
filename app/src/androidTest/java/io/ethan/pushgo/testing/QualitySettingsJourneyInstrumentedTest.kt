@@ -397,13 +397,13 @@ class QualitySettingsJourneyInstrumentedTest : QualityAppJourneyTestCase() {
         scrollTo("row.settings.gateway")
         composeRule.onNodeWithTag("row.settings.gateway").performClick()
         composeRule.onNodeWithTag("sheet.settings.gateway").assertIsDisplayed()
+        val device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
         val initialImePackage = checkNotNull(
             Settings.Secure.getString(app.contentResolver, Settings.Secure.DEFAULT_INPUT_METHOD),
         ).substringBefore('/')
         assertTrue(
             "Opening the editor must not focus an input or open the keyboard.",
-            UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
-                .wait(Until.gone(By.pkg(initialImePackage)), 5_000),
+            device.wait(Until.gone(By.pkg(initialImePackage)), 5_000),
         )
 
         val addressField = composeRule.onNodeWithTag("field.settings.gateway.address")
@@ -415,6 +415,19 @@ class QualitySettingsJourneyInstrumentedTest : QualityAppJourneyTestCase() {
         tokenField
             .assert(SemanticsMatcher.expectValue(SemanticsProperties.Password, Unit))
             .performTextInput(gatewayToken)
+        val visibilityBoundsDuringImeStartup = tokenVisibilityToggle.fetchSemanticsNode().boundsInWindow
+        assertTrue(
+            "Entering the Key must expose the real system keyboard before the next touch.",
+            device.wait(Until.hasObject(By.pkg(initialImePackage)), 5_000),
+        )
+        // Compose idleness does not include the platform IME/window transition.
+        // Settle that native viewport before one real tap; do not retry the tap.
+        device.waitForIdle(5_000)
+        QualityUiFailureDiagnostics.logText(
+            "gateway before Key visibility tap",
+            "${sheetDialogWindowState()}, startupBounds=$visibilityBoundsDuringImeStartup, " +
+                "settledBounds=${tokenVisibilityToggle.fetchSemanticsNode().boundsInWindow}",
+        )
         tokenVisibilityToggle
             .assertContentDescriptionEquals(app.getString(R.string.label_show_key))
             .performClick()
@@ -451,7 +464,6 @@ class QualitySettingsJourneyInstrumentedTest : QualityAppJourneyTestCase() {
         composeRule.onNodeWithTag("row.settings.gateway")
             .assertTextContains(io.ethan.pushgo.data.AppConstants.defaultServerAddress)
 
-        val device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
         val activeImePackage = checkNotNull(
             Settings.Secure.getString(app.contentResolver, Settings.Secure.DEFAULT_INPUT_METHOD),
         ).substringBefore('/')
