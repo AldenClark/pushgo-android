@@ -417,13 +417,56 @@ wait_for_node text "Install now" 5 || failed \
 adb_with_timeout -s "$device_serial" shell appops set "$package_name" REQUEST_INSTALL_PACKAGES allow
 tap_node text "Install now"
 
+package_manager_allows_launch() {
+  local freeze_output
+  freeze_output="$(adb_with_timeout -s "$device_serial" shell dumpsys package frozen)" || return 3
+  printf '%s\n' "$freeze_output" >"$run_dir/package-freeze-state.txt"
+  printf '%s\n' "$freeze_output" >>"$run_dir/package-freeze-state.log"
+  python3 - "$run_dir/package-freeze-state.txt" "$package_name" <<'PY'
+import re
+import sys
+from pathlib import Path
+
+snapshot, package = sys.argv[1:]
+lines = [line.strip() for line in Path(snapshot).read_text().splitlines() if line.strip()]
+if not lines or lines[0] != "Frozen packages:":
+    raise SystemExit(3)
+entries = lines[1:]
+if entries == ["(none)"]:
+    raise SystemExit(0)
+if not entries:
+    raise SystemExit(3)
+frozen = set()
+for line in entries:
+    match = re.fullmatch(r"package=([^,\s]+), refCounts=([1-9][0-9]*)", line)
+    if match is None:
+        raise SystemExit(3)
+    frozen.add(match.group(1))
+raise SystemExit(1 if package in frozen else 0)
+PY
+}
+
 installer_observed=0
+install_finalized=0
 deadline=$((SECONDS + 75))
 while (( SECONDS < deadline )); do
   installed_version="$(adb_with_timeout -s "$device_serial" shell dumpsys package "$package_name" \
     | sed -n 's/.*versionCode=\([0-9]*\).*/\1/p' | head -n 1)"
   if [[ "$installed_version" == "$candidate_version_code" ]]; then
-    break
+    # PackageManager can publish the new version before releasing its install
+    # freeze. Starting the App then is rejected by the OS, before App code runs.
+    if package_manager_allows_launch; then
+      install_finalized=1
+      break
+    else
+      freeze_status=$?
+      if [[ "$freeze_status" -ne 1 ]]; then
+        printf 'status=FAILED_TEST_SYSTEM\nreason=PackageManager freeze state unavailable\n' >&2
+        exit 3
+      fi
+    fi
+    sleep 0.25
+    continue
   fi
   if dump_ui; then
     current_package="$(python3 - "$ui_dump" <<'PY'
@@ -464,6 +507,10 @@ installed_version="$(adb_with_timeout -s "$device_serial" shell dumpsys package 
   | sed -n 's/.*versionCode=\([0-9]*\).*/\1/p' | head -n 1)"
 [[ "$installed_version" == "$candidate_version_code" ]] || failed \
   "PackageInstaller did not install the candidate; installer_observed=$installer_observed baseline=$installed_baseline actual=${installed_version:-missing} expected=$candidate_version_code"
+[[ "$install_finalized" -eq 1 ]] || {
+  printf 'status=FAILED_TEST_SYSTEM\nreason=PackageManager did not unfreeze within the original install deadline\n' >&2
+  exit 3
+}
 
 adb_with_timeout -s "$device_serial" shell am force-stop "$package_name"
 adb_with_timeout -s "$device_serial" shell am start -n "$package_name/io.ethan.pushgo.MainActivity" >/dev/null
