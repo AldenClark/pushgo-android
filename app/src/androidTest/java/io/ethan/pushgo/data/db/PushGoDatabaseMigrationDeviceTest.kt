@@ -27,6 +27,8 @@ import io.ethan.pushgo.MainActivity
 import io.ethan.pushgo.PushGoApp
 import io.ethan.pushgo.data.AppContainer
 import io.ethan.pushgo.data.model.KeyEncoding
+import io.ethan.pushgo.testing.QualityRuntime
+import io.ethan.pushgo.testing.QualityUiFailureDiagnostics
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
@@ -78,12 +80,25 @@ class PushGoDatabaseMigrationDeviceTest {
     @Test
     fun appContainer_bootstrapsFromLegacyV21AndPreservesBusinessData() = runBlocking {
         seedLegacyV21Database()
+        QualityUiFailureDiagnostics.logText(
+            "legacy V21 bootstrap boundary",
+            "qualityDatabase=${QualityRuntime.currentSession()?.databaseName}, " +
+                "targetExists=${context.getDatabasePath("pushgo.db").exists()}, " +
+                "legacyBytes=${context.getDatabasePath("pushgo-v21.db").length()}, " +
+                "legacyWalBytes=${context.getDatabasePath("pushgo-v21.db-wal").length()}",
+        )
 
         val container = AppContainer(context, appScope)
         val subscriptions = container.channelStore.loadSubscriptions(GATEWAY_URL)
         val messages = container.messageRepository.loadAllForExport()
 
-        assertEquals(GATEWAY_URL, container.settingsRepository.getServerAddress())
+        val restoredGateway = container.settingsRepository.getServerAddress()
+        QualityUiFailureDiagnostics.logText(
+            "legacy V21 bootstrap result",
+            "database=${container.database.openHelper.databaseName}, gateway=$restoredGateway, " +
+                "subscriptions=${subscriptions.size}, messages=${messages.size}",
+        )
+        assertEquals(GATEWAY_URL, restoredGateway)
         assertEquals(true, container.settingsRepository.getUpdateAutoCheckEnabled())
         assertEquals(false, container.settingsRepository.getUpdateBetaChannelEnabled())
         assertEquals(1, subscriptions.size)
