@@ -10,6 +10,9 @@ test_method="enabledSystemDecisionRefreshesTheRealAppAndRemovesDisabledDeliveryS
 test_selector="$test_class#$test_method"
 permission="android.permission.POST_NOTIFICATIONS"
 adb_timeout_seconds="${QUALITY_ADB_TIMEOUT_SECONDS:-8}"
+# Native UI waits are 10+8+3+8 seconds; allow 8s each for runner startup/exit.
+# This outer process guard does not change any UI/permission assertion deadline.
+permission_instrumentation_timeout_seconds=45
 adb_binary="$(command -v adb || true)"
 results_root="${QUALITY_RESULTS_ROOT:-$repo_root/build/quality-results}"
 mkdir -p "$results_root/android-notification-permission"
@@ -26,8 +29,10 @@ original_granted="false"
 original_user_set=0
 original_user_fixed=0
 
-adb_with_timeout() {
-  python3 - "$adb_timeout_seconds" "$adb_binary" "$@" <<'PY'
+adb_command_with_timeout() {
+  local command_timeout_seconds="$1"
+  shift
+  python3 - "$command_timeout_seconds" "$adb_binary" "$@" <<'PY'
 import os
 import signal
 import subprocess
@@ -78,6 +83,14 @@ if stderr:
     sys.stderr.write(stderr)
 raise SystemExit(process.returncode)
 PY
+}
+
+adb_with_timeout() {
+  adb_command_with_timeout "$adb_timeout_seconds" "$@"
+}
+
+adb_native_with_timeout() {
+  adb_command_with_timeout "$permission_instrumentation_timeout_seconds" "$@"
 }
 
 blocked() {
@@ -349,8 +362,14 @@ if wait_for_node "action.delivery_guard.confirm" 2; then
 fi
 
 adb_with_timeout -s "$device_serial" shell am force-stop "$package_name"
-instrumentation_output="$(adb_with_timeout -s "$device_serial" shell am instrument -w -r \
-  -e class "$test_selector" "$test_runner" 2>&1)" || true
+instrumentation_status=0
+instrumentation_output="$(adb_native_with_timeout -s "$device_serial" shell am instrument -w -r \
+  -e class "$test_selector" "$test_runner" 2>&1)" || instrumentation_status=$?
+printf '%s\n' "$instrumentation_output" >"$run_dir/native-instrumentation.log"
+if (( instrumentation_status != 0 )); then
+  printf '%s\n' "$instrumentation_output"
+  test_system_failed "notification permission native runner did not complete:exit=$instrumentation_status"
+fi
 printf '%s\n' "$instrumentation_output"
 printf '%s\n' "$instrumentation_output" | python3 \
   "$repo_root/scripts/verify_android_instrumentation_identity.py" \

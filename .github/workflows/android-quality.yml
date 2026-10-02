@@ -273,6 +273,7 @@ jobs:
             app/src/release/generated/baselineProfiles/
             build/quality-results/*.log
             build/quality-results/android-preparation-contract/
+            build/quality-results/android-native-evidence/
             build/quality-results/android-notification-permission/
             build/quality-results/android-doze-positive/
             build/quality-results/android-process-restart/

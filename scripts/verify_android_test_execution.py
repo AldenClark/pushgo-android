@@ -4,6 +4,9 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
+import json
+import shutil
 from collections import Counter
 from pathlib import Path
 import xml.etree.ElementTree as ET
@@ -67,12 +70,35 @@ def selectors_match_selection(actual: list[str], expected: list[str] | None) -> 
     return expected is None or Counter(actual) == Counter(expected)
 
 
+def archive_verified_reports(report_root: Path, reports: list[Path], selectors: list[str],
+                             started_at_epoch: float, archive_dir: Path) -> None:
+    # Create a new phase directory; a later native invocation must never replace it.
+    archive_dir.mkdir(parents=True, exist_ok=False)
+    files = set(reports)
+    files.update(path for path in report_root.rglob("logcat-*.txt")
+                 if path.is_file() and path.stat().st_mtime >= started_at_epoch)
+    inventory = []
+    for path in sorted(files):
+        relative = path.relative_to(report_root)
+        target = archive_dir / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(path, target)
+        inventory.append({"path": str(relative), "bytes": target.stat().st_size,
+                          "sha256": hashlib.sha256(target.read_bytes()).hexdigest()})
+    (archive_dir / "verified-native-evidence.json").write_text(
+        json.dumps({"started_at_epoch": started_at_epoch,
+                    "executed_selectors": sorted(selectors), "files": inventory}, indent=2) + "\n",
+        encoding="utf-8",
+    )
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--report-root", required=True, type=Path)
     parser.add_argument("--started-at-epoch", required=True, type=float)
     parser.add_argument("--expected-test-count", type=int)
     parser.add_argument("--expected-selectors")
+    parser.add_argument("--archive-dir", type=Path)
     args = parser.parse_args()
 
     try:
@@ -120,6 +146,15 @@ def main() -> int:
             f"expected={args.expected_test_count}:executed={total}"
         )
         return 1
+
+    if args.archive_dir is not None:
+        try:
+            archive_verified_reports(args.report_root, reports, selectors,
+                                     args.started_at_epoch, args.archive_dir)
+        except OSError as error:
+            print("status=FAILED_TEST_SYSTEM")
+            print(f"reason=unable_to_retain_verified_native_evidence:{error}")
+            return 1
 
     print("status=EXECUTED")
     print(f"executed_test_count={total}")

@@ -256,6 +256,7 @@ verify_device_tests_executed() {
   local -a verify_args=(
     --report-root "$report_root"
     --started-at-epoch "$started_at_epoch"
+    --archive-dir "$results_root/android-native-evidence/$started_at_epoch"
   )
   if [[ -n "${QUALITY_EXPECTED_ANDROID_TEST_COUNT:-}" ]]; then
     [[ "${QUALITY_EXPECTED_ANDROID_TEST_COUNT}" =~ ^[1-9][0-9]*$ ]] || {

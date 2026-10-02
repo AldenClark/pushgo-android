@@ -4,6 +4,9 @@ import os
 from pathlib import Path
 import contextlib
 import io
+import json
+import shutil
+from unittest.mock import patch
 import sys
 import tempfile
 import unittest
@@ -63,6 +66,57 @@ class VerifyAndroidTestExecutionTests(unittest.TestCase):
         )
         os.utime(report, (modified_at, modified_at))
         return report
+
+    def test_verified_evidence_survives_the_next_native_report_overwrite(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory) / "reports"
+            report = self.write_report(root, tests=1, modified_at=20.0)
+            log = report.parent / "logcat-example.Journey-test0.txt"
+            log.write_text("actual first phase diagnostic")
+            os.utime(log, (21.0, 21.0))
+            old_log = report.parent / "logcat-old.txt"
+            old_log.write_text("stale phase")
+            os.utime(old_log, (1.0, 1.0))
+            archive = Path(directory) / "phase-one"
+            with patch.object(sys, "argv", ["verify", "--report-root", str(root),
+                    "--started-at-epoch", "10", "--expected-test-count", "1",
+                    "--expected-selectors", "example.Journey#test0", "--archive-dir", str(archive)]):
+                with contextlib.redirect_stdout(io.StringIO()):
+                    self.assertEqual(0, main())
+            shutil.rmtree(root)
+            receipt = json.loads((archive / "verified-native-evidence.json").read_text())
+            self.assertEqual(["example.Journey#test0"], receipt["executed_selectors"])
+            self.assertEqual("actual first phase diagnostic", (archive / "debug" / log.name).read_text())
+            self.assertTrue((archive / "debug" / report.name).exists())
+            self.assertFalse((archive / "debug" / old_log.name).exists())
+
+    def test_invalid_native_selection_does_not_create_a_verified_archive(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory) / "reports"
+            self.write_report(root, tests=1, modified_at=20.0)
+            archive = Path(directory) / "phase-one"
+            with patch.object(sys, "argv", ["verify", "--report-root", str(root),
+                    "--started-at-epoch", "10", "--expected-selectors", "example.Other#wrong",
+                    "--archive-dir", str(archive)]):
+                with contextlib.redirect_stdout(io.StringIO()):
+                    self.assertEqual(1, main())
+            self.assertFalse(archive.exists())
+
+    def test_a_later_phase_cannot_replace_an_existing_verified_archive(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory) / "reports"
+            self.write_report(root, tests=1, modified_at=20.0)
+            archive = Path(directory) / "phase-one"
+            archive.mkdir()
+            sentinel = archive / "original.txt"
+            sentinel.write_text("original native evidence")
+            with patch.object(sys, "argv", ["verify", "--report-root", str(root),
+                    "--started-at-epoch", "10", "--archive-dir", str(archive)]):
+                output = io.StringIO()
+                with contextlib.redirect_stdout(output):
+                    self.assertEqual(1, main())
+                self.assertIn("status=FAILED_TEST_SYSTEM", output.getvalue())
+            self.assertEqual("original native evidence", sentinel.read_text())
 
     def test_counts_fresh_executed_tests(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
