@@ -5,9 +5,13 @@ import android.content.ContentValues
 import android.database.Cursor
 import android.net.Uri
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import io.ethan.pushgo.BuildConfig
 import io.ethan.pushgo.PushGoApp
 import java.io.File
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.runBlocking
 import org.json.JSONObject
 
@@ -36,6 +40,9 @@ class BenchmarkFixtureProvider : ContentProvider() {
     private fun prepare(encodedSession: String): Bundle {
         val appContext = checkNotNull(context).applicationContext
         val app = appContext as PushGoApp
+        preparationPhase("runtime.startup") {
+            awaitApplicationStartup()
+        }
         val session = preparationPhase("session.decode") {
             QualityRuntime.decode(encodedSession)
         }
@@ -158,6 +165,22 @@ class BenchmarkFixtureProvider : ContentProvider() {
         } catch (error: Throwable) {
             rollbackFailedPreparation(app, session, error)
             throw error
+        }
+    }
+
+    private fun awaitApplicationStartup() {
+        val mainLooper = Looper.getMainLooper()
+        if (Looper.myLooper() == mainLooper) return
+        // Android installs providers before calling Application.onCreate. A shell
+        // call can reach this provider while that same main-thread bind message
+        // is still constructing the old container. Begin fixture reset only once
+        // the bind message has returned, so startup cannot republish stale storage.
+        val ready = CountDownLatch(1)
+        check(Handler(mainLooper).post { ready.countDown() }) {
+            "application startup barrier could not be queued"
+        }
+        check(ready.await(5, TimeUnit.SECONDS)) {
+            "application startup did not finish within five seconds"
         }
     }
 

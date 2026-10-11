@@ -54,6 +54,16 @@ class AndroidReleaseWorkflowDispatchTests(unittest.TestCase):
         ):
             self.assertIn(contract, verify)
 
+    def test_native_tools_are_prepared_before_expensive_smoke_and_permission_checks(self) -> None:
+        tools = self.step("Install existing device-script tools")
+        self.assertIn("command -v rg", tools)
+        self.assertIn("sudo apt-get install --no-install-recommends --yes ripgrep", tools)
+        self.assertIn("rg --version", tools)
+        self.assertLess(
+            self.source.index("- name: Install existing device-script tools"),
+            self.source.index("- name: Run bounded Android release smoke before signing"),
+        )
+
     def test_every_feed_release_and_repository_mutation_is_tag_only(self) -> None:
         protected_steps = (
             "Extract release notes from release/RELEASE_NOTES",

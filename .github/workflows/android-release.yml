@@ -33,6 +33,16 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Install existing device-script tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! command -v rg >/dev/null 2>&1; then
+            sudo apt-get update
+            sudo apt-get install --no-install-recommends --yes ripgrep
+          fi
+          rg --version
+
       - name: Parse SemVer tag context
         id: tag
         shell: bash

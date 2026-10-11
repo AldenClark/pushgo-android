@@ -69,6 +69,7 @@ class QualityPreparationContractTest(unittest.TestCase):
             / "app/src/benchmark/java/io/ethan/pushgo/testing/BenchmarkFixtureProvider.kt"
         ).read_text(encoding="utf-8")
         for phase in (
+            "runtime.startup",
             "session.decode",
             "fixture.allowlist",
             "storage.reset",
