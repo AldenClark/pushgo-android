@@ -1,3 +1,4 @@
+import json
 import os
 import tempfile
 import time
@@ -66,6 +67,53 @@ class AndroidTestFailureClassificationTests(unittest.TestCase):
             self.assertEqual(
                 ["android-quality-precondition"],
                 self.issue_ids(root, started_at),
+            )
+
+    def test_exact_android_pixel_launcher_anr_dialog_is_test_system_failure(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            started_at = time.time() - 1
+            (root / "window.xml").write_text(
+                '<hierarchy><node package="android" resource-id="android:id/alertTitle" '
+                'text="Pixel Launcher isn\'t responding"/><node package="android" '
+                'resource-id="android:id/aerr_close" text="Close app"/><node package="android" '
+                'resource-id="android:id/aerr_wait" text="Wait"/></hierarchy>',
+                encoding="utf-8",
+            )
+            registry = json.loads(
+                (Path(__file__).resolve().parents[1] / "../config/quality-test-system-issues.json")
+                .resolve().read_text(encoding="utf-8")
+            )
+            registry_path = root / "issues.json"
+            registry_path.write_text(json.dumps(registry), encoding="utf-8")
+
+            self.assertEqual(
+                ["android-emulator-pixel-launcher-anr"],
+                CLASSIFIER.classified_test_system_issue_ids(
+                    root, started_at, registry_path=registry_path
+                ),
+            )
+
+    def test_pixel_launcher_text_without_exact_system_dialog_controls_does_not_match(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "window.xml").write_text(
+                '<hierarchy><node package="io.ethan.pushgo" resource-id="android:id/alertTitle" '
+                'text="Pixel Launcher isn\'t responding"/></hierarchy>',
+                encoding="utf-8",
+            )
+            registry = json.loads(
+                (Path(__file__).resolve().parents[1] / "../config/quality-test-system-issues.json")
+                .resolve().read_text(encoding="utf-8")
+            )
+            registry_path = root / "issues.json"
+            registry_path.write_text(json.dumps(registry), encoding="utf-8")
+
+            self.assertEqual(
+                [],
+                CLASSIFIER.classified_test_system_issue_ids(
+                    root, time.time() - 1, registry_path=registry_path
+                ),
             )
 
     def test_stale_or_product_assertion_reports_do_not_match(self):

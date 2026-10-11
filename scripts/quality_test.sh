@@ -251,6 +251,7 @@ classify_current_test_system_failure() {
   local report_root="$repo_root/app/build/outputs/androidTest-results/connected"
   python3 "$repo_root/scripts/classify_android_test_failure.py" \
     --report-root "$report_root" \
+    --additional-report-root "$results_root/android-preparation-contract" \
     --started-at-epoch "$lane_started_at_epoch"
 }
 
@@ -294,6 +295,14 @@ on_exit() {
     write_result PASSED PASSED
   elif [[ $status -eq 2 ]]; then
     write_result NOT_RUN BLOCKED "lane preparation was blocked before product evidence completed"
+  elif [[ $status -eq 3 ]] && classification="$(classify_current_test_system_failure)"; then
+    printf '%s\n' "$classification"
+    issue_ids="$(printf '%s\n' "$classification" | sed -n 's/^classification_issue_ids=//p')"
+    IFS=',' read -r -a classified_ids <<< "$issue_ids"
+    for issue_id in "${classified_ids[@]}"; do
+      [[ -z "$issue_id" ]] || test_system_issue_ids+=("$issue_id")
+    done
+    write_result NOT_RUN FAILED "a recognized Android test-system failure prevented product evidence; retained reports and window hierarchy identify the exact cause"
   elif [[ $status -eq 3 ]]; then
     write_result NOT_RUN FAILED "fresh Android execution did not exactly match every selected scope; no product claim was completed"
   elif [[ $status -eq 4 ]]; then
@@ -414,9 +423,11 @@ run_jvm_and_compile_device_tests() {
   python3 "$repo_root/scripts/verify_android_localizations.py"
   host_test_started_at="$(python3 -c 'import time; print(time.time())')"
   "$repo_root/gradlew" \
-    testDebugUnitTest --rerun-tasks \
+    testDebugUnitTest --rerun
+  "$repo_root/gradlew" \
     compileDebugAndroidTestKotlin \
-    assembleDebug
+    assembleDebug \
+    assembleDebugAndroidTest
   verify_device_tests_executed \
     "$host_test_started_at" \
     "$repo_root/app/build/test-results/testDebugUnitTest"
@@ -649,7 +660,7 @@ run_system_notification_journeys() {
   QUALITY_EXPECTED_ANDROID_TEST_SELECTORS="$expected_selectors"
   QUALITY_EXPECTED_ANDROID_TEST_COUNT="$expected_count"
   ANDROID_SERIAL="$device_serial" "$repo_root/gradlew" connectedDebugAndroidTest \
-    --rerun-tasks \
+    --rerun \
     "-Pandroid.testInstrumentationRunnerArguments.class=$system_notification_classes"
   verify_device_tests_executed "$device_test_started_at" "$repo_root/app/build/outputs/androidTest-results/connected"
   release_android_device_lock
@@ -732,7 +743,7 @@ run_performance() {
   QUALITY_EXPECTED_ANDROID_TEST_COUNT="$expected_count"
   ANDROID_SERIAL="$device_serial" "$repo_root/gradlew" \
     connectedDebugAndroidTest \
-    --rerun-tasks \
+    --rerun \
     "-Pandroid.testInstrumentationRunnerArguments.class=io.ethan.pushgo.testing.RuntimeDataLayerInstrumentedTest#realRoomDaoSearchAndPaging_optIn100000" \
     "-Pandroid.testInstrumentationRunnerArguments.pushgo.runtime.include100k=true" \
     2>&1 | tee "$device_log"
@@ -747,7 +758,7 @@ run_performance() {
   QUALITY_EXPECTED_ANDROID_TEST_COUNT="$expected_count"
   ANDROID_SERIAL="$device_serial" "$repo_root/gradlew" \
     :macrobenchmark:connectedBenchmarkBenchmarkAndroidTest \
-    --rerun-tasks \
+    --rerun \
     --console=plain \
     "-Pandroid.testInstrumentationRunnerArguments.class=io.ethan.pushgo.macrobenchmark.PushGoMacrobenchmark" \
     "-Pandroid.testInstrumentationRunnerArguments.androidx.benchmark.dryRunMode.enable=true" \
@@ -827,7 +838,7 @@ run_accessibility_localization() {
   QUALITY_EXPECTED_ANDROID_TEST_SELECTORS="$expected_selectors"
   QUALITY_EXPECTED_ANDROID_TEST_COUNT="$expected_count"
   ANDROID_SERIAL="$device_serial" "$repo_root/gradlew" connectedDebugAndroidTest \
-    --rerun-tasks \
+    --rerun \
     "-Pandroid.testInstrumentationRunnerArguments.class=io.ethan.pushgo.testing.QualityAccessibilityLocalizationJourneyInstrumentedTest"
   verify_device_tests_executed "$device_test_started_at" "$repo_root/app/build/outputs/androidTest-results/connected"
   if ! restore_accessibility_baseline; then
@@ -946,7 +957,7 @@ case "$lane" in
       QUALITY_EXPECTED_ANDROID_TEST_SELECTORS="$expected_selectors"
       QUALITY_EXPECTED_ANDROID_TEST_COUNT="$expected_count"
       ANDROID_SERIAL="$device_serial" "$repo_root/gradlew" connectedDebugAndroidTest \
-        --rerun-tasks \
+        --rerun \
         "-Pandroid.testInstrumentationRunnerArguments.class=$ANDROID_TEST_CLASS"
       verify_device_tests_executed "$device_test_started_at" "$repo_root/app/build/outputs/androidTest-results/connected"
       record_controlled_system_method_coverage "$ANDROID_TEST_CLASS"
@@ -960,7 +971,7 @@ case "$lane" in
       host_test_started_at="$(python3 -c 'import time; print(time.time())')"
       set +e
       focused_jvm_output="$(
-        "$repo_root/gradlew" testDebugUnitTest --rerun-tasks --tests "$TEST_FILTER" 2>&1
+        "$repo_root/gradlew" testDebugUnitTest --rerun --tests "$TEST_FILTER" 2>&1
       )"
       focused_jvm_exit_code=$?
       set -e

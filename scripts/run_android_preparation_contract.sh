@@ -274,6 +274,14 @@ while (( SECONDS < deadline )); do
   sleep 0.25
 done
 if [[ $functional_ready -ne 1 ]]; then
+  if python3 "$repo_root/scripts/classify_android_test_failure.py" \
+    --report-root "$run_dir" \
+    --started-at-epoch 0; then
+    echo "status=FAILED_TEST_SYSTEM"
+    echo "reason=exact_android_system_launcher_anr_prevented_positive_control"
+    echo "ui_dump=$ui_dump"
+    exit 3
+  fi
   echo "status=FAILED"
   echo "reason=valid_session_did_not_reach_the_accurate_functional_empty_state"
   echo "ui_dump=$ui_dump"

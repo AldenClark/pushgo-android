@@ -241,6 +241,10 @@ jobs:
           cargo install cargo-ndk --version "$cargo_ndk_version" --locked
           test "$(cargo ndk --version | awk '{print $NF}')" = "$cargo_ndk_version"
 
+      - name: Prebuild device APKs before emulator startup
+        if: env.QUALITY_SKIP_DEVICE != '1'
+        run: ./scripts/prebuild_android_device_artifacts.sh "$QUALITY_LANE"
+
       - name: Run representative device lane
         if: env.QUALITY_SKIP_DEVICE != '1'
         uses: ReactiveCircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0

@@ -126,7 +126,7 @@ adb_with_timeout() {
         )
         self.assertIsNotNone(focused_lane)
         focused_body = focused_lane.group("body")
-        self.assertIn('testDebugUnitTest --rerun-tasks --tests "$TEST_FILTER"', focused_body)
+        self.assertIn('testDebugUnitTest --rerun --tests "$TEST_FILTER"', focused_body)
         self.assertIn('"$repo_root/app/build/test-results/testDebugUnitTest"', focused_body)
         self.assertIn("verify_device_tests_executed", focused_body)
         self.assertIn("No tests found for given includes:", focused_body)
@@ -151,13 +151,38 @@ adb_with_timeout() {
         )
         self.assertIsNotNone(host_stage)
         host_body = host_stage.group("body")
-        self.assertIn('testDebugUnitTest --rerun-tasks', host_body)
+        self.assertIn('testDebugUnitTest --rerun', host_body)
+        self.assertIn('assembleDebugAndroidTest', host_body)
         self.assertIn('"$repo_root/app/build/test-results/testDebugUnitTest"', host_body)
         self.assertIn("verify_device_tests_executed", host_body)
         self.assertLess(
-            host_body.index("testDebugUnitTest --rerun-tasks"),
+            host_body.index("testDebugUnitTest --rerun"),
             host_body.index("compileDebugAndroidTestKotlin"),
         )
+
+    def test_device_artifacts_are_prebuilt_before_emulator_and_tests_force_only_the_test_task(self):
+        workflow = (REPO / ".github/workflows/android-quality.yml").read_text()
+        self.assertLess(
+            workflow.index("Prebuild device APKs before emulator startup"),
+            workflow.index("Run representative device lane"),
+        )
+        prebuild = (REPO / "scripts/prebuild_android_device_artifacts.sh").read_text()
+        for task in (":app:assembleDebug", ":app:assembleDebugAndroidTest"):
+            self.assertIn(task, prebuild)
+        performance_tasks = prebuild.split('if [[ "$lane" == "performance"', 1)[1]
+        for task in (
+            ":app:assembleBenchmark",
+            ":app:assembleBenchmarkAndroidTest",
+            ":macrobenchmark:assembleBenchmark",
+        ):
+            self.assertIn(task, performance_tasks)
+        runner = (REPO / "scripts/quality_test.sh").read_text()
+        self.assertNotIn("--rerun-tasks", runner)
+        for command in (
+            "connectedDebugAndroidTest \\\n    --rerun",
+            ":macrobenchmark:connectedBenchmarkBenchmarkAndroidTest \\\n    --rerun",
+        ):
+            self.assertIn(command, runner)
 
     def test_entity_tab_reselection_reuses_existing_positive_journeys(self) -> None:
         source = (

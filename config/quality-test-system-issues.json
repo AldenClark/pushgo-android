@@ -3,6 +3,28 @@
   "platform": "android",
   "issues": [
     {
+      "id": "android-emulator-pixel-launcher-anr",
+      "kind": "precondition",
+      "status": "active",
+      "owner": "android-quality-runtime",
+      "opened_on": "2026-10-11",
+      "last_seen_on": "2026-10-11",
+      "scope": [
+        "Android preparation contract is blocked by the system-owned Pixel Launcher is not responding alert"
+      ],
+      "signatures": [
+        "Pixel Launcher isn't responding android:id/alertTitle android:id/aerr_close Close app android:id/aerr_wait Wait"
+      ],
+      "allowed_retries": 0,
+      "quarantined": false,
+      "rationale": "The exact Android-owned launcher ANR alert prevents the app-owned positive control from reaching its product oracle; retain its hierarchy and report product NOT_RUN without dismissing or retrying it.",
+      "exit_criteria": "Remove this classification after the controlled emulator lane completes the preparation contract without this exact system alert and the observed CPU contention is eliminated.",
+      "evidence": [
+        "scripts/classify_android_test_failure.py",
+        "build/quality-results/android-preparation-contract/*/window.xml"
+      ]
+    },
+    {
       "id": "android-quality-precondition",
       "kind": "precondition",
       "status": "active",
