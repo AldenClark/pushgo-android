@@ -172,10 +172,10 @@ adb_with_timeout() {
         performance_tasks = prebuild.split('if [[ "$lane" == "performance"', 1)[1]
         for task in (
             ":app:assembleBenchmark",
-            ":app:assembleBenchmarkAndroidTest",
             ":macrobenchmark:assembleBenchmark",
         ):
             self.assertIn(task, performance_tasks)
+        self.assertNotIn(":app:assembleBenchmarkAndroidTest", prebuild)
         runner = (REPO / "scripts/quality_test.sh").read_text()
         self.assertNotIn("--rerun-tasks", runner)
         for command in (

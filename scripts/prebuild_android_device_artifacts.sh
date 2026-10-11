@@ -19,7 +19,6 @@ tasks=(
 if [[ "$lane" == "performance" || "$lane" == "release" ]]; then
   tasks+=(
     :app:assembleBenchmark
-    :app:assembleBenchmarkAndroidTest
     :macrobenchmark:assembleBenchmark
   )
 fi
