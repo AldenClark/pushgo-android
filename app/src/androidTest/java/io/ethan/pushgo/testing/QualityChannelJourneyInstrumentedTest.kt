@@ -8,6 +8,7 @@ import androidx.compose.ui.test.*
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import androidx.test.uiautomator.UiDevice
 import io.ethan.pushgo.R
 import org.junit.Assert.assertEquals
 import org.junit.Test
@@ -169,7 +170,7 @@ class QualityChannelJourneyInstrumentedTest : QualityAppJourneyTestCase() {
         composeRule.onNodeWithTag("action.channels.add").performClick()
         composeRule.onNodeWithTag("sheet.channels.entry").assertIsDisplayed()
         composeRule.onNodeWithTag("field.channels.create.name").performTextInput("Quality Created Channel")
-        composeRule.onNodeWithTag("action.channels.entry.submit").performClick()
+        submitChannelEntry()
         waitForNode("feedback.channels.entry")
         composeRule.onNodeWithTag("sheet.channels.entry").assertIsDisplayed()
 
@@ -178,7 +179,7 @@ class QualityChannelJourneyInstrumentedTest : QualityAppJourneyTestCase() {
             .performTextInput("quality-channel-password")
         composeRule.onNodeWithTag("feedback.channels.entry").assertDoesNotExist()
         waitForEnabledNode("action.channels.entry.submit")
-        composeRule.onNodeWithTag("action.channels.entry.submit").performClick()
+        submitChannelEntry()
         waitForNode("channel.row.01H00000000000000000000003")
         composeRule.onNodeWithTag("channel.row.01H00000000000000000000003")
             .assertTextContains("Quality Created Channel")
@@ -340,10 +341,38 @@ class QualityChannelJourneyInstrumentedTest : QualityAppJourneyTestCase() {
     }
 
     private fun waitForNode(tag: String, timeoutMillis: Long = 8_000) {
-        composeRule.waitUntil(timeoutMillis = timeoutMillis) {
-            composeRule.onAllNodes(hasTestTag(tag)).fetchSemanticsNodes().isNotEmpty()
+        try {
+            composeRule.waitUntil(timeoutMillis = timeoutMillis) {
+                composeRule.onAllNodes(hasTestTag(tag)).fetchSemanticsNodes().isNotEmpty()
+            }
+            composeRule.onNodeWithTag(tag).assertIsDisplayed()
+        } catch (failure: Throwable) {
+            logChannelUi("Channel journey waiting for $tag")
+            throw failure
         }
-        composeRule.onNodeWithTag(tag).assertIsDisplayed()
+    }
+
+    private fun submitChannelEntry() {
+        val submit = composeRule.onNodeWithTag("action.channels.entry.submit")
+        try {
+            submit.performScrollTo()
+            submit.assertIsDisplayed().assertIsEnabled().performClick()
+        } catch (failure: Throwable) {
+            logChannelUi("Channel entry submit was not ready or did not accept a click")
+            throw failure
+        }
+    }
+
+    private fun logChannelUi(checkpoint: String) {
+        val semantics = runCatching {
+            composeRule.onAllNodes(isRoot(), useUnmergedTree = true)
+                .printToString(maxDepth = 24)
+        }.getOrElse { "Compose semantics unavailable: ${it.javaClass.simpleName}: ${it.message}" }
+        QualityUiFailureDiagnostics.logText(checkpoint, semantics)
+        QualityUiFailureDiagnostics.logWindowHierarchy(
+            UiDevice.getInstance(InstrumentationRegistry.getInstrumentation()),
+            checkpoint,
+        )
     }
 
     private fun waitForEnabledNode(tag: String, timeoutMillis: Long = 8_000) {

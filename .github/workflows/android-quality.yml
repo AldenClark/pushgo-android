@@ -23,6 +23,7 @@ on:
           - release-isolation
           - update-install
           - focused
+          - release-smoke
           - release
       device_selector:
         description: Fully qualified class or class#method for the existing focused device lane

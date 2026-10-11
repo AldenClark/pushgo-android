@@ -269,6 +269,80 @@ adb_with_timeout() {
         nightly_body = runner.split("  nightly)", 1)[1].split("    ;;", 1)[0]
         self.assertIn("excluding opt-in 100k performance", nightly_body)
 
+    def test_release_smoke_is_bounded_to_exact_positive_app_journeys(self) -> None:
+        runner = (REPO / "scripts/quality_test.sh").read_text()
+        smoke_scopes = re.search(
+            r'^release_smoke_device_scopes="([^"]+)"$', runner, re.MULTILINE
+        )
+        self.assertIsNotNone(smoke_scopes)
+        selectors = smoke_scopes.group(1).split(",")
+        self.assertEqual(16, len(selectors))
+        self.assertTrue(all("#" in selector for selector in selectors))
+        for expected in (
+            "standardFixtureShowsAccurateContentAndSurvivesActivityRelaunch",
+            "workflowFixtureLoadsSecondPageAndPersistsReadActions",
+            "deleteUndoRestoresTheSameObjectAcrossActivityRelaunch",
+            "deleteWithoutUndoPermanentlyRemovesOnlyTargetAcrossStorageRecreation",
+            "searchReturnsOnlyTheTargetAndOpensItsRealDetail",
+            "primaryNavigationUsesRealControlsAndReachesEveryProductScreen",
+            "eventClosePersistsAndOngoingFilterReflectsTheRealProjection",
+            "thingFixtureShowsAccurateOverviewAndAllThreeRealRelationTabs",
+            "createRenameAndBothUnsubscribeOutcomesReachAccuratePersistentUserResults",
+            "encryptedMessageRecoversThroughRealSettingsEntryAndSurvivesRelaunch",
+            "serverConfigurationRejectsInvalidInputAndScopesDataAfterRelaunch",
+            "savingGatewayKeepsEditorOpenUntilPreparedSwitchCommitsAndPersists",
+            "duplicateInboundDeliveryPostsOneSystemNotificationAndOpensAccurateReadDetail",
+            "privateSelectionStartsDurableSystemServiceAndFcmSelectionStopsIt",
+            "inboundAcrossSwitch_keepsCanonicalSingleMessage_andLateOldDoesNotOverride",
+            "privateChannelClient_stateFlow_covers_session_ack_reconnect_and_fcm_switch",
+        ):
+            self.assertTrue(any(expected in selector for selector in selectors), expected)
+        self.assertFalse(any("ProviderGatewayIntegrationDeviceTest" in selector for selector in selectors))
+
+        smoke_body = runner.split("  release-smoke)", 1)[1].split("    ;;", 1)[0]
+        self.assertIn("run_jvm_and_compile_device_tests", smoke_body)
+        self.assertIn('run_quality_device_classes "$release_smoke_device_scopes"', smoke_body)
+        self.assertIn('run_notification_permission_host_profile "$device_serial" "$permission_selector"', smoke_body)
+        self.assertIn("record_controlled_system_method_coverage", smoke_body)
+        self.assertIn("enabledSystemDecisionRefreshesTheRealAppAndRemovesDisabledDeliveryState", smoke_body)
+        self.assertNotIn("run_system_notification_journeys", smoke_body)
+        self.assertNotIn("run_performance", smoke_body)
+        self.assertNotIn("run_update_install_positive", smoke_body)
+
+        channel_test = (
+            REPO / "app/src/androidTest/java/io/ethan/pushgo/testing/QualityChannelJourneyInstrumentedTest.kt"
+        ).read_text()
+        self.assertIn('submit.performScrollTo()', channel_test)
+        self.assertIn('submit.assertIsDisplayed().assertIsEnabled().performClick()', channel_test)
+        self.assertIn('mode.channels.entry.subscribe', channel_test)
+        self.assertIn('channel.row.01H00000000000000000000004', channel_test)
+        self.assertIn('QualityUiFailureDiagnostics.logWindowHierarchy', channel_test)
+        workflow = (REPO / ".github/workflows/android-quality.yml").read_text()
+        self.assertRegex(workflow, r"(?m)^\s+- release-smoke$")
+        self.assertIn("github.event_name == 'workflow_dispatch' && inputs.lane != 'pr'", workflow)
+        release_workflow = (REPO / ".github/workflows/android-release.yml").read_text()
+        smoke_gate = release_workflow.index("Run bounded Android release smoke before signing")
+        signing = release_workflow.index("Prepare release signing")
+        apk_build = release_workflow.index("Build release APKs")
+        self.assertLess(smoke_gate, signing)
+        self.assertLess(smoke_gate, apk_build)
+        self.assertIn("script: ./scripts/quality_test.sh release-smoke", release_workflow)
+        upload = re.search(
+            r"- name: Upload Android release smoke receipts and diagnostics(?P<body>.*?)(?=\n      - name:|\Z)",
+            release_workflow,
+            re.DOTALL,
+        )
+        self.assertIsNotNone(upload)
+        self.assertIn("if: always()", upload.group("body"))
+        self.assertIn("build/quality-results/**", upload.group("body"))
+        self.assertIn("app/build/outputs/androidTest-results/connected/**", upload.group("body"))
+        self.assertIn("if-no-files-found: warn", upload.group("body"))
+
+        coverage_marker = runner.split("record_controlled_system_method_coverage()", 1)[1].split("\n}", 1)[0]
+        self.assertIn("QualitySystemNotificationJourneyInstrumentedTest#", coverage_marker)
+        self.assertIn("QualityPrivateForegroundServiceJourneyInstrumentedTest#", coverage_marker)
+        self.assertIn('not_run+=("$controlled_doze_not_run")', coverage_marker)
+
     def test_device_scope_resolution_is_safe_for_empty_optional_exclusions(self) -> None:
         # The runner is re-executed from stdin with nounset enabled.  An empty
         # local array cannot be expanded directly in that mode, so the generic

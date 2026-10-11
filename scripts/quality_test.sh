@@ -22,6 +22,10 @@ not_run=(
   "real FCM/private delivery, reboot, production-distributed/OEM install policy, physical audio, and physical accessibility evidence"
 )
 controlled_system_not_run="controlled-emulator notification permission, Doze, system notification, and Private Service journeys"
+controlled_notification_permission_not_run="controlled-emulator notification permission deny/grant/return recovery"
+controlled_doze_not_run="controlled-emulator Doze and process-restart recovery"
+controlled_notification_route_not_run="controlled-emulator system notification delivery and routing"
+controlled_private_service_not_run="controlled-emulator Private foreground Service lifecycle"
 controlled_system_physical_not_run="physical/OEM notification, Doze, and Private Service behavior beyond the controlled-emulator system journeys"
 if [[ "$lane" != "nightly" && "$lane" != "release" ]]; then
   not_run+=("$controlled_system_not_run")
@@ -429,6 +433,10 @@ quality_device_classes="io.ethan.pushgo.testing.QualityMessageJourneyInstrumente
 # remain in nightly/release.
 pr_device_scopes="io.ethan.pushgo.testing.QualityMessageJourneyInstrumentedTest#standardFixtureShowsAccurateContentAndSurvivesActivityRelaunch,io.ethan.pushgo.testing.QualityMessageJourneyInstrumentedTest#workflowFixtureLoadsSecondPageAndPersistsReadActions,io.ethan.pushgo.testing.QualityMessageJourneyInstrumentedTest#primaryNavigationUsesRealControlsAndReachesEveryProductScreen,io.ethan.pushgo.testing.QualityEntityJourneyInstrumentedTest#eventClosePersistsAndOngoingFilterReflectsTheRealProjection,io.ethan.pushgo.testing.QualityChannelJourneyInstrumentedTest#createRenameAndBothUnsubscribeOutcomesReachAccuratePersistentUserResults,io.ethan.pushgo.testing.QualitySettingsJourneyInstrumentedTest#serverConfigurationRejectsInvalidInputAndScopesDataAfterRelaunch"
 positive_device_scopes="io.ethan.pushgo.testing.QualityMessageJourneyInstrumentedTest#markdownFixtureRendersMajorStructuresInTheRealDetail,io.ethan.pushgo.testing.QualityMessageJourneyInstrumentedTest#standardFixtureShowsAccurateContentAndSurvivesActivityRelaunch,io.ethan.pushgo.testing.QualityMessageJourneyInstrumentedTest#historyCleanupRemovesOnlyOldMessagesAndPersistsAcrossRelaunch,io.ethan.pushgo.testing.QualityMessageJourneyInstrumentedTest#workflowFixtureLoadsSecondPageAndPersistsReadActions,io.ethan.pushgo.testing.QualityMessageJourneyInstrumentedTest#channelTagCombinedUngroupedFiltersAndScopedReadPersist,io.ethan.pushgo.testing.QualityMessageJourneyInstrumentedTest#primaryNavigationUsesRealControlsAndReachesEveryProductScreen,io.ethan.pushgo.testing.QualityEntityJourneyInstrumentedTest#eventClosePersistsAndOngoingFilterReflectsTheRealProjection,io.ethan.pushgo.testing.QualityEntityJourneyInstrumentedTest#thingFixtureShowsAccurateOverviewAndAllThreeRealRelationTabs,io.ethan.pushgo.testing.QualityChannelJourneyInstrumentedTest#createRenameAndBothUnsubscribeOutcomesReachAccuratePersistentUserResults,io.ethan.pushgo.testing.QualitySettingsJourneyInstrumentedTest#encryptedMessageRecoversThroughRealSettingsEntryAndSurvivesRelaunch,io.ethan.pushgo.testing.QualitySettingsJourneyInstrumentedTest#dataPageVisibilityUsesRealControlsAndPersistsAcrossRelaunch,io.ethan.pushgo.testing.QualitySettingsJourneyInstrumentedTest#serverConfigurationRejectsInvalidInputAndScopesDataAfterRelaunch"
+# The bounded release smoke covers user journeys plus representative receive,
+# transport-recovery, and system-notification paths with local controlled inputs.
+# Exact method selectors prevent opt-in tests from turning into skipped green runs.
+release_smoke_device_scopes="io.ethan.pushgo.testing.QualityMessageJourneyInstrumentedTest#standardFixtureShowsAccurateContentAndSurvivesActivityRelaunch,io.ethan.pushgo.testing.QualityMessageJourneyInstrumentedTest#workflowFixtureLoadsSecondPageAndPersistsReadActions,io.ethan.pushgo.testing.QualityMessageJourneyInstrumentedTest#deleteUndoRestoresTheSameObjectAcrossActivityRelaunch,io.ethan.pushgo.testing.QualityMessageJourneyInstrumentedTest#deleteWithoutUndoPermanentlyRemovesOnlyTargetAcrossStorageRecreation,io.ethan.pushgo.testing.QualityMessageJourneyInstrumentedTest#searchReturnsOnlyTheTargetAndOpensItsRealDetail,io.ethan.pushgo.testing.QualityMessageJourneyInstrumentedTest#primaryNavigationUsesRealControlsAndReachesEveryProductScreen,io.ethan.pushgo.testing.QualityEntityJourneyInstrumentedTest#eventClosePersistsAndOngoingFilterReflectsTheRealProjection,io.ethan.pushgo.testing.QualityEntityJourneyInstrumentedTest#thingFixtureShowsAccurateOverviewAndAllThreeRealRelationTabs,io.ethan.pushgo.testing.QualityChannelJourneyInstrumentedTest#createRenameAndBothUnsubscribeOutcomesReachAccuratePersistentUserResults,io.ethan.pushgo.testing.QualitySettingsJourneyInstrumentedTest#encryptedMessageRecoversThroughRealSettingsEntryAndSurvivesRelaunch,io.ethan.pushgo.testing.QualitySettingsJourneyInstrumentedTest#serverConfigurationRejectsInvalidInputAndScopesDataAfterRelaunch,io.ethan.pushgo.testing.QualitySettingsJourneyInstrumentedTest#savingGatewayKeepsEditorOpenUntilPreparedSwitchCommitsAndPersists,io.ethan.pushgo.testing.QualitySystemNotificationJourneyInstrumentedTest#duplicateInboundDeliveryPostsOneSystemNotificationAndOpensAccurateReadDetail,io.ethan.pushgo.testing.QualityPrivateForegroundServiceJourneyInstrumentedTest#privateSelectionStartsDurableSystemServiceAndFcmSelectionStopsIt,io.ethan.pushgo.testing.RuntimeChannelSwitchInstrumentedTest#inboundAcrossSwitch_keepsCanonicalSingleMessage_andLateOldDoesNotOverride,io.ethan.pushgo.testing.RuntimePrivateChannelStateFlowInstrumentedTest#privateChannelClient_stateFlow_covers_session_ack_reconnect_and_fcm_switch"
 core_data_classes="io.ethan.pushgo.data.db.PushGoDatabaseMigrationDeviceTest,io.ethan.pushgo.data.PendingLocalDeletionRoomDeviceTest,io.ethan.pushgo.data.ProviderAckScopeDeviceTest"
 nightly_data_classes="$core_data_classes,io.ethan.pushgo.testing.RuntimeDataLayerInstrumentedTest,io.ethan.pushgo.testing.RuntimeChannelSwitchInstrumentedTest,io.ethan.pushgo.testing.RuntimePrivateChannelStateFlowInstrumentedTest,io.ethan.pushgo.ui.PendingLocalDeletionWorkBoundaryDeviceTest"
 system_notification_classes="io.ethan.pushgo.testing.QualitySystemNotificationJourneyInstrumentedTest,io.ethan.pushgo.testing.QualityPrivateForegroundServiceJourneyInstrumentedTest"
@@ -528,8 +536,34 @@ run_quality_device_classes() {
     "-Pandroid.testInstrumentationRunnerArguments.class=$classes" \
     "-Pandroid.testInstrumentationRunnerArguments.pushgoQualitySessionBase64=$payload"
   verify_device_tests_executed "$device_test_started_at" "$repo_root/app/build/outputs/androidTest-results/connected"
+  if [[ "$lane" == "release-smoke" || "$lane" == "focused" ]]; then
+    record_controlled_system_method_coverage "$classes"
+  fi
   release_android_device_lock
   claims+=("Android selected App-owned UI journeys: $classes")
+}
+
+record_controlled_system_method_coverage() {
+  local scopes="$1"
+  local permission_host_completed="${2:-false}"
+  local item
+  local -a remaining=()
+  for item in "${not_run[@]}"; do
+    [[ "$item" == "$controlled_system_not_run" || \
+       "$item" == "$controlled_notification_permission_not_run" || \
+       "$item" == "$controlled_doze_not_run" || \
+       "$item" == "$controlled_notification_route_not_run" || \
+       "$item" == "$controlled_private_service_not_run" ]] || remaining+=("$item")
+  done
+  not_run=("${remaining[@]}")
+  [[ "$permission_host_completed" == "true" && \
+     "$scopes" == *"QualityNotificationPermissionJourneyInstrumentedTest#enabledSystemDecisionRefreshesTheRealAppAndRemovesDisabledDeliveryState"* ]] || \
+    not_run+=("$controlled_notification_permission_not_run")
+  [[ "$scopes" == *"QualitySystemNotificationJourneyInstrumentedTest#"* ]] || \
+    not_run+=("$controlled_notification_route_not_run")
+  [[ "$scopes" == *"QualityPrivateForegroundServiceJourneyInstrumentedTest#"* ]] || \
+    not_run+=("$controlled_private_service_not_run")
+  not_run+=("$controlled_doze_not_run")
 }
 
 run_notification_permission_host_profile() {
@@ -561,12 +595,20 @@ mark_planned_controlled_system_profile() {
   local -a remaining=()
   local item
   for item in "${not_run[@]}"; do
-    [[ "$item" == "$controlled_system_not_run" || "$item" == "$controlled_system_physical_not_run" || "$item" == "controlled-emulator Doze, system notification, and Private Service journeys" ]] \
+    [[ "$item" == "$controlled_system_not_run" || \
+       "$item" == "$controlled_notification_permission_not_run" || \
+       "$item" == "$controlled_doze_not_run" || \
+       "$item" == "$controlled_notification_route_not_run" || \
+       "$item" == "$controlled_private_service_not_run" || \
+       "$item" == "$controlled_system_physical_not_run" || \
+       "$item" == "controlled-emulator Doze, system notification, and Private Service journeys" ]] \
       || remaining+=("$item")
   done
   not_run=("${remaining[@]}")
   if [[ "$profile" == "notification-permission" ]]; then
-    not_run+=("controlled-emulator Doze, system notification, and Private Service journeys")
+    not_run+=("$controlled_doze_not_run")
+    not_run+=("$controlled_notification_route_not_run")
+    not_run+=("$controlled_private_service_not_run")
     not_run+=("$controlled_system_physical_not_run")
   else
     not_run+=("$controlled_system_physical_not_run")
@@ -907,6 +949,7 @@ case "$lane" in
         --rerun-tasks \
         "-Pandroid.testInstrumentationRunnerArguments.class=$ANDROID_TEST_CLASS"
       verify_device_tests_executed "$device_test_started_at" "$repo_root/app/build/outputs/androidTest-results/connected"
+      record_controlled_system_method_coverage "$ANDROID_TEST_CLASS"
       release_android_device_lock
       claims+=("Android focused device behavior: $ANDROID_TEST_CLASS")
     else
@@ -961,6 +1004,25 @@ case "$lane" in
     run_jvm_and_compile_device_tests
     run_quality_device_classes "$positive_device_scopes"
     run_device_classes "$core_data_classes"
+    ;;
+  release-smoke)
+    run_jvm_and_compile_device_tests
+    run_quality_device_classes "$release_smoke_device_scopes" \
+      "Android bounded release smoke: core user journeys including channel subscribe plus durable inbound-to-notification delivery, dual-transport dedupe, private session ACK/reconnect, and foreground Service lifecycle"
+    permission_selector="io.ethan.pushgo.testing.QualityNotificationPermissionJourneyInstrumentedTest#enabledSystemDecisionRefreshesTheRealAppAndRemovesDisabledDeliveryState"
+    selected_claims+=("Android first-run notification permission recovery: denied decision, explanation, Android Settings grant, return refresh, and semantic enabled-state verification")
+    doctor_output="$("$repo_root/scripts/quality_doctor.sh")"
+    printf '%s\n' "$doctor_output"
+    device_serial="$(printf '%s\n' "$doctor_output" | awk -F= '$1 == "device_serial" { print $2; exit }')"
+    [[ -n "$device_serial" ]] || {
+      echo "status=BLOCKED"
+      echo "reason=quality_doctor_missing_device_serial"
+      exit 2
+    }
+    mark_planned_controlled_system_profile "notification-permission"
+    run_notification_permission_host_profile "$device_serial" "$permission_selector"
+    record_controlled_system_method_coverage "$release_smoke_device_scopes,$permission_selector" true
+    claims+=("Android first-run notification permission recovery: denied decision, explanation, Android Settings grant, return refresh, and semantic enabled-state verification")
     ;;
   nightly)
     run_jvm_and_compile_device_tests

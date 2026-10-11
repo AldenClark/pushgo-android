@@ -182,6 +182,29 @@ jobs:
           cargo install cargo-ndk --version "$cargo_ndk_version" --locked
           test "$(cargo ndk --version | awk '{print $NF}')" = "$cargo_ndk_version"
 
+      - name: Run bounded Android release smoke before signing
+        uses: ReactiveCircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
+        with:
+          api-level: 35
+          arch: x86_64
+          target: google_apis
+          profile: pixel_2
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none -no-snapshot-save
+          script: ./scripts/quality_test.sh release-smoke
+
+      - name: Upload Android release smoke receipts and diagnostics
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: android-release-smoke-evidence-${{ github.run_id }}
+          path: |
+            build/quality-results/**
+            app/build/outputs/androidTest-results/connected/**
+            app/build/reports/androidTests/connected/**
+          if-no-files-found: warn
+          retention-days: 14
+
       - name: Read release version
         id: version
         shell: bash
