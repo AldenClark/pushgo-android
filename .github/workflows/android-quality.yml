@@ -2,6 +2,7 @@ name: Android Product Quality
 
 on:
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
   push:
     branches: [ main ]
     tags: [ "v*" ]
@@ -23,6 +24,7 @@ on:
           - release-isolation
           - update-install
           - focused
+          - process-restart
           - release-smoke
           - release
       device_selector:
@@ -60,13 +62,14 @@ jobs:
             --audit-product-tree \
             --output build/quality-results/android-impact-tree-audit.json \
             --check
-          python3 scripts/quality_impact.py \
+          python3 scripts/quality_ci_plan.py \
             --base "$QUALITY_BASE_SHA" \
             --head "$GITHUB_SHA" \
+            --event "$GITHUB_EVENT_PATH" \
             --output build/quality-results/android-impact-plan.json \
             --check
           echo "QUALITY_IMPACT_PLAN=build/quality-results/android-impact-plan.json" >> "$GITHUB_ENV"
-          impact_lane="$(python3 -c 'import json; print(json.load(open("build/quality-results/android-impact-plan.json"))["recommended_lane"])')"
+          impact_lane="$(python3 -c 'import json; print((lambda p: p.get("execution_lane", p["recommended_lane"]))(json.load(open("build/quality-results/android-impact-plan.json"))))')"
           if [[ "$impact_lane" == "not-run" ]]; then
             echo "QUALITY_SKIP_FAST=1" >> "$GITHUB_ENV"
           else
@@ -175,13 +178,14 @@ jobs:
         env:
           QUALITY_BASE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
         run: |
-          python3 scripts/quality_impact.py \
+          python3 scripts/quality_ci_plan.py \
             --base "$QUALITY_BASE_SHA" \
             --head "$GITHUB_SHA" \
+            --event "$GITHUB_EVENT_PATH" \
             --output build/quality-results/android-impact-plan.json \
             --check
           echo "QUALITY_IMPACT_PLAN=build/quality-results/android-impact-plan.json" >> "$GITHUB_ENV"
-          impact_lane="$(python3 -c 'import json; print(json.load(open("build/quality-results/android-impact-plan.json"))["recommended_lane"])')"
+          impact_lane="$(python3 -c 'import json; print((lambda p: p.get("execution_lane", p["recommended_lane"]))(json.load(open("build/quality-results/android-impact-plan.json"))))')"
           required_device_scopes="$(python3 -c 'import json; print(",".join(json.load(open("build/quality-results/android-impact-plan.json")).get("required_device_scopes", [])))')"
           case "$impact_lane" in
             not-run|pr) echo "QUALITY_SKIP_DEVICE=1" >> "$GITHUB_ENV" ;;

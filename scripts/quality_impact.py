@@ -607,6 +607,11 @@ def build_plan(
     selected_lanes = {rule["lane"] for rule in selected}
     if "performance" in selected_lanes and selected_lanes.intersection({"device", "nightly"}):
         recommended_lane = "release"
+    if "process-restart" in selected_lanes and selected_lanes.intersection({"pr-ui", "device", "nightly", "performance"}):
+        # A host journey is not a superset of other native/performance evidence.
+        recommended_lane = "release" if "performance" in selected_lanes else max(
+            (recommended_lane, "nightly"), key=lambda lane: lane_rank[lane]
+        )
     recommended_lane_rules = [rule for rule in selected if rule["lane"] == recommended_lane]
     changed_instrumented_paths = sorted(
         {

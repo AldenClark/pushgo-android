@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "platform": "android",
-  "lane_order": ["not-run", "pr", "pr-ui", "device", "nightly", "performance", "release"],
+  "lane_order": ["not-run", "pr", "pr-ui", "device", "process-restart", "nightly", "performance", "release"],
   "product_paths": [
     "app/src/main/**",
     "app/src/debug/**",
@@ -86,7 +86,7 @@
     },
     {
       "id": "quality-system-process-restart-journey",
-      "paths": ["app/src/benchmark/java/io/ethan/pushgo/testing/BenchmarkFixtureProvider.kt", "app/src/benchmark/java/io/ethan/pushgo/testing/BenchmarkUnstopActivity.kt", "app/src/main/java/io/ethan/pushgo/PushGoApp.kt", "app/src/main/java/io/ethan/pushgo/data/AppContainer.kt", "app/src/main/java/io/ethan/pushgo/testing/QualityRuntime.kt", "app/src/main/java/io/ethan/pushgo/ui/PendingLocalDeletionCoordinator.kt", "scripts/run_android_process_restart_positive.sh", "scripts/run_android_pending_deletion_process_restart_positive.sh"],
+      "paths": ["app/src/benchmark/java/io/ethan/pushgo/testing/BenchmarkFixtureProvider.kt", "app/src/benchmark/java/io/ethan/pushgo/testing/BenchmarkUnstopActivity.kt", "app/src/main/java/io/ethan/pushgo/PushGoApp.kt", "app/src/main/java/io/ethan/pushgo/data/AppContainer.kt", "app/src/main/java/io/ethan/pushgo/testing/QualityRuntime.kt", "app/src/main/java/io/ethan/pushgo/ui/PendingLocalDeletionCoordinator.kt", "scripts/run_android_pending_deletion_process_restart_positive.sh"],
       "capabilities": ["app-launch", "messages", "message-detail", "pending-deletion", "external-navigation", "quality-system-trustworthiness"],
       "minimum_evidence": ["host-driven canonical unread message to exact detail/read mutation to verified no-PID to new-PID restart to exact persisted detail/read state", "production Open URL action to unique HTTPS handler, exact user-visible canonical browser URL, and return to the same accurate detail", "two independent App-owned pending-deletion sessions: new-PID pending-bar plus exact Undo restoration, and new-PID post-deadline target commit with exact control-message preservation", "App-owned session preparation and teardown completion", "one-time wrong-body and wrong-url sensitivity controls"],
       "lane": "nightly",
@@ -317,6 +317,26 @@
       "lane": "release",
       "known_evidence_gaps": ["Signing, installer, supported-old-version upgrade, and physical package verification need the controlled Release environment."],
       "escalation_reasons": ["Build/native changes cross ABI, packaging, signing, privacy, and Release boundaries."]
+    },
+    {
+      "id": "quality-process-restart-host-runner",
+      "paths": [
+        "scripts/run_android_process_restart_positive.sh"
+      ],
+      "capabilities": [
+        "app-launch",
+        "messages",
+        "message-detail",
+        "external-navigation",
+        "quality-system-trustworthiness"
+      ],
+      "minimum_evidence": [
+        "real new-PID canonical content/read persistence, exact message HTTPS URL and detail return, visible documentation action and exact HTTPS URL and Settings return; separate phase receipts retain earlier outcomes on later failure"
+      ],
+      "lane": "process-restart",
+      "known_evidence_gaps": [
+        "Controlled emulator host journey only; no notification, Doze, private transport, physical/OEM, update or production signature claim. Shared Runtime/Store/composition changes retain their wider rules."
+      ]
     }
   ]
 }

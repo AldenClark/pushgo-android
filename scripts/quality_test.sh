@@ -632,7 +632,7 @@ run_system_notification_journeys() {
   local expected_selectors
   local expected_count
   local permission_selector="io.ethan.pushgo.testing.QualityNotificationPermissionJourneyInstrumentedTest#enabledSystemDecisionRefreshesTheRealAppAndRemovesDisabledDeliveryState"
-  selected_claims+=("Android notification permission, Doze recovery/snooze isolation, real process restart persistence with exact HTTPS browser handoff/return, pending-deletion new-PID Undo/deadline recovery, critical alert playback, exact Message/Event/Thing cold-warm notification routes, and Private foreground Service system journeys: denied/settings/return plus restricted/system-unrestricted/return/session-snooze plus unread/read/no-PID/new-PID/exact-data/browser-url/detail-return plus pending-bar/target/control exactness plus durable inbound/audio/PendingIntent/read/dedupe and Settings/start/persist/stop")
+  selected_claims+=("Android notification permission deny/settings/grant/return" "Android Doze recovery and session snooze isolation" "Android real process restart, exact persisted content/read state, message and documentation HTTPS handoff/return" "Android pending-deletion new-PID Undo and deadline with exact control preservation" "Android critical audio, exact Message/Event/Thing cold-warm notification routes and Private foreground Service lifecycle")
   doctor_output="$("$repo_root/scripts/quality_doctor.sh")"
   printf '%s\n' "$doctor_output"
   device_serial="$(printf '%s\n' "$doctor_output" | awk -F= '$1 == "device_serial" { print $2; exit }')"
@@ -642,12 +642,16 @@ run_system_notification_journeys() {
     exit 2
   }
   run_notification_permission_host_profile "$device_serial" "$permission_selector"
+  claims+=("Android notification permission deny/settings/grant/return")
   QUALITY_ANDROID_SKIP_INSTALL=1 ANDROID_SERIAL="$device_serial" \
     "$repo_root/scripts/run_android_doze_positive.sh"
+  claims+=("Android Doze recovery and session snooze isolation")
   QUALITY_ANDROID_SKIP_INSTALL=1 ANDROID_SERIAL="$device_serial" \
     "$repo_root/scripts/run_android_process_restart_positive.sh"
+  claims+=("Android real process restart, exact persisted content/read state, message and documentation HTTPS handoff/return")
   QUALITY_ANDROID_SKIP_INSTALL=1 ANDROID_SERIAL="$device_serial" \
     "$repo_root/scripts/run_android_pending_deletion_process_restart_positive.sh"
+  claims+=("Android pending-deletion new-PID Undo and deadline with exact control preservation")
   local device_test_started_at
   device_test_started_at="$(python3 -c 'import time; print(time.time())')"
   acquire_android_device_lock "$device_serial"
@@ -664,7 +668,7 @@ run_system_notification_journeys() {
     "-Pandroid.testInstrumentationRunnerArguments.class=$system_notification_classes"
   verify_device_tests_executed "$device_test_started_at" "$repo_root/app/build/outputs/androidTest-results/connected"
   release_android_device_lock
-  claims+=("Android notification permission, Doze recovery/snooze isolation, real process restart persistence with exact HTTPS browser handoff/return, pending-deletion new-PID Undo/deadline recovery, critical alert playback, exact Message/Event/Thing cold-warm notification routes, and Private foreground Service system journeys: denied/settings/return plus restricted/system-unrestricted/return/session-snooze plus unread/read/no-PID/new-PID/exact-data/browser-url/detail-return plus pending-bar/target/control exactness plus durable inbound/audio/PendingIntent/read/dedupe and Settings/start/persist/stop")
+  claims+=("Android critical audio, exact Message/Event/Thing cold-warm notification routes and Private foreground Service lifecycle")
 }
 
 run_update_install_positive() {
@@ -989,6 +993,15 @@ case "$lane" in
         "$repo_root/app/build/test-results/testDebugUnitTest"
       claims+=("Android focused JVM behavior: $TEST_FILTER")
     fi
+    ;;
+  process-restart)
+    selected_claims+=("Android real process restart, exact persisted content/read state, message and documentation HTTPS handoff/return")
+    doctor_output="$("$repo_root/scripts/quality_doctor.sh")"
+    printf '%s\n' "$doctor_output"
+    device_serial="$(printf '%s\n' "$doctor_output" | awk -F= '$1 == "device_serial" { print $2; exit }')"
+    [[ -n "$device_serial" ]] || { echo "status=BLOCKED"; exit 2; }
+    ANDROID_SERIAL="$device_serial" "$repo_root/scripts/run_android_process_restart_positive.sh"
+    claims+=("Android real process restart, exact persisted content/read state, message and documentation HTTPS handoff/return")
     ;;
   planned-device)
     run_planned_device_evidence

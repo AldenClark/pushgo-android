@@ -294,6 +294,12 @@ import xml.etree.ElementTree as ET
 
 path, mode, query = sys.argv[1:]
 root = ET.parse(path).getroot()
+parents = {child: parent for parent in root.iter() for child in parent}
+
+def bounds(node):
+    match = re.fullmatch(r"\[(\d+),(\d+)\]\[(\d+),(\d+)\]", node.attrib.get("bounds", ""))
+    return tuple(map(int, match.groups())) if match else None
+
 for node in root.iter("node"):
     resource_id = node.attrib.get("resource-id", "")
     text = node.attrib.get("text", "")
@@ -302,9 +308,20 @@ for node in root.iter("node"):
         continue
     if mode == "text" and query not in {text, description}:
         continue
-    match = re.fullmatch(r"\[(\d+),(\d+)\]\[(\d+),(\d+)\]", node.attrib.get("bounds", ""))
-    if match:
-        x1, y1, x2, y2 = map(int, match.groups())
+    visible = bounds(node)
+    if visible:
+        x1, y1, x2, y2 = visible
+        ancestor = parents.get(node)
+        while ancestor is not None:
+            # UIAutomator may retain the un-clipped bounds of a partly visible
+            # Compose row. Its center can fall under the bottom navigation bar.
+            viewport = bounds(ancestor)
+            if viewport and (ancestor.attrib.get("scrollable") == "true" or parents.get(ancestor) is root):
+                left, top, right, bottom = viewport
+                x1, y1, x2, y2 = max(x1, left), max(y1, top), min(x2, right), min(y2, bottom)
+            ancestor = parents.get(ancestor)
+        if x2 <= x1 or y2 <= y1:
+            continue
         print(f"{(x1 + x2) // 2},{(y1 + y2) // 2}")
         raise SystemExit(0)
 raise SystemExit(1)
@@ -324,6 +341,28 @@ for node in root.iter("node"):
         raise SystemExit(0)
 raise SystemExit(1)
 PY
+}
+
+chrome_notification_onboarding() {
+  # Only the recorded Chrome onboarding title owns this opt-out button.
+  # A generic negative_button can belong to a different browser/system dialog.
+  [[ "$(ui_root_package 2>/dev/null || true)" == "com.android.chrome" ]] && {
+    node_center resource "notification_permission_rationale_title" >/dev/null 2>&1 ||
+    node_center text "Chrome notifications make things easier" >/dev/null 2>&1
+  }
+}
+
+record_phase() {
+  mkdir -p "$results_root"
+  python3 - "$results_root/phases-$run_id.jsonl" "$1" "${first_pid:-}" "${second_pid:-}" <<'PY_PHASE'
+import json
+import sys
+from datetime import datetime, timezone
+with open(sys.argv[1], "a") as stream:
+    stream.write(json.dumps({"phase": sys.argv[2], "status": "PASSED",
+        "first_pid": sys.argv[3], "second_pid": sys.argv[4],
+        "at": datetime.now(timezone.utc).isoformat()}) + "\n")
+PY_PHASE
 }
 
 node_text() {
@@ -451,6 +490,8 @@ tap_node resource "message.row.quality-standard-message"
 wait_for_node text "$expected_title" 10 || failed "restarted process lost the exact canonical title"
 wait_for_node text "$expected_body" 10 || failed "restarted process lost the exact canonical body"
 
+record_phase "new-process-exact-content-and-read-persistence"
+
 resolved_activity="$(adb_with_timeout -s "$device_serial" shell cmd package resolve-activity --brief \
   -a android.intent.action.VIEW \
   -c android.intent.category.BROWSABLE \
@@ -516,7 +557,7 @@ if [[ "$browser_package" == "com.android.chrome" ]]; then
       if node_center resource "signin_fre_dismiss_button" >/dev/null 2>&1; then
         fre_center="$(node_center resource "signin_fre_dismiss_button")"
         adb_with_timeout -s "$device_serial" shell input tap "${fre_center%,*}" "${fre_center#*,}"
-      elif node_center resource "notification_permission_rationale_title" >/dev/null 2>&1 && \
+      elif chrome_notification_onboarding && \
         node_center resource "negative_button" >/dev/null 2>&1; then
         rationale_center="$(node_center resource "negative_button")"
         adb_with_timeout -s "$device_serial" shell input tap "${rationale_center%,*}" "${rationale_center#*,}"
@@ -527,7 +568,7 @@ if [[ "$browser_package" == "com.android.chrome" ]]; then
   if dump_ui && node_center resource "signin_fre_dismiss_button" >/dev/null 2>&1; then
     blocked "Chrome first-run preparation did not complete"
   fi
-  if dump_ui && node_center resource "notification_permission_rationale_title" >/dev/null 2>&1; then
+  if dump_ui && chrome_notification_onboarding; then
     blocked "Chrome notification preparation did not complete"
   fi
 fi
@@ -554,6 +595,7 @@ return_from_browser "sheet.message.detail" || \
 wait_for_node text "$expected_body" 5 || \
   failed "browser return lost the exact canonical message detail"
 external_surface_open=0
+record_phase "message-exact-https-browser-handoff-and-detail-return"
 
 adb_with_timeout -s "$device_serial" shell input keyevent KEYCODE_BACK
 wait_for_node_absent resource "sheet.message.detail" 8 || \
@@ -605,6 +647,7 @@ fi
 return_from_browser "screen.settings" || \
   failed "PushGo did not return to the same Settings journey after documentation handoff"
 external_surface_open=0
+record_phase "documentation-exact-https-browser-handoff-and-settings-return"
 
 echo "status=PASSED"
 echo "claim=unread canonical message -> real detail/read mutation -> no PID -> new process -> exact persisted detail/read state -> exact message HTTPS browser handoff/return -> visible Settings documentation row -> exact localized-safe HTTPS browser handoff -> same Settings return"

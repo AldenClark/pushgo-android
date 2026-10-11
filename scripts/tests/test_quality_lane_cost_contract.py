@@ -795,7 +795,10 @@ adb_with_timeout() {
         runner = (REPO / "scripts/quality_test.sh").read_text()
         host_journey = (REPO / "scripts/run_android_process_restart_positive.sh").read_text()
 
-        self.assertEqual(1, runner.count('run_android_process_restart_positive.sh'))
+        self.assertEqual(2, runner.count('run_android_process_restart_positive.sh'))
+        focused_host = runner.split('  process-restart)', 1)[1].split('    ;;', 1)[0]
+        self.assertIn('run_android_process_restart_positive.sh', focused_host)
+        self.assertNotIn('run_system_notification_journeys', focused_host)
         self.assertIn('QUALITY_ANDROID_SKIP_INSTALL=1', runner)
         self.assertIn('run_system_notification_journeys', runner)
         self.assertIn('shell pidof "$package_name"', host_journey)

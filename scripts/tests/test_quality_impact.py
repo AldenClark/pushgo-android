@@ -18,6 +18,16 @@ class QualityImpactPlanTests(unittest.TestCase):
     def setUpClass(cls):
         cls.manifest = QUALITY_IMPACT.load_manifest(REPO / "config/quality-impact.json")
 
+    def test_host_runner_repair_does_not_select_unrelated_system_and_scale(self):
+        plan = self.plan("scripts/run_android_process_restart_positive.sh")
+        self.assertEqual(plan["recommended_lane"], "process-restart")
+        self.assertEqual(plan["selected_rule_ids"], ["quality-process-restart-host-runner"])
+        # A real shared owner must restore wider consumers.
+        shared = self.plan("scripts/run_android_process_restart_positive.sh", "app/src/main/java/io/ethan/pushgo/data/AppContainer.kt")
+        self.assertEqual(shared["recommended_lane"], "release")
+        mixed = self.plan("scripts/run_android_process_restart_positive.sh", "app/src/main/java/io/ethan/pushgo/data/db/MessageDao.kt")
+        self.assertIn(mixed["recommended_lane"], ["nightly", "release"])
+
     def plan(self, *paths):
         return QUALITY_IMPACT.build_plan(list(paths), self.manifest, "unit-test")
 
