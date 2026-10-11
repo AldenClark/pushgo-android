@@ -141,7 +141,7 @@ class QualitySystemNotificationJourneyInstrumentedTest : QualityAppJourneyTestCa
         composeRule.onNode(
             hasTestTag("banner.message.severity.critical") and
                 hasAnyDescendant(
-                    hasText("Critical message, please handle it as soon as possible."),
+                    hasText(app.getString(io.ethan.pushgo.R.string.message_severity_critical_hint)),
                 ),
             useUnmergedTree = true,
         ).assertIsDisplayed()

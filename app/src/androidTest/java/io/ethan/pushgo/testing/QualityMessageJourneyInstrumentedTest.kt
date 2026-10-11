@@ -1217,9 +1217,14 @@ class QualityMessageJourneyInstrumentedTest : QualityAppJourneyTestCase() {
             composeRule.onAllNodes(hasTestTag("screen.messages.list"))
                 .fetchSemanticsNodes().isNotEmpty()
         }
+        // The list can render before the asynchronous notification target lookup.
+        composeRule.waitUntil(timeoutMillis = 8_000) {
+            composeRule.onAllNodes(hasTestTag("feedback.message.target_unavailable"))
+                .fetchSemanticsNodes().isNotEmpty()
+        }
         composeRule.onNodeWithTag("feedback.message.target_unavailable")
             .assertIsDisplayed()
-            .assertTextContains("The requested item was not found or has expired.")
+            .assertTextContains(app.getString(R.string.error_gateway_resource_not_found))
         composeRule.onNodeWithTag("sheet.message.detail").assertDoesNotExist()
         composeRule.onNodeWithText("Quality Delete History Message").assertDoesNotExist()
         composeRule.onNodeWithText("Quality Keep History Message")

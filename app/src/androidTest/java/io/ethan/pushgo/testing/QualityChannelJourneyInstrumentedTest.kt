@@ -6,6 +6,8 @@ import android.content.Context
 import android.text.format.DateFormat
 import androidx.compose.ui.test.*
 import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.uiautomator.UiDevice
@@ -355,6 +357,16 @@ class QualityChannelJourneyInstrumentedTest : QualityAppJourneyTestCase() {
     private fun submitChannelEntry() {
         val submit = composeRule.onNodeWithTag("action.channels.entry.submit")
         try {
+            var keyboardVisible = false
+            scenario?.onActivity { activity ->
+                keyboardVisible = ViewCompat.getRootWindowInsets(activity.window.decorView)
+                    ?.isVisible(WindowInsetsCompat.Type.ime()) == true
+            }
+            if (keyboardVisible) {
+                UiDevice.getInstance(InstrumentationRegistry.getInstrumentation()).pressBack()
+                composeRule.waitForIdle()
+                composeRule.onNodeWithTag("sheet.channels.entry").assertIsDisplayed()
+            }
             submit.performScrollTo()
             submit.assertIsDisplayed().assertIsEnabled().performClick()
         } catch (failure: Throwable) {
