@@ -41,6 +41,7 @@ import java.util.Base64
 import javax.crypto.Cipher
 import javax.crypto.spec.GCMParameterSpec
 import javax.crypto.spec.SecretKeySpec
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -538,14 +539,14 @@ class RuntimePrivateChannelStateFlowInstrumentedTest {
         harness.settingsRepository.setNotificationKeyBytes(original)
         harness.settingsRepository.setKeyEncoding(KeyEncoding.BASE64)
 
-        val vm = buildSettingsViewModelOnMain()
+        // A user can select an encoding while protected configuration is loading.
+        val vm = buildSettingsViewModelOnMain(onCreated = { it.updateKeyEncoding(KeyEncoding.HEX) })
         val initialState = awaitUiState(vm) { state ->
-            state.isDecryptionConfigured && state.keyEncoding == KeyEncoding.BASE64
+            state.isDecryptionConfigured && state.keyEncoding == KeyEncoding.HEX
         }
         assertTrue(initialState.decryptionKeyInput.isEmpty())
 
         withContext(Dispatchers.Main) {
-            vm.updateKeyEncoding(KeyEncoding.HEX)
             vm.saveDecryptionConfig()
         }
         val savedState = awaitUiState(vm) { state ->
@@ -712,11 +713,13 @@ class RuntimePrivateChannelStateFlowInstrumentedTest {
     }
 
     private fun buildSettingsViewModelOnMain(
+        onCreated: (SettingsViewModel) -> Unit = {},
         gatewayPrivateChannelEnabledFetcher: suspend () -> Boolean? = { true },
     ): SettingsViewModel {
         lateinit var vm: SettingsViewModel
         InstrumentationRegistry.getInstrumentation().runOnMainSync {
             vm = buildSettingsViewModel(gatewayPrivateChannelEnabledFetcher)
+            onCreated(vm)
         }
         settingsViewModels += vm
         return vm
@@ -736,19 +739,29 @@ class RuntimePrivateChannelStateFlowInstrumentedTest {
         vm: SettingsViewModel,
         predicate: (SettingsUiState) -> Boolean,
     ): SettingsUiState {
-        return withTimeout<SettingsUiState>(8_000) {
-            while (true) {
-                val state = vm.uiState.value
-                if (predicate(state)) {
-                    return@withTimeout state
+        return try {
+            withTimeout<SettingsUiState>(8_000) {
+                while (true) {
+                    val state = vm.uiState.value
+                    if (predicate(state)) {
+                        return@withTimeout state
+                    }
+                    withContext(Dispatchers.Main) {
+                        Snapshot.sendApplyNotifications()
+                    }
+                    delay(20)
                 }
-                withContext(Dispatchers.Main) {
-                    Snapshot.sendApplyNotifications()
-                }
-                delay(20)
+                @Suppress("UNREACHABLE_CODE")
+                error("awaitUiState timeout loop exited unexpectedly")
             }
-            @Suppress("UNREACHABLE_CODE")
-            error("awaitUiState timeout loop exited unexpectedly")
+        } catch (error: TimeoutCancellationException) {
+            val state = vm.uiState.value
+            throw AssertionError(
+                "Settings state deadline exceeded: configured=${state.isDecryptionConfigured}, " +
+                    "encoding=${state.keyEncoding}, saving=${state.isSavingDecryption}, " +
+                    "success=${state.successMessage != null}, error=${vm.decryptionErrorMessage != null}",
+                error,
+            )
         }
     }
 

@@ -275,7 +275,10 @@ class QualityMessageJourneyInstrumentedTest : QualityAppJourneyTestCase() {
                 }
                 false
             },
-            10_000,
+            // A fresh CI Chrome process needed about 12 seconds to finish its
+            // first-run surfaces. Keep one bounded wait; the exact URL oracle below
+            // still rejects a missing address bar or a different destination.
+            20_000,
         )
         if (!browserAddressBarVisible) {
             QualityUiFailureDiagnostics.logWindowHierarchy(device, "canonical URL browser address bar")

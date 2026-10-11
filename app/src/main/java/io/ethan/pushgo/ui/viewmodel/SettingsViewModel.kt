@@ -209,6 +209,7 @@ class SettingsViewModel(
         )
 
     private var hasLoadedGatewayAddress = false
+    private var hasEditedKeyEncoding = false
     init {
         viewModelScope.launch {
             settingsRepository.serverAddressFlow.collect { value ->
@@ -227,9 +228,13 @@ class SettingsViewModel(
             isFcmSupported = true
             // Local protected configuration must not wait for a remote capability query.
             val currentKey = settingsRepository.getNotificationKeyBytes()
+            val currentKeyUpdatedAt = settingsRepository.getNotificationKeyUpdatedAt()
+            val storedKeyEncoding = settingsRepository.getKeyEncoding()
+            // Publish local readiness together; a configured key must not expose
+            // the default encoding while its persisted encoding is still loading.
+            if (!hasEditedKeyEncoding) keyEncoding = storedKeyEncoding
+            decryptionUpdatedAt = currentKeyUpdatedAt
             isDecryptionConfigured = currentKey?.isNotEmpty() == true
-            decryptionUpdatedAt = settingsRepository.getNotificationKeyUpdatedAt()
-            keyEncoding = settingsRepository.getKeyEncoding()
             gatewayPrivateChannelEnabled = gatewayPrivateChannelEnabledFetcher()
             updateAutoCheckEnabled = settingsRepository.getUpdateAutoCheckEnabled()
             updateBetaChannelEnabled = settingsRepository.getUpdateBetaChannelEnabled()
@@ -800,6 +805,7 @@ class SettingsViewModel(
     }
 
     fun updateKeyEncoding(value: KeyEncoding) {
+        hasEditedKeyEncoding = true
         keyEncoding = value
         decryptionErrorMessage = null
     }
