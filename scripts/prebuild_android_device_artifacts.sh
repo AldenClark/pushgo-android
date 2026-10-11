@@ -19,7 +19,7 @@ tasks=(
 if [[ "$lane" == "performance" || "$lane" == "release" ]]; then
   tasks+=(
     :app:assembleBenchmark
-    :macrobenchmark:assembleBenchmark
+    :macrobenchmark:assembleBenchmarkBenchmark
   )
 fi
 
