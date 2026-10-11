@@ -321,7 +321,8 @@
     {
       "id": "quality-process-restart-host-runner",
       "paths": [
-        "scripts/run_android_process_restart_positive.sh"
+        "scripts/run_android_process_restart_positive.sh",
+        "scripts/prebuild_android_device_artifacts.sh"
       ],
       "capabilities": [
         "app-launch",
