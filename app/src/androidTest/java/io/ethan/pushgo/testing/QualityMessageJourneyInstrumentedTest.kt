@@ -1365,6 +1365,9 @@ class QualityMessageJourneyInstrumentedTest : QualityAppJourneyTestCase() {
         configureAndLaunch(fixture = QualityFixture.EMPTY_CLEAN)
 
         composeRule.onNodeWithTag("screen.messages.list").assertIsDisplayed()
+        composeRule.waitUntil(timeoutMillis = 8_000) {
+            composeRule.onNodeWithTag("state.messages.empty").isDisplayed()
+        }
         composeRule.onNodeWithTag("state.messages.empty").assertIsDisplayed()
         composeRule.onNodeWithText(app.getString(R.string.message_list_empty_title)).assertIsDisplayed()
         composeRule.onNodeWithText(app.getString(R.string.message_list_empty_hint)).assertIsDisplayed()

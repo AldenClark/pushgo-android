@@ -323,6 +323,7 @@ class QualitySettingsJourneyInstrumentedTest : QualityAppJourneyTestCase() {
             .assertIsDisplayed()
             .performClick()
             .assertIsSelected()
+        waitForUpdateStatus(app.getString(R.string.label_update_status_available, "10.0.0-beta-quality"))
         composeRule.onNodeWithTag("row.settings.update.check_now")
             .assertTextContains(
                 app.getString(R.string.label_update_status_available, "10.0.0-beta-quality"),
