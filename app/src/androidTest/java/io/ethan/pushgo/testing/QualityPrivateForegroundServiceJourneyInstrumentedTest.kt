@@ -121,6 +121,16 @@ class QualityPrivateForegroundServiceJourneyInstrumentedTest : QualityAppJourney
         }
         relaunchedFcm.assertIsSelected()
         relaunchedPrivate.assertIsNotSelected()
+        // The selected semantics alone do not prove the asynchronous durable transition finished.
+        // Poll the real repository; a missing commit still fails this bounded acceptance.
+        var committed = false
+        repeat(160) {
+            if (!committed) {
+                committed = app.container.settingsRepository.getUseFcmChannel()
+                if (!committed) delay(50)
+            }
+        }
+        assertTrue("FCM selection did not commit to durable settings", committed)
         assertTrue(app.container.settingsRepository.getUseFcmChannel())
         awaitPrivateServiceNotification(expected = false)
         awaitServiceRegistration(expected = false)
