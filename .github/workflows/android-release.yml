@@ -4,9 +4,16 @@ on:
   push:
     tags:
       - "v*"
+  workflow_dispatch:
+    inputs:
+      candidate_version:
+        description: Project version to sign and validate without publishing (omit the leading v)
+        required: true
+        default: "1.3.3"
+        type: string
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: android-release-${{ github.ref }}
@@ -15,6 +22,8 @@ concurrency:
 jobs:
   release:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     env:
       CARGO_TERM_COLOR: always
 
@@ -24,12 +33,37 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Parse SemVer tag context
-        id: tag
+      - name: Install existing device-script tools
         shell: bash
         run: |
           set -euo pipefail
-          tag="${GITHUB_REF_NAME}"
+          if ! command -v rg >/dev/null 2>&1; then
+            sudo apt-get update
+            sudo apt-get install --no-install-recommends --yes ripgrep
+          fi
+          rg --version
+
+      - name: Parse SemVer tag context
+        id: tag
+        shell: bash
+        env:
+          CANDIDATE_VERSION: ${{ inputs.candidate_version }}
+        run: |
+          set -euo pipefail
+          if [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" ]]; then
+            candidate_version="$CANDIDATE_VERSION"
+            if [[ ! "$candidate_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-beta\.[1-9][0-9]*)?$ ]]; then
+              echo "Unsupported candidate_version: $candidate_version"
+              echo "Allowed formats: X.Y.Z or X.Y.Z-beta.N (without a leading v)"
+              exit 1
+            fi
+            tag="v${candidate_version}"
+          elif [[ "${GITHUB_EVENT_NAME}" == "push" && "${GITHUB_REF}" == refs/tags/v* ]]; then
+            tag="${GITHUB_REF_NAME}"
+          else
+            echo "Unsupported Android release event: ${GITHUB_EVENT_NAME} ${GITHUB_REF}"
+            exit 1
+          fi
 
           if [[ "$tag" =~ ^v([0-9]+\.[0-9]+\.[0-9]+)-beta\.([1-9][0-9]*)$ ]]; then
             kind="beta"
@@ -56,6 +90,7 @@ jobs:
           } >> "$GITHUB_OUTPUT"
 
       - name: Extract release notes from release/RELEASE_NOTES
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
         shell: bash
         run: |
           set -euo pipefail
@@ -95,6 +130,7 @@ jobs:
           } >> "$GITHUB_ENV"
 
       - name: Resolve versioned update notes payload
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
         shell: bash
         run: |
           set -euo pipefail
@@ -133,6 +169,8 @@ jobs:
 
       - name: Set up Android SDK
         uses: android-actions/setup-android@40fd30fb8d7440372e1316f5d1809ec01dcd3699 # v4
+        with:
+          packages: platform-tools
 
       - name: Install Android SDK components
         shell: bash
@@ -145,6 +183,25 @@ jobs:
             "platforms;android-37.0" \
             "ndk;${ndk_version}"
           echo "ANDROID_NDK_HOME=${ANDROID_SDK_ROOT}/ndk/${ndk_version}" >> "$GITHUB_ENV"
+          echo "ANDROID_NDK_ROOT=${ANDROID_SDK_ROOT}/ndk/${ndk_version}" >> "$GITHUB_ENV"
+
+      - name: Validate manual candidate against project version
+        if: github.event_name == 'workflow_dispatch'
+        shell: bash
+        env:
+          CANDIDATE_TAG: ${{ steps.tag.outputs.tag_name }}
+        run: |
+          set -euo pipefail
+          version_info="$(./gradlew -q :app:printReleaseVersionInfo)"
+          project_version="$(printf '%s\n' "$version_info" | sed -n 's/^versionName=//p' | tail -n 1)"
+          candidate_version="$CANDIDATE_TAG"
+          if [[ "$candidate_version" != "$project_version" ]]; then
+            echo "Manual acceptance candidate must match the project version."
+            echo "project_version=$project_version"
+            echo "candidate_version=$candidate_version"
+            exit 1
+          fi
+          echo "Validated manual candidate $candidate_version against the project version."
 
       - name: Export Android build tools
         shell: bash
@@ -179,12 +236,49 @@ jobs:
           cargo install cargo-ndk --version "$cargo_ndk_version" --locked
           test "$(cargo ndk --version | awk '{print $NF}')" = "$cargo_ndk_version"
 
+      - name: Enable KVM for release smoke
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+          sudo udevadm settle
+          ls -l /dev/kvm
+          test -r /dev/kvm && test -w /dev/kvm
+
+      - name: Prebuild release smoke APKs before emulator startup
+        run: ./scripts/prebuild_android_device_artifacts.sh release-smoke
+
+      - name: Run bounded Android release smoke before signing
+        uses: ReactiveCircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
+        with:
+          api-level: 35
+          arch: x86_64
+          target: google_apis
+          profile: pixel_2
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none -no-snapshot-save
+          script: ./scripts/quality_test.sh release-smoke
+
+      - name: Upload Android release smoke receipts and diagnostics
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: android-release-smoke-evidence-${{ github.run_id }}
+          path: |
+            build/quality-results/**
+            app/build/outputs/androidTest-results/connected/**
+            app/build/reports/androidTests/connected/**
+          if-no-files-found: warn
+          retention-days: 14
+
       - name: Read release version
         id: version
         shell: bash
+        env:
+          RELEASE_TAG: ${{ steps.tag.outputs.tag_name }}
         run: |
           set -euo pipefail
-          version_info="$(./gradlew -q :app:printReleaseVersionInfo -Ppushgo.versionName=${{ steps.tag.outputs.tag_name }})"
+          version_info="$(./gradlew -q :app:printReleaseVersionInfo "-Ppushgo.versionName=$RELEASE_TAG")"
           version_name=''
           version_code=''
           while IFS='=' read -r key value; do
@@ -242,19 +336,80 @@ jobs:
           PUSHGO_UPDATE_FEED_ECDSA_P256_PUBLIC_KEY_B64: ${{ secrets.PUSHGO_UPDATE_FEED_ECDSA_P256_PUBLIC_KEY_B64 }}
 
       - name: Verify signed release artifacts
+        id: verify_signed
         shell: bash
         run: |
           set -euo pipefail
           expected_signer_sha256="c73b2d4609f1a5265ea389de76c5ff78b0baf7785380f103d02b94caa3df92e4"
+          expected_version_name="${{ steps.version.outputs.versionName }}"
+          expected_version_code="${{ steps.version.outputs.versionCode }}"
+          expected_apks=(
+            app-arm64-v8a-release.apk
+            app-armeabi-v7a-release.apk
+            app-universal-release.apk
+            app-x86_64-release.apk
+          )
+          expected_metadata="$(printf '%s\n' "${expected_apks[@]}" | sort)"
           shopt -s nullglob
           apk_files=(app/build/outputs/apk/release/*.apk)
-          if [ ${#apk_files[@]} -eq 0 ]; then
-            echo "No release APKs found" >&2
+          if [[ ${#apk_files[@]} -ne ${#expected_apks[@]} ]]; then
+            echo "Expected exactly four signed Release APKs; found ${#apk_files[@]}" >&2
             exit 1
           fi
+          actual_apks="$(printf '%s\n' "${apk_files[@]##*/}" | sort)"
+          if [[ "$actual_apks" != "$expected_metadata" ]]; then
+            echo "Signed Release APK filenames do not match the exact ABI matrix." >&2
+            printf 'expected:\n%s\nactual:\n%s\n' "$expected_metadata" "$actual_apks" >&2
+            exit 1
+          fi
+          metadata_file="app/build/outputs/apk/release/output-metadata.json"
+          if [[ ! -f "$metadata_file" ]] || ! jq -e \
+            --arg version_name "$expected_version_name" \
+            --argjson version_code "$expected_version_code" \
+            --argjson expected_apks "$(printf '%s\n' "${expected_apks[@]}" | jq -Rsc 'split("\n") | map(select(length > 0))')" \
+            '.applicationId == "io.ethan.pushgo" and .variantName == "release" and
+             ([.elements[].outputFile] | sort) == ($expected_apks | sort) and
+             ([.elements[].versionName] | unique) == [$version_name] and
+             ([.elements[].versionCode] | unique) == [$version_code]' \
+            "$metadata_file" >/dev/null; then
+            echo "Signed Release output metadata does not match the exact app/version/ABI outputs." >&2
+            exit 1
+          fi
+          verification_log="build/quality-results/android-release-acceptance/signed-artifact-verification.log"
+          mkdir -p "$(dirname "$verification_log")"
+          : > "$verification_log"
           for file in "${apk_files[@]}"; do
-            apksigner verify --verbose --print-certs "$file"
-            zipalign -c -P 16 4 "$file"
+            printf 'APK=%s\n' "$file" | tee -a "$verification_log"
+            apksigner verify --verbose --print-certs "$file" 2>&1 | tee -a "$verification_log"
+            zipalign -c -P 16 4 "$file" 2>&1 | tee -a "$verification_log"
+            badging="$(aapt2 dump badging "$file")"
+            if ! grep -Fq "package: name='io.ethan.pushgo' versionCode='$expected_version_code' versionName='$expected_version_name'" <<< "$badging"; then
+              echo "Packaged manifest identity or version does not match: $file" >&2
+              exit 1
+            fi
+            if grep -q '^application-debuggable\($\|[[:space:]]\)' <<< "$badging"; then
+              echo "Release APK is debuggable: $file" >&2
+              exit 1
+            fi
+            case "$(basename "$file")" in
+              app-arm64-v8a-release.apk) expected_abis="arm64-v8a" ;;
+              app-armeabi-v7a-release.apk) expected_abis="armeabi-v7a" ;;
+              app-x86_64-release.apk) expected_abis="x86_64" ;;
+              app-universal-release.apk) expected_abis="arm64-v8a armeabi-v7a x86_64" ;;
+              *) echo "Unexpected Release APK: $file" >&2; exit 1 ;;
+            esac
+            advertised_abis="$(sed -n 's/^native-code: //p' <<< "$badging" | tr -d "'" | tr ' ' '\n' | sed '/^$/d' | sort | xargs)"
+            if [[ "$advertised_abis" != "$expected_abis" ]]; then
+              echo "Packaged native ABI set does not match its APK variant: $file" >&2
+              echo "expected=$expected_abis actual=${advertised_abis:-<missing>}" >&2
+              exit 1
+            fi
+            packaged_abis="$(unzip -Z1 "$file" | awk -F/ '$1 == "lib" && NF >= 3 && $NF ~ /\.so$/ { print $2 }' | sort -u | xargs)"
+            if [[ "$packaged_abis" != "$expected_abis" ]]; then
+              echo "Packaged native library ABI set does not match its APK variant: $file" >&2
+              echo "expected=$expected_abis actual=${packaged_abis:-<missing>}" >&2
+              exit 1
+            fi
             signer_sha256="$(
               apksigner verify --print-certs "$file" \
                 | sed -n 's/^Signer #1 certificate SHA-256 digest: //p' \
@@ -266,7 +421,9 @@ jobs:
               echo "expected=$expected_signer_sha256 actual=${signer_sha256:-<missing>}" >&2
               exit 1
             fi
+            printf 'signer_sha256=%s\n' "$signer_sha256" | tee -a "$verification_log"
           done
+          echo "status=PASSED" | tee -a "$verification_log"
 
       - name: Package release artifacts
         id: package
@@ -287,7 +444,7 @@ jobs:
           shopt -u nullglob
 
           {
-            echo "tag=${GITHUB_REF_NAME}"
+            echo "tag=${{ steps.tag.outputs.tag_name }}"
             echo "commit=${GITHUB_SHA}"
             echo "versionName=${version_name}"
             echo "versionCode=${{ steps.version.outputs.versionCode }}"
@@ -300,6 +457,7 @@ jobs:
           )
 
       - name: Prepare update feed signing key
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
         shell: bash
         run: |
           set -euo pipefail
@@ -314,6 +472,7 @@ jobs:
           PUSHGO_UPDATE_FEED_ECDSA_SIGNING_KEY_B64: ${{ secrets.PUSHGO_UPDATE_FEED_ECDSA_SIGNING_KEY_B64 }}
 
       - name: Validate update feed ECDSA key pair
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
         shell: bash
         run: |
           set -euo pipefail
@@ -339,6 +498,7 @@ jobs:
           PUSHGO_UPDATE_FEED_ECDSA_P256_PUBLIC_KEY_B64: ${{ secrets.PUSHGO_UPDATE_FEED_ECDSA_P256_PUBLIC_KEY_B64 }}
 
       - name: Generate update feed artifacts
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
         shell: bash
         run: |
           set -euo pipefail
@@ -410,7 +570,23 @@ jobs:
           echo "  x86_64      -> $x86_64_file"
           echo "  universal   -> $universal_file"
 
+      - name: Upload manual signed Release acceptance evidence
+        if: success() && github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: android-signed-release-acceptance-${{ github.run_id }}-${{ github.run_attempt }}
+          if-no-files-found: error
+          retention-days: 21
+          path: |
+            app/build/outputs/apk/release/*.apk
+            app/build/outputs/apk/release/output-metadata.json
+            dist/*.apk
+            dist/BUILD_INFO.txt
+            dist/SHA256SUMS.txt
+            build/quality-results/android-release-acceptance/signed-artifact-verification.log
+
       - name: Generate update deploy bundle
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
         shell: bash
         run: |
           set -euo pipefail
@@ -428,6 +604,7 @@ jobs:
           PUSHGO_UPDATE_DEPLOY_PATH: ${{ secrets.PUSHGO_UPDATE_DEPLOY_PATH }}
 
       - name: Verify update feed artifacts
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
         shell: bash
         run: |
           set -euo pipefail
@@ -499,6 +676,7 @@ jobs:
           PUSHGO_UPDATE_BASE_URL: ${{ vars.PUSHGO_UPDATE_BASE_URL != '' && vars.PUSHGO_UPDATE_BASE_URL || secrets.PUSHGO_UPDATE_BASE_URL }}
 
       - name: Prepare update deploy SSH key
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
         shell: bash
         run: |
           set -euo pipefail
@@ -514,6 +692,7 @@ jobs:
           PUSHGO_UPDATE_DEPLOY_SSH_KEY_B64: ${{ secrets.PUSHGO_UPDATE_DEPLOY_SSH_KEY_B64 }}
 
       - name: Install update deploy known_hosts
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
         shell: bash
         run: |
           set -euo pipefail
@@ -531,6 +710,7 @@ jobs:
           PUSHGO_UPDATE_DEPLOY_KNOWN_HOSTS: ${{ secrets.PUSHGO_UPDATE_DEPLOY_KNOWN_HOSTS }}
 
       - name: Publish update artifacts to update host
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
         shell: bash
         run: |
           set -euo pipefail
@@ -553,6 +733,7 @@ jobs:
           PUSHGO_UPDATE_DEPLOY_PATH: ${{ secrets.PUSHGO_UPDATE_DEPLOY_PATH }}
 
       - name: Create or update GitHub release
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
         id: github_release
         shell: bash
         env:
@@ -623,6 +804,7 @@ jobs:
           } >> "${GITHUB_OUTPUT}"
 
       - name: Upload GitHub release assets
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
         shell: bash
         env:
           GITHUB_TOKEN: ${{ github.token }}
@@ -673,6 +855,7 @@ jobs:
           done
 
       - name: Persist update feed to repository
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
         shell: bash
         run: |
           set -euo pipefail

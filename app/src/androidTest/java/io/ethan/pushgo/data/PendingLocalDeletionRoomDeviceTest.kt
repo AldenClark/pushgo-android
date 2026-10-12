@@ -1,27 +1,28 @@
 package io.ethan.pushgo.data
 
-import android.Manifest
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.content.Context
-import android.os.Build
 import android.os.SystemClock
 import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
-import androidx.test.platform.app.InstrumentationRegistry
 import io.ethan.pushgo.R
 import io.ethan.pushgo.data.db.PendingLocalDeletionDao
 import io.ethan.pushgo.data.db.PendingLocalDeletionEntity
 import io.ethan.pushgo.notifications.NotificationHelper
+import io.ethan.pushgo.testing.NotificationPermissionTestSupport
 import io.ethan.pushgo.ui.PendingLocalDeletionCoordinator
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
 import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -102,7 +103,7 @@ class PendingLocalDeletionRoomDeviceTest {
             requestedAtEpochMillis = 1_000L,
             undoWindowMillis = 5_000L,
         )
-        assertTrue(repository.cancelPending(record.id))
+        assertTrue(repository.cancelPending(record.id, nowEpochMillis = 5_000L))
         database.close()
 
         database = openDatabase()
@@ -112,6 +113,58 @@ class PendingLocalDeletionRoomDeviceTest {
         )
         assertTrue(repository.loadActive().isEmpty())
         database.close()
+    }
+
+    @Test
+    fun cancelRequiresTimeBeforeDeadlineAndClaimIsAtomicWithIt() = runBlocking {
+        val database = openDatabase()
+        val repository = RoomPendingLocalDeletionRepository(
+            database = database,
+            dao = database.pendingLocalDeletionDao(),
+        )
+        try {
+            for (tapAt in listOf(6_000L, 6_001L)) {
+                val record = repository.enqueue(
+                    summary = "event",
+                    operation = PendingLocalDeletionOperation.events(setOf("e$tapAt")),
+                    requestedAtEpochMillis = 1_000L,
+                    undoWindowMillis = 5_000L,
+                )
+                assertFalse(repository.cancelPending(record.id, nowEpochMillis = tapAt))
+                assertEquals(record.id, repository.loadActive().single().id)
+                assertTrue(repository.claim(record.id, nowEpochMillis = tapAt, force = false) != null)
+                assertTrue(repository.completeClaimed(record.id))
+            }
+
+            val raced = repository.enqueue(
+                summary = "event",
+                operation = PendingLocalDeletionOperation.events(setOf("race")),
+                requestedAtEpochMillis = 1_000L,
+                undoWindowMillis = 5_000L,
+            )
+            coroutineScope {
+                val start = CompletableDeferred<Unit>()
+                val undo = async(Dispatchers.Default) {
+                    start.await()
+                    repository.cancelPending(raced.id, nowEpochMillis = 1_001L)
+                }
+                val claim = async(Dispatchers.Default) {
+                    start.await()
+                    repository.claim(raced.id, nowEpochMillis = 1_001L, force = true)
+                }
+                start.complete(Unit)
+                val cancelled = undo.await()
+                val claimed = claim.await()
+                assertTrue(cancelled xor (claimed != null))
+                if (cancelled) {
+                    assertTrue(repository.loadActive().isEmpty())
+                } else {
+                    assertEquals(PendingLocalDeletionState.COMMITTING, repository.loadActive().single().state)
+                }
+            }
+        } finally {
+            database.close()
+        }
     }
 
     @Test
@@ -130,7 +183,7 @@ class PendingLocalDeletionRoomDeviceTest {
         repository.claim(record.id, nowEpochMillis = 1_500L, force = true)
         assertTrue(repository.retryClaimed(record.id, 2_000L, 10_000L, "offline"))
 
-        assertFalse(repository.cancelPending(record.id))
+        assertFalse(repository.cancelPending(record.id, nowEpochMillis = 2_000L))
         assertEquals(1, repository.loadActive().single().attemptCount)
         database.close()
     }
@@ -294,10 +347,7 @@ class PendingLocalDeletionRoomDeviceTest {
     ).build()
 
     private fun grantNotificationPermissionIfNeeded() {
-        if (Build.VERSION.SDK_INT < 33) return
-        InstrumentationRegistry.getInstrumentation().uiAutomation
-            .executeShellCommand("pm grant ${context.packageName} ${Manifest.permission.POST_NOTIFICATIONS}")
-            .close()
+        NotificationPermissionTestSupport.grantAndVerify(context)
     }
 
     private fun postChannelNotifications() {

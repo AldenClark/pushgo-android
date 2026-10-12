@@ -24,6 +24,7 @@ import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -68,6 +69,7 @@ fun PendingLocalDeletionBar(
 
         Surface(
             modifier = Modifier
+                .testTag("state.pending_deletion")
                 .pushGoLiveRegion()
                 .semantics(mergeDescendants = true) {
                     contentDescription = pendingDeletionDescription
@@ -98,7 +100,10 @@ fun PendingLocalDeletionBar(
                     style = MaterialTheme.typography.labelMedium.copy(letterSpacing = 0.2.sp),
                     color = uiColors.textSecondary,
                 )
-                TextButton(onClick = onUndo) {
+                TextButton(
+                    onClick = onUndo,
+                    modifier = Modifier.testTag("action.pending_deletion.undo"),
+                ) {
                     Text(text = stringResource(R.string.label_undo))
                 }
             }

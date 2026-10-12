@@ -9,6 +9,8 @@ import io.ethan.pushgo.data.ChannelSubscriptionRepository
 import io.ethan.pushgo.data.ChannelSubscriptionService
 import io.ethan.pushgo.data.ChannelSubscriptionStore
 import io.ethan.pushgo.data.EntityRepository
+import io.ethan.pushgo.data.DeviceRouteSnapshot
+import io.ethan.pushgo.data.TransportRouteUnavailableException
 import io.ethan.pushgo.data.InboundDeliveryLedgerRepository
 import io.ethan.pushgo.data.MessageRepository
 import io.ethan.pushgo.data.PushTokenProvider
@@ -23,6 +25,10 @@ import io.ethan.pushgo.notifications.InboundPersistenceStatus
 import io.ethan.pushgo.notifications.MessageStateCoordinator
 import io.ethan.pushgo.notifications.PrivateChannelClient
 import java.io.File
+import java.io.Closeable
+import java.net.InetAddress
+import java.net.ServerSocket
+import java.util.concurrent.CopyOnWriteArrayList
 import java.time.Instant
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
@@ -35,6 +41,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
+import org.junit.Assert.fail
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -146,6 +153,101 @@ class RuntimeChannelSwitchInstrumentedTest {
         assertEquals("fcm", status.transport)
         assertSingleActiveChannel(useFcmChannel = useFcm, route = status.route)
         println("RUNTIME_CHANNEL_SWITCH failed_switch_preserved_ms=$failedSwitchMs route=${status.route} stage=${status.stage}")
+    }
+
+    @Test
+    fun firstRegistrationAdoptsIssuedDeviceKeyWithoutFalseStaleRejection() = runBlocking {
+        RegistrationRouteServer(issuedNewKey = true).use { server ->
+            settingsRepository.setServerAddress(server.baseUrl)
+            settingsRepository.setGatewayToken(null)
+            settingsRepository.setDeviceKey(null)
+            settingsRepository.setUseFcmChannel(true)
+
+            val route = privateChannelClient.loadRoute()
+
+            assertNotNull(route)
+            assertTrue("Fresh key is initialization rather than remote user selection", route!!.issuedNewKey)
+            assertEquals("device-001", route.deviceKey)
+            assertEquals("device-001", settingsRepository.getDeviceKey())
+            assertEquals(listOf("/device/register"), server.paths.toList())
+            assertTrue("Query must not apply a freshly allocated default Private route", settingsRepository.getUseFcmChannel())
+        }
+    }
+
+    @Test
+    fun remotePrivateRegistration_preventsQueuedFcmWriteAndPersistsSelection() = runBlocking {
+        val observedRoutes = mutableListOf<DeviceRouteSnapshot>()
+        db?.close()
+        db = null
+        openRepositories(settingsCacheName, onRemoteRoute = { route ->
+            observedRoutes += route
+            settingsRepository.setUseFcmChannel(route.channelType == "fcm")
+        })
+        RegistrationRouteServer().use { server ->
+            settingsRepository.setServerAddress(server.baseUrl)
+            settingsRepository.setGatewayToken(null)
+            settingsRepository.setDeviceKey("device-001")
+            settingsRepository.setUseFcmChannel(true)
+            settingsRepository.setFcmToken("queued-provider-token")
+
+            try {
+                channelRepository.syncProviderDeviceToken("queued-provider-token")
+                fail("Queued FCM write must stop after registration reports remote Private")
+            } catch (_: TransportRouteUnavailableException) {
+                // The registration callback has applied the remote selection before upsert.
+            }
+
+            assertEquals(listOf("/device/register"), server.paths.toList())
+            assertEquals(1, observedRoutes.size)
+            assertEquals("private", observedRoutes.single().channelType)
+            assertEquals(7L, observedRoutes.single().routeRevision)
+            assertFalse(settingsRepository.getUseFcmChannel())
+            assertEquals("device-001", settingsRepository.getDeviceKey())
+            db?.close()
+            db = null
+            openRepositories(settingsCacheName)
+            assertFalse("Remote selection must survive repository recreation", settingsRepository.getUseFcmChannel())
+        }
+    }
+
+    @Test
+    fun remoteFcmRegistration_preventsQueuedPrivateWriteAndPersistsSelection() = runBlocking {
+        val observedRoutes = mutableListOf<DeviceRouteSnapshot>()
+        db?.close()
+        db = null
+        openRepositories(settingsCacheName, onRemoteRoute = { route ->
+            observedRoutes += route
+            settingsRepository.setUseFcmChannel(route.channelType == "fcm")
+        })
+        RegistrationRouteServer(remoteChannelType = "fcm").use { server ->
+            settingsRepository.setServerAddress(server.baseUrl)
+            settingsRepository.setGatewayToken(null)
+            settingsRepository.setDeviceKey("device-001")
+            settingsRepository.setUseFcmChannel(false)
+            settingsRepository.setFcmToken("existing-provider-token")
+
+            try {
+                privateChannelClient.privateSubscribeChannel(
+                    rawChannelId = "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+                    rawPassword = "qualityx",
+                )
+                fail("Queued Private repair must stop when registration reports remote FCM")
+            } catch (_: TransportRouteUnavailableException) {
+                // Actual provider-route rejection enters the production Private repair path.
+            }
+
+            assertTrue(server.paths.contains("/channel/subscribe"))
+            assertTrue(server.paths.contains("/device/register"))
+            assertFalse("Remote FCM must not be overwritten by Private repair", server.paths.contains("/channel/device"))
+            assertTrue(observedRoutes.isNotEmpty())
+            assertTrue(observedRoutes.all { it.channelType == "fcm" })
+            assertTrue(settingsRepository.getUseFcmChannel())
+            assertEquals("device-001", settingsRepository.getDeviceKey())
+            db?.close()
+            db = null
+            openRepositories(settingsCacheName)
+            assertTrue("Remote FCM selection must survive repository recreation", settingsRepository.getUseFcmChannel())
+        }
     }
 
     @Test
@@ -272,7 +374,10 @@ class RuntimeChannelSwitchInstrumentedTest {
             ?.toBooleanStrictOrNull() == true
     }
 
-    private fun openRepositories(settingsCacheName: String) {
+    private fun openRepositories(
+        settingsCacheName: String,
+        onRemoteRoute: suspend (DeviceRouteSnapshot) -> Unit = {},
+    ) {
         val openedDb = PushGoDatabase.buildForTest(context, DATABASE_NAME)
         openedDb.openHelper.writableDatabase.query("PRAGMA journal_mode=WAL").close()
         openedDb.openHelper.writableDatabase.query("PRAGMA synchronous=NORMAL").close()
@@ -324,6 +429,7 @@ class RuntimeChannelSwitchInstrumentedTest {
                 override suspend fun fetchToken(timeoutMs: Long): String? = null
             },
             service = ChannelSubscriptionService(ioDispatcher = Dispatchers.IO),
+            onRemoteRoute = onRemoteRoute,
         )
         privateChannelClient = PrivateChannelClient(
             appContext = context,
@@ -332,6 +438,7 @@ class RuntimeChannelSwitchInstrumentedTest {
             messageRepository = messageRepository,
             entityRepository = entityRepository,
             settingsRepository = settingsRepository,
+            onRemoteRoute = onRemoteRoute,
         )
     }
 
@@ -511,6 +618,61 @@ class RuntimeChannelSwitchInstrumentedTest {
     }
 }
 
+/** Local HTTP boundary: a queued provider update must not issue /channel/device. */
+private class RegistrationRouteServer(
+    issuedNewKey: Boolean = false,
+    remoteChannelType: String = "private",
+) : Closeable {
+    private val socket = ServerSocket(0, 4, InetAddress.getByName("127.0.0.1"))
+    val baseUrl = "http://127.0.0.1:${socket.localPort}"
+    val paths = CopyOnWriteArrayList<String>()
+    private val worker = Thread {
+        while (!socket.isClosed) {
+            val client = runCatching { socket.accept() }.getOrNull() ?: break
+            client.use { connection ->
+                connection.soTimeout = 5_000
+                val input = connection.getInputStream().bufferedReader(Charsets.UTF_8)
+                val request = input.readLine().orEmpty()
+                val path = request.split(' ').getOrElse(1) { "" }
+                paths += path
+                var contentLength = 0
+                while (true) {
+                    val header = input.readLine() ?: break
+                    if (header.isEmpty()) break
+                    if (header.startsWith("Content-Length:", ignoreCase = true)) {
+                        contentLength = header.substringAfter(':').trim().toInt()
+                    }
+                }
+                var remaining = contentLength
+                val buffer = CharArray(1_024)
+                while (remaining > 0) {
+                    val count = input.read(buffer, 0, minOf(buffer.size, remaining))
+                    if (count < 0) break
+                    remaining -= count
+                }
+                val providerRejection = remoteChannelType == "fcm" && path == "/channel/subscribe"
+                val responseBody = if (providerRejection) {
+                    """{"success":false,"error":"device route is provider","error_code":"provider_token_required"}"""
+                } else {
+                    """{"success":true,"data":{"device_key":"device-001","issued_new_key":$issuedNewKey,"channel_type":"fcm","route":{"channel_type":"$remoteChannelType","route_revision":7,"provider_token_present":${remoteChannelType == "fcm"}}}}"""
+                }
+                val body = responseBody.toByteArray(Charsets.UTF_8)
+                val status = if (providerRejection) "400 Bad Request" else "200 OK"
+                connection.getOutputStream().apply {
+                    write("HTTP/1.1 $status\r\nContent-Type: application/json\r\nContent-Length: ${body.size}\r\nConnection: close\r\n\r\n".toByteArray(Charsets.US_ASCII))
+                    write(body)
+                    flush()
+                }
+            }
+        }
+    }.apply { isDaemon = true; start() }
+
+    override fun close() {
+        socket.close()
+        worker.join(1_000)
+    }
+}
+
 private class SharedPrefsSecretStore(context: Context) : SecureSecretStore {
     private val prefs = context.getSharedPreferences("runtime_channel_switch_secret_store", Context.MODE_PRIVATE)
 
@@ -531,6 +693,16 @@ private class SharedPrefsSecretStore(context: Context) : SecureSecretStore {
     override fun fcmToken(): String? = prefs.getString("fcm_token", null)?.trim()?.ifEmpty { null }
     override fun setFcmToken(token: String?) {
         prefs.edit().putString("fcm_token", token?.trim()?.ifEmpty { null }).commit()
+    }
+
+    override fun gatewayTransitionJournal(): String? =
+        prefs.getString("gateway_transition_journal", null)
+            ?.trim()?.ifEmpty { null }
+
+    override fun setGatewayTransitionJournal(journal: String?) {
+        prefs.edit()
+            .putString("gateway_transition_journal", journal?.trim()?.ifEmpty { null })
+            .commit()
     }
 
     override fun deviceKey(): String? = prefs.getString("device_key", null)?.trim()?.ifEmpty { null }

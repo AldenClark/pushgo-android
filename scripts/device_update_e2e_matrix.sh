@@ -575,7 +575,7 @@ case_bad_package_failure() {
   assert_pattern "$expected_beta_version" || return 1
 }
 
-case_install_success_or_recoverable_guidance() {
+case_install_success() {
   restore_good_feed
   open_settings_update_section
   select_beta_channel
@@ -621,22 +621,8 @@ case_install_success_or_recoverable_guidance() {
     return 0
   fi
 
-  if has_recoverable_guidance_notification; then
-    echo "B006 accepted: install not completed but recoverable guidance notification is present"
-    return 0
-  fi
-
-  if [[ "$permission_guidance_seen" -eq 1 ]]; then
-    echo "B006 accepted: in-app install permission guidance dialog is visible"
-    return 0
-  fi
-
-  if [[ "$installer_opened" -eq 1 ]]; then
-    echo "B006 accepted: installer handoff observed (system foreground confirmation path)"
-    return 0
-  fi
-
-  echo "ASSERT FAILED: neither installation success nor recoverable guidance was observed"
+  echo "ASSERT FAILED: the package version did not advance; guidance or installer handoff is not installation success"
+  echo "installer_opened=$installer_opened permission_guidance_seen=$permission_guidance_seen"
   "${adb_cmd[@]}" shell dumpsys notification --noredact 2>/dev/null | rg -n "pushgo_updates_v1|Installer blocked|安装受阻|安裝受阻|INSTALL_FAILED" || true
   return 1
 }
@@ -653,7 +639,7 @@ run_case "B004" "cooldown suppresses auto and manual check can bypass" case_cool
 run_case "B005" "permission gate prompts unknown-sources guidance" case_permission_gate || failures=$((failures + 1))
 run_case "B007" "bad SHA feed keeps version and reports checksum failure" case_bad_sha_failure || failures=$((failures + 1))
 run_case "B008" "bad package keeps version and reports archive compatibility failure" case_bad_package_failure || failures=$((failures + 1))
-run_case "B006" "install succeeds or emits recoverable installer-guidance fallback" case_install_success_or_recoverable_guidance || failures=$((failures + 1))
+run_case "B006" "install advances the real package version" case_install_success || failures=$((failures + 1))
 
 echo
 echo "=== SUMMARY ==="

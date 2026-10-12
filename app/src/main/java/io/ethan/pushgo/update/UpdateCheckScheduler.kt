@@ -13,19 +13,23 @@ import androidx.work.WorkerParameters
 import io.ethan.pushgo.PushGoApp
 import io.ethan.pushgo.automation.PushGoAutomation
 import io.ethan.pushgo.data.AppConstants
+import io.ethan.pushgo.testing.QualityRuntime
 import io.ethan.pushgo.util.SilentSink
 import java.util.concurrent.TimeUnit
 
 object UpdateCheckScheduler {
     private const val TAG = "UpdateCheckScheduler"
-    private const val PERIODIC_WORK_NAME = "pushgo-update-check-periodic"
-    private const val ONE_TIME_WORK_NAME = "pushgo-update-check-once"
+    const val PERIODIC_WORK_NAME = "pushgo-update-check-periodic"
+    const val ONE_TIME_WORK_NAME = "pushgo-update-check-once"
 
     fun refreshSchedule(context: Context) {
         val appContext = context.applicationContext
         val app = appContext as? PushGoApp
         val container = app?.containerOrNull()
-        if (PushGoAutomation.isSessionConfigured()) {
+        if (
+            PushGoAutomation.isSessionConfigured() &&
+                !QualityRuntime.isAppOwnedSessionConfigured()
+        ) {
             WorkManager.getInstance(appContext).cancelUniqueWork(PERIODIC_WORK_NAME)
             WorkManager.getInstance(appContext).cancelUniqueWork(ONE_TIME_WORK_NAME)
             return
@@ -75,7 +79,10 @@ object UpdateCheckScheduler {
         params: WorkerParameters,
     ) : CoroutineWorker(appContext, params) {
         override suspend fun doWork(): Result {
-            if (PushGoAutomation.isSessionConfigured()) {
+            if (
+                PushGoAutomation.isSessionConfigured() &&
+                    !QualityRuntime.isAppOwnedSessionConfigured()
+            ) {
                 return Result.success()
             }
             val app = applicationContext as? PushGoApp ?: return Result.failure()

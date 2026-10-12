@@ -1,0 +1,111 @@
+{
+  "original_partial_device_review": {
+    "original_device_receipt": {
+      "schema_version": 2,
+      "recorded_at": "2026-09-30T18:47:55.420481+00:00",
+      "source_revision": "57296c4a1f38e350ff221d70ed515b6ccb390890",
+      "source_dirty": false,
+      "run_identity": "github:36759173569:1:device-regression",
+      "platform": "android",
+      "lane": "release",
+      "product_capability_status": "FAILED",
+      "test_system_status": "PASSED",
+      "selected_claims": [
+        "Android App-owned preparation rejects invalid sessions within 10 seconds and recovers to accurate functional empty state",
+        "Android JNI/toolchain/schema/release static contracts",
+        "Android signed update feed contract",
+        "Android JVM behavior suite, localization completeness, and androidTest compilation",
+        "Android selected App-owned UI journeys: io.ethan.pushgo.testing.QualityMessageJourneyInstrumentedTest,io.ethan.pushgo.testing.QualityEntityJourneyInstrumentedTest,io.ethan.pushgo.testing.QualityChannelJourneyInstrumentedTest,io.ethan.pushgo.testing.QualitySettingsJourneyInstrumentedTest",
+        "Android migration/deletion/ACK/transport data boundaries excluding opt-in 100k performance",
+        "Android notification permission, Doze recovery/snooze isolation, real process restart persistence with exact HTTPS browser handoff/return, pending-deletion new-PID Undo/deadline recovery, critical alert playback, exact Message/Event/Thing cold-warm notification routes, and Private foreground Service system journeys: denied/settings/return plus restricted/system-unrestricted/return/session-snooze plus unread/read/no-PID/new-PID/exact-data/browser-url/detail-return plus pending-bar/target/control exactness plus durable inbound/audio/PendingIntent/read/dedupe and Settings/start/persist/stop"
+      ],
+      "executed_claims": [
+        "Android App-owned preparation rejects invalid sessions within 10 seconds and recovers to accurate functional empty state",
+        "Android JNI/toolchain/schema/release static contracts",
+        "Android signed update feed contract",
+        "Android JVM behavior suite, localization completeness, and androidTest compilation",
+        "Android selected App-owned UI journeys: io.ethan.pushgo.testing.QualityMessageJourneyInstrumentedTest,io.ethan.pushgo.testing.QualityEntityJourneyInstrumentedTest,io.ethan.pushgo.testing.QualityChannelJourneyInstrumentedTest,io.ethan.pushgo.testing.QualitySettingsJourneyInstrumentedTest",
+        "Android migration/deletion/ACK/transport data boundaries excluding opt-in 100k performance"
+      ],
+      "incomplete_selected_claims": [
+        "Android notification permission, Doze recovery/snooze isolation, real process restart persistence with exact HTTPS browser handoff/return, pending-deletion new-PID Undo/deadline recovery, critical alert playback, exact Message/Event/Thing cold-warm notification routes, and Private foreground Service system journeys: denied/settings/return plus restricted/system-unrestricted/return/session-snooze plus unread/read/no-PID/new-PID/exact-data/browser-url/detail-return plus pending-bar/target/control exactness plus durable inbound/audio/PendingIntent/read/dedupe and Settings/start/persist/stop"
+      ],
+      "not_run": [
+        "real FCM/private delivery, reboot, production-distributed/OEM install policy, physical audio, and physical accessibility evidence",
+        "physical/OEM notification, Doze, and Private Service behavior beyond the controlled-emulator system journeys"
+      ],
+      "test_system_issue_ids": [],
+      "waiver_id": null,
+      "reason": "an executed product oracle failed; inspect Gradle/device reports for the first failure",
+      "scope_notice": "PASSED applies only to executed_claims. Selected claims absent from executed_claims failed or were blocked; this is not whole-product coverage."
+    },
+    "ci_merge_binding": {
+      "actual_merge_source_sha": "57296c4a1f38e350ff221d70ed515b6ccb390890",
+      "pr_head": "5b8ec12",
+      "checked_paths": [
+        "app/src/main",
+        "app/src/androidTest",
+        "app/build.gradle.kts",
+        "gradle.properties",
+        "native/quinn-jni"
+      ],
+      "product_test_build_native_diff": []
+    },
+    "strict_log_execution_counts": [
+      "311",
+      "34",
+      "60"
+    ],
+    "retained_final_native_xml_counts": {
+      "tests": 60,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "retained_final_native_unique_selectors": 60,
+    "retained_final_xml_sha256": "afa9c66a9905fe07422d19956d340633cd997d5c3b2ab9e56fb542359a685820",
+    "actual_preparation_receipt": {
+      "schema_version": 1,
+      "platform": "android",
+      "lane": "preparation-contract",
+      "created_at": "2026-09-30T18:42:05.624023+00:00",
+      "device_serial": "emulator-5554",
+      "product_status": "PASSED",
+      "test_system_status": "PASSED",
+      "invalid_session": {
+        "status": "EXPECTED_BLOCKED",
+        "phase": "session.decode",
+        "elapsed_ms": 2132,
+        "retry_count": 0,
+        "business_ui_started": false
+      },
+      "storage_open_failure": {
+        "status": "EXPECTED_BLOCKED",
+        "phase": "storage.open",
+        "elapsed_ms": 1018,
+        "retry_count": 0,
+        "rollback_followed_by_positive_control": true
+      },
+      "positive_control": {
+        "status": "PASSED",
+        "fixture": "empty.clean",
+        "preparation_elapsed_ms": 1014,
+        "oracle": "quality-runtime.ready plus accurate functional empty state"
+      },
+      "limitations": [
+        "emulator/device evidence does not prove physical-device startup latency"
+      ]
+    },
+    "missing_rg_error_count": 10,
+    "diagnosis": "At permission-profile node search, dump_ui returns failure because rg is absent. The node matcher is never reached; actual deny-dialog presence/absence is not proved. Original FAILED/PASSED receipt is preserved, not rewritten.",
+    "limits": "Six completed claims remain separate from failed permission purpose. Earlier UI XML was overwritten by later native data scope in this run; root verifies only retained final XML here, while the strict log receipts and same-byte 52-class campaign remain supporting evidence."
+  },
+  "repair": "Declare the already-used ripgrep tool in the controlled device job. The permission runner rejects missing rg before any device query/mutation and retains its own window/exit evidence under the uploaded results directory. Keep real deny/settings/switch/return and exact instrumented method, all original budgets and no retries.",
+  "missing_tool_control": "Actual Git 5b8 helper on isolated PATH fails the dependency-boundary check (one intended failure, zero errors). New helper returns BLOCKED/2 before fake adb is invoked.",
+  "script_test_count_after": 209,
+  "script_test_failures_after": 0,
+  "calibrated_red_sha256": "bfe94738f89747a0bd95fde8729ba02ea2fd5b05bb88094357732031444e9a36",
+  "green_script_sha256": "e91a862d87bf4d374580543ce7a1feef8b5f6224baa4871d112ab473419cec21",
+  "new_permission_product_result": "NOT_RUN until repaired source is actually evaluated",
+  "original_overall_status_unchanged": "FAILED/PASSED"
+}

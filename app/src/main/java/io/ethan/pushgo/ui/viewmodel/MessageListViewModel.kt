@@ -82,7 +82,6 @@ class MessageListViewModel(
 
     fun toggleChannel(channel: String) {
         val normalized = channel.trim()
-        if (normalized.isEmpty()) return
         val current = filter.value.channels
         val next = if (current.contains(normalized)) current - normalized else current + normalized
         filter.value = filter.value.copy(channels = next)

@@ -17,6 +17,42 @@ import java.time.Instant
 import java.util.UUID
 
 object NotificationIngressParser {
+    internal const val AUTHENTICATION_FAILED_TITLE = "Encrypted message"
+    internal const val AUTHENTICATION_FAILED_BODY =
+        "Authenticated content could not be decrypted. Update the decryption key and try again."
+    internal const val ENCRYPTED_UNAVAILABLE_BODY = "Configure decryption to read this message."
+    internal const val RECOVERY_TITLE_CIPHERTEXT = "_pushgo_recovery_title_ciphertext"
+    internal const val RECOVERY_BODY_CIPHERTEXT = "_pushgo_recovery_body_ciphertext"
+
+    private val AUTHENTICATED_CONTENT_FIELDS = setOf(
+        "title",
+        "body",
+        "url",
+        "images",
+        "tags",
+        "metadata",
+        "description",
+        "status",
+        "message",
+        "attrs",
+        "started_at",
+        "ended_at",
+        "primary_image",
+        "state",
+        "created_at",
+        "deleted_at",
+        "external_ids",
+        "location_type",
+        "location_value",
+        "location",
+        "severity",
+        "level",
+        "priority",
+        "event_state",
+        "event_time",
+        "observed_at",
+    )
+
     data class NotificationTextLocalizer(
         val eventTitleFallback: (String) -> String,
         val thingTitleFallback: (String) -> String,
@@ -98,6 +134,8 @@ object NotificationIngressParser {
                 "body_render_payload",
                 "body_render_is_markdown",
                 "body_render_source",
+                RECOVERY_TITLE_CIPHERTEXT,
+                RECOVERY_BODY_CIPHERTEXT,
             )) {
                 remove(key)
             }
@@ -105,14 +143,70 @@ object NotificationIngressParser {
         sanitizeIngressPayload(sanitized)
         val rawTitle = sanitized["title"] ?: ""
         val rawBody = sanitized["body"] ?: ""
+        val inlineTitleCiphertext = rawTitle.takeIf(NotificationDecryptor::looksLikeEncryptedEnvelope)
+        val inlineBodyCiphertext = rawBody.takeIf(NotificationDecryptor::looksLikeEncryptedEnvelope)
+        val encryptedIngress = !sanitized["ciphertext"].isNullOrBlank() ||
+            inlineTitleCiphertext != null || inlineBodyCiphertext != null
         val decryptResult = NotificationDecryptor.decryptIfNeeded(sanitized, rawTitle, rawBody, keyBytes)
-        val normalizedDecryptResult = decryptResult.copy(
-            body = rewriteVisibleUrlsInText(decryptResult.body),
-            images = sanitizeImageCandidates(decryptResult.images),
-        )
+        val securityDisposition = when {
+            decryptResult.decryptionState == io.ethan.pushgo.data.model.DecryptionState.DECRYPT_FAILED ->
+                InboundSecurityDisposition.AUTHENTICATION_FAILED
+            encryptedIngress && decryptResult.decryptionState != io.ethan.pushgo.data.model.DecryptionState.DECRYPT_OK ->
+                InboundSecurityDisposition.ENCRYPTED_UNAVAILABLE
+            else -> InboundSecurityDisposition.ACCEPTED
+        }
+        val normalizedDecryptResult = if (encryptedIngress) {
+            AUTHENTICATED_CONTENT_FIELDS.forEach(sanitized::remove)
+            decryptResult.copy(
+                title = decryptResult.title
+                    .takeIf { "title" in decryptResult.authenticatedFields }
+                    ?.takeIf { it.isNotBlank() }
+                    ?: AUTHENTICATION_FAILED_TITLE,
+                body = decryptResult.body
+                    .takeIf { "body" in decryptResult.authenticatedFields }
+                    ?.let(::rewriteVisibleUrlsInText)
+                    ?: when (securityDisposition) {
+                        InboundSecurityDisposition.AUTHENTICATION_FAILED -> AUTHENTICATION_FAILED_BODY
+                        InboundSecurityDisposition.ENCRYPTED_UNAVAILABLE -> ENCRYPTED_UNAVAILABLE_BODY
+                        InboundSecurityDisposition.ACCEPTED -> ""
+                    },
+                images = decryptResult.images
+                    .takeIf { "images" in decryptResult.authenticatedFields }
+                    ?.let(::sanitizeImageCandidates)
+                    ?: emptyList(),
+                url = decryptResult.url.takeIf { "url" in decryptResult.authenticatedFields },
+                tagsJson = decryptResult.tagsJson.takeIf { "tags" in decryptResult.authenticatedFields },
+                metadataJson = decryptResult.metadataJson.takeIf { "metadata" in decryptResult.authenticatedFields },
+                description = decryptResult.description.takeIf { "description" in decryptResult.authenticatedFields },
+                statusText = decryptResult.statusText.takeIf { "status" in decryptResult.authenticatedFields },
+                messageText = decryptResult.messageText.takeIf { "message" in decryptResult.authenticatedFields },
+                attrsJson = decryptResult.attrsJson.takeIf { "attrs" in decryptResult.authenticatedFields },
+                startedAt = decryptResult.startedAt.takeIf { "started_at" in decryptResult.authenticatedFields },
+                endedAt = decryptResult.endedAt.takeIf { "ended_at" in decryptResult.authenticatedFields },
+                primaryImage = decryptResult.primaryImage.takeIf { "primary_image" in decryptResult.authenticatedFields },
+                stateText = decryptResult.stateText.takeIf { "state" in decryptResult.authenticatedFields },
+                createdAt = decryptResult.createdAt.takeIf { "created_at" in decryptResult.authenticatedFields },
+                deletedAt = decryptResult.deletedAt.takeIf { "deleted_at" in decryptResult.authenticatedFields },
+                externalIdsJson = decryptResult.externalIdsJson.takeIf { "external_ids" in decryptResult.authenticatedFields },
+                locationType = decryptResult.locationType.takeIf { "location_type" in decryptResult.authenticatedFields },
+                locationValue = decryptResult.locationValue.takeIf { "location_value" in decryptResult.authenticatedFields },
+                locationJson = decryptResult.locationJson.takeIf { "location" in decryptResult.authenticatedFields },
+            )
+        } else {
+            decryptResult.copy(
+                body = rewriteVisibleUrlsInText(decryptResult.body),
+                images = sanitizeImageCandidates(decryptResult.images),
+            )
+        }
         applyDecryptionOverrides(sanitized, normalizedDecryptResult)
+        inlineTitleCiphertext?.let { sanitized[RECOVERY_TITLE_CIPHERTEXT] = it }
+        inlineBodyCiphertext?.let { sanitized[RECOVERY_BODY_CIPHERTEXT] = it }
         sanitizeIngressPayload(sanitized)
-        val providerAckIdentity = ProviderAckIdentity.fromDirectPayload(sanitized)
+        val providerAckIdentity = if (securityDisposition.allowsSuccessfulAck) {
+            ProviderAckIdentity.fromDirectPayload(sanitized)
+        } else {
+            null
+        }
         val channel = sanitized["channel_id"]?.trim()?.takeIf { it.isNotEmpty() }
         val url = sanitized["url"]?.let(::normalizeExternalOpenUrl)
         val serverId = sanitized["server_id"]
@@ -178,13 +272,15 @@ object NotificationIngressParser {
                 message = pushMessage,
                 level = level,
                 imageUrl = imageUrls.firstOrNull(),
-                shouldNotify = shouldNotifyEntity(
-                    entityType = entityType,
-                    level = level,
-                    data = sanitized,
-                    isExpired = isExpired,
-                ),
+                shouldNotify = securityDisposition.allowsNotification &&
+                    shouldNotifyEntity(
+                        entityType = entityType,
+                        level = level,
+                        data = sanitized,
+                        isExpired = isExpired,
+                    ),
                 providerAckIdentity = providerAckIdentity,
+                securityDisposition = securityDisposition,
             )
         }
 
@@ -243,14 +339,16 @@ object NotificationIngressParser {
             level = level,
             notificationTitle = title,
             notificationBody = body,
-            shouldNotify = shouldNotifyEntity(
-                entityType = entityType,
-                level = level,
-                data = sanitized,
-                isExpired = isExpired,
-            ),
+            shouldNotify = securityDisposition.allowsNotification &&
+                shouldNotifyEntity(
+                    entityType = entityType,
+                    level = level,
+                    data = sanitized,
+                    isExpired = isExpired,
+                ),
             hasExplicitTitle = explicitTitle.trim().isNotEmpty(),
             providerAckIdentity = providerAckIdentity,
+            securityDisposition = securityDisposition,
         )
     }
 

@@ -1,9 +1,11 @@
 package io.ethan.pushgo.util
 
+import android.app.Activity
 import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
 import androidx.core.net.toUri
+import java.net.Inet4Address
 import java.net.Inet6Address
 import java.net.InetAddress
 import java.net.URI
@@ -13,7 +15,9 @@ fun Context.openExternalUrl(raw: String): Boolean {
     val target = normalizeExternalOpenUrl(raw) ?: return false
     val intent = Intent(Intent.ACTION_VIEW, target.toUri())
         .addCategory(Intent.CATEGORY_BROWSABLE)
-        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+    if (this !is Activity) {
+        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+    }
     return runCatching { startActivity(intent) }
         .map { true }
         .getOrElse { error ->
@@ -208,8 +212,9 @@ private fun isBlockedRemoteHost(host: String): Boolean {
     // Only treat host as IPv6 literal when every character matches literal grammar.
     if (normalized.all { it.isDigit() || it.lowercaseChar() in 'a'..'f' || it == ':' || it == '.' }) {
         val numericAddress = runCatching { InetAddress.getByName(normalized) }.getOrNull()
-        if (numericAddress is Inet6Address) {
-            return isBlockedIpv6(numericAddress.address ?: return true)
+        when (numericAddress) {
+            is Inet4Address -> return isBlockedIpv4(numericAddress.address ?: return true)
+            is Inet6Address -> return isBlockedIpv6(numericAddress.address ?: return true)
         }
     }
     return false

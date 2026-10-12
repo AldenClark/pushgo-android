@@ -61,6 +61,7 @@ if [[ "$installed_ndk_version" != "$NDK_VERSION" ]]; then
   echo "Android NDK version mismatch: expected=$NDK_VERSION actual=$installed_ndk_version" >&2
   exit 1
 fi
+export ANDROID_NDK_ROOT="$ANDROID_NDK_HOME"
 llvm_prebuilt_dir="$(find "$ANDROID_NDK_HOME/toolchains/llvm/prebuilt" -mindepth 1 -maxdepth 1 -type d | head -1)"
 LLVM_NM="$llvm_prebuilt_dir/bin/llvm-nm"
 LLVM_READELF="$llvm_prebuilt_dir/bin/llvm-readelf"

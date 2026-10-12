@@ -18,19 +18,20 @@ import kotlinx.coroutines.withContext
 class UpdateManager(
     context: Context,
     private val settingsRepository: SettingsRepository,
+    private val feedFetcher: suspend () -> UpdateFeedPayload =
+        UpdateFeedClient(context.applicationContext)::fetchFeed,
 ) {
     companion object {
         private const val TAG = "UpdateManager"
     }
     private val appContext = context.applicationContext
-    private val feedClient = UpdateFeedClient(appContext)
     private val policyEngine = UpdatePolicyEngine(appContext)
     private val installer = UpdateInstaller(appContext)
 
     suspend fun evaluate(manual: Boolean): UpdateEvaluation = withContext(Dispatchers.IO) {
         val nowEpochMs = System.currentTimeMillis()
         return@withContext runCatching {
-            val feed = feedClient.fetchFeed()
+            val feed = feedFetcher()
             settingsRepository.setUpdateLastCheckAt(nowEpochMs)
             settingsRepository.setCachedUpdatePolicyIntervals(
                 scheduledCheckIntervalSeconds = feed.policy.scheduledCheckIntervalSeconds,

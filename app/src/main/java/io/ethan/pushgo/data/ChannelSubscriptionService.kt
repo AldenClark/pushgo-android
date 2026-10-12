@@ -51,6 +51,7 @@ data class ChannelSyncSummary(
     val success: Int,
     val failed: Int,
     val channels: List<ChannelSyncResult>,
+    val route: DeviceRouteSnapshot? = null,
 )
 
 data class DeviceChannelUpsertResult(
@@ -59,7 +60,38 @@ data class DeviceChannelUpsertResult(
 
 data class DeviceRegisterResult(
     val deviceKey: String,
+    val route: DeviceRouteSnapshot? = null,
 )
+
+/** Route information is optional on legacy gateways; malformed new data must not change local mode. */
+internal fun parseDeviceRouteSnapshot(
+    data: JSONObject,
+    gatewayUrl: String,
+    fallbackDeviceKey: String? = null,
+): DeviceRouteSnapshot? {
+    val route = data.optJSONObject("route") ?: return null
+    val deviceKey = data.optString("device_key", "").trim()
+        .ifEmpty { fallbackDeviceKey?.trim().orEmpty() }
+    val channelType = route.optString("channel_type", "").trim().lowercase()
+    val revision = route.optLong("route_revision", -1L)
+    if (deviceKey.isEmpty() || channelType !in setOf("private", "fcm") || revision < 0L ||
+        !route.has("provider_token_present") || route.isNull("provider_token_present")
+    ) {
+        throw ChannelSubscriptionException.local(
+            message = "Gateway returned invalid device route",
+            code = "gateway_invalid_device_route",
+            category = GatewayErrorCategory.INTERNAL,
+        )
+    }
+    return DeviceRouteSnapshot(
+        gatewayUrl = gatewayUrl.trim().removeSuffix("/"),
+        deviceKey = deviceKey,
+        channelType = channelType,
+        routeRevision = revision,
+        providerTokenPresent = route.optBoolean("provider_token_present", false),
+        issuedNewKey = data.optBoolean("issued_new_key", false),
+    )
+}
 
 data class PullItem(
     val deliveryId: String,
@@ -318,7 +350,10 @@ class ChannelSubscriptionService(
                 category = GatewayErrorCategory.INTERNAL,
             )
         }
-        DeviceRegisterResult(deviceKey = resolved)
+        DeviceRegisterResult(
+            deviceKey = resolved,
+            route = data?.let { parseDeviceRouteSnapshot(it, baseUrl) },
+        )
     }
 
     suspend fun upsertDeviceChannel(
@@ -626,6 +661,7 @@ class ChannelSubscriptionService(
             success = data.optInt("success", 0),
             failed = data.optInt("failed", 0),
             channels = parsedChannels,
+            route = parseDeviceRouteSnapshot(data, baseUrl, deviceKey),
         )
     }
 

@@ -1,5 +1,6 @@
 package io.ethan.pushgo.ui.screens
 
+import android.content.ClipData
 import android.content.Intent
 import android.content.Context
 import android.net.Uri
@@ -60,6 +61,8 @@ import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.text
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -77,6 +80,7 @@ import io.ethan.pushgo.data.MessageImageStore
 import io.ethan.pushgo.data.MessageRepository
 import io.ethan.pushgo.data.PendingLocalDeletionOperation
 import io.ethan.pushgo.data.model.PushMessage
+import io.ethan.pushgo.data.model.DecryptionState
 import io.ethan.pushgo.data.model.MessageSeverity
 import io.ethan.pushgo.markdown.MessageBodyResolver
 import io.ethan.pushgo.notifications.MessageStateCoordinator
@@ -117,6 +121,7 @@ fun MessageDetailScreen(
     channelRepository: ChannelSubscriptionRepository,
     imageStore: MessageImageStore,
     onDismiss: () -> Unit,
+    onConfigureDecryption: (() -> Unit)? = null,
 ) {
     val uiColors = PushGoThemeExtras.colors
     val initialRenderStartedAtMs = remember(messageId) { SystemClock.elapsedRealtime() }
@@ -134,6 +139,7 @@ fun MessageDetailScreen(
     val context = LocalContext.current
     val clipboard = LocalClipboard.current
     val copiedMessage = stringResource(R.string.message_text_copied)
+    val copyFailedMessage = stringResource(R.string.error_request_failed)
     val imageSavedMessage = stringResource(R.string.message_image_saved)
     val imageSaveFailedMessage = stringResource(R.string.error_message_image_save_failed)
     val imageShareFailedMessage = stringResource(R.string.error_message_image_share_failed)
@@ -221,6 +227,7 @@ fun MessageDetailScreen(
                     channelDisplayName = channelDisplayName,
                     resolvedBodyText = resolvedBodyText,
                     bottomGestureInset = bottomGestureInset,
+                    onConfigureDecryption = onConfigureDecryption,
                     onDelete = {
                         val targetMessage = current
                         scope.launch {
@@ -252,10 +259,17 @@ fun MessageDetailScreen(
                         val trimmed = text.trim()
                         if (trimmed.isEmpty()) return@MessageDetailCoreContent
                         scope.launch {
-                            clipboard.setText(AnnotatedString(trimmed))
+                            val feedback = runCatching {
+                                clipboard.setText(AnnotatedString(trimmed))
+                            }.fold(
+                                onSuccess = { copiedMessage },
+                                onFailure = { copyFailedMessage },
+                            )
+                            withContext(Dispatchers.Main.immediate) {
+                                Toast.makeText(context, feedback, Toast.LENGTH_SHORT).show()
+                                announceForAccessibility(context, feedback)
+                            }
                         }
-                        Toast.makeText(context, copiedMessage, Toast.LENGTH_SHORT).show()
-                        announceForAccessibility(context, copiedMessage)
                     },
                     onOpenImage = { model ->
                         when (model) {
@@ -327,8 +341,10 @@ fun MessageDetailScreen(
                         imageStore = imageStore,
                     )
                     val messageText = if (saved) imageSavedMessage else imageSaveFailedMessage
-                    Toast.makeText(context, messageText, Toast.LENGTH_SHORT).show()
-                    announceForAccessibility(context, messageText)
+                    withContext(Dispatchers.Main.immediate) {
+                        Toast.makeText(context, messageText, Toast.LENGTH_SHORT).show()
+                        announceForAccessibility(context, messageText)
+                    }
                 }
             },
             onShareImage = {
@@ -340,8 +356,10 @@ fun MessageDetailScreen(
                         imageStore = imageStore,
                     )
                     if (!shared) {
-                        Toast.makeText(context, imageShareFailedMessage, Toast.LENGTH_SHORT).show()
-                        announceForAccessibility(context, imageShareFailedMessage)
+                        withContext(Dispatchers.Main.immediate) {
+                            Toast.makeText(context, imageShareFailedMessage, Toast.LENGTH_SHORT).show()
+                            announceForAccessibility(context, imageShareFailedMessage)
+                        }
                     }
                 }
             },
@@ -358,6 +376,7 @@ internal fun MessageDetailCoreContent(
     channelDisplayName: String?,
     resolvedBodyText: String,
     bottomGestureInset: Dp,
+    onConfigureDecryption: (() -> Unit)? = null,
     onDelete: (() -> Unit)?,
     onCopyText: (String) -> Unit,
     onOpenImage: (Any) -> Unit,
@@ -384,6 +403,7 @@ internal fun MessageDetailCoreContent(
 
     Column(
         modifier = Modifier
+            .testTag("message.detail.scroll")
             .verticalScroll(detailScrollState)
             .padding(horizontal = 12.dp)
             .padding(top = 12.dp)
@@ -401,7 +421,9 @@ internal fun MessageDetailCoreContent(
                 SelectablePlainTextRenderer(
                     text = message.title,
                     modifier = Modifier
-                        .weight(1f),
+                        .weight(1f)
+                        .testTag("field.message.detail.title")
+                        .semantics { this.text = AnnotatedString(message.title) },
                     typeface = remember { android.graphics.Typeface.create("sans-serif", android.graphics.Typeface.BOLD) },
                     textSizeSp = MaterialTheme.typography.headlineSmall.fontSize.value,
                     textColorArgb = uiColors.textPrimary.toArgb(),
@@ -446,7 +468,13 @@ internal fun MessageDetailCoreContent(
                                 PushGoChannelMetaChip(channelDisplayName = displayName)
                             }
                             message.decryptionState?.let { state ->
-                                PushGoDecryptionMetaChip(decryptionState = state)
+                                Box(
+                                    modifier = Modifier.testTag(
+                                        "status.message.decryption.${state.name.lowercase()}"
+                                    )
+                                ) {
+                                    PushGoDecryptionMetaChip(decryptionState = state)
+                                }
                             }
                         }
                     }
@@ -492,6 +520,7 @@ internal fun MessageDetailCoreContent(
                     },
                     onClickLabel = stringResource(R.string.a11y_action_open_image_preview),
                     modifier = Modifier
+                        .testTag("message.image.0")
                         .fillMaxWidth()
                         .heightIn(min = 180.dp, max = 360.dp)
                         .aspectRatio(reservedAspectRatio)
@@ -544,9 +573,31 @@ internal fun MessageDetailCoreContent(
             CriticalSeverityHintCard()
         }
 
+        if (message.decryptionState != null &&
+            message.decryptionState != DecryptionState.DECRYPT_OK &&
+            onConfigureDecryption != null
+        ) {
+            Button(
+                onClick = onConfigureDecryption,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(48.dp)
+                    .testTag("action.message.configure_decryption"),
+                shape = RoundedCornerShape(12.dp),
+            ) {
+                Text(
+                    text = stringResource(R.string.section_decryption),
+                    style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold),
+                )
+            }
+        }
+
         FullMarkdownRenderer(
             text = resolvedBodyText,
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .testTag("field.message.detail.body")
+                .semantics { this.text = AnnotatedString(resolvedBodyText) },
             onOpenLink = onOpenUrl,
             onOpenImage = { imageUrl ->
                 activeAnimatedImageKey = null
@@ -789,6 +840,7 @@ private suspend fun shareMessageImage(
         val intent = Intent(Intent.ACTION_SEND).apply {
             type = inferMimeType(copied.name)
             putExtra(Intent.EXTRA_STREAM, uri)
+            clipData = ClipData.newUri(context.contentResolver, copied.name, uri)
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         }

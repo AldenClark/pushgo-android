@@ -135,8 +135,9 @@ fun MessageDecryptionScreen(
             DecryptionKeyForm(
                 viewModel = viewModel,
                 onSave = {
-                    viewModel.saveDecryptionConfig()
-                    navController.popBackStack()
+                    viewModel.saveDecryptionConfig {
+                        navController.popBackStack()
+                    }
                 },
                 fillRemaining = true,
                 modifier = Modifier.fillMaxWidth(),
@@ -152,6 +153,7 @@ fun DecryptionKeyForm(
     modifier: Modifier = Modifier,
     fillRemaining: Boolean,
 ) {
+    val context = LocalContext.current
     val uiColors = PushGoThemeExtras.colors
     var showKey by remember { mutableStateOf(false) }
     val visibilityStateLabel = toggleStateDescription(showKey)
@@ -223,12 +225,35 @@ fun DecryptionKeyForm(
             colors = pushGoOutlinedTextFieldColors()
         )
 
+        viewModel.decryptionErrorMessage?.let { message ->
+            Text(
+                text = message.resolve(context),
+                style = MaterialTheme.typography.bodySmall,
+                color = uiColors.stateDanger.foreground,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("feedback.settings.decryption"),
+            )
+        }
+
         Text(
             text = stringResource(R.string.label_decryption_hint),
             style = MaterialTheme.typography.bodySmall,
             color = uiColors.textSecondary,
             modifier = Modifier.fillMaxWidth(),
         )
+
+        if (viewModel.isDecryptionConfigured) {
+            PushGoDestructiveTextButton(
+                text = stringResource(R.string.action_delete),
+                onClick = {
+                    viewModel.updateDecryptionKeyInput("")
+                    onSave()
+                },
+                enabled = !viewModel.isSavingDecryption,
+                modifier = Modifier.testTag("action.settings.decryption.clear"),
+            )
+        }
 
         if (fillRemaining) {
             Spacer(modifier = Modifier.weight(1f))

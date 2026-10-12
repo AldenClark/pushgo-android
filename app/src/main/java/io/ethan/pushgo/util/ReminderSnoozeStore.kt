@@ -2,6 +2,8 @@ package io.ethan.pushgo.util
 
 import android.content.Context
 import androidx.core.content.edit
+import io.ethan.pushgo.BuildConfig
+import io.ethan.pushgo.testing.QualityRuntime
 import java.util.concurrent.TimeUnit
 
 private const val REMINDER_SNOOZE_PREFS = "pushgo_reminder_snooze"
@@ -20,13 +22,20 @@ fun Context.snoozeDozeReminderForOneMonth(nowMs: Long = System.currentTimeMillis
 }
 
 private fun Context.getReminderSnoozeUntilMs(key: String): Long {
-    return getSharedPreferences(REMINDER_SNOOZE_PREFS, Context.MODE_PRIVATE)
+    return getSharedPreferences(reminderSnoozePreferencesName(), Context.MODE_PRIVATE)
         .getLong(key, 0L)
 }
 
 private fun Context.setReminderSnoozeUntilMs(key: String, untilMs: Long) {
-    getSharedPreferences(REMINDER_SNOOZE_PREFS, Context.MODE_PRIVATE)
+    getSharedPreferences(reminderSnoozePreferencesName(), Context.MODE_PRIVATE)
         .edit {
             putLong(key, untilMs)
         }
+}
+
+private fun reminderSnoozePreferencesName(): String {
+    if (BuildConfig.QUALITY_SESSION_CONTROL_ENABLED) {
+        QualityRuntime.currentSession()?.let { return it.reminderSnoozePreferencesName }
+    }
+    return REMINDER_SNOOZE_PREFS
 }

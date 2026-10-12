@@ -25,7 +25,7 @@ interface PendingLocalDeletionRepository {
         undoWindowMillis: Long,
     ): PendingLocalDeletionRecord
 
-    suspend fun cancelPending(id: Long): Boolean
+    suspend fun cancelPending(id: Long, nowEpochMillis: Long): Boolean
 
     suspend fun claim(
         id: Long,
@@ -80,7 +80,8 @@ class RoomPendingLocalDeletionRepository(
         entity.copy(id = dao.insert(entity)).toRecord()
     }
 
-    override suspend fun cancelPending(id: Long): Boolean = dao.cancelPending(id) == 1
+    override suspend fun cancelPending(id: Long, nowEpochMillis: Long): Boolean =
+        dao.cancelPending(id, nowEpochMillis) == 1
 
     override suspend fun claim(
         id: Long,
@@ -163,9 +164,11 @@ class InMemoryPendingLocalDeletionRepository : PendingLocalDeletionRepository {
         record
     }
 
-    override suspend fun cancelPending(id: Long): Boolean = mutex.withLock {
+    override suspend fun cancelPending(id: Long, nowEpochMillis: Long): Boolean = mutex.withLock {
         val current = rows.value.firstOrNull { it.id == id } ?: return@withLock false
-        if (!current.isUndoable) return@withLock false
+        if (!current.isUndoable || current.undoDeadlineEpochMillis <= nowEpochMillis) {
+            return@withLock false
+        }
         rows.value = rows.value.filterNot { it.id == id }
         true
     }

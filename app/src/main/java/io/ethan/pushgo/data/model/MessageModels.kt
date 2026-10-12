@@ -151,9 +151,11 @@ data class PushMessage(
     }
 
     private fun decodeTags(payload: Map<String, Any?>?): List<String> {
-        val raw = (payload?.get("tags") as? String)?.trim().orEmpty()
-        if (raw.isEmpty()) return emptyList()
-        val arrayValue = JsonCompat.parseArray(raw) ?: return emptyList()
+        val arrayValue = when (val raw = payload?.get("tags")) {
+            is String -> JsonCompat.parseArray(raw.trim())
+            is List<*> -> raw
+            else -> null
+        } ?: return emptyList()
         val tags = linkedSetOf<String>()
         for (entry in arrayValue) {
             val value = entry?.toString()?.trim().orEmpty()

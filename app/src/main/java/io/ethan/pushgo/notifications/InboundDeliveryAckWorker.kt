@@ -12,6 +12,7 @@ import androidx.work.WorkerParameters
 import androidx.work.NetworkType
 import androidx.work.workDataOf
 import io.ethan.pushgo.PushGoApp
+import io.ethan.pushgo.testing.QualityRuntime
 import java.util.concurrent.TimeUnit
 
 class InboundDeliveryAckWorker(
@@ -19,6 +20,7 @@ class InboundDeliveryAckWorker(
     params: WorkerParameters,
 ) : CoroutineWorker(appContext, params) {
     override suspend fun doWork(): Result {
+        if (QualityRuntime.currentSession() != null) return Result.success()
         val app = applicationContext as? PushGoApp ?: return Result.retry()
         val container = app.containerOrNull() ?: return Result.retry()
 

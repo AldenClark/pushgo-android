@@ -8,6 +8,7 @@ import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import io.ethan.pushgo.PushGoApp
+import io.ethan.pushgo.testing.QualityRuntime
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.CancellationException
@@ -31,18 +32,24 @@ class WorkManagerPendingLocalDeletionDrainScheduler(
     }
 
     override fun scheduleImmediate() {
-        enqueue(delayMillis = 0L, force = true)
+        enqueue(delayMillis = 0L, force = true, backgroundRevision = null)
+    }
+
+    override fun scheduleImmediateForInteraction(revision: Long) {
+        enqueue(delayMillis = 0L, force = true, backgroundRevision = revision)
     }
 
     override fun scheduleAt(epochMillis: Long) {
-        enqueue(delayMillis = (epochMillis - clock()).coerceAtLeast(0L), force = false)
+        enqueue(delayMillis = (epochMillis - clock()).coerceAtLeast(0L), force = false, backgroundRevision = null)
     }
 
-    private fun enqueue(delayMillis: Long, force: Boolean) {
+    private fun enqueue(delayMillis: Long, force: Boolean, backgroundRevision: Long?) {
+        val input = Data.Builder().putBoolean(KEY_FORCE, force)
+        backgroundRevision?.let { input.putLong(KEY_BACKGROUND_REVISION, it) }
         val request = OneTimeWorkRequestBuilder<PendingLocalDeletionDrainWorker>()
             .addTag(WORK_TAG)
             .setInitialDelay(delayMillis, TimeUnit.MILLISECONDS)
-            .setInputData(Data.Builder().putBoolean(KEY_FORCE, force).build())
+            .setInputData(input.build())
             .build()
         // Room is the source of truth and claims are atomic, so duplicate wakeups are
         // harmless. Do not use unique REPLACE work here: a running worker can discover
@@ -54,6 +61,7 @@ class WorkManagerPendingLocalDeletionDrainScheduler(
         const val WORK_TAG = "pending-local-deletion-drain"
         const val SAFETY_NET_WORK_NAME = "pending-local-deletion-drain-safety-net"
         const val KEY_FORCE = "force"
+        const val KEY_BACKGROUND_REVISION = "background_revision"
         const val SAFETY_NET_INTERVAL_MINUTES = 15L
     }
 }
@@ -63,12 +71,23 @@ class PendingLocalDeletionDrainWorker(
     params: WorkerParameters,
 ) : CoroutineWorker(appContext, params) {
     override suspend fun doWork(): Result {
+        if (QualityRuntime.currentSession() != null) return Result.success()
         activeWorkers.incrementAndGet()
         return try {
             val app = applicationContext as? PushGoApp ?: return Result.retry()
             val container = app.containerOrNull() ?: return Result.retry()
             container.pendingLocalDeletionCoordinator.drainRecoverable(
-                force = inputData.getBoolean(WorkManagerPendingLocalDeletionDrainScheduler.KEY_FORCE, false)
+                force = inputData.getBoolean(WorkManagerPendingLocalDeletionDrainScheduler.KEY_FORCE, false),
+                expectedBackgroundRevision = if (
+                    inputData.hasKeyWithValueOfType(
+                        WorkManagerPendingLocalDeletionDrainScheduler.KEY_BACKGROUND_REVISION,
+                        Long::class.javaObjectType,
+                    )
+                ) {
+                    inputData.getLong(WorkManagerPendingLocalDeletionDrainScheduler.KEY_BACKGROUND_REVISION, 0L)
+                } else {
+                    null
+                },
             )
             // The coordinator registers the exact next due time; periodic work remains as the
             // durable fallback if an enqueue commit races process death.

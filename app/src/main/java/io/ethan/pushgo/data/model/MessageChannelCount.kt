@@ -8,4 +8,6 @@ data class MessageChannelCount(
     val totalCount: Int,
     @ColumnInfo(name = "unread_count")
     val unreadCount: Int,
+    @ColumnInfo(name = "latest_received_at")
+    val latestReceivedAt: Long?,
 )

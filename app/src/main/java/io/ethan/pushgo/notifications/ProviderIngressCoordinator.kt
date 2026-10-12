@@ -14,6 +14,7 @@ import io.ethan.pushgo.data.PullItem
 import io.ethan.pushgo.data.SettingsRepository
 import io.ethan.pushgo.data.model.PushMessage
 import io.ethan.pushgo.data.db.LegacyProviderIngressEntity
+import io.ethan.pushgo.testing.QualityRuntime
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import org.json.JSONObject
@@ -27,6 +28,7 @@ object ProviderIngressCoordinator {
         inboundDeliveryLedgerRepository: InboundDeliveryLedgerRepository,
         settingsRepository: SettingsRepository,
         deliveryId: String? = null,
+        reason: String = "unspecified",
         beforeMessageNotify: suspend (PushMessage, String?) -> Unit = { _, _ -> },
     ): Int {
         return try {
@@ -38,6 +40,7 @@ object ProviderIngressCoordinator {
                 inboundDeliveryLedgerRepository = inboundDeliveryLedgerRepository,
                 settingsRepository = settingsRepository,
                 deliveryId = deliveryId,
+                reason = reason,
                 beforeMessageNotify = beforeMessageNotify,
             )
         } finally {
@@ -69,6 +72,7 @@ object ProviderIngressCoordinator {
         inboundDeliveryLedgerRepository: InboundDeliveryLedgerRepository,
         settingsRepository: SettingsRepository,
         deliveryId: String? = null,
+        reason: String = "unspecified",
         beforeMessageNotify: suspend (PushMessage, String?) -> Unit = { _, _ -> },
     ): Int = ingressMutex.withLock {
         runCatching {
@@ -90,7 +94,14 @@ object ProviderIngressCoordinator {
         var hadPersistenceFailure = false
         val persistedCount = consumeProviderPullPages(
             requestedDeliveryId = deliveryId,
-            pullPage = { channelRepository.pullMessages(deliveryId) },
+            pullPage = {
+                if (reason == "messages_pull_to_refresh") {
+                    QualityRuntime.takeMessageRefreshPullOverride()?.getOrThrow()
+                        ?: channelRepository.pullMessages(deliveryId)
+                } else {
+                    channelRepository.pullMessages(deliveryId)
+                }
+            },
         ) { page ->
             val destination = page.destination
                 ?: error("provider pull page missing ACK destination")
@@ -150,7 +161,7 @@ object ProviderIngressCoordinator {
                     inbound = parsed,
                     beforeMessageNotify = beforeMessageNotify,
                 )
-                if (outcome.status != InboundPersistenceStatus.FAILED) {
+                if (outcome.isCanonicalPersistenceComplete()) {
                     pagePersisted += 1
                 } else {
                     pageHadPersistenceFailure = true
@@ -229,7 +240,7 @@ object ProviderIngressCoordinator {
                     inbound = parsed,
                     beforeMessageNotify = beforeMessageNotify,
                 )
-                if (outcome.status == InboundPersistenceStatus.FAILED) {
+                if (!shouldCompleteLegacyPull(parsed, outcome)) {
                     hadFailure = true
                 } else {
                     // Legacy Pull already removed the server row. Commit the local terminal
@@ -407,8 +418,28 @@ internal fun PullItem.authoritativePayload(): Map<String, String> =
 internal fun InboundPersistenceRequest.withProviderAckIdentity(
     identity: ProviderAckIdentity,
 ): InboundPersistenceRequest = when (this) {
-    is InboundPersistenceRequest.Message -> copy(providerAckIdentity = identity)
-    is InboundPersistenceRequest.Entity -> copy(providerAckIdentity = identity)
+    is InboundPersistenceRequest.Message -> copy(
+        providerAckIdentity = identity.takeIf { securityDisposition.allowsSuccessfulAck },
+    )
+    is InboundPersistenceRequest.Entity -> copy(
+        providerAckIdentity = identity.takeIf { securityDisposition.allowsSuccessfulAck },
+    )
 }
+
+internal fun shouldCompleteLegacyPull(
+    inbound: InboundPersistenceRequest,
+    outcome: InboundPersistenceOutcome,
+): Boolean {
+    val allowsSuccessfulAck = when (inbound) {
+        is InboundPersistenceRequest.Message -> inbound.securityDisposition.allowsSuccessfulAck
+        is InboundPersistenceRequest.Entity -> inbound.securityDisposition.allowsSuccessfulAck
+    }
+    return outcome.status != InboundPersistenceStatus.FAILED &&
+        outcome.shouldAck &&
+        allowsSuccessfulAck
+}
+
+internal fun InboundPersistenceOutcome.isCanonicalPersistenceComplete(): Boolean =
+    status != InboundPersistenceStatus.FAILED && status != InboundPersistenceStatus.REJECTED
 
 private const val MAX_PROVIDER_PULL_PAGES_PER_RUN = 1_000

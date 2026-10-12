@@ -1,0 +1,125 @@
+{
+  "frozen_source": "46191eaa61e9ba4ce1a3042108d33819f4ee95a6",
+  "receipt": {
+    "schema_version": 2,
+    "recorded_at": "2026-09-30T19:59:22.332366+00:00",
+    "source_revision": "46191eaa61e9ba4ce1a3042108d33819f4ee95a6",
+    "source_dirty": false,
+    "run_identity": null,
+    "platform": "android",
+    "lane": "planned-device",
+    "product_capability_status": "PASSED",
+    "test_system_status": "PASSED",
+    "selected_claims": [
+      "Android planned notification-permission host/system journey: io.ethan.pushgo.testing.QualityNotificationPermissionJourneyInstrumentedTest#enabledSystemDecisionRefreshesTheRealAppAndRemovesDisabledDeliveryState"
+    ],
+    "executed_claims": [
+      "Android planned notification-permission host/system journey: io.ethan.pushgo.testing.QualityNotificationPermissionJourneyInstrumentedTest#enabledSystemDecisionRefreshesTheRealAppAndRemovesDisabledDeliveryState"
+    ],
+    "incomplete_selected_claims": [],
+    "not_run": [
+      "real FCM/private delivery, reboot, production-distributed/OEM install policy, physical audio, and physical accessibility evidence",
+      "opt-in 100k production Room performance evidence",
+      "Release-like Macrobenchmark mechanics and physical-device performance evidence",
+      "controlled-emulator Doze, system notification, and Private Service journeys",
+      "physical/OEM notification, Doze, and Private Service behavior beyond the controlled-emulator system journeys"
+    ],
+    "test_system_issue_ids": [],
+    "waiver_id": null,
+    "reason": null,
+    "scope_notice": "PASSED applies only to executed_claims. Selected claims absent from executed_claims failed or were blocked; this is not whole-product coverage."
+  },
+  "device": {
+    "serial": "emulator-5554",
+    "api": "37",
+    "abi": "arm64-v8a",
+    "qemu": "1",
+    "device_inventory": "List of devices attached\nemulator-5554\tdevice"
+  },
+  "native_result": {
+    "selector": "io.ethan.pushgo.testing.QualityNotificationPermissionJourneyInstrumentedTest#enabledSystemDecisionRefreshesTheRealAppAndRemovesDisabledDeliveryState",
+    "executed": 1,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "status_codes": [
+      1,
+      0
+    ]
+  },
+  "original_failure": {
+    "ci": "https://github.com/AldenClark/pushgo-android/actions/runs/36764664032",
+    "head": "08d9155",
+    "host": "SUCCESS",
+    "device": "FAILURE",
+    "native_executed": 1,
+    "native_failed": 1,
+    "reason": "LazyColumn offscreen row was not composed; direct row performScrollTo could not resolve the node",
+    "original_receipts_retained": true
+  },
+  "change": "Test only: scroll screen.settings.content LazyColumn to the system notification row before the existing row scroll/click. All Settings target, real switch, return and banner assertions remain.",
+  "production_equality": {
+    "built_source": "909fd8e",
+    "checked_paths": [
+      "app/src/main",
+      "app/build.gradle.kts",
+      "gradle.properties",
+      "native/quinn-jni"
+    ],
+    "delta": [],
+    "notice": "Original unsigned APK source identity is preserved; equality is not a rebuild."
+  },
+  "stability_source_equality": {
+    "source": "d347472",
+    "checked_paths": [
+      "app/src/androidTest/java/io/ethan/pushgo/testing/QualityMessageJourneyInstrumentedTest.kt",
+      "app/src/androidTest/java/io/ethan/pushgo/testing/QualityEntityJourneyInstrumentedTest.kt",
+      "app/src/androidTest/java/io/ethan/pushgo/testing/QualityChannelJourneyInstrumentedTest.kt",
+      "app/src/androidTest/java/io/ethan/pushgo/testing/QualitySettingsJourneyInstrumentedTest.kt"
+    ],
+    "delta": []
+  },
+  "raw_artifacts": [
+    {
+      "path": "build/quality-results/android-permission-lazy-row-local-20261001/android-impact-plan.json",
+      "sha256": "f55425f858f38355165e0c0940ee3fb248368383042e019f73a70ac2e3e63edf",
+      "bytes": 3965
+    },
+    {
+      "path": "build/quality-results/android-permission-lazy-row-local-20261001/android-notification-permission/run.PE8dqR/exit-status.txt",
+      "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa",
+      "bytes": 2
+    },
+    {
+      "path": "build/quality-results/android-permission-lazy-row-local-20261001/android-notification-permission/run.PE8dqR/window.xml",
+      "sha256": "7c27b70f08918095d09c3e2ebff859a7ac34a6e6587141149cf6ffd5e7e302c4",
+      "bytes": 19824
+    },
+    {
+      "path": "build/quality-results/android-permission-lazy-row-local-20261001/android-planned-device-summary.json",
+      "sha256": "75ff02d5ccdc11e8883012a686da20ed4067cb6545ace6bb62286ccca3cea77e",
+      "bytes": 1577
+    },
+    {
+      "path": "build/quality-results/android-permission-lazy-row-local-20261001/device-before.json",
+      "sha256": "b781519e1e1db67521241ba757971c7462edd9776aaa69f44a36c20d1be60d2d",
+      "bytes": 157
+    },
+    {
+      "path": "build/quality-results/android-permission-lazy-row-local-20261001/focused-permission.log",
+      "sha256": "96472e8d7a68629c364268f8a2e8f530a342d9864f42ede851fa5f41210afdff",
+      "bytes": 7268
+    },
+    {
+      "path": "build/quality-results/android-permission-lazy-row-local-20261001/package-after-cleanup.txt",
+      "sha256": "4cffbb33f994d701fbe560c462a361a50bbc4c7f8306a753383a0a9e136664fa",
+      "bytes": 10801
+    }
+  ],
+  "review": "Root reviewed exact selector/status/receipt/source/hash; this is not independent review.",
+  "limits": [
+    "Focused controlled API37 ARM64 permission journey only; whole formal Release remains unproven.",
+    "No physical/OEM/external delivery/audio/signing/release/deployment acceptance.",
+    "Owned Emulator closed after successful original permission/session cleanup."
+  ]
+}

@@ -3,6 +3,7 @@ package io.ethan.pushgo.notifications
 import com.google.firebase.messaging.FirebaseMessagingService
 import com.google.firebase.messaging.RemoteMessage
 import io.ethan.pushgo.PushGoApp
+import io.ethan.pushgo.testing.QualityRuntime
 
 class PushGoMessagingService : FirebaseMessagingService() {
     companion object {
@@ -10,6 +11,7 @@ class PushGoMessagingService : FirebaseMessagingService() {
     }
 
     override fun onMessageReceived(message: RemoteMessage) {
+        if (QualityRuntime.currentSession() != null) return
         runCatching {
             InboundMessageWorker.enqueue(
                 context = applicationContext,
@@ -23,6 +25,7 @@ class PushGoMessagingService : FirebaseMessagingService() {
 
     @Deprecated("Firebase still dispatches FCM token refresh through this callback.")
     override fun onNewToken(token: String) {
+        if (QualityRuntime.currentSession() != null) return
         val app = application as PushGoApp
         app.handlePushTokenUpdate(token)
     }

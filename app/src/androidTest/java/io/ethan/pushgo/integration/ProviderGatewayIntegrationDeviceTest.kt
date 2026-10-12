@@ -172,6 +172,17 @@ class ProviderGatewayIntegrationDeviceTest {
         assertEquals(1, container.messageRepository.totalCount())
         assertEquals(1, container.entityRepository.eventCount())
         assertEquals(1, container.entityRepository.thingCount())
+        assertEquals(
+            0,
+            ProviderIngressCoordinator.pullPersistAndDrainAcks(
+                context = context,
+                channelRepository = container.channelRepository,
+                messageRepository = container.messageRepository,
+                entityRepository = container.entityRepository,
+                inboundDeliveryLedgerRepository = container.inboundDeliveryLedgerRepository,
+                settingsRepository = container.settingsRepository,
+            ),
+        )
         waitForPullQueueToDrain()
     }
 
@@ -265,6 +276,16 @@ class ProviderGatewayIntegrationDeviceTest {
         val deadline = System.currentTimeMillis() + 60_000L
         var latest = Triple(0, 0, 0)
         while (System.currentTimeMillis() < deadline) {
+            // A synthetic provider token deliberately has no live Firebase receiver.
+            // Pull through the production HTTP/ingress path to validate local persistence and ACK.
+            ProviderIngressCoordinator.pullPersistAndDrainAcks(
+                context = context,
+                channelRepository = container.channelRepository,
+                messageRepository = container.messageRepository,
+                entityRepository = container.entityRepository,
+                inboundDeliveryLedgerRepository = container.inboundDeliveryLedgerRepository,
+                settingsRepository = container.settingsRepository,
+            )
             latest = Triple(
                 container.messageRepository.totalCount(),
                 container.entityRepository.eventCount(),

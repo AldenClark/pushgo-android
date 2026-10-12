@@ -1,6 +1,5 @@
 package io.ethan.pushgo.testing
 
-import android.Manifest
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -18,13 +17,21 @@ import io.ethan.pushgo.data.db.MessageEntity
 import io.ethan.pushgo.data.db.MessageListRow
 import io.ethan.pushgo.data.db.PushGoDatabase
 import io.ethan.pushgo.data.model.MessageFilter
+import io.ethan.pushgo.data.model.DecryptionState
 import io.ethan.pushgo.data.model.MessageStatus
 import io.ethan.pushgo.data.model.PushMessage
 import io.ethan.pushgo.R
 import io.ethan.pushgo.notifications.MessageStateCoordinator
+import io.ethan.pushgo.notifications.EncryptedMessageRecoveryService
+import io.ethan.pushgo.notifications.InboundPersistenceRequest
+import io.ethan.pushgo.notifications.NotificationIngressParser
 import io.ethan.pushgo.ui.screens.buildThingCardsInternal
 import io.ethan.pushgo.ui.screens.thingMatchesSearch
 import java.time.Instant
+import java.util.Base64
+import javax.crypto.Cipher
+import javax.crypto.spec.GCMParameterSpec
+import javax.crypto.spec.SecretKeySpec
 import kotlin.math.min
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
@@ -61,6 +68,108 @@ class RuntimeDataLayerInstrumentedTest {
         database?.close()
         database = null
         cleanupDatabase()
+    }
+
+    @Test
+    fun encryptedRecoveryReparsesOriginalPayloadAndPreservesCanonicalIdentity() = runBlocking {
+        val db = openFreshDatabase().database
+        val messages = messageRepository(db)
+        val keyBytes = "QualityKey123456".toByteArray(Charsets.UTF_8)
+        val iv = ByteArray(12) { index -> index.toByte() }
+        val plaintext = JSONObject()
+            .put("title", "Recovered Quality Message")
+            .put("body", "Recovered from the original encrypted payload.")
+            .toString()
+        val cipher = Cipher.getInstance("AES/GCM/NoPadding")
+        cipher.init(
+            Cipher.ENCRYPT_MODE,
+            SecretKeySpec(keyBytes, "AES"),
+            GCMParameterSpec(128, iv),
+        )
+        val ciphertextAndTag = cipher.doFinal(plaintext.toByteArray(Charsets.UTF_8))
+        val envelope = ByteArray(ciphertextAndTag.size + iv.size)
+        System.arraycopy(ciphertextAndTag, 0, envelope, 0, ciphertextAndTag.size)
+        System.arraycopy(iv, 0, envelope, ciphertextAndTag.size, iv.size)
+        val encodedCiphertext = Base64.getEncoder().encodeToString(envelope)
+        val parsed = checkNotNull(
+            NotificationIngressParser.parse(
+                data = mapOf(
+                    "entity_type" to "message",
+                    "message_id" to "encrypted-recovery-core",
+                    "delivery_id" to "encrypted-recovery-core-delivery",
+                    "title" to "Encrypted Quality Message",
+                    "body" to "Configure decryption to read this message.",
+                    "ciphertext" to encodedCiphertext,
+                    "sent_at" to "2026-01-15T08:00:00Z",
+                ),
+                transportMessageId = "encrypted-recovery-core-notification",
+                keyBytes = null,
+            ) as? InboundPersistenceRequest.Message
+        )
+        val original = parsed.message.copy(
+            id = "encrypted-recovery-local-id",
+            isRead = true,
+        )
+        assertTrue(messages.insertIncoming(original))
+        val persistedBeforeRecovery = checkNotNull(messages.getById(original.id))
+        assertEquals(DecryptionState.NOT_CONFIGURED, persistedBeforeRecovery.decryptionState)
+
+        val safeLocalMessageId = original.id.replace("'", "''")
+        db.openHelper.writableDatabase.execSQL(
+            """
+            CREATE TRIGGER fail_quality_recovery_derived_write
+            BEFORE INSERT ON message_metadata_index
+            WHEN NEW.message_id = '$safeLocalMessageId'
+              AND NEW.key_name = 'search_text'
+            BEGIN SELECT RAISE(ABORT, 'injected recovery derived index failure'); END
+            """.trimIndent()
+        )
+
+        val failedReport = EncryptedMessageRecoveryService(messages).recover(
+            ByteArray(16) { 0x5A.toByte() },
+        )
+        val failed = checkNotNull(messages.getById(original.id))
+        assertEquals(1, failedReport.examinedCount)
+        assertEquals(1, failedReport.updatedCount)
+        assertEquals(0, failedReport.decryptedCount)
+        assertEquals(original.id, failed.id)
+        assertEquals(original.messageId, failed.messageId)
+        assertTrue(failed.isRead)
+        assertEquals(persistedBeforeRecovery.receivedAt, failed.receivedAt)
+        assertEquals(NotificationIngressParser.AUTHENTICATION_FAILED_TITLE, failed.title)
+        assertEquals(NotificationIngressParser.AUTHENTICATION_FAILED_BODY, failed.body)
+        assertEquals(DecryptionState.DECRYPT_FAILED, failed.decryptionState)
+        assertEquals(encodedCiphertext, JSONObject(failed.rawPayloadJson).getString("ciphertext"))
+        db.openHelper.readableDatabase.query(
+            "SELECT status, cursor_local_message_id, last_error " +
+                "FROM message_derived_state WHERE component = 'message_metadata_index'"
+        ).use { cursor ->
+            assertTrue(cursor.moveToFirst())
+            assertEquals("stale", cursor.getString(0))
+            assertEquals(original.id, cursor.getString(1))
+            assertTrue(cursor.getString(2).contains("injected recovery derived index failure"))
+        }
+
+        db.openHelper.writableDatabase.execSQL(
+            "DROP TRIGGER fail_quality_recovery_derived_write"
+        )
+        messages.backfillTagMetadataIndexIfNeeded(context)
+
+        val report = EncryptedMessageRecoveryService(messages).recover(keyBytes)
+        val recovered = checkNotNull(messages.getById(original.id))
+
+        assertEquals(1, report.examinedCount)
+        assertEquals(1, report.updatedCount)
+        assertEquals(1, report.decryptedCount)
+        assertEquals(original.id, recovered.id)
+        assertEquals(original.messageId, recovered.messageId)
+        assertTrue(recovered.isRead)
+        assertEquals(persistedBeforeRecovery.receivedAt, recovered.receivedAt)
+        assertEquals(original.notificationId, recovered.notificationId)
+        assertEquals("Recovered Quality Message", recovered.title)
+        assertEquals("Recovered from the original encrypted payload.", recovered.body)
+        assertEquals(DecryptionState.DECRYPT_OK, recovered.decryptionState)
+        assertEquals(encodedCiphertext, JSONObject(recovered.rawPayloadJson).getString("ciphertext"))
     }
 
     @Test
@@ -291,6 +400,342 @@ class RuntimeDataLayerInstrumentedTest {
         val ftsMatches = messages.searchMessagesSnapshot("runtime", unreadOnly = false, limit = 20)
         assertTrue(ftsMatches.isNotEmpty())
         assertEquals(1, ftsCount(db, "TaskUnique*"))
+    }
+
+    @Test
+    fun canonicalBatchWriteFailureRollsBackRowsCountsAndDeliveryClaimsAcrossReopen() = runBlocking {
+        // Purpose: a storage-side failure after one canonical batch row has
+        // been written must be explicit and atomic, including delivery claims.
+        // Real Room/SQLite and reopen are required; a JVM mock cannot prove
+        // transaction/WAL durability. Three messages keep this below the cost
+        // of a UI journey (expected native runtime: a few seconds).
+        val db = openFreshDatabase().database
+        val messages = messageRepository(db)
+        val sentinel = generatedMessage(
+            index = 9_101,
+            messageId = "canonical-write-sentinel",
+            title = "Canonical write sentinel",
+            body = "The existing message survives a failed batch.",
+            isRead = false,
+        )
+        assertTrue(messages.insertIncoming(sentinel))
+        val batch = listOf(
+            generatedMessage(
+                index = 9_102,
+                messageId = "canonical-batch-first",
+                title = "Canonical batch first",
+                body = "The first attempted row must roll back.",
+                isRead = false,
+            ),
+            generatedMessage(
+                index = 9_103,
+                messageId = "canonical-batch-second",
+                title = "Canonical batch second",
+                body = "The rejected row must not become partial data.",
+                isRead = true,
+            ),
+        )
+        val originalRevision = messages.currentStoreRevision()
+        val firstLocalId = batch.first().id.replace("'", "''")
+        val rejectedLocalId = batch.last().id.replace("'", "''")
+        val faultMessage = "injected canonical batch write failure"
+        db.openHelper.writableDatabase.execSQL(
+            """
+            CREATE TRIGGER fail_quality_canonical_batch_write
+            BEFORE INSERT ON messages
+            WHEN NEW.id = '$rejectedLocalId'
+              AND EXISTS (SELECT 1 FROM messages WHERE id = '$firstLocalId')
+            BEGIN SELECT RAISE(ABORT, '$faultMessage'); END
+            """.trimIndent()
+        )
+
+        val failure = runCatching { messages.insertAll(batch) }.exceptionOrNull()
+        assertNotNull("The real canonical write fault must be reported.", failure)
+        assertTrue(
+            "The failure must come from the calibrated storage trigger.",
+            generateSequence(failure) { it.cause }.any { it.message?.contains(faultMessage) == true },
+        )
+        assertEquals(1, messages.totalCount())
+        assertEquals(1, messages.unreadCount())
+        assertEquals(originalRevision, messages.currentStoreRevision())
+        batch.forEach { message ->
+            assertTrue("No attempted batch row may survive rollback.", messages.getById(message.id) == null)
+        }
+        assertEquals(sentinel.body, checkNotNull(messages.getById(sentinel.id)).body)
+
+        db.close()
+        val reopenedDb = openExistingDatabase().database
+        val reopened = messageRepository(reopenedDb)
+        assertEquals(1, reopened.totalCount())
+        assertEquals(1, reopened.unreadCount())
+        assertEquals(originalRevision, reopened.currentStoreRevision())
+        assertEquals(
+            setOf(sentinel.messageId),
+            loadMessagePage(reopenedDb, MessageFilter(), pageSize = PAGE_SIZE)
+                .data.map { it.messageId }.toSet(),
+        )
+        assertEquals(sentinel.title, checkNotNull(reopened.getById(sentinel.id)).title)
+        assertEquals(sentinel.body, checkNotNull(reopened.getById(sentinel.id)).body)
+        reopenedDb.openHelper.writableDatabase.execSQL("DROP TRIGGER fail_quality_canonical_batch_write")
+
+        // Retry the exact delivery/operation identities. Claims from the failed
+        // transaction must not suppress either canonical message on recovery.
+        reopened.insertAll(batch)
+        assertEquals(3, reopened.totalCount())
+        assertEquals(2, reopened.unreadCount())
+        batch.forEach { expected ->
+            val persisted = checkNotNull(reopened.getById(expected.id))
+            assertEquals(expected.messageId, persisted.messageId)
+            assertEquals(expected.title, persisted.title)
+            assertEquals(expected.body, persisted.body)
+            assertEquals(expected.isRead, persisted.isRead)
+        }
+        reopened.insertAll(batch)
+        assertEquals(3, reopened.totalCount())
+        assertEquals(2, reopened.unreadCount())
+        reopenedDb.close()
+        val recoveredDb = openExistingDatabase().database
+        val recovered = messageRepository(recoveredDb)
+        assertEquals(3, recovered.totalCount())
+        assertEquals(2, recovered.unreadCount())
+        assertEquals(
+            (listOf(sentinel) + batch).map { it.messageId }.toSet(),
+            loadMessagePage(recoveredDb, MessageFilter(), pageSize = PAGE_SIZE)
+                .data.map { it.messageId }.toSet(),
+        )
+        batch.forEach { expected ->
+            assertEquals(expected.body, checkNotNull(recovered.getById(expected.id)).body)
+        }
+    }
+
+    @Test
+    fun canonicalMessageSurvivesDerivedIndexWriteFailureAndRepairsBeforeSearch() = runBlocking {
+        val db = openFreshDatabase().database
+        val messages = messageRepository(db)
+        val message = generatedMessage(
+            index = 9_001,
+            messageId = "derived-write-failure-message",
+            title = "Canonical message after derived failure",
+            body = "The canonical body must remain readable while search repairs.",
+            tags = listOf("recovery"),
+        )
+        val stableMessageId = requireNotNull(message.messageId)
+        val localMessageId = message.id
+        val safeLocalMessageId = message.id.replace("'", "''")
+
+        // Exercise the real MessageRepository transaction against a storage-side
+        // derived-write failure. This is deliberately App-owned and reversible:
+        // the canonical row must remain the user-visible source of truth, while
+        // the derived search/summary projections are repaired after recovery.
+        db.openHelper.writableDatabase.execSQL(
+            """
+            CREATE TRIGGER fail_quality_derived_index_write
+            BEFORE INSERT ON message_metadata_index
+            WHEN NEW.message_id = '$safeLocalMessageId'
+              AND NEW.key_name = 'search_text'
+            BEGIN SELECT RAISE(ABORT, 'injected derived index write failure'); END
+            """.trimIndent()
+        )
+
+        assertTrue(messages.insertIncoming(message))
+        val canonicalByLocalId = checkNotNull(messages.getById(localMessageId))
+        assertEquals(message.title, canonicalByLocalId.title)
+        assertEquals(message.body, canonicalByLocalId.body)
+        val canonicalDuringFailure = checkNotNull(messages.getByMessageId(stableMessageId))
+        assertEquals(message.title, canonicalDuringFailure.title)
+        assertEquals(message.body, canonicalDuringFailure.body)
+        assertEquals(1, messages.totalCount())
+        assertTrue(
+            loadMessagePage(db, MessageFilter(), pageSize = PAGE_SIZE).data.any {
+                it.messageId == stableMessageId && it.title == message.title
+            }
+        )
+        // Prove the injected failure actually removed only the derived
+        // projections before recovery. Without this negative control the test
+        // could pass even if the trigger never matched the production write.
+        assertEquals(1, db.messageMetadataIndexDao().countMessagesMissingSearchText("normalization_v1"))
+        assertEquals(1, db.messageDao().countMessagesMissingSummaryProjection("projection_v1"))
+        db.openHelper.readableDatabase.query(
+            "SELECT status, cursor_local_message_id, last_error " +
+                "FROM message_derived_state WHERE component = 'message_metadata_index'"
+        ).use { cursor ->
+            assertTrue(cursor.moveToFirst())
+            assertEquals("stale", cursor.getString(0))
+            assertEquals(localMessageId, cursor.getString(1))
+            assertTrue(cursor.getString(2).contains("injected derived index write failure"))
+        }
+
+        db.openHelper.writableDatabase.execSQL(
+            "DROP TRIGGER fail_quality_derived_index_write"
+        )
+
+        // This is the same recovery boundary the app invokes at startup. It
+        // restores both derived consumers; search below then proves the
+        // repaired index serves the exact canonical message.
+        messages.backfillTagMetadataIndexIfNeeded(context)
+        val searchMatches = messages.searchMessagesSnapshot(
+            rawQuery = "canonical derived failure",
+            unreadOnly = false,
+            limit = PAGE_SIZE,
+        )
+        assertEquals(listOf(stableMessageId), searchMatches.mapNotNull { it.messageId })
+        val repairedRow = loadMessagePage(db, MessageFilter(), pageSize = PAGE_SIZE)
+            .data
+            .single { it.messageId == stableMessageId }
+        assertEquals(message.title, repairedRow.title)
+        assertEquals(0, db.messageMetadataIndexDao().countMessagesMissingSearchText("normalization_v1"))
+        assertEquals(0, db.messageDao().countMessagesMissingSummaryProjection("projection_v1"))
+        assertFalse(messages.insertIncoming(message))
+        assertEquals(1, messages.totalCount())
+
+        db.close()
+        database = null
+        val reopened = openExistingDatabase()
+        val reopenedMessages = messageRepository(reopened.database)
+        val canonicalAfterReopen = checkNotNull(reopenedMessages.getByMessageId(stableMessageId))
+        assertEquals(message.title, canonicalAfterReopen.title)
+        assertEquals(message.body, canonicalAfterReopen.body)
+        assertEquals(listOf(stableMessageId), reopenedMessages.searchMessagesSnapshot(
+            rawQuery = "canonical derived failure",
+            unreadOnly = false,
+            limit = PAGE_SIZE,
+        ).mapNotNull { it.messageId })
+        assertEquals(
+            message.title,
+            loadMessagePage(reopened.database, MessageFilter(), pageSize = PAGE_SIZE)
+                .data
+                .single { it.messageId == stableMessageId }
+                .title,
+        )
+    }
+
+    @Test
+    fun canonicalBatchAndPostProcessUpdatesSurviveDerivedProjectionFailure() = runBlocking {
+        val db = openFreshDatabase().database
+        val messages = messageRepository(db)
+        fun sqlLiteral(value: String) = value.replace("'", "''")
+        fun assertStaleState(expectedIds: Set<String>, expectedError: String) {
+            db.openHelper.readableDatabase.query(
+                "SELECT status, cursor_local_message_id, last_error " +
+                    "FROM message_derived_state WHERE component = 'message_metadata_index'"
+            ).use { cursor ->
+                assertTrue(cursor.moveToFirst())
+                assertEquals("stale", cursor.getString(0))
+                assertTrue(expectedIds.contains(cursor.getString(1)))
+                assertTrue(cursor.getString(2).contains(expectedError))
+            }
+        }
+
+        val batch = listOf(
+            generatedMessage(
+                index = 9_101,
+                messageId = "derived-batch-message-1",
+                title = "Batch canonical message one",
+                body = "Batch body one remains readable.",
+            ),
+            generatedMessage(
+                index = 9_102,
+                messageId = "derived-batch-message-2",
+                title = "Batch canonical message two",
+                body = "Batch body two remains readable.",
+            ),
+        )
+        val batchIds = batch.joinToString(", ") { "'${sqlLiteral(it.id)}'" }
+        db.openHelper.writableDatabase.execSQL(
+            """
+            CREATE TRIGGER fail_quality_batch_derived_write
+            BEFORE INSERT ON message_metadata_index
+            WHEN NEW.message_id IN ($batchIds)
+              AND NEW.key_name = 'search_text'
+            BEGIN SELECT RAISE(ABORT, 'injected batch derived index failure'); END
+            """.trimIndent()
+        )
+
+        messages.insertAll(batch)
+        assertEquals(2, messages.totalCount())
+        batch.forEach { message ->
+            val canonical = checkNotNull(messages.getById(message.id))
+            assertEquals(message.title, canonical.title)
+            assertEquals(message.body, canonical.body)
+        }
+        assertEquals(2, db.messageMetadataIndexDao().countMessagesMissingSearchText("normalization_v1"))
+        assertEquals(2, db.messageDao().countMessagesMissingSummaryProjection("projection_v1"))
+        assertStaleState(batch.map { it.id }.toSet(), "injected batch derived index failure")
+
+        db.openHelper.writableDatabase.execSQL(
+            "DROP TRIGGER fail_quality_batch_derived_write"
+        )
+        messages.backfillTagMetadataIndexIfNeeded(context)
+        batch.forEach { message ->
+            assertEquals(
+                listOf(message.messageId),
+                messages.searchMessagesSnapshot(
+                    rawQuery = message.title,
+                    unreadOnly = false,
+                    limit = PAGE_SIZE,
+                ).mapNotNull { it.messageId },
+            )
+        }
+
+        val updatedRawPayload = JSONObject(batch.first().rawPayloadJson)
+            .put("severity", "critical")
+            .put("tags", JSONArray(listOf("recovered", "critical")))
+            .toString()
+        db.openHelper.writableDatabase.execSQL(
+            """
+            CREATE TRIGGER fail_quality_update_derived_write
+            BEFORE INSERT ON message_metadata_index
+            WHEN NEW.message_id = '${sqlLiteral(batch.first().id)}'
+              AND NEW.key_name = 'search_text'
+            BEGIN SELECT RAISE(ABORT, 'injected update derived index failure'); END
+            """.trimIndent()
+        )
+        messages.updateRawPayload(batch.first().id, updatedRawPayload)
+        assertEquals(updatedRawPayload, messages.getById(batch.first().id)?.rawPayloadJson)
+        assertStaleState(setOf(batch.first().id), "injected update derived index failure")
+        db.openHelper.writableDatabase.execSQL(
+            "DROP TRIGGER fail_quality_update_derived_write"
+        )
+        messages.backfillTagMetadataIndexIfNeeded(context)
+        val updatedRow = loadMessagePage(db, MessageFilter(), pageSize = PAGE_SIZE)
+            .data
+            .single { it.id == batch.first().id }
+        assertEquals(MessageEntity.buildListPayloadJson(updatedRawPayload), updatedRow.listPayloadJson)
+        assertEquals(0, db.messageMetadataIndexDao().countMessagesMissingSearchText("normalization_v1"))
+        assertEquals(0, db.messageDao().countMessagesMissingSummaryProjection("projection_v1"))
+
+        val single = generatedMessage(
+            index = 9_103,
+            messageId = "derived-single-message",
+            title = "Single canonical message",
+            body = "Single insert remains readable.",
+        )
+        db.openHelper.writableDatabase.execSQL(
+            """
+            CREATE TRIGGER fail_quality_insert_derived_write
+            BEFORE INSERT ON message_metadata_index
+            WHEN NEW.message_id = '${sqlLiteral(single.id)}'
+              AND NEW.key_name = 'search_text'
+            BEGIN SELECT RAISE(ABORT, 'injected insert derived index failure'); END
+            """.trimIndent()
+        )
+        messages.insert(single)
+        assertEquals(single.title, messages.getById(single.id)?.title)
+        assertEquals(single.body, messages.getById(single.id)?.body)
+        assertStaleState(setOf(single.id), "injected insert derived index failure")
+        db.openHelper.writableDatabase.execSQL(
+            "DROP TRIGGER fail_quality_insert_derived_write"
+        )
+        messages.backfillTagMetadataIndexIfNeeded(context)
+        assertEquals(
+            listOf(single.messageId),
+            messages.searchMessagesSnapshot(
+                rawQuery = single.title,
+                unreadOnly = false,
+                limit = PAGE_SIZE,
+            ).mapNotNull { it.messageId },
+        )
+        assertEquals(3, messages.totalCount())
     }
 
     @Test
@@ -730,6 +1175,65 @@ class RuntimeDataLayerInstrumentedTest {
         assertEquals("latest thing", db.thingHeadDao().getByThingId("ordered-thing")?.title)
         assertEquals(4, db.eventChangeLogDao().countAll())
         assertEquals(4, db.thingChangeLogDao().countAll())
+    }
+
+    @Test
+    fun eventStateConvergesAcrossTopLevelAndThingProjectionsInBothDirections() = runBlocking {
+        val db = openFreshDatabase().database
+        val entities = entityRepository(db)
+        val thingId = "converged-thing"
+        assertTrue(entities.insertIncoming(incomingEntity(
+            entityType = "thing", entityId = thingId, eventId = null, thingId = thingId,
+            title = "Converged Thing", deliveryId = "converged-thing-create",
+            receivedAtMs = BASE_TIME_MS,
+        )))
+
+        suspend fun seedBothProjections(eventId: String, offset: Long) {
+            assertTrue(entities.insertIncoming(incomingEntity(
+                entityType = "event", entityId = eventId, eventId = eventId, thingId = null,
+                title = "Converged Event", deliveryId = "$eventId-top",
+                receivedAtMs = BASE_TIME_MS + offset,
+            )))
+            assertTrue(entities.insertIncoming(incomingEntity(
+                entityType = "event", entityId = eventId, eventId = eventId, thingId = thingId,
+                title = "Converged Event", deliveryId = "$eventId-thing",
+                receivedAtMs = BASE_TIME_MS + offset + 1,
+            )))
+        }
+
+        fun closedRecord(eventId: String, thingId: String?, offset: Long): IncomingEntityRecord {
+            return incomingEntity(
+                entityType = "event", entityId = eventId, eventId = eventId, thingId = thingId,
+                title = "", deliveryId = "$eventId-close",
+                receivedAtMs = BASE_TIME_MS + offset,
+            ).let { record ->
+                record.copy(
+                    rawPayloadJson = JSONObject(record.rawPayloadJson)
+                        .put("event_state", "closed")
+                        .put("status", "closed")
+                        .toString(),
+                    eventState = "closed",
+                )
+            }
+        }
+
+        val topClosedEventId = "top-close-convergence"
+        seedBothProjections(topClosedEventId, 1_000)
+        assertTrue(entities.insertIncoming(closedRecord(topClosedEventId, thingId = null, offset = 2_000)))
+        assertEquals("closed", db.topLevelEventHeadDao().getByEventId(topClosedEventId)?.eventState)
+        assertEquals(
+            "closed",
+            db.thingSubEventDao().getByEventId(topClosedEventId).maxBy { it.receivedAt }.eventState,
+        )
+
+        val thingClosedEventId = "thing-close-convergence"
+        seedBothProjections(thingClosedEventId, 3_000)
+        assertTrue(entities.insertIncoming(closedRecord(thingClosedEventId, thingId = thingId, offset = 4_000)))
+        assertEquals("closed", db.topLevelEventHeadDao().getByEventId(thingClosedEventId)?.eventState)
+        assertEquals(
+            "closed",
+            db.thingSubEventDao().getByEventId(thingClosedEventId).maxBy { it.receivedAt }.eventState,
+        )
     }
 
     @Test
@@ -1283,10 +1787,7 @@ class RuntimeDataLayerInstrumentedTest {
     }
 
     private fun grantNotificationPermissionIfNeeded() {
-        if (Build.VERSION.SDK_INT < 33) return
-        InstrumentationRegistry.getInstrumentation().uiAutomation
-            .executeShellCommand("pm grant ${context.packageName} ${Manifest.permission.POST_NOTIFICATIONS}")
-            .close()
+        NotificationPermissionTestSupport.grantAndVerify(context)
     }
 
     private suspend fun awaitNotificationState(

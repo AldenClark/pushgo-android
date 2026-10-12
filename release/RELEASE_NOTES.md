@@ -13,6 +13,25 @@ Policy:
 ### Changed
 - Placeholder for next development cycle.
 
+## [v1.3.3]
+
+### Improved
+- Improved QUIC connection security against malicious peers.
+- Kept message history and search results available when an incoming message cannot be projected into an Event or Thing, with clearer progress during slow searches.
+- Kept existing channel names and aliases during resubscription and Gateway synchronization.
+- Kept Gateway settings open with the entered values when saving fails, and surfaced protected settings write errors.
+
+### Fixed
+- Saving decryption settings preserves an existing key while Gateway status is loading.
+- The Gateway editor closes on Back after the keyboard is dismissed, while saving still prevents dismissal.
+- Kept the active Gateway unchanged when a new Gateway save fails before commit.
+- Prevented obsolete background callbacks from ending the five-second local deletion Undo early, with an exact deadline check for Undo taps.
+- Continued a transport switch after an uncertain Gateway result and showed its recovery status in Settings.
+- Preserved the open message detail when returning from an external browser link.
+- Dismissed search keyboard focus when opening a message detail, so Back closes the detail first.
+- Let Android preview shared message images and grant the selected app access to them.
+- Blocked IPv4-mapped local and private image addresses.
+
 ## [v1.3.0]
 
 ### Improved

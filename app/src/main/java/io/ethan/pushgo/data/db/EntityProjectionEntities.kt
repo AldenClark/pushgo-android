@@ -193,6 +193,11 @@ data class ThingSubEventEntity(
     @ColumnInfo(name = "event_time_epoch")
     val eventTimeEpoch: Long?,
 ) {
+    fun isNewerThan(current: ThingSubEventEntity): Boolean {
+        if (receivedAt != current.receivedAt) return receivedAt > current.receivedAt
+        return id > current.id
+    }
+
     fun asModel(): PushMessage = asModelInternal(
         id = id,
         messageId = deliveryId,
@@ -225,6 +230,46 @@ data class ThingSubEventEntity(
                 thingId = thingId,
                 eventState = entity.eventState?.trim()?.takeIf { it.isNotEmpty() },
                 eventTimeEpoch = entity.eventTimeEpoch,
+            )
+        }
+
+        fun fromMerged(
+            existing: ThingSubEventEntity,
+            entity: IncomingEntityRecord,
+        ): ThingSubEventEntity {
+            val incomingPayload = parsePayloadObject(entity.rawPayloadJson)
+            val associated = entity.copy(
+                thingId = existing.thingId,
+                localDeliveryKey = (entity.localDeliveryKey
+                    ?: entity.deliveryId
+                    ?: "event:${existing.eventId}:${entity.receivedAt.toEpochMilli()}") +
+                    ":thing:${existing.thingId}",
+            )
+            val incoming = fromIncoming(associated)
+            return incoming.copy(
+                entityId = incoming.entityId.ifBlank { existing.entityId },
+                channel = incoming.channel ?: existing.channel,
+                title = textStringFromPatch(
+                    incomingPayload = incomingPayload,
+                    keys = listOf("title"),
+                    incoming = incoming.title,
+                    existing = existing.title,
+                ),
+                body = textStringFromPatch(
+                    incomingPayload = incomingPayload,
+                    keys = listOf("body", "description", "message"),
+                    incoming = incoming.body,
+                    existing = existing.body,
+                ),
+                rawPayloadJson = mergeEntityPayloadJson(existing.rawPayloadJson, entity.rawPayloadJson),
+                serverId = incoming.serverId ?: existing.serverId,
+                eventState = textNullableFromPatch(
+                    incomingPayload = incomingPayload,
+                    keys = listOf("event_state"),
+                    incoming = incoming.eventState,
+                    existing = existing.eventState,
+                ),
+                eventTimeEpoch = incoming.eventTimeEpoch ?: existing.eventTimeEpoch,
             )
         }
     }

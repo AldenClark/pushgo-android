@@ -31,6 +31,7 @@ import kotlinx.coroutines.withContext
 
 interface PendingLocalDeletionDrainScheduler {
     fun scheduleImmediate()
+    fun scheduleImmediateForInteraction(revision: Long) = scheduleImmediate()
     fun scheduleAt(epochMillis: Long)
 
     object None : PendingLocalDeletionDrainScheduler {
@@ -111,6 +112,7 @@ class PendingLocalDeletionCoordinator(
     private val _effectiveScope = MutableStateFlow(Scope())
     private var countdownJob: Job? = null
     private var interactionActive = true
+    private var interactionRevision = 0L
     private var latestInteractionGeneration = Long.MIN_VALUE
 
     val pendingDeletion: StateFlow<PendingDeletion?> = _pendingDeletion.asStateFlow()
@@ -172,18 +174,20 @@ class PendingLocalDeletionCoordinator(
     suspend fun setInteractionActive(active: Boolean, generation: Long? = null) {
         start()
         initialization.await()
-        stateMutex.withLock {
+        val acceptedRevision = stateMutex.withLock {
             if (generation != null) {
-                if (generation <= latestInteractionGeneration) return@withLock
+                if (generation <= latestInteractionGeneration) return@withLock null
                 latestInteractionGeneration = generation
             }
             interactionActive = active
+            ++interactionRevision
         }
+        if (acceptedRevision == null) return
         if (active) {
             publishRecords(repository.loadActive())
         } else {
-            drainScheduler.scheduleImmediate()
-            drainRecoverable(force = true)
+            drainScheduler.scheduleImmediateForInteraction(acceptedRevision)
+            drainRecoverable(force = true, expectedBackgroundRevision = acceptedRevision)
         }
     }
 
@@ -191,13 +195,13 @@ class PendingLocalDeletionCoordinator(
         start()
         initialization.await()
         val id = _pendingDeletion.value?.id ?: return
-        if (repository.cancelPending(id)) {
+        if (repository.cancelPending(id, wallClockEpochMillis())) {
             stateMutex.withLock {
                 runtimeCallbacks.remove(id)
                 markTerminalLocked(id)
             }
-            publishRecords(repository.loadActive())
         }
+        publishRecords(repository.loadActive())
     }
 
     suspend fun commitCurrentIfNeeded() {
@@ -205,7 +209,10 @@ class PendingLocalDeletionCoordinator(
     }
 
     /** Startup/worker entry point. Returns true while recoverable work remains. */
-    suspend fun drainRecoverable(force: Boolean = false): Boolean {
+    suspend fun drainRecoverable(
+        force: Boolean = false,
+        expectedBackgroundRevision: Long? = null,
+    ): Boolean {
         start()
         initialization.await()
         return drainMutex.withLock {
@@ -226,7 +233,19 @@ class PendingLocalDeletionCoordinator(
                     if (record.state != PendingLocalDeletionState.PENDING) continue
                     if (record.nextAttemptAtEpochMillis > now) continue
                     if (!force && record.attemptCount == 0 && record.undoDeadlineEpochMillis > now) continue
-                    claim = repository.claim(record.id, now, force)
+                    claim = if (expectedBackgroundRevision == null) {
+                        repository.claim(record.id, now, force)
+                    } else {
+                        stateMutex.withLock {
+                            // A newer foreground transition can overtake the old background
+                            // drain while it waits for storage or WorkManager. Keep the check
+                            // and atomic claim under the same lock as lifecycle acceptance.
+                            if (
+                                interactionRevision != 0L &&
+                                (interactionRevision != expectedBackgroundRevision || interactionActive)
+                            ) null else repository.claim(record.id, now, force)
+                        }
+                    }
                     if (claim != null) break
                 }
                 if (claim == null) {

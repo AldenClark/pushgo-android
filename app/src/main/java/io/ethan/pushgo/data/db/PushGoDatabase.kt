@@ -36,7 +36,7 @@ import java.io.File
         AppSettingsEntity::class,
         PendingLocalDeletionEntity::class,
     ],
-    version = 30,
+    version = 32,
     exportSchema = true,
 )
 abstract class PushGoDatabase : RoomDatabase() {
@@ -311,6 +311,37 @@ abstract class PushGoDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_30_31 = object : Migration(30, 31) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS transport_transitions (
+                        operation_id TEXT NOT NULL PRIMARY KEY,
+                        gateway_url TEXT NOT NULL,
+                        device_key TEXT NOT NULL,
+                        target_channel_type TEXT NOT NULL,
+                        transition_id TEXT,
+                        base_revision INTEGER NOT NULL,
+                        committed_revision INTEGER,
+                        phase TEXT NOT NULL,
+                        candidate_token_fingerprint TEXT,
+                        created_at INTEGER NOT NULL,
+                        updated_at INTEGER NOT NULL,
+                        last_error TEXT
+                    )
+                    """.trimIndent()
+                )
+            }
+        }
+
+        private val MIGRATION_31_32 = object : Migration(31, 32) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                // Route selection now follows the Gateway's current state. The old
+                // operation journal contains no messages, subscriptions, or settings.
+                db.execSQL("DROP TABLE IF EXISTS transport_transitions")
+            }
+        }
+
         fun build(context: Context): PushGoDatabase {
             return runCatching {
                 newBuilder(
@@ -362,6 +393,8 @@ abstract class PushGoDatabase : RoomDatabase() {
                     MIGRATION_27_28,
                     MIGRATION_28_29,
                     MIGRATION_29_30,
+                    MIGRATION_30_31,
+                    MIGRATION_31_32,
                 )
                 .setJournalMode(RoomDatabase.JournalMode.WRITE_AHEAD_LOGGING)
                 .addCallback(object : RoomDatabase.Callback() {

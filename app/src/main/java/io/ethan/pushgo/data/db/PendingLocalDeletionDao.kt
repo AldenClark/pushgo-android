@@ -45,9 +45,10 @@ interface PendingLocalDeletionDao {
         WHERE id = :id
           AND state = 'PENDING'
           AND attempt_count = 0
+          AND undo_deadline_epoch_ms > :nowEpochMillis
         """
     )
-    suspend fun cancelPending(id: Long): Int
+    suspend fun cancelPending(id: Long, nowEpochMillis: Long): Int
 
     @Query(
         """
