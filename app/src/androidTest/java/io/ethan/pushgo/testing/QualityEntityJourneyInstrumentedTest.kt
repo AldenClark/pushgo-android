@@ -308,6 +308,19 @@ class QualityEntityJourneyInstrumentedTest : QualityAppJourneyTestCase() {
             putExtra(NotificationHelper.EXTRA_ENTITY_TYPE, "thing")
             putExtra(NotificationHelper.EXTRA_ENTITY_ID, "quality-thing-distractor")
         }
+        // Activity resume precedes navigation and the asynchronous Room target lookup.
+        try {
+            composeRule.waitUntil(timeoutMillis = 8_000) {
+                composeRule.onNodeWithTag(EntityTargetUnavailableFeedbackTag).isDisplayed()
+            }
+        } catch (failure: Throwable) {
+            val semantics = runCatching {
+                composeRule.onAllNodes(isRoot(), useUnmergedTree = true)
+                    .printToString(maxDepth = 24)
+            }.getOrElse { "Compose semantics unavailable: ${it.javaClass.simpleName}: ${it.message}" }
+            QualityUiFailureDiagnostics.logText("Unavailable Thing after relaunch", semantics)
+            throw failure
+        }
         composeRule.onNodeWithTag(EntityTargetUnavailableFeedbackTag)
             .assertIsDisplayed()
             .assertTextEquals(app.getString(R.string.error_gateway_resource_not_found))

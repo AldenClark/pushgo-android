@@ -355,3 +355,10 @@ Gateway 的正向终点不再停在地址持久化或旧行消失：现有 `serv
 兼容性最终收口：Gateway 定点原生验证累计 23 项通过、0 忽略，包含旧 Android FCM/iOS APNs 请求与旧字段解码下的真实消息提交→准确拉取→ACK→队列清空，以及历史 SQLite DDL 升级、旧数据保留、新写入和再次打开。正式 Gateway v1.3.2 的 SQLite/PostgreSQL/MySQL 表与索引定义保持一致、schema 仍为 v12；仅增加废弃操作台账清理。另两项真实 PostgreSQL/MySQL 原子切换合同均通过。证据 gateway/build/quality-results/route-authority-20261012/summary.json 和 released-compatibility-source-proof.json；旧 App 完整二进制及生产数据库升级本轮 NOT_RUN，不据此宣称全量发布验收完成。
 
 本地提交说明（2026-10-12）：按用户要求将本次路由收敛、兼容处理、迁移与定点测试源码、上述记录一并提交到 Android 本地仓库；沿用本轮已有证据，不重跑测试、不推送、不部署或正式发布。原始执行收据保持原始源版本和首次失败，提交不产生新的验收结论。
+
+
+## 2026-10-12 主分支整合：Thing 不可用目标的异步断言
+
+最终路由候选 `e9f4659` 的累计 PR [run 38212761936](https://github.com/AldenClark/pushgo-android/actions/runs/38212761936) 首次结果保留：host 的 310 个 JVM、246 个脚本合同及编译/静态检查通过；API35 设备第一批 34 个 UI 方法中 33 通过，`thingFixtureShowsAccurateOverviewAndAllThreeRealRelationTabs` 在重启到已删除 Thing 后的目标不可用提示断言失败，原收据仍为 product `FAILED` / test-system `PASSED`。后续 data/system/accessibility/performance/upgrade 阶段未执行，不能将该批次称为 Release 通过。
+
+该测试原先只等待 Activity `RESUMED`，随后立即断言；Intent 导航及 Room 目标查询异步完成。只在这一重启 checkpoint 沿用同类目标不可用流程的 8 秒预算等待真实反馈可见，保留准确文案、删除目标不出现、控制对象及后续关系页断言，超时输出语义树。产品逻辑、阈值、选择器和跳过规则未改。专用 API37 / 1080×1920 模拟器复用已有 App APK，原方法及仅修改断言同步后的方法分别实际执行 1/1 通过（12.926 秒、13.184 秒）；这不复现或清除 API35 首败，也不是累计通过。新的最终 head 仍由 PR 既有累计 CI 验证，不新增或手工重复全量车道。
