@@ -105,7 +105,7 @@ class PushGoDatabaseMigrationDeviceTest {
         assertEquals(CHANNEL_ID, subscriptions.single().channelId)
         assertEquals(1, messages.size)
         assertEquals(MESSAGE_ID, messages.single().messageId)
-        assertEquals(31, readUserVersion(context.getDatabasePath("pushgo.db")))
+        assertEquals(32, readUserVersion(context.getDatabasePath("pushgo.db")))
         assertEquals(1, container.messageRepository.totalCount())
         assertEquals(1, container.messageRepository.unreadCount())
         assertTrue(context.getDatabasePath("pushgo.db").exists())
@@ -154,7 +154,7 @@ class PushGoDatabaseMigrationDeviceTest {
         assertEquals(MESSAGE_ID, messages.single().messageId)
         assertEquals(1, container.messageRepository.totalCount())
         assertEquals(1, container.messageRepository.unreadCount())
-        assertEquals(31, readUserVersion(context.getDatabasePath("pushgo.db")))
+        assertEquals(32, readUserVersion(context.getDatabasePath("pushgo.db")))
         val sqlite = container.database.openHelper.writableDatabase
         val revision = sqlite.query(
             "SELECT revision FROM message_store_revision WHERE id = 1"
@@ -249,7 +249,7 @@ class PushGoDatabaseMigrationDeviceTest {
             cursor.getString(0) to cursor.getString(1)
         }
 
-        assertEquals(31, readUserVersion(context.getDatabasePath("pushgo.db")))
+        assertEquals(32, readUserVersion(context.getDatabasePath("pushgo.db")))
         assertEquals(0, pendingOutbox)
         assertEquals(1, retainedLedger)
         assertEquals("" to "", retainedLedgerScope)
@@ -344,7 +344,7 @@ class PushGoDatabaseMigrationDeviceTest {
             found
         }
 
-        assertEquals(31, readUserVersion(context.getDatabasePath("pushgo.db")))
+        assertEquals(32, readUserVersion(context.getDatabasePath("pushgo.db")))
         assertEquals(Triple("", "", "pending"), legacyLedger)
         assertEquals(
             listOf("https://gateway-a.example", "device-a", "legacy_single", 0),
@@ -382,80 +382,139 @@ class PushGoDatabaseMigrationDeviceTest {
         val migrated = PushGoDatabase.build(context)
         try {
             assertLegacyIngressBusinessState(migrated)
-            assertEquals(31, readUserVersion(context.getDatabasePath("pushgo.db")))
-            runBlocking {
-                migrated.transportTransitionDao().insert(
-                    TransportTransitionEntity(
-                    operationId = "migration-transition-operation",
-                    gatewayUrl = GATEWAY_URL,
-                    deviceKey = "migration-transition-device",
-                    targetChannelType = "private",
-                    transitionId = null,
-                    baseRevision = 7,
-                    committedRevision = null,
-                    phase = "LOCAL_INTENT",
-                    candidateTokenFingerprint = null,
-                    createdAt = 1_710_000_400_000L,
-                    updatedAt = 1_710_000_400_000L,
-                    lastError = null,
-                    )
-                )
-            }
+            assertEquals(32, readUserVersion(context.getDatabasePath("pushgo.db")))
         } finally {
             migrated.close()
         }
         val reopened = PushGoDatabase.build(context)
         try {
             assertLegacyIngressBusinessState(reopened)
-            val transition = runBlocking { reopened.transportTransitionDao().getPending() }
-            assertEquals("migration-transition-operation", transition?.operationId)
-            assertEquals("private", transition?.targetChannelType)
-            assertEquals(7L, transition?.baseRevision)
         } finally {
             reopened.close()
         }
     }
 
     @Test
-    fun productionDatabase_migratesV30ToV31AndPersistsTransportTransitionAcrossReopen() {
-        seedDatabaseFromExportedSchema(30)
+    fun productionDatabase_migratesV31ToV32DropsOnlyTransportJournalAndReopens() {
+        assertRouteJournalRemovalPreservesBusinessData(version = 31)
+    }
+
+    @Test
+    fun productionDatabase_migratesV30ToV32PreservesBusinessDataAndReopens() {
+        assertRouteJournalRemovalPreservesBusinessData(version = 30)
+    }
+
+    private fun assertRouteJournalRemovalPreservesBusinessData(version: Int) {
+        seedDatabaseFromExportedSchema(version)
+        val expected = SQLiteDatabase.openDatabase(
+            context.getDatabasePath("pushgo.db").path,
+            null,
+            SQLiteDatabase.OPEN_READWRITE,
+        ).use { database ->
+            database.execSQL(
+                """
+                INSERT INTO app_settings(
+                    id, server_address, key_encoding, use_fcm_channel,
+                    is_message_page_enabled, is_event_page_enabled, is_thing_page_enabled,
+                    update_auto_check_enabled, update_beta_channel_enabled, update_prompt_dismiss_count
+                ) VALUES(1, ?, 'BASE64', 1, 1, 1, 1, 1, 0, 2)
+                """.trimIndent(),
+                arrayOf<Any>(GATEWAY_URL),
+            )
+            database.execSQL(
+                """
+                INSERT INTO channel_subscriptions(
+                    gateway_url, channel_id, display_name, updated_at, last_synced_at, is_deleted
+                ) VALUES(?, ?, 'Retained channel', 1710000000000, 1710000100000, 0)
+                """.trimIndent(),
+                arrayOf<Any>(GATEWAY_URL, CHANNEL_ID),
+            )
+            database.execSQL(
+                """
+                INSERT INTO messages(
+                    id, message_id, title, body, channel, is_read, received_at, raw_payload_json,
+                    status, body_preview, entity_type, list_payload_json
+                ) VALUES('retained-local-message', ?, 'Retained title', 'Retained body', ?,
+                    1, 1710000200000, '{}', 'NORMAL', 'Retained body', 'message', '{}')
+                """.trimIndent(),
+                arrayOf<Any>(MESSAGE_ID, CHANNEL_ID),
+            )
+            database.execSQL(
+                """
+                INSERT INTO inbound_delivery_ledger(
+                    gateway_url, device_key, delivery_id, channel_id, entity_type, entity_id,
+                    applied_at, ack_state
+                ) VALUES(?, 'retained-device', 'retained-delivery', ?, 'message', ?,
+                    1710000200000, 'pending')
+                """.trimIndent(),
+                arrayOf<Any>(GATEWAY_URL, CHANNEL_ID, MESSAGE_ID),
+            )
+            database.execSQL(
+                """
+                INSERT INTO inbound_delivery_ack_outbox(
+                    delivery_id, gateway_url, device_key, ack_contract, source,
+                    enqueued_at, updated_at, attempt_count, last_attempt_uncertain
+                ) VALUES('retained-delivery', ?, 'retained-device', 'v2_batch', 'private',
+                    1710000200000, 1710000200000, 1, 1)
+                """.trimIndent(),
+                arrayOf<Any>(GATEWAY_URL),
+            )
+            if (version == 31) {
+                database.execSQL(
+                    """
+                    INSERT INTO transport_transitions(
+                        operation_id, gateway_url, device_key, target_channel_type, transition_id,
+                        base_revision, committed_revision, phase, candidate_token_fingerprint,
+                        created_at, updated_at
+                    ) VALUES('obsolete-operation', ?, 'retained-device', 'private', 'obsolete-transition',
+                        11, 12, 'REMOTE_COMMITTED', 'obsolete-fingerprint', 1710000200000, 1710000200100)
+                    """.trimIndent(),
+                    arrayOf<Any>(GATEWAY_URL),
+                )
+            }
+            retainedRouteCleanupTables.associateWith { table ->
+                database.rawQuery("SELECT * FROM $table", null).use(::readBusinessRows)
+            }
+        }
+
+        fun assertBusinessState(database: PushGoDatabase) {
+            val sqlite = database.openHelper.writableDatabase
+            assertEquals(32, readUserVersion(context.getDatabasePath("pushgo.db")))
+            retainedRouteCleanupTables.forEach { table ->
+                val actual = sqlite.query("SELECT * FROM $table").use(::readBusinessRows)
+                assertEquals("Preserve $table", expected[table], actual)
+                assertEquals("Seeded $table is retained", 1, actual.size)
+            }
+            val removed = sqlite.query(
+                "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'transport_transitions'"
+            ).use { cursor -> !cursor.moveToFirst() }
+            assertTrue("Obsolete journal table is removed", removed)
+        }
 
         val migrated = PushGoDatabase.build(context)
         try {
-            migrated.openHelper.writableDatabase
-            assertEquals(31, readUserVersion(context.getDatabasePath("pushgo.db")))
-            runBlocking {
-                migrated.transportTransitionDao().insert(
-                    TransportTransitionEntity(
-                        operationId = "v30-transition-operation",
-                        gatewayUrl = GATEWAY_URL,
-                        deviceKey = "v30-transition-device",
-                        targetChannelType = "private",
-                        transitionId = "gateway-transition-id",
-                        baseRevision = 11,
-                        committedRevision = 12,
-                        phase = "REMOTE_COMMITTED",
-                        candidateTokenFingerprint = "candidate-token-fingerprint",
-                        createdAt = 1_710_000_500_000L,
-                        updatedAt = 1_710_000_500_100L,
-                        lastError = null,
-                    )
-                )
-            }
+            assertBusinessState(migrated)
         } finally {
             migrated.close()
         }
-
         val reopened = PushGoDatabase.build(context)
         try {
-            val transition = runBlocking { reopened.transportTransitionDao().getPending() }
-            assertEquals("v30-transition-operation", transition?.operationId)
-            assertEquals("gateway-transition-id", transition?.transitionId)
-            assertEquals("REMOTE_COMMITTED", transition?.phase)
-            assertEquals(12L, transition?.committedRevision)
-            assertEquals("candidate-token-fingerprint", transition?.candidateTokenFingerprint)
+            assertBusinessState(reopened)
         } finally {
             reopened.close()
+        }
+    }
+
+    private val retainedRouteCleanupTables = listOf(
+        "messages", "app_settings", "channel_subscriptions",
+        "inbound_delivery_ledger", "inbound_delivery_ack_outbox",
+    )
+
+    private fun readBusinessRows(cursor: android.database.Cursor): List<List<String?>> = buildList {
+        while (cursor.moveToNext()) {
+            add((0 until cursor.columnCount).map { column ->
+                if (cursor.isNull(column)) null else cursor.getString(column)
+            })
         }
     }
 
@@ -498,7 +557,7 @@ class PushGoDatabaseMigrationDeviceTest {
         val migrated = PushGoDatabase.build(context)
         try {
             assertPendingDeletionBusinessState(migrated)
-            assertEquals(31, readUserVersion(context.getDatabasePath("pushgo.db")))
+            assertEquals(32, readUserVersion(context.getDatabasePath("pushgo.db")))
         } finally {
             migrated.close()
         }

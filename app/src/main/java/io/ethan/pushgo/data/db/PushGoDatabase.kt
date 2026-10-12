@@ -35,9 +35,8 @@ import java.io.File
         ChannelSubscriptionEntity::class,
         AppSettingsEntity::class,
         PendingLocalDeletionEntity::class,
-        TransportTransitionEntity::class,
     ],
-    version = 31,
+    version = 32,
     exportSchema = true,
 )
 abstract class PushGoDatabase : RoomDatabase() {
@@ -59,7 +58,6 @@ abstract class PushGoDatabase : RoomDatabase() {
     abstract fun channelSubscriptionDao(): ChannelSubscriptionDao
     abstract fun appSettingsDao(): AppSettingsDao
     abstract fun pendingLocalDeletionDao(): PendingLocalDeletionDao
-    abstract fun transportTransitionDao(): TransportTransitionDao
 
     companion object {
         private const val TAG = "PushGoDatabase"
@@ -336,6 +334,14 @@ abstract class PushGoDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_31_32 = object : Migration(31, 32) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                // Route selection now follows the Gateway's current state. The old
+                // operation journal contains no messages, subscriptions, or settings.
+                db.execSQL("DROP TABLE IF EXISTS transport_transitions")
+            }
+        }
+
         fun build(context: Context): PushGoDatabase {
             return runCatching {
                 newBuilder(
@@ -388,6 +394,7 @@ abstract class PushGoDatabase : RoomDatabase() {
                     MIGRATION_28_29,
                     MIGRATION_29_30,
                     MIGRATION_30_31,
+                    MIGRATION_31_32,
                 )
                 .setJournalMode(RoomDatabase.JournalMode.WRITE_AHEAD_LOGGING)
                 .addCallback(object : RoomDatabase.Callback() {

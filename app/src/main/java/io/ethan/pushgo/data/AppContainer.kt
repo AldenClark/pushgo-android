@@ -46,8 +46,7 @@ import javax.crypto.spec.SecretKeySpec
 class AppContainer(
     context: Context,
     appScope: CoroutineScope,
-    awaitTransportRecovery: suspend () -> Unit = {},
-    requestTransportRecovery: () -> Unit = {},
+    awaitRouteSynchronization: suspend () -> Unit = {},
     pendingLocalDeletionDrainScheduler: PendingLocalDeletionDrainScheduler = if (
         InstrumentationRuntime.isUnderInstrumentationTest()
     ) {
@@ -149,8 +148,9 @@ class AppContainer(
         entityRepository = entityRepository,
         database = database,
         pushTokenProvider = pushTokenProvider,
-        awaitTransportRecovery = awaitTransportRecovery,
+        awaitRouteSynchronization = awaitRouteSynchronization,
         transportRouteWriterGate = transportRouteWriterGate,
+        onRemoteRoute = { transportSwitchCoordinator.observeRoute(it) },
         service = ChannelSubscriptionService(ioDispatcher = coroutineDispatchers.io),
         eventCloseRoundTrip = QualityRuntime.currentSession()?.eventCloseScenario
             ?.takeUnless { it == QualityEventCloseScenario.NONE }
@@ -361,96 +361,29 @@ class AppContainer(
         messageRepository = messageRepository,
         entityRepository = entityRepository,
         settingsRepository = settingsRepository,
-        awaitTransportRecovery = awaitTransportRecovery,
+        awaitRouteSynchronization = awaitRouteSynchronization,
         transportRouteWriterGate = transportRouteWriterGate,
+        onRemoteRoute = { transportSwitchCoordinator.observeRoute(it) },
     )
     val transportSwitchCoordinator: TransportSwitchCoordinator = TransportSwitchCoordinator(
-        store = RoomTransportTransitionStore(database.transportTransitionDao()),
-        secretStore = secureSecretStore,
-        requestRecovery = requestTransportRecovery,
         gateway = if (qualityTransportScenario == QualityTransportSwitchScenario.NONE) {
             privateChannelClient
         } else {
-            object : TransportTransitionGateway {
-                private var routeRevision = 1L
-                private var state = TransportTransitionRemoteState.PREPARED
-                private var channelType = "fcm"
-                private var privateAttempts = 0
-                private var fcmAttempts = 0
-                private var activeOperationId: String? = null
-
-                override suspend fun loadContext() = TransportTransitionContext(
-                    gatewayUrl = "https://quality.invalid",
-                    deviceKey = "quality-transport-device",
-                    routeRevision = routeRevision,
-                    routeTransitionV2 = true,
+            object : TransportRouteGateway {
+                private var route = DeviceRouteSnapshot(
+                    "https://quality.invalid", "quality-transport-device", "fcm", 1, true,
                 )
-
-                override suspend fun prepare(
-                    operationId: String,
-                    context: TransportTransitionContext,
-                    channelType: String,
-                    providerToken: String?,
-                ): PreparedTransportTransition {
-                    val attempt = if (channelType == "fcm") ++fcmAttempts else ++privateAttempts
-                    if (
-                        qualityTransportScenario ==
-                            QualityTransportSwitchScenario.REJECT_ONCE_THEN_ACCEPTED &&
-                        attempt == 1
-                    ) {
-                        throw ChannelSubscriptionException(
-                            message = "Quality-injected transport prepare rejection",
-                            code = "route_transition_rejected",
-                            category = GatewayErrorCategory.VALIDATION,
-                            httpStatus = 400,
-                        )
+                private val attempts = mutableMapOf<String, Int>()
+                override suspend fun loadRoute() = route
+                override suspend fun switchRoute(channelType: String, providerToken: String?): DeviceRouteSnapshot {
+                    val attempt = (attempts[channelType] ?: 0) + 1
+                    attempts[channelType] = attempt
+                    if (qualityTransportScenario == QualityTransportSwitchScenario.REJECT_ONCE_THEN_ACCEPTED && attempt == 1) {
+                        throw IllegalStateException("Transport was rejected. Try again.")
                     }
-                    this.channelType = channelType
-                    state = TransportTransitionRemoteState.PREPARED
-                    activeOperationId = operationId
-                    return PreparedTransportTransition("quality-$operationId", context.routeRevision)
-                }
-
-                override suspend fun commit(
-                    operationId: String,
-                    transitionId: String,
-                    gatewayUrl: String,
-                ): CommittedTransportTransition {
-                    routeRevision += 1
-                    state = TransportTransitionRemoteState.COMMITTED
-                    return CommittedTransportTransition(routeRevision, channelType)
-                }
-
-                override suspend fun abort(
-                    operationId: String,
-                    transitionId: String,
-                    gatewayUrl: String,
-                ): TransportTransitionSnapshot {
-                    state = TransportTransitionRemoteState.ABORTED
-                    return TransportTransitionSnapshot(state, routeRevision, channelType)
-                }
-
-                override suspend fun query(
-                    operationId: String,
-                    transitionId: String?,
-                    deviceKey: String,
-                    gatewayUrl: String,
-                ): TransportTransitionSnapshot {
-                    if (activeOperationId != operationId) {
-                        throw TransportTransitionNotFoundException("quality operation not found")
-                    }
-                    return TransportTransitionSnapshot(
-                        state = state,
-                        routeRevision = routeRevision,
-                        channelType = channelType,
-                        transitionId = "quality-$operationId",
-                        committedRevision = routeRevision.takeIf {
-                            state == TransportTransitionRemoteState.COMMITTED
-                        },
-                        candidateChannelType = channelType.takeIf {
-                            state == TransportTransitionRemoteState.COMMITTED
-                        },
-                    )
+                    route = route.copy(channelType = channelType, routeRevision = route.routeRevision + 1,
+                        providerTokenPresent = !providerToken.isNullOrBlank())
+                    return route
                 }
             }
         },
@@ -466,26 +399,19 @@ class AppContainer(
                 PrivateChannelServiceManager.refreshForMode(appContext, useFcm)
             }
 
-            override suspend fun reconcileActiveRoute(
-                channelType: String,
-                providerTokenSha256: String?,
-            ): Boolean {
-                val token = when (channelType) {
-                    "private" -> {
-                        if (providerTokenSha256 != null) return false
-                        null
-                    }
-                    "fcm" -> {
-                        val current = pushTokenProvider.fetchToken(AppConstants.fcmTokenTimeoutMs)
-                            ?.trim()?.ifEmpty { null } ?: return false
-                        if (transportTokenSha256(current) != providerTokenSha256) return false
-                        current
-                    }
-                    else -> return false
-                }
-                apply(useFcm = channelType == "fcm", providerToken = token)
-                return true
-            }
+            override suspend fun currentUseFcm(): Boolean =
+                settingsRepository.getUseFcmChannel() && fcmSupportChecker(appContext)
+            override suspend fun providerToken(): String? =
+                settingsRepository.getFcmToken()?.trim()?.ifEmpty { null }
+                    ?: pushTokenProvider.fetchToken(AppConstants.fcmTokenTimeoutMs)
+        },
+        currentGatewayUrl = {
+            if (qualityTransportScenario == QualityTransportSwitchScenario.NONE) channelRepository.loadGatewayConfig().first
+            else "https://quality.invalid"
+        },
+        currentDeviceKey = {
+            if (qualityTransportScenario == QualityTransportSwitchScenario.NONE) settingsRepository.getDeviceKey()
+            else "quality-transport-device"
         },
     )
     val fcmSupportChecker: (Context) -> Boolean =
@@ -591,6 +517,7 @@ class AppContainer(
         privateChannelClient = privateChannelClient,
         inboundDeliveryLedgerRepository = inboundDeliveryLedgerRepository,
         messageImageStore = messageImageStore,
+        transportSwitcher = transportSwitchCoordinator,
     )
 
     internal suspend fun initializeQualityFixtureIfNeeded() {

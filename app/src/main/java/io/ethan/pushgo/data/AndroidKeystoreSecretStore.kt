@@ -25,10 +25,27 @@ class AndroidKeystoreSecretStore(
         private const val SECRET_FCM_TOKEN = "fcm_token"
         private const val SECRET_DEVICE_KEY = "device_key"
         private const val SECRET_NOTIFICATION_KEY = "notification_key_bytes"
+        private const val LEGACY_TRANSPORT_TOKEN_PREFIX = "pending_transport_token_"
     }
 
     private val prefs = context.applicationContext
         .getSharedPreferences(preferenceFileName, Context.MODE_PRIVATE)
+
+    // The gateway-address journal historically shared this key namespace. Keep
+    // its encrypted bytes intact; only the removed route-operation tokens expire.
+    private val gatewayJournalKey =
+        LEGACY_TRANSPORT_TOKEN_PREFIX + sha256Hex("gateway-transition-journal-v1")
+
+    init {
+        val obsoleteKeys = prefs.all.keys.filter {
+            it.startsWith(LEGACY_TRANSPORT_TOKEN_PREFIX) && it != gatewayJournalKey
+        }
+        if (obsoleteKeys.isNotEmpty()) {
+            val editor = prefs.edit()
+            obsoleteKeys.forEach(editor::remove)
+            check(editor.commit()) { "Obsolete transport token cleanup failed" }
+        }
+    }
 
     override fun gatewayToken(): String? {
         return getString(SECRET_GATEWAY_TOKEN)?.trim()?.ifEmpty { null }
@@ -54,15 +71,12 @@ class AndroidKeystoreSecretStore(
         putString(SECRET_FCM_TOKEN, token?.trim()?.ifEmpty { null })
     }
 
-    override fun pendingTransportToken(operationId: String): String? {
-        return getString(pendingTransportTokenKey(operationId))?.trim()?.ifEmpty { null }
+    override fun gatewayTransitionJournal(): String? {
+        return getString(gatewayJournalKey)?.trim()?.ifEmpty { null }
     }
 
-    override fun setPendingTransportToken(operationId: String, token: String?) {
-        putString(
-            pendingTransportTokenKey(operationId),
-            token?.trim()?.ifEmpty { null },
-        )
+    override fun setGatewayTransitionJournal(journal: String?) {
+        putString(gatewayJournalKey, journal?.trim()?.ifEmpty { null })
     }
 
     override fun deviceKey(): String? {
@@ -142,12 +156,6 @@ class AndroidKeystoreSecretStore(
 
     private fun gatewayAckTokenKey(gatewayUrl: String): String {
         return "gateway_ack_token_${sha256Hex(gatewayUrl.trim())}"
-    }
-
-    private fun pendingTransportTokenKey(operationId: String): String {
-        val normalized = operationId.trim()
-        require(normalized.isNotEmpty()) { "transport operation id is required" }
-        return "pending_transport_token_${sha256Hex(normalized)}"
     }
 
     private fun sha256Hex(value: String): String {

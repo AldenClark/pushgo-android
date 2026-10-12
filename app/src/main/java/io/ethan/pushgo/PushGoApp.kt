@@ -65,8 +65,7 @@ class PushGoApp : Application(), SingletonImageLoader.Factory {
     private var startupSyncCompleted: Boolean = false
     @Volatile
     private var cachedUseFcmChannel: Boolean = true
-    private val transportRecoveryReady = CompletableDeferred<Unit>()
-    private val transportRecoveryMutex = Mutex()
+    private val routeSynchronizationReady = CompletableDeferred<Unit>()
     private val pushTokenGeneration = AtomicLong()
     private val pushTokenObservationLock = Any()
     @Volatile private var latestObservedPushToken: String? = null
@@ -134,7 +133,7 @@ class PushGoApp : Application(), SingletonImageLoader.Factory {
             return false
         }
         val container = containerOrNull() ?: return false
-        if (!qualityOwnsPrivateService && !transportRecoveryReady.isCompleted) return false
+        if (!qualityOwnsPrivateService && !routeSynchronizationReady.isCompleted) return false
         val fcmModeEnabled = if (qualityOwnsPrivateService) {
             container.settingsRepository.getCachedUseFcmChannel()
         } else {
@@ -146,13 +145,6 @@ class PushGoApp : Application(), SingletonImageLoader.Factory {
     }
 
     private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-    private val transportRecoveryDispatcher by lazy {
-        ConflatedRecoveryDispatcher(
-            scope = appScope,
-            recover = ::recoverTransportUntilSettled,
-            onRecovered = { transportRecoveryReady.complete(Unit) },
-        )
-    }
     private val imageStoreForCoil by lazy { MessageImageStore(this) }
     private var startedActivities: Int = 0
     private var pendingDeletionLifecycleGeneration: Long = 0L
@@ -208,7 +200,16 @@ class PushGoApp : Application(), SingletonImageLoader.Factory {
             return
         }
         container.pendingLocalDeletionCoordinator.start()
-        transportRecoveryDispatcher.request(container)
+        appScope.launch {
+            try {
+                container.transportSwitchCoordinator.synchronize()
+            } catch (error: Exception) {
+                if (error is CancellationException) throw error
+                PushGoAutomation.recordRuntimeError(source = "transport.route.synchronization", error = error, category = "network")
+            } finally {
+                routeSynchronizationReady.complete(Unit)
+            }
+        }
         cachedUseFcmChannel = container.settingsRepository.getCachedUseFcmChannel()
         appScope.launch {
             runCatching {
@@ -222,7 +223,7 @@ class PushGoApp : Application(), SingletonImageLoader.Factory {
             }
         }
         appScope.launch {
-            transportRecoveryReady.await()
+            routeSynchronizationReady.await()
             container.settingsRepository.useFcmChannelFlow.collect { useFcmChannel ->
                 cachedUseFcmChannel = useFcmChannel
                 PrivateChannelServiceManager.refreshForMode(
@@ -263,7 +264,7 @@ class PushGoApp : Application(), SingletonImageLoader.Factory {
                 AlertPlaybackController.stopAll(this@PushGoApp)
                 val automationSession = PushGoAutomation.isSessionConfigured()
                 container.privateChannelClient.setForeground(startedActivities > 0 && !automationSession)
-                if (transportRecoveryReady.isCompleted) {
+                if (routeSynchronizationReady.isCompleted) {
                     PrivateChannelServiceManager.refreshForMode(this@PushGoApp, isEffectiveFcmModeEnabled())
                 }
                 if (!automationSession) {
@@ -278,7 +279,7 @@ class PushGoApp : Application(), SingletonImageLoader.Factory {
                 startedActivities = (startedActivities - 1).coerceAtLeast(0)
                 deletionInteractionBoundary.onActivityStopped(activity.isChangingConfigurations)
                 container.privateChannelClient.setForeground(startedActivities > 0)
-                if (transportRecoveryReady.isCompleted) {
+                if (routeSynchronizationReady.isCompleted) {
                     PrivateChannelServiceManager.refreshForMode(this@PushGoApp, isEffectiveFcmModeEnabled())
                 }
             }
@@ -298,26 +299,16 @@ class PushGoApp : Application(), SingletonImageLoader.Factory {
         NotificationHelper.ensureManagedChannels(this)
     }
 
-    private suspend fun recoverTransportUntilSettled(container: AppContainer) {
-        transportRecoveryMutex.withLock {
-            var retryDelayMillis = 1_000L
-            while (true) {
-                try {
-                    container.transportSwitchCoordinator.recoverPending()
-                    return@withLock
-                } catch (error: CancellationException) {
-                    throw error
-                } catch (error: Throwable) {
-                    PushGoAutomation.recordRuntimeError(
-                        source = "transport.transition.recovery",
-                        error = error,
-                        category = "network",
-                    )
-                    delay(retryDelayMillis)
-                    retryDelayMillis = (retryDelayMillis * 2).coerceAtMost(30_000L)
-                }
-            }
-        }
+    private suspend fun synchronizeRoute(container: AppContainer): Boolean = try {
+        container.transportSwitchCoordinator.synchronize()
+        true
+    } catch (error: CancellationException) {
+        throw error
+    } catch (error: Exception) {
+        PushGoAutomation.recordRuntimeError(
+            source = "transport.route.synchronization", error = error, category = "network",
+        )
+        false
     }
 
     private fun createContainer(): AppContainer {
@@ -326,16 +317,13 @@ class PushGoApp : Application(), SingletonImageLoader.Factory {
             val container = AppContainer(
                 context = this,
                 appScope = CoroutineScope(job + Dispatchers.IO),
-                awaitTransportRecovery = {
+                awaitRouteSynchronization = {
                     if (
                         !InstrumentationRuntime.isUnderInstrumentationTest() &&
                         io.ethan.pushgo.testing.QualityRuntime.currentSession() == null
                     ) {
-                        transportRecoveryReady.await()
+                        routeSynchronizationReady.await()
                     }
-                },
-                requestTransportRecovery = {
-                    containerOrNull()?.let(transportRecoveryDispatcher::request)
                 },
                 pendingLocalDeletionDrainScheduler = if (
                     InstrumentationRuntime.isUnderInstrumentationTest() ||
@@ -374,9 +362,9 @@ class PushGoApp : Application(), SingletonImageLoader.Factory {
         }
         appScope.launch {
             try {
-                transportRecoveryReady.await()
+                routeSynchronizationReady.await()
                 applyAutomationGatewayOverrideIfNeeded(container)
-                syncSubscriptionsOnLaunch()
+                if (synchronizeRoute(container)) syncSubscriptionsOnLaunch()
             } finally {
                 startupSyncCompleted = true
             }
@@ -387,9 +375,10 @@ class PushGoApp : Application(), SingletonImageLoader.Factory {
         if (io.ethan.pushgo.testing.QualityRuntime.currentSession() != null) return
         val container = containerOrNull() ?: return
         appScope.launch {
-            transportRecoveryReady.await()
+            routeSynchronizationReady.await()
             if (io.ethan.pushgo.testing.QualityRuntime.currentSession() != null) return@launch
             runCatching {
+                container.transportSwitchCoordinator.synchronize()
                 ProviderIngressCoordinator.pullPersistAndDrainAcks(
                     context = this@PushGoApp,
                     channelRepository = container.channelRepository,
@@ -408,13 +397,14 @@ class PushGoApp : Application(), SingletonImageLoader.Factory {
         triggerPull: Boolean,
         generation: Long,
     ) {
-        transportRecoveryReady.await()
+        routeSynchronizationReady.await()
         pushTokenProcessingMutex.withLock {
             if (generation != pushTokenGeneration.get() ||
                 latestObservedPushToken?.let { it != normalizedToken } == true
             ) return@withLock
             // A Firebase callback may have queued this coroutine before a quality session.
             if (io.ethan.pushgo.testing.QualityRuntime.currentSession() != null) return@withLock
+            if (!synchronizeRoute(container)) return
             val useFcmChannel = runCatching { container.settingsRepository.getUseFcmChannel() }
                 .getOrDefault(true)
             cachedUseFcmChannel = useFcmChannel
@@ -480,7 +470,7 @@ class PushGoApp : Application(), SingletonImageLoader.Factory {
     private fun initializePushRuntime() {
         val container = containerOrNull() ?: return
         appScope.launch {
-            transportRecoveryReady.await()
+            routeSynchronizationReady.await()
             val useFcmChannel = runCatching {
                 container.settingsRepository.getUseFcmChannel()
             }.getOrDefault(true)

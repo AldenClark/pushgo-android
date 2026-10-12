@@ -134,7 +134,7 @@ class GatewayTransitionJournalTest {
         assertEquals(true, afterFcm?.privateCleanupPending)
         repository.clearGatewayTransitionJournal()
         assertNull(repository.getGatewayTransitionJournal())
-        assertNull(protectedValues.pendingTransportToken("gateway-transition-journal-v1"))
+        assertNull(protectedValues.gatewayTransitionJournal())
     }
 
     @Test
@@ -186,7 +186,7 @@ class GatewayTransitionJournalTest {
         repository.resetForAutomation("https://default.example")
 
         assertNull(repository.getGatewayTransitionJournal())
-        assertNull(protectedValues.pendingTransportToken("gateway-transition-journal-v1"))
+        assertNull(protectedValues.gatewayTransitionJournal())
         assertEquals(false, repository.getGatewayRecoveryPending())
     }
 
@@ -282,8 +282,8 @@ class GatewayTransitionJournalTest {
         override fun setGatewayAckToken(gatewayUrl: String, token: String?) = set("ack:$gatewayUrl", token)
         override fun fcmToken(): String? = values["fcm"]
         override fun setFcmToken(token: String?) = set("fcm", token)
-        override fun pendingTransportToken(operationId: String): String? = values["pending:$operationId"]
-        override fun setPendingTransportToken(operationId: String, token: String?) = set("pending:$operationId", token)
+        override fun gatewayTransitionJournal(): String? = values["gateway_journal"]
+        override fun setGatewayTransitionJournal(journal: String?) = set("gateway_journal", journal)
         override fun deviceKey(): String? = values["device"]
         override fun setDeviceKey(deviceKey: String?) = set("device", deviceKey)
         override fun notificationKeyBytes(): ByteArray? = null

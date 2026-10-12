@@ -99,8 +99,9 @@ class ChannelSubscriptionRepository(
     private val entityRepository: EntityRepository,
     private val database: PushGoDatabase,
     private val pushTokenProvider: PushTokenProvider,
-    private val awaitTransportRecovery: suspend () -> Unit = {},
+    private val awaitRouteSynchronization: suspend () -> Unit = {},
     private val transportRouteWriterGate: TransportRouteWriterGate = UnlockedTransportRouteWriterGate,
+    private val onRemoteRoute: suspend (DeviceRouteSnapshot) -> Unit = {},
     service: ChannelSubscriptionService? = null,
     private val eventCloseRoundTrip: EventCloseRoundTrip? = null,
     private val channelMutationRoundTrip: ChannelMutationRoundTrip? = null,
@@ -488,7 +489,7 @@ class ChannelSubscriptionRepository(
         providerToken: String?,
         channelType: String,
     ): PreparedGatewaySwitch {
-        awaitTransportRecovery()
+        awaitRouteSynchronization()
         return transportRouteWriterGate.run(channelType.trim().lowercase()) {
             val sourceGatewayConfig = loadGatewayConfig()
             prepareGatewaySwitchUnderGate(
@@ -577,10 +578,10 @@ class ChannelSubscriptionRepository(
      * is silently accepted as the active gateway.
      */
     suspend fun commitGatewaySwitch(prepared: PreparedGatewaySwitch) {
-        awaitTransportRecovery()
+        awaitRouteSynchronization()
         transportRouteWriterGate.run(prepared.channelType) {
             if (loadGatewayConfig() != (prepared.sourceGatewayUrl to prepared.sourceGatewayToken)) {
-                throw TransportTransitionUnavailableException(
+                throw TransportRouteUnavailableException(
                     "Gateway changed after switch preparation"
                 )
             }
@@ -835,6 +836,7 @@ class ChannelSubscriptionRepository(
                 channels = channels
             )
         }
+        observeRemoteRoute(payload.route, config, deviceKey)
         val now = System.currentTimeMillis()
         val staleChannels = mutableListOf<String>()
         val passwordMismatchChannels = mutableListOf<String>()
@@ -870,11 +872,11 @@ class ChannelSubscriptionRepository(
     }
 
     private suspend fun ensureProviderRoute(deviceToken: String, config: ServerConfig): String {
-        awaitTransportRecovery()
+        awaitRouteSynchronization()
         return transportRouteWriterGate.run(FCM_CHANNEL_TYPE) {
             val currentConfig = resolveServerConfig()
             if (currentConfig.address != config.address || currentConfig.token != config.token) {
-                throw TransportTransitionUnavailableException(
+                throw TransportRouteUnavailableException(
                     "Gateway changed before the provider route write"
                 )
             }
@@ -901,7 +903,7 @@ class ChannelSubscriptionRepository(
                 }
             }.getOrNull()?.trim()?.ifEmpty { null }
             if (systemToken != normalizedToken) {
-                throw TransportTransitionUnavailableException(
+                throw TransportRouteUnavailableException(
                     "Provider token changed before the route write"
                 )
             }
@@ -923,7 +925,13 @@ class ChannelSubscriptionRepository(
             rememberAckCredential(config)
             return deviceKey
         }
-        val deviceKey = ensureDeviceIdentity(config)
+        val registration = ensureDeviceIdentity(config)
+        val deviceKey = registration.deviceKey
+        // Register may have reconciled a remote Private route. Do not overwrite it
+        // with a provider write that was queued using the old local setting.
+        if (registration.route?.issuedNewKey == false && !settingsRepository.getUseFcmChannel()) {
+            throw TransportRouteUnavailableException("Gateway device is using Private transport")
+        }
         val previousToken = settingsRepository.getFcmToken()?.trim()?.ifEmpty { null }
         if (previousToken != normalizedToken) {
             settingsRepository.setFcmToken(normalizedToken)
@@ -937,6 +945,11 @@ class ChannelSubscriptionRepository(
             providerToken = normalizedToken,
         )
         val resolvedDeviceKey = upserted.deviceKey.trim()
+        if (loadGatewayConfig() != (config.address to config.token) ||
+            settingsRepository.getDeviceKey()?.trim() != deviceKey
+        ) {
+            throw TransportRouteUnavailableException("Gateway identity changed during provider registration")
+        }
         settingsRepository.setDeviceKey(resolvedDeviceKey)
         rememberAckCredential(config)
         if (previousToken != null && previousToken != normalizedToken) {
@@ -952,7 +965,7 @@ class ChannelSubscriptionRepository(
         return resolvedDeviceKey
     }
 
-    private suspend fun ensureDeviceIdentity(config: ServerConfig): String {
+    private suspend fun ensureDeviceIdentity(config: ServerConfig): DeviceRegisterResult {
         val existingDeviceKey = settingsRepository.getDeviceKey()
         val registered = service.registerDevice(
             baseUrl = config.address,
@@ -968,8 +981,26 @@ class ChannelSubscriptionRepository(
                 category = GatewayErrorCategory.INTERNAL,
             )
         }
+        if (loadGatewayConfig() != (config.address to config.token) ||
+            settingsRepository.getDeviceKey()?.trim() != existingDeviceKey?.trim()
+        ) {
+            throw TransportRouteUnavailableException("Gateway identity changed during registration")
+        }
         settingsRepository.setDeviceKey(resolvedDeviceKey)
-        return resolvedDeviceKey
+        observeRemoteRoute(registered.route, config, resolvedDeviceKey)
+        return registered.copy(deviceKey = resolvedDeviceKey)
+    }
+
+    private suspend fun observeRemoteRoute(
+        route: DeviceRouteSnapshot?,
+        config: ServerConfig,
+        expectedDeviceKey: String,
+    ) {
+        if (route == null || route.issuedNewKey || route.deviceKey != expectedDeviceKey ||
+            loadGatewayConfig() != (config.address to config.token) ||
+            settingsRepository.getDeviceKey()?.trim() != expectedDeviceKey
+        ) return
+        onRemoteRoute(route)
     }
 
     private suspend fun resolveProviderDeviceKeyForIngress(config: ServerConfig): String {

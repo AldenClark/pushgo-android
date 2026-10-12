@@ -338,3 +338,20 @@ Gateway 的正向终点不再停在地址持久化或旧行消失：现有 `serv
 2026-09-03 Android 派生事务修复后 `device` 正向回归：在干净提交 `d8998d0`、专用 `Medium_Phone / emulator-5554` 上运行 `scripts/quality_test.sh device`，12 条 App-owned UI 与 21 条数据/迁移/ACK/传输用例全部精确执行并通过；Gradle 为 1m10s 与 5s 两阶段，原生 failure/error/skip=0。收据 `build/quality-results/android-device-after-derived-fix-20260903/android-device-summary.json` 双 `PASSED`、`source_dirty=false`、选择与执行一致、无 incomplete/issue。真实终点覆盖核心页面、消息/频道/Event/Thing/Settings、迁移重开、pending deletion、ACK 账本和传输切换；仅刷新受控 emulator 主链，不外推进程终止、磁盘耗尽、UI rebuild、真实 Provider/FCM/Private、物理/OEM、Release 或长期观察。
 2026-09-03 Android 派生事务修复后 `nightly` 正向回归：在干净提交 `54c1557`、专用 `Medium_Phone / emulator-5554` 上运行 `scripts/quality_test.sh nightly`，主机 298 项、App-owned UI 33/33、数据/迁移/ACK/传输与派生恢复 57/57、系统通知/Private 3/3、通知权限 1/1、Doze/进程重启链及 zh-CN 大字体 1/1 均执行通过，零 failure/error/skip/runtime warning。收据 `build/quality-results/android-nightly-after-derived-fix-20260903/android-nightly-summary.json` 双 `PASSED`、`source_dirty=false`、选择与执行一致、无 incomplete/issue；真实 Provider/FCM/Private、实体进程终止、物理/OEM、100k opt-in、Release 与长期观察继续维持 `NOT RUN/BLOCKED`。
 2026-09-03 Android 搜索慢加载当前字节：提交 `6ae1241` 在 `MessageListScreen` 为非空查询增加 1 秒后页面自有慢提示；既有 `standardFixtureShowsAccurateContentAndSurvivesActivityRelaunch` 现在用同一受控 2 秒 `P2 Split` 查询验证慢提示、准确唯一结果、真实详情和返回后的无结果查询。干净源码的 `quality_changed.sh --base a70acf1 --head HEAD` 脚本合同 175/175、host PR 298 项与专用 `Medium_Phone / emulator-5554` `planned-device` 2/2 均通过，零 failure/error/skip/runtime warning；收据 `build/quality-results/android-search-slow-visible-changed-20260903/{android-pr-summary.json,android-planned-device-summary.json}` 双 `PASSED`、`source_dirty=false`、选择与执行一致、无 incomplete/issue。真实 Provider、10k/100k、真机/OEM、Release 与长期观察仍保持 `NOT RUN/BLOCKED`。
+
+
+## 2026-10-12 通知方式按 Gateway 当前路由收敛
+
+用户确认以服务端实际路由为准，接受短暂不一致后的正常同步收敛；不承诺任何网络异常都回滚旧方式或严格最后意图胜出。Gateway 注册/频道同步新增可选 route 快照（当前方式、已有 revision、Provider token 是否存在）；Android 同一入口应用远端快照，并在普通注册响应后重新检查方式，阻止旧 FCM/Private 写入覆盖远端选择。显式切换只发一次既有 /channel/device；未知结果通过普通注册确认，不反向写远端；本地保存失败只补写一次，之后依靠启动/前台/正常业务同步。普通写入 gate 仅保留串行和当前方式检查，未增加每次写入前的重复全局查询。
+
+移除 V2 四阶段、操作 ID、Room transport_transitions/DAO/Entity、pending operation token、无限恢复 dispatcher 和对应 UI 状态。Room 32 的 31→32 仅删除废弃表，历史升级链和独立 Gateway 地址切换恢复保留；Gateway 同样只删除废弃操作表，保留当前路由、订阅、原子消息队列迁移和容量拒绝。Private 模式清除普通 FCM token 的原行为保留，不将意外保留 token 作为新的功能定义。
+
+必要复验：JVM 40 项目的级/HTTP/独立 Gateway 日志检查通过；API37 专用 AVD（实际1080×1920）8 个独立方法通过，最终受影响运行批次 4/4。覆盖双向选择拒绝→重试→重开、本地补写→重开、首次设备签发、两种旧方式写入阻断及 Room 保持、v30/v31→32 数据保留/重开和 Android Keystore 清理保留其他凭据。8 项来自独立批次的相应证据，不是一次全量或最终平台矩阵；首次 6 项中的 5 个成功目的保留，失败不升绿，后续只复验受影响流和新发现的首次身份路径。原编译缺少 fixture exception、首次 native Private token 断言失败和首次身份比较问题均保留并准确归因；测试断言未放宽。
+
+证据 build/quality-results/route-authority-20261012/summary.json、source-identity.json、native-first-raw、native-final-raw、native-ordinary-final-raw。脚本合同246项和本地化检查通过；最初 --base HEAD 的静态计划没有包含 dirty 字节，另以明确 working-tree 文件列表生成 READY/release 的真实影响计划，未执行其累计 Release 车道，用户限定定点范围优先。全量 PR/nightly/accessibility/performance、真机 Provider、远端 CI 和发布均 NOT_RUN。
+
+兼容性：正式 Android v1.3.0 的数据库正是 v30，历史 schema 文件逐字节未改，已有 v30→32 设备测试验证真实消息/设置/频道/待处理投递/ACK 数据保留。新 App 对旧 Gateway 缺少 route 元数据保持原路径兼容，不把缺字段当新服务端能力已验收。Android/Apple 正式 v1.3.0 源码均不使用 V2；移除未发布的 V2 协议不改变这些正式版本使用的接口、请求体和既有响应字段。旧客户端完整二进制安装运行本轮 NOT_RUN，Gateway 旧请求/升级证据另见 sibling gateway 的 summary。所有源码及记录保留本地未提交，不推送、不部署、不正式发布；设备测试租约释放、任务 AVD关闭、任务 DB 容器清理、OrbStack恢复停止，实体手机不动。
+
+兼容性最终收口：Gateway 定点原生验证累计 23 项通过、0 忽略，包含旧 Android FCM/iOS APNs 请求与旧字段解码下的真实消息提交→准确拉取→ACK→队列清空，以及历史 SQLite DDL 升级、旧数据保留、新写入和再次打开。正式 Gateway v1.3.2 的 SQLite/PostgreSQL/MySQL 表与索引定义保持一致、schema 仍为 v12；仅增加废弃操作台账清理。另两项真实 PostgreSQL/MySQL 原子切换合同均通过。证据 gateway/build/quality-results/route-authority-20261012/summary.json 和 released-compatibility-source-proof.json；旧 App 完整二进制及生产数据库升级本轮 NOT_RUN，不据此宣称全量发布验收完成。
+
+本地提交说明（2026-10-12）：按用户要求将本次路由收敛、兼容处理、迁移与定点测试源码、上述记录一并提交到 Android 本地仓库；沿用本轮已有证据，不重跑测试、不推送、不部署或正式发布。原始执行收据保持原始源版本和首次失败，提交不产生新的验收结论。

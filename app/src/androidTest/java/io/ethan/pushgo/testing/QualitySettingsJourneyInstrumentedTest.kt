@@ -968,14 +968,12 @@ class QualitySettingsJourneyInstrumentedTest : QualityAppJourneyTestCase() {
             .assertIsNotSelected()
             .performClick()
 
-        // The remote commit already succeeded. The independent recovery owner must
-        // finish the durable intent without an unrelated route write or another tap.
+        // The single remote switch succeeded; local save retry must finish without
+        // an inverse remote write or another tap.
         composeRule.waitUntil(timeoutMillis = 8_000) {
             composeRule.onAllNodes(
                 hasTestTag("option.settings.notification_transport.private") and isSelected()
-            ).fetchSemanticsNodes().isNotEmpty() && runBlocking {
-                !app.container.transportSwitchCoordinator.hasPendingRecovery()
-            }
+            ).fetchSemanticsNodes().isNotEmpty()
         }
         composeRule.onNodeWithTag("option.settings.notification_transport.private")
             .assertIsSelected()

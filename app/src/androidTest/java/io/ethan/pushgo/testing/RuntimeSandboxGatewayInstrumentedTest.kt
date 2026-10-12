@@ -265,9 +265,7 @@ class RuntimeSandboxGatewayInstrumentedTest {
         var switchPrivateOk = false
         val switchToPrivateMs = elapsedMs {
             runCatching {
-                container.settingsRepository.setUseFcmChannel(false)
-                container.settingsRepository.setFcmToken(null)
-                container.privateChannelClient.switchToPrivateAndRetireProvider("fcm", fcmToken)
+                container.transportSwitchCoordinator.switchToPrivate()
                 container.privateChannelClient.setRuntime(fcmAvailable = false, systemToken = null)
                 switchPrivateOk = true
             }.onFailure { error ->
@@ -363,9 +361,7 @@ class RuntimeSandboxGatewayInstrumentedTest {
         var switchBackOk = false
         val switchBackToFcmMs = elapsedMs {
             runCatching {
-                container.settingsRepository.setUseFcmChannel(true)
-                container.settingsRepository.setFcmToken(fcmToken)
-                container.privateChannelClient.switchToProviderChannel("fcm", fcmToken)
+                container.transportSwitchCoordinator.switchToFcm(fcmToken)
                 container.privateChannelClient.setRuntime(fcmAvailable = true, systemToken = fcmToken)
                 switchBackOk = true
             }.onFailure { error ->

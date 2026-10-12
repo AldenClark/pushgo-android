@@ -9,6 +9,7 @@ import kotlinx.coroutines.runBlocking
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
 import org.junit.Test
@@ -28,6 +29,7 @@ class ChannelSubscriptionServiceIngressContractTest {
                 deviceKey = "device-001",
             )
             assertEquals("device-001", result.deviceKey)
+            assertNull("Legacy registration stays compatible without a route snapshot", result.route)
 
             val request = server.firstRequest()
             assertEquals("POST", request.method)
@@ -37,6 +39,105 @@ class ChannelSubscriptionServiceIngressContractTest {
             assertEquals("android", body.getString("platform"))
             assertFalse(body.has("channel_type"))
             assertFalse(body.has("provider_token"))
+        }
+    }
+
+    @Test
+    fun registerDevice_returnsActualRouteWithoutWritingProviderSelection() = runBlocking {
+        CapturingGatewayServer(
+            responseBody = """{"success":true,"data":{"device_key":"device-001","issued_new_key":false,"route":{"channel_type":"private","route_revision":7,"provider_token_present":false}}}"""
+        ).use { server ->
+            val result = ChannelSubscriptionService().registerDevice(
+                baseUrl = server.baseUrl,
+                token = null,
+                platform = "android",
+                deviceKey = "device-001",
+            )
+            assertEquals(
+                DeviceRouteSnapshot(server.baseUrl, "device-001", "private", 7L, false),
+                result.route,
+            )
+            val body = JSONObject(server.firstRequest().body)
+            assertFalse(body.has("channel_type"))
+            assertFalse(body.has("provider_token"))
+        }
+    }
+
+    @Test
+    fun registerDevice_distinguishesNewIdentityFromEstablishedRemoteSelection() = runBlocking {
+        CapturingGatewayServer(
+            responseBody = """{"success":true,"data":{"device_key":"device-new","issued_new_key":true,"route":{"channel_type":"private","route_revision":0,"provider_token_present":false}}}"""
+        ).use { server ->
+            val result = ChannelSubscriptionService().registerDevice(
+                baseUrl = server.baseUrl,
+                token = null,
+                platform = "android",
+                deviceKey = null,
+            )
+            val route = result.route!!
+            assertTrue(route.issuedNewKey)
+            assertEquals("device-new", route.deviceKey)
+            assertFalse(JSONObject(server.firstRequest().body).has("device_key"))
+        }
+    }
+
+    @Test
+    fun sync_returnsRemoteFcmRouteAndKeepsIndependentChannelOutcomes() = runBlocking {
+        CapturingGatewayServer(
+            responseBody = """{"success":true,"data":{"device_key":"device-001","route":{"channel_type":"fcm","route_revision":8,"provider_token_present":true},"success":1,"failed":1,"channels":[{"channel_id":"subscribed","channel_name":"Kept name","subscribed":true},{"channel_id":"removed","subscribed":false,"error_code":"channel_not_found"}]}}"""
+        ).use { server ->
+            val result = ChannelSubscriptionService().sync(
+                baseUrl = server.baseUrl,
+                token = null,
+                deviceKey = "device-001",
+                channels = listOf(ChannelSyncItem("subscribed", "qualityx")),
+            )
+            assertEquals(
+                DeviceRouteSnapshot(server.baseUrl, "device-001", "fcm", 8L, true),
+                result.route,
+            )
+            assertEquals(1, result.success)
+            assertEquals(1, result.failed)
+            assertTrue(result.channels[0].subscribed)
+            assertEquals("Kept name", result.channels[0].channelName)
+            assertEquals("channel_not_found", result.channels[1].resolvedErrorCode)
+            assertEquals("/channel/sync", server.firstRequest().path)
+            assertFalse(JSONObject(server.firstRequest().body).has("channel_type"))
+        }
+    }
+
+    @Test
+    fun sync_legacyResponseWithoutRouteRemainsUsable() = runBlocking {
+        CapturingGatewayServer(
+            responseBody = """{"success":true,"data":{"success":1,"failed":0,"channels":[{"channel_id":"subscribed","subscribed":true}]}}"""
+        ).use { server ->
+            val result = ChannelSubscriptionService().sync(
+                baseUrl = server.baseUrl,
+                token = null,
+                deviceKey = "device-001",
+                channels = listOf(ChannelSyncItem("subscribed", "qualityx")),
+            )
+            assertNull(result.route)
+            assertTrue(result.channels.single().subscribed)
+        }
+    }
+
+    @Test
+    fun registerDevice_rejectsMalformedRouteInsteadOfInventingSelection() = runBlocking {
+        CapturingGatewayServer(
+            responseBody = """{"success":true,"data":{"device_key":"device-001","route":{"channel_type":"unknown","route_revision":7,"provider_token_present":false}}}"""
+        ).use { server ->
+            try {
+                ChannelSubscriptionService().registerDevice(
+                    baseUrl = server.baseUrl,
+                    token = null,
+                    platform = "android",
+                    deviceKey = "device-001",
+                )
+                fail("expected invalid device route to fail")
+            } catch (error: ChannelSubscriptionException) {
+                assertEquals("gateway_invalid_device_route", error.code)
+            }
         }
     }
 

@@ -121,9 +121,6 @@ class SettingsViewModel(
         private set
     var transportErrorMessage by mutableStateOf<UiMessage?>(null)
         private set
-    private var pendingTransportTargetUseFcm: Boolean? = null
-    private var pendingTransportFailureResId: Int? = null
-    private var pendingPrivateWhitelistDialog = false
 
     var decryptionKeyInput by mutableStateOf("")
         private set
@@ -257,33 +254,6 @@ class SettingsViewModel(
                         privateModeEnabled = !useFcm,
                     )
                 }
-        }
-        viewModelScope.launch {
-            transportSwitcher.pendingRecovery?.collect { pending ->
-                val recoveringMessage = ResMessage(R.string.message_notification_transport_recovering)
-                if (pending) {
-                    transportErrorMessage = recoveringMessage
-                    return@collect
-                }
-                val target = pendingTransportTargetUseFcm
-                if (target == null) {
-                    if (transportErrorMessage == recoveringMessage) transportErrorMessage = null
-                    return@collect
-                }
-                val actual = settingsRepository.getUseFcmChannel()
-                useFcmChannel = actual
-                transportErrorMessage = if (actual == target) {
-                    null
-                } else {
-                    pendingTransportFailureResId?.let(::ResMessage)
-                }
-                if (!actual && target == false && pendingPrivateWhitelistDialog) {
-                    shouldShowPrivateChannelWhitelistDialog = true
-                }
-                pendingTransportTargetUseFcm = null
-                pendingTransportFailureResId = null
-                pendingPrivateWhitelistDialog = false
-            }
         }
         viewModelScope.launch {
             settingsRepository.messagePageEnabledFlow.collect { isMessagePageEnabled = it }
@@ -554,7 +524,6 @@ class SettingsViewModel(
                                 failure,
                             )
                             transportErrorMessage = transportFailureMessage(
-                                targetUseFcm = true,
                                 fallbackResId = R.string.error_notification_transport_fcm_switch_failed,
                             )
                         }
@@ -573,9 +542,7 @@ class SettingsViewModel(
                             failure,
                         )
                         transportErrorMessage = transportFailureMessage(
-                            targetUseFcm = false,
                             fallbackResId = R.string.error_notification_transport_switch_failed,
-                            showPrivateWhitelistOnSuccess = previousUseFcmChannel,
                         )
                         if (transportErrorMessage != null) return@launch
                     }
@@ -590,28 +557,7 @@ class SettingsViewModel(
         }
     }
 
-    private suspend fun transportFailureMessage(
-        targetUseFcm: Boolean,
-        fallbackResId: Int,
-        showPrivateWhitelistOnSuccess: Boolean = false,
-    ): UiMessage? {
-        if (transportSwitcher.hasPendingRecovery()) {
-            pendingTransportTargetUseFcm = targetUseFcm
-            pendingTransportFailureResId = fallbackResId
-            pendingPrivateWhitelistDialog = showPrivateWhitelistOnSuccess
-            if (transportSwitcher.hasPendingRecovery()) {
-                return ResMessage(R.string.message_notification_transport_recovering)
-            }
-            pendingTransportTargetUseFcm = null
-            pendingTransportFailureResId = null
-            pendingPrivateWhitelistDialog = false
-        }
-        return if (settingsRepository.getUseFcmChannel() == targetUseFcm) {
-            null
-        } else {
-            ResMessage(fallbackResId)
-        }
-    }
+    private fun transportFailureMessage(fallbackResId: Int): UiMessage = ResMessage(fallbackResId)
 
     private suspend fun requireFcmToken(
         context: Context,

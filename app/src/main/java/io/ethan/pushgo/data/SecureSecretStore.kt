@@ -10,8 +10,8 @@ interface SecureSecretStore {
     fun fcmToken(): String?
     fun setFcmToken(token: String?)
 
-    fun pendingTransportToken(operationId: String): String?
-    fun setPendingTransportToken(operationId: String, token: String?)
+    fun gatewayTransitionJournal(): String?
+    fun setGatewayTransitionJournal(journal: String?)
 
     fun deviceKey(): String?
     fun setDeviceKey(deviceKey: String?)

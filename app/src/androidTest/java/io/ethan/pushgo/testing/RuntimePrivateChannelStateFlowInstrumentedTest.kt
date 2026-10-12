@@ -707,7 +707,6 @@ class RuntimePrivateChannelStateFlowInstrumentedTest {
             transportSwitcher = object : TransportSwitcher {
                 override suspend fun switchToFcm(providerToken: String) = Unit
                 override suspend fun switchToPrivate() = Unit
-                override suspend fun recoverPending() = Unit
             },
         )
     }
@@ -1012,13 +1011,13 @@ private class StateflowSecretStore(context: Context) : SecureSecretStore {
         prefs.edit().putString("fcm_token", token?.trim()?.ifEmpty { null }).commit()
     }
 
-    override fun pendingTransportToken(operationId: String): String? =
-        prefs.getString("pending_transport_token:${operationId.trim()}", null)
+    override fun gatewayTransitionJournal(): String? =
+        prefs.getString("gateway_transition_journal", null)
             ?.trim()?.ifEmpty { null }
 
-    override fun setPendingTransportToken(operationId: String, token: String?) {
+    override fun setGatewayTransitionJournal(journal: String?) {
         prefs.edit()
-            .putString("pending_transport_token:${operationId.trim()}", token?.trim()?.ifEmpty { null })
+            .putString("gateway_transition_journal", journal?.trim()?.ifEmpty { null })
             .commit()
     }
 

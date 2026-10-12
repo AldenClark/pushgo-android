@@ -349,7 +349,7 @@ class SettingsRepository(
         // Write protected values first: a visible journal always has the data
         // required to reconstruct either complete configuration.
         try {
-            secretStore.setPendingTransportToken(GATEWAY_TRANSITION_JOURNAL_ID, encoded)
+            secretStore.setGatewayTransitionJournal(encoded)
             writeGatewayTransitionMetadata(journal)
         } catch (error: Throwable) {
             // A failed intent write must not leave an orphaned encrypted
@@ -359,7 +359,7 @@ class SettingsRepository(
                 settingsCache.edit().remove(KEY_GATEWAY_TRANSITION_METADATA).commit()
             }.onFailure(error::addSuppressed)
             runCatching {
-                secretStore.setPendingTransportToken(GATEWAY_TRANSITION_JOURNAL_ID, null)
+                secretStore.setGatewayTransitionJournal(null)
             }.onFailure(error::addSuppressed)
             throw error
         }
@@ -370,7 +370,7 @@ class SettingsRepository(
             ?.trim()
             ?.takeIf { it.isNotEmpty() }
             ?: return null
-        val encoded = secretStore.pendingTransportToken(GATEWAY_TRANSITION_JOURNAL_ID)
+        val encoded = secretStore.gatewayTransitionJournal()
             ?.trim()
             ?.takeIf { it.isNotEmpty() }
             ?: throw IllegalStateException("Gateway transition journal is missing protected data")
@@ -463,7 +463,7 @@ class SettingsRepository(
             .remove(KEY_GATEWAY_TRANSITION_METADATA)
             .commit()
         check(removed) { "Failed to clear gateway transition journal" }
-        secretStore.setPendingTransportToken(GATEWAY_TRANSITION_JOURNAL_ID, null)
+        secretStore.setGatewayTransitionJournal(null)
     }
 
     /** Restores every active gateway field from a pre-commit journal. */
@@ -659,7 +659,6 @@ class SettingsRepository(
         private const val KEY_MESSAGE_UNREAD_ONLY_FILTER = "message_unread_only_filter"
         private const val KEY_GATEWAY_RECOVERY_PENDING = "gateway_recovery_pending"
         private const val KEY_GATEWAY_TRANSITION_METADATA = "gateway_transition_metadata"
-        private const val GATEWAY_TRANSITION_JOURNAL_ID = "gateway-transition-journal-v1"
     }
 }
 

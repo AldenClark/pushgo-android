@@ -77,6 +77,7 @@ class AppAutomationController(
     private val privateChannelClient: PrivateChannelClient,
     private val inboundDeliveryLedgerRepository: InboundDeliveryLedgerRepository,
     private val messageImageStore: MessageImageStore,
+    private val transportSwitcher: TransportSwitcher,
 ) {
     private var lastNotificationAction: String? = null
     private var lastNotificationTarget: String? = null
@@ -142,13 +143,7 @@ class AppAutomationController(
             return
         }
 
-        val previousFcmToken = settingsRepository.getFcmToken()
-        settingsRepository.setFcmToken(null)
-        privateChannelClient.setRuntime(fcmAvailable = false, systemToken = null)
-        PrivateChannelServiceManager.refreshForMode(appContext, false)
-        runCatching {
-            privateChannelClient.switchToPrivateAndRetireProvider("fcm", previousFcmToken)
-        }
+        transportSwitcher.switchToPrivate()
     }
 
     private fun normalizeAutomationGatewayBaseUrl(raw: String): String? {
