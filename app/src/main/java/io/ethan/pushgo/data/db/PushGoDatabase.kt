@@ -15,7 +15,6 @@ import java.io.File
     entities = [
         MessageEntity::class,
         MessageMetadataIndexEntity::class,
-        MessageFts::class,
         MessageChannelStatsEntity::class,
         MessageGlobalStatsEntity::class,
         MessageStoreRevisionEntity::class,
@@ -36,7 +35,7 @@ import java.io.File
         AppSettingsEntity::class,
         PendingLocalDeletionEntity::class,
     ],
-    version = 32,
+    version = 33,
     exportSchema = true,
 )
 abstract class PushGoDatabase : RoomDatabase() {
@@ -342,6 +341,18 @@ abstract class PushGoDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_32_33 = object : Migration(32, 33) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                // Search reads message_metadata_index. Retire the unused FTS
+                // copy without changing canonical messages or their search data.
+                db.execSQL("DROP TRIGGER IF EXISTS room_fts_content_sync_message_fts_BEFORE_UPDATE")
+                db.execSQL("DROP TRIGGER IF EXISTS room_fts_content_sync_message_fts_BEFORE_DELETE")
+                db.execSQL("DROP TRIGGER IF EXISTS room_fts_content_sync_message_fts_AFTER_UPDATE")
+                db.execSQL("DROP TRIGGER IF EXISTS room_fts_content_sync_message_fts_AFTER_INSERT")
+                db.execSQL("DROP TABLE IF EXISTS message_fts")
+            }
+        }
+
         fun build(context: Context): PushGoDatabase {
             return runCatching {
                 newBuilder(
@@ -395,6 +406,7 @@ abstract class PushGoDatabase : RoomDatabase() {
                     MIGRATION_29_30,
                     MIGRATION_30_31,
                     MIGRATION_31_32,
+                    MIGRATION_32_33,
                 )
                 .setJournalMode(RoomDatabase.JournalMode.WRITE_AHEAD_LOGGING)
                 .addCallback(object : RoomDatabase.Callback() {
