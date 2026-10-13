@@ -546,3 +546,13 @@ PR run `38110588102` passed fresh host regression but failed its preparation neg
 最终路由候选 `e9f4659` 的累计 PR [run 38212761936](https://github.com/AldenClark/pushgo-android/actions/runs/38212761936) 首次结果保留：host 的 310 个 JVM、246 个脚本合同及编译/静态检查通过；API35 设备第一批 34 个 UI 方法中 33 通过，`thingFixtureShowsAccurateOverviewAndAllThreeRealRelationTabs` 在重启到已删除 Thing 后的目标不可用提示断言失败，原收据仍为 product `FAILED` / test-system `PASSED`。后续 data/system/accessibility/performance/upgrade 阶段未执行，不能将该批次称为 Release 通过。
 
 该测试原先只等待 Activity `RESUMED`，随后立即断言；Intent 导航及 Room 目标查询异步完成。只在这一重启 checkpoint 沿用同类目标不可用流程的 8 秒预算等待真实反馈可见，保留准确文案、删除目标不出现、控制对象及后续关系页断言，超时输出语义树。产品逻辑、阈值、选择器和跳过规则未改。专用 API37 / 1080×1920 模拟器复用已有 App APK，原方法及仅修改断言同步后的方法分别实际执行 1/1 通过（12.926 秒、13.184 秒）；这不复现或清除 API35 首败，也不是累计通过。新的最终 head 仍由 PR 既有累计 CI 验证，不新增或手工重复全量车道。
+
+### 2026-10-13 定时消息流程：慢查询注入边界修复
+
+CI38329841437 / main8623fb5的唯一主UI失败位于standardFixtureShowsAccurateContentAndSurvivesActivityRelaunch第486行，只证明未观察到slow loading，不能据此判定消息或搜索结果丢失。归因为测试系统：原2秒质量延迟在ViewModel发布PagingData之前执行，而提示只观察真实Paging refresh Loading；此注入不保证产生被测试的加载窗口。将原一次性延迟合并到现有suspend beforeMessageSearchLoad，实际PagingSource.load承担该延迟，移除ViewModel发布前的质量hook；Release无质量session时仍使用原PagingSource，业务规则/查询/数据生命周期/UI逻辑不变。
+
+原instrumented方法及其2秒delay、4秒等待完全未修改；准确内容、搜索结果/详情、已读、刷新和Activity重开持久化断言保留。新增两项JVM回归：首次load必须挂起且后续不重复延迟、一次失败后允许真实重试。修复前2项实际执行1失败/1通过，失败正好是load未挂起；修复后2/2、零skip/error。独立定点只选原消息方法，在任务emulator-5560 / API37 / arm64 / 1080×2400原生1/1 PASS（26.1s）、零失败/跳过/重试，严格selector验证EXECUTED。没有全量、其他消息方法、物理设备、原CI API35或发布验收。
+
+证据 build/quality-results/android-message-timeout-20261013/：first-ci为原CI XML/logcat/收据，prefix-jvm与fixed-jvm保留红/绿边界，focused/android-focused-summary.json为产品/测试系统双PASSED、selected/executed一致、无incomplete。source-identity.json/source.patch绑定main8623fb5上的dirty最终字节，原instrumented源哈希不变。全部修复及记录留在本地未提交/未推送，原CI失败不改绿，没有正式发布。
+
+随后按用户授权，将本次修复、两项JVM回归及相关记录提交到各自本地仓库。提交前核对Android源码与既有验证哈希一致；仅检查Git范围和差异，没有重跑测试、推送或正式发布，原始验证身份及首败保持。

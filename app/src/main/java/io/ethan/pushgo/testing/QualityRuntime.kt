@@ -311,15 +311,13 @@ object QualityRuntime {
         }
     }
 
-    suspend fun beforeMessageSearch(rawQuery: String) {
-        if (rawQuery.isBlank()) return
+    // Keep the injected delay inside PagingSource.load, where Paging reports
+    // Loading, rather than delaying publication of the next PagingData.
+    suspend fun beforeMessageSearchLoad() {
         val faults = currentSession()?.faults ?: return
         if (pendingMessageSearchDelay.compareAndSet(true, false)) {
             delay(faults.messageSearchDelayMs?.toLong() ?: 0L)
         }
-    }
-
-    fun beforeMessageSearchLoad() {
         if (remainingMessageSearchFailures.getAndUpdate { value ->
                 (value - 1).coerceAtLeast(0)
             } > 0

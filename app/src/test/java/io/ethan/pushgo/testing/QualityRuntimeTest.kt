@@ -11,6 +11,9 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.async
+import org.junit.Assert.assertFalse
 
 class QualityRuntimeTest {
     @get:Rule
@@ -396,6 +399,46 @@ class QualityRuntimeTest {
         assertThrows(IllegalStateException::class.java) {
             QualityRuntime.fixtureInitializationWasRecorded(filesDir)
         }
+    }
+
+    @Test
+    fun searchDelaySuspendsTheFirstPagingLoadOnly() = runBlocking {
+        QualityRuntime.configure(QualityRuntime.encode(QualitySessionDescriptor(
+            schemaVersion = 1,
+            sessionId = "search-loading-boundary",
+            fixture = QualityFixture.MESSAGES_STANDARD,
+            faults = QualityFaults(messageSearchDelayMs = 2_000),
+        )))
+
+        val firstLoad = async(start = CoroutineStart.UNDISPATCHED) {
+            QualityRuntime.beforeMessageSearchLoad()
+        }
+        assertFalse("The injected delay must keep the actual Paging load in flight", firstLoad.isCompleted)
+        firstLoad.await()
+        val nextLoad = async(start = CoroutineStart.UNDISPATCHED) {
+            QualityRuntime.beforeMessageSearchLoad()
+        }
+        assertTrue("A later Paging load must not repeat the one-shot delay", nextLoad.isCompleted)
+        nextLoad.await()
+    }
+
+    @Test
+    fun searchLoadFailureStillFailsOnceAndAllowsRetry() = runBlocking {
+        QualityRuntime.configure(QualityRuntime.encode(QualitySessionDescriptor(
+            schemaVersion = 1,
+            sessionId = "search-loading-retry",
+            fixture = QualityFixture.MESSAGES_STANDARD,
+            faults = QualityFaults(failMessageSearchOnce = true),
+        )))
+
+        var failed = false
+        try {
+            QualityRuntime.beforeMessageSearchLoad()
+        } catch (_: QualityMessageSearchException) {
+            failed = true
+        }
+        assertTrue("The first search load must preserve its injected failure", failed)
+        QualityRuntime.beforeMessageSearchLoad()
     }
 
     @Test

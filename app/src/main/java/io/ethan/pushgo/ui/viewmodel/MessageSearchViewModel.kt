@@ -7,7 +7,6 @@ import androidx.paging.cachedIn
 import io.ethan.pushgo.data.MessageRepository
 import io.ethan.pushgo.data.model.MessageFilter
 import io.ethan.pushgo.data.model.MessageListItem
-import io.ethan.pushgo.testing.QualityRuntime
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.flow.emitAll
@@ -38,7 +37,6 @@ class MessageSearchViewModel(
     }
         .flatMapLatest { (rawQuery, currentFilter, suppressedIds) ->
             flow {
-                QualityRuntime.beforeMessageSearch(rawQuery)
                 emitAll(
                     repository.searchMessages(
                         rawQuery = rawQuery,
