@@ -39,7 +39,6 @@ class ProviderAckScopeDeviceTest {
             topLevelEventHeadDao = database.topLevelEventHeadDao(),
             thingHeadDao = database.thingHeadDao(),
             thingSubMessageDao = database.thingSubMessageDao(),
-            pendingThingEventDao = database.pendingThingEventDao(),
         )
         ledgerRepository = InboundDeliveryLedgerRepository(
             database = database,

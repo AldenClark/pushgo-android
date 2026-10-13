@@ -30,12 +30,11 @@ import java.io.File
         ThingHeadEntity::class,
         ThingSubMessageEntity::class,
         PendingThingMessageEntity::class,
-        PendingThingEventEntity::class,
         ChannelSubscriptionEntity::class,
         AppSettingsEntity::class,
         PendingLocalDeletionEntity::class,
     ],
-    version = 33,
+    version = 34,
     exportSchema = true,
 )
 abstract class PushGoDatabase : RoomDatabase() {
@@ -53,7 +52,6 @@ abstract class PushGoDatabase : RoomDatabase() {
     abstract fun thingHeadDao(): ThingHeadDao
     abstract fun thingSubMessageDao(): ThingSubMessageDao
     abstract fun pendingThingMessageDao(): PendingThingMessageDao
-    abstract fun pendingThingEventDao(): PendingThingEventDao
     abstract fun channelSubscriptionDao(): ChannelSubscriptionDao
     abstract fun appSettingsDao(): AppSettingsDao
     abstract fun pendingLocalDeletionDao(): PendingLocalDeletionDao
@@ -353,6 +351,71 @@ abstract class PushGoDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_33_34 = object : Migration(33, 34) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                // Each old table had its own local-ID domain. Preserve both rows on overlap,
+                // including waiting rows whose parent already exists. Room wraps this rebuild
+                // and schema validation in the upgrade transaction.
+                db.execSQL(
+                    """
+                    CREATE TABLE thing_sub_events_v34 (
+                        id TEXT NOT NULL,
+                        entity_id TEXT NOT NULL,
+                        channel TEXT,
+                        title TEXT NOT NULL,
+                        body TEXT NOT NULL,
+                        raw_payload_json TEXT NOT NULL,
+                        received_at INTEGER NOT NULL,
+                        op_id TEXT,
+                        delivery_id TEXT,
+                        server_id TEXT,
+                        event_id TEXT NOT NULL,
+                        thing_id TEXT NOT NULL,
+                        event_state TEXT,
+                        event_time_epoch INTEGER,
+                        activated INTEGER NOT NULL DEFAULT 1,
+                        PRIMARY KEY(id, activated)
+                    )
+                    """.trimIndent()
+                )
+                db.execSQL(
+                    """
+                    INSERT INTO thing_sub_events_v34(
+                        id, entity_id, channel, title, body, raw_payload_json, received_at,
+                        op_id, delivery_id, server_id, event_id, thing_id, event_state,
+                        event_time_epoch, activated
+                    )
+                    SELECT id, entity_id, channel, title, body, raw_payload_json, received_at,
+                        op_id, delivery_id, server_id, event_id, thing_id, event_state,
+                        event_time_epoch, 1
+                    FROM thing_sub_events
+                    """.trimIndent()
+                )
+                db.execSQL(
+                    """
+                    INSERT INTO thing_sub_events_v34(
+                        id, entity_id, channel, title, body, raw_payload_json, received_at,
+                        op_id, delivery_id, server_id, event_id, thing_id, event_state,
+                        event_time_epoch, activated
+                    )
+                    SELECT id, entity_id, channel, title, body, raw_payload_json, received_at,
+                        op_id, delivery_id, server_id, event_id, thing_id, event_state,
+                        event_time_epoch, 0
+                    FROM pending_thing_events
+                    """.trimIndent()
+                )
+                db.execSQL("DROP TABLE thing_sub_events")
+                db.execSQL("DROP TABLE pending_thing_events")
+                db.execSQL("ALTER TABLE thing_sub_events_v34 RENAME TO thing_sub_events")
+                // Index declarations are kept in sync with ThingSubEventEntity.
+                db.execSQL("CREATE INDEX index_thing_sub_events_delivery_id ON thing_sub_events(delivery_id)")
+                db.execSQL("CREATE INDEX index_thing_sub_events_thing_id_activated_event_time_epoch ON thing_sub_events(thing_id, activated, event_time_epoch)")
+                db.execSQL("CREATE INDEX index_thing_sub_events_event_id_activated_event_time_epoch ON thing_sub_events(event_id, activated, event_time_epoch)")
+                db.execSQL("CREATE INDEX index_thing_sub_events_channel_activated ON thing_sub_events(channel, activated)")
+                db.execSQL("CREATE INDEX index_thing_sub_events_activated_received_at ON thing_sub_events(activated, received_at)")
+            }
+        }
+
         fun build(context: Context): PushGoDatabase {
             return runCatching {
                 newBuilder(
@@ -407,6 +470,7 @@ abstract class PushGoDatabase : RoomDatabase() {
                     MIGRATION_30_31,
                     MIGRATION_31_32,
                     MIGRATION_32_33,
+                    MIGRATION_33_34,
                 )
                 .setJournalMode(RoomDatabase.JournalMode.WRITE_AHEAD_LOGGING)
                 .addCallback(object : RoomDatabase.Callback() {
@@ -736,7 +800,6 @@ abstract class PushGoDatabase : RoomDatabase() {
                 "top_level_event_heads" to listOf("received_at", "event_time_epoch", "updated_at"),
                 "thing_heads" to listOf("received_at", "event_time_epoch", "observed_time_epoch", "updated_at"),
                 "pending_thing_messages" to listOf("received_at", "event_time_epoch", "occurred_at_epoch"),
-                "pending_thing_events" to listOf("received_at", "event_time_epoch"),
                 "inbound_delivery_ledger" to listOf("applied_at", "acked_at"),
                 "inbound_delivery_ack_outbox" to listOf("enqueued_at", "updated_at"),
                 "operation_ledger" to listOf("applied_at"),

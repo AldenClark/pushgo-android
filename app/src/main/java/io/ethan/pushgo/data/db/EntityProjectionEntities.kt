@@ -159,16 +159,17 @@ data class ThingChangeLogEntity(
 
 @Entity(
     tableName = "thing_sub_events",
+    primaryKeys = ["id", "activated"],
     indices = [
         Index(value = ["delivery_id"]),
-        Index(value = ["thing_id", "event_time_epoch"]),
-        Index(value = ["event_id", "event_time_epoch"]),
-        Index(value = ["channel"]),
-        Index(value = ["received_at"]),
+        Index(value = ["thing_id", "activated", "event_time_epoch"]),
+        Index(value = ["event_id", "activated", "event_time_epoch"]),
+        Index(value = ["channel", "activated"]),
+        Index(value = ["activated", "received_at"]),
     ],
 )
 data class ThingSubEventEntity(
-    @PrimaryKey val id: String,
+    val id: String,
     @ColumnInfo(name = "entity_id")
     val entityId: String,
     val channel: String?,
@@ -192,6 +193,9 @@ data class ThingSubEventEntity(
     val eventState: String?,
     @ColumnInfo(name = "event_time_epoch")
     val eventTimeEpoch: Long?,
+    // The old tables could each hold this ID. Keep both lifecycle slots until activation.
+    @ColumnInfo(defaultValue = "1")
+    val activated: Boolean = true,
 ) {
     fun isNewerThan(current: ThingSubEventEntity): Boolean {
         if (receivedAt != current.receivedAt) return receivedAt > current.receivedAt
@@ -210,8 +214,15 @@ data class ThingSubEventEntity(
     )
 
     companion object {
-        fun fromIncoming(entity: IncomingEntityRecord): ThingSubEventEntity {
-            val thingId = entity.thingId?.trim()?.takeIf { it.isNotEmpty() } ?: entity.entityId
+        fun fromIncoming(
+            entity: IncomingEntityRecord,
+            activated: Boolean = true,
+        ): ThingSubEventEntity {
+            val thingId = if (activated) {
+                entity.thingId?.trim()?.takeIf { it.isNotEmpty() } ?: entity.entityId
+            } else {
+                entity.thingId?.trim().orEmpty()
+            }
             val eventId = entity.eventId?.trim()?.takeIf { it.isNotEmpty() } ?: entity.entityId
             return ThingSubEventEntity(
                 id = entity.localDeliveryKey
@@ -223,13 +234,14 @@ data class ThingSubEventEntity(
                 body = entity.body,
                 rawPayloadJson = entity.rawPayloadJson,
                 receivedAt = entity.receivedAt.toEpochMilli(),
-                opId = entity.opId?.trim()?.takeIf { it.isNotEmpty() },
-                deliveryId = entity.deliveryId?.trim()?.takeIf { it.isNotEmpty() },
+                opId = if (activated) entity.opId?.trim()?.takeIf { it.isNotEmpty() } else entity.opId,
+                deliveryId = if (activated) entity.deliveryId?.trim()?.takeIf { it.isNotEmpty() } else entity.deliveryId,
                 serverId = entity.serverId,
                 eventId = eventId,
                 thingId = thingId,
-                eventState = entity.eventState?.trim()?.takeIf { it.isNotEmpty() },
+                eventState = if (activated) entity.eventState?.trim()?.takeIf { it.isNotEmpty() } else entity.eventState,
                 eventTimeEpoch = entity.eventTimeEpoch,
+                activated = activated,
             )
         }
 

@@ -504,7 +504,7 @@ object InboundPersistenceCoordinator {
         val thingId = inbound.record.thingId?.trim()?.takeIf { it.isNotEmpty() }
             ?: inbound.record.entityId
         messageRepository.replayPendingForThing(thingId)
-        entityRepository.replayPendingForThing(thingId)
+        entityRepository.activateStoredEventsForThing(thingId)
     }
 
     private suspend fun resolveEntityNotificationDisplayAfterPersist(

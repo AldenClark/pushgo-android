@@ -8,8 +8,6 @@ import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.PrimaryKey
 import androidx.room.Query
-import io.ethan.pushgo.data.IncomingEntityRecord
-import java.time.Instant
 
 @Entity(
     tableName = "pending_thing_messages",
@@ -85,88 +83,6 @@ data class PendingThingMessageEntity(
     }
 }
 
-@Entity(
-    tableName = "pending_thing_events",
-    indices = [
-        Index(value = ["thing_id", "event_time_epoch", "received_at"]),
-        Index(value = ["delivery_id"]),
-    ],
-)
-data class PendingThingEventEntity(
-    @PrimaryKey
-    @ColumnInfo(name = "id")
-    val id: String,
-    @ColumnInfo(name = "entity_id")
-    val entityId: String,
-    val channel: String?,
-    val title: String,
-    val body: String,
-    @ColumnInfo(name = "raw_payload_json")
-    val rawPayloadJson: String,
-    @ColumnInfo(name = "received_at")
-    val receivedAt: Long,
-    @ColumnInfo(name = "op_id")
-    val opId: String?,
-    @ColumnInfo(name = "delivery_id")
-    val deliveryId: String?,
-    @ColumnInfo(name = "server_id")
-    val serverId: String?,
-    @ColumnInfo(name = "event_id")
-    val eventId: String,
-    @ColumnInfo(name = "thing_id")
-    val thingId: String,
-    @ColumnInfo(name = "event_state")
-    val eventState: String?,
-    @ColumnInfo(name = "event_time_epoch")
-    val eventTimeEpoch: Long?,
-) {
-    fun toIncomingEntityRecord(): IncomingEntityRecord {
-        return IncomingEntityRecord(
-            entityType = "event",
-            entityId = entityId,
-            channel = channel,
-            title = title,
-            body = body,
-            rawPayloadJson = rawPayloadJson,
-            receivedAt = Instant.ofEpochMilli(receivedAt),
-            opId = opId,
-            deliveryId = deliveryId,
-            serverId = serverId,
-            eventId = eventId,
-            thingId = thingId,
-            eventState = eventState,
-            eventTimeEpoch = eventTimeEpoch,
-            observedTimeEpoch = null,
-            localDeliveryKey = id,
-        )
-    }
-
-    companion object {
-        fun fromIncoming(entity: IncomingEntityRecord): PendingThingEventEntity {
-            val thingId = entity.thingId?.trim().orEmpty()
-            val eventId = entity.eventId?.trim()?.takeIf { it.isNotEmpty() } ?: entity.entityId
-            return PendingThingEventEntity(
-                id = entity.localDeliveryKey
-                    ?: entity.deliveryId
-                    ?: "${thingId}:${eventId}:${entity.receivedAt.toEpochMilli()}",
-                entityId = entity.entityId,
-                channel = entity.channel,
-                title = entity.title,
-                body = entity.body,
-                rawPayloadJson = entity.rawPayloadJson,
-                receivedAt = entity.receivedAt.toEpochMilli(),
-                opId = entity.opId,
-                deliveryId = entity.deliveryId,
-                serverId = entity.serverId,
-                eventId = eventId,
-                thingId = thingId,
-                eventState = entity.eventState,
-                eventTimeEpoch = entity.eventTimeEpoch,
-            )
-        }
-    }
-}
-
 @Dao
 interface PendingThingMessageDao {
     @Insert(onConflict = OnConflictStrategy.IGNORE)
@@ -189,34 +105,4 @@ interface PendingThingMessageDao {
 
     @Query("DELETE FROM pending_thing_messages WHERE channel = :channelId")
     suspend fun deleteByChannel(channelId: String): Int
-}
-
-@Dao
-interface PendingThingEventDao {
-    @Insert(onConflict = OnConflictStrategy.IGNORE)
-    suspend fun insert(record: PendingThingEventEntity): Long
-
-    @Query(
-        """
-        SELECT * FROM pending_thing_events
-        WHERE thing_id = :thingId
-        ORDER BY COALESCE(event_time_epoch, received_at) ASC, received_at ASC, id ASC
-        """
-    )
-    suspend fun loadByThingId(thingId: String): List<PendingThingEventEntity>
-
-    @Query("DELETE FROM pending_thing_events WHERE id IN (:ids)")
-    suspend fun deleteByIds(ids: List<String>): Int
-
-    @Query("DELETE FROM pending_thing_events WHERE thing_id = :thingId")
-    suspend fun deleteByThingId(thingId: String): Int
-
-    @Query("DELETE FROM pending_thing_events WHERE thing_id IN (:thingIds)")
-    suspend fun deleteByThingIds(thingIds: List<String>): Int
-
-    @Query("DELETE FROM pending_thing_events WHERE channel = :channelId")
-    suspend fun deleteByChannel(channelId: String): Int
-
-    @Query("DELETE FROM pending_thing_events")
-    suspend fun deleteAll(): Int
 }

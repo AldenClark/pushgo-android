@@ -108,7 +108,7 @@ class PushGoDatabaseMigrationDeviceTest {
         assertEquals(CHANNEL_ID, subscriptions.single().channelId)
         assertEquals(1, messages.size)
         assertEquals(MESSAGE_ID, messages.single().messageId)
-        assertEquals(33, readUserVersion(context.getDatabasePath("pushgo.db")))
+        assertEquals(34, readUserVersion(context.getDatabasePath("pushgo.db")))
         assertEquals(1, container.messageRepository.totalCount())
         assertEquals(1, container.messageRepository.unreadCount())
         assertTrue(context.getDatabasePath("pushgo.db").exists())
@@ -157,7 +157,7 @@ class PushGoDatabaseMigrationDeviceTest {
         assertEquals(MESSAGE_ID, messages.single().messageId)
         assertEquals(1, container.messageRepository.totalCount())
         assertEquals(1, container.messageRepository.unreadCount())
-        assertEquals(33, readUserVersion(context.getDatabasePath("pushgo.db")))
+        assertEquals(34, readUserVersion(context.getDatabasePath("pushgo.db")))
         val sqlite = container.database.openHelper.writableDatabase
         val revision = sqlite.query(
             "SELECT revision FROM message_store_revision WHERE id = 1"
@@ -252,7 +252,7 @@ class PushGoDatabaseMigrationDeviceTest {
             cursor.getString(0) to cursor.getString(1)
         }
 
-        assertEquals(33, readUserVersion(context.getDatabasePath("pushgo.db")))
+        assertEquals(34, readUserVersion(context.getDatabasePath("pushgo.db")))
         assertEquals(0, pendingOutbox)
         assertEquals(1, retainedLedger)
         assertEquals("" to "", retainedLedgerScope)
@@ -320,19 +320,9 @@ class PushGoDatabaseMigrationDeviceTest {
             assertTrue(cursor.moveToFirst())
             listOf(cursor.getString(0), cursor.getString(1), cursor.getString(2), cursor.getInt(3))
         }
-        val pendingDeliveryIndexUnique = migrated.query(
-            "PRAGMA index_list(pending_thing_events)"
-        ).use { cursor ->
-            var unique: Int? = null
-            while (cursor.moveToNext()) {
-                if (cursor.getString(cursor.getColumnIndexOrThrow("name")) ==
-                    "index_pending_thing_events_delivery_id"
-                ) {
-                    unique = cursor.getInt(cursor.getColumnIndexOrThrow("unique"))
-                }
-            }
-            unique
-        }
+        val pendingEventTableRetired = migrated.query(
+            "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'pending_thing_events'"
+        ).use { cursor -> !cursor.moveToFirst() }
         val ackTombstoneIndexExists = migrated.query(
             "PRAGMA index_list(inbound_delivery_ledger)"
         ).use { cursor ->
@@ -347,13 +337,13 @@ class PushGoDatabaseMigrationDeviceTest {
             found
         }
 
-        assertEquals(33, readUserVersion(context.getDatabasePath("pushgo.db")))
+        assertEquals(34, readUserVersion(context.getDatabasePath("pushgo.db")))
         assertEquals(Triple("", "", "pending"), legacyLedger)
         assertEquals(
             listOf("https://gateway-a.example", "device-a", "legacy_single", 0),
             scopedOutbox,
         )
-        assertEquals(0, pendingDeliveryIndexUnique)
+        assertTrue(pendingEventTableRetired)
         assertTrue(ackTombstoneIndexExists)
         database.close()
     }
@@ -385,7 +375,7 @@ class PushGoDatabaseMigrationDeviceTest {
         val migrated = PushGoDatabase.build(context)
         try {
             assertLegacyIngressBusinessState(migrated)
-            assertEquals(33, readUserVersion(context.getDatabasePath("pushgo.db")))
+            assertEquals(34, readUserVersion(context.getDatabasePath("pushgo.db")))
         } finally {
             migrated.close()
         }
@@ -485,7 +475,7 @@ class PushGoDatabaseMigrationDeviceTest {
         val container = AppContainer(context, appScope)
         val sqlite = container.database.openHelper.writableDatabase
         try {
-            assertEquals(33, readUserVersion(context.getDatabasePath("pushgo.db")))
+            assertEquals(34, readUserVersion(context.getDatabasePath("pushgo.db")))
             val migratedMessage = sqlite.query(
                 "SELECT message_id, title, body, channel, is_read, raw_payload_json " +
                     "FROM messages WHERE id = 'retained-v32-message'",
@@ -661,7 +651,7 @@ class PushGoDatabaseMigrationDeviceTest {
         val container = AppContainer(context, appScope)
         try {
             val sqlite = container.database.openHelper.writableDatabase
-            assertEquals(33, readUserVersion(context.getDatabasePath("pushgo.db")))
+            assertEquals(34, readUserVersion(context.getDatabasePath("pushgo.db")))
             assertTrue(
                 container.messageRepository.searchMessagesSnapshot(
                     "fresh-database-query", unreadOnly = false, limit = 10,
@@ -708,6 +698,146 @@ class PushGoDatabaseMigrationDeviceTest {
                 "OR name LIKE 'room_fts_content_sync_message_fts_%' ORDER BY name",
         ).use { cursor -> buildList { while (cursor.moveToNext()) add(cursor.getString(0)) } }
         assertTrue("Legacy FTS table, shadows, and sync triggers are removed: $leftovers", leftovers.isEmpty())
+    }
+
+    @Test
+    fun productionDatabase_migratesV33ChildEventDomainsWithoutLosingOverlappingContentAndReopens() {
+        // One native upgrade/reopen proves saved fields, original domain membership and ACK
+        // identity. Same-ID rows in the two old tables must survive independently.
+        seedDatabaseFromExportedSchema(33)
+        val expected = openLegacyDatabase().use { database ->
+            seedLegacyChildEvent(database, "thing_sub_events", "different-content", "former-parent")
+            seedLegacyChildEvent(database, "pending_thing_events", "different-content", "present-parent")
+            database.execSQL(
+                "UPDATE pending_thing_events SET title = 'Waiting title', body = 'Waiting body', " +
+                    "channel = 'waiting-channel', raw_payload_json = '{\"original\":\"等待原文\"}'"
+            )
+            seedLegacyChildEvent(database, "thing_sub_events", "identical-content", "shared-thing")
+            seedLegacyChildEvent(database, "pending_thing_events", "identical-content", "shared-thing")
+            seedLegacyChildEvent(database, "pending_thing_events", "waiting-no-parent", "absent-parent")
+            database.execSQL(
+                """
+                INSERT INTO thing_heads(thing_id, source_id, entity_id, title, body,
+                    raw_payload_json, received_at, updated_at)
+                VALUES('present-parent', 'parent-source', 'present-parent', 'Parent', 'Parent body',
+                    '{"entity_type":"thing","thing_id":"present-parent"}', 1710000000123, 1710000000456)
+                """.trimIndent()
+            )
+            database.execSQL(
+                """
+                INSERT INTO inbound_delivery_ledger(gateway_url, device_key, delivery_id, channel_id,
+                    entity_type, entity_id, op_id, applied_at, ack_state, acked_at)
+                VALUES('https://old-gateway.example', 'original-device', 'child-delivery',
+                    'child-channel', 'event', 'child-event', 'original-op', 1710000000123, 'acked', 1710000000999)
+                """.trimIndent()
+            )
+            database.execSQL(
+                """
+                INSERT INTO inbound_delivery_ack_outbox(gateway_url, device_key, delivery_id,
+                    ack_contract, source, enqueued_at, updated_at, attempt_count, last_attempt_uncertain)
+                VALUES('https://other-gateway.example', 'other-device', 'child-delivery',
+                    'v2_batch', 'provider_pull', 1710000000111, 1710000000222, 3, 1)
+                """.trimIndent()
+            )
+            buildMap<String, List<List<String?>>> {
+                put("events", database.rawQuery(
+                    "SELECT $childEventContentColumns, 1 AS activated FROM thing_sub_events UNION ALL " +
+                        "SELECT $childEventContentColumns, 0 AS activated FROM pending_thing_events " +
+                        "ORDER BY id, activated", null
+                ).use(::readBusinessRows))
+                childMigrationBusinessTables.forEach { table ->
+                    put(table, database.rawQuery("SELECT * FROM $table", null).use(::readBusinessRows))
+                }
+            }
+        }
+
+        repeat(2) {
+            val database = PushGoDatabase.build(context)
+            try {
+                val sqlite = database.openHelper.writableDatabase
+                assertEquals(34, readUserVersion(context.getDatabasePath("pushgo.db")))
+                assertEquals(expected.getValue("events"), sqlite.query(
+                    "SELECT $childEventContentColumns, activated FROM thing_sub_events ORDER BY id, activated"
+                ).use(::readBusinessRows))
+                childMigrationBusinessTables.forEach { table ->
+                    assertEquals("Retain $table", expected.getValue(table),
+                        sqlite.query("SELECT * FROM $table").use(::readBusinessRows))
+                }
+                val visibleIds = sqlite.query(
+                    "SELECT id FROM thing_sub_events WHERE activated = 1 ORDER BY id"
+                ).use { cursor -> buildList { while (cursor.moveToNext()) add(cursor.getString(0)) } }
+                assertEquals(listOf("different-content", "identical-content"), visibleIds)
+                assertTrue(sqlite.query(
+                    "SELECT 1 FROM sqlite_master WHERE name = 'pending_thing_events' " +
+                        "OR tbl_name = 'pending_thing_events'"
+                ).use { cursor -> !cursor.moveToFirst() })
+            } finally {
+                database.close()
+            }
+        }
+    }
+
+    @Test
+    fun productionDatabase_v33ChildEventMigrationRollsBackCopiedDroppedAndRenamedTablesOnIndexFailure() {
+        // This fixture reserves a new index name on another table. The ordinary migration
+        // reaches copy/drop/rename before CREATE INDEX fails; no production test switch is used.
+        seedDatabaseFromExportedSchema(33)
+        val indexName = "index_thing_sub_events_channel_activated"
+        val expected = openLegacyDatabase().use { database ->
+            seedLegacyChildEvent(database, "thing_sub_events", "overlapping-child", "active-thing")
+            seedLegacyChildEvent(database, "pending_thing_events", "overlapping-child", "waiting-thing")
+            database.execSQL("CREATE TABLE migration_index_fault_fixture(value TEXT)")
+            database.execSQL("CREATE INDEX $indexName ON migration_index_fault_fixture(value)")
+            buildMap<String, List<List<String?>>> {
+                listOf("thing_sub_events", "pending_thing_events").forEach { table ->
+                    put(table, database.rawQuery("SELECT * FROM $table", null).use(::readBusinessRows))
+                }
+                put("schema", database.rawQuery(
+                    "SELECT type, name, tbl_name, sql FROM sqlite_master ORDER BY type, name", null
+                ).use(::readBusinessRows))
+            }
+        }
+        val database = PushGoDatabase.build(context)
+        val failure = try {
+            runCatching { database.openHelper.writableDatabase }.exceptionOrNull()
+        } finally {
+            database.close()
+        }
+        assertTrue("Injected index creation failure must block upgrade", failure != null)
+        assertTrue("Failure must reach the post-copy index creation", generateSequence(failure) { it.cause }
+            .any { it.message?.contains(indexName) == true })
+        openLegacyDatabase().use { original ->
+            assertEquals(33, original.version)
+            listOf("thing_sub_events", "pending_thing_events").forEach { table ->
+                assertEquals("Restore original $table", expected.getValue(table),
+                    original.rawQuery("SELECT * FROM $table", null).use(::readBusinessRows))
+            }
+            assertEquals("Restore original tables, indexes and Room identity schema", expected.getValue("schema"),
+                original.rawQuery("SELECT type, name, tbl_name, sql FROM sqlite_master ORDER BY type, name", null)
+                    .use(::readBusinessRows))
+        }
+    }
+
+    private val childMigrationBusinessTables =
+        listOf("thing_heads", "inbound_delivery_ledger", "inbound_delivery_ack_outbox")
+
+    private val childEventContentColumns =
+        "id, entity_id, channel, title, body, raw_payload_json, received_at, op_id, " +
+            "delivery_id, server_id, event_id, thing_id, event_state, event_time_epoch"
+
+    private fun openLegacyDatabase(): SQLiteDatabase = SQLiteDatabase.openDatabase(
+        context.getDatabasePath("pushgo.db").path, null, SQLiteDatabase.OPEN_READWRITE
+    )
+
+    private fun seedLegacyChildEvent(database: SQLiteDatabase, table: String, id: String, thingId: String) {
+        check(table == "thing_sub_events" || table == "pending_thing_events")
+        database.execSQL(
+            "INSERT INTO $table($childEventContentColumns) " +
+                "VALUES(?, ?, 'child-channel', 'Original child title', 'Original child body', " +
+                "?, 1710000000123, 'original-op', 'child-delivery', 'original-server', " +
+                "'child-event', ?, 'active', 1709999999876)",
+            arrayOf<Any>(id, "entity-$id", "{\"event_id\":\"child-event\",\"thing_id\":\"$thingId\",\"original\":\"保留\"}", thingId),
+        )
     }
 
     @Test
@@ -790,7 +920,7 @@ class PushGoDatabaseMigrationDeviceTest {
 
         fun assertBusinessState(database: PushGoDatabase) {
             val sqlite = database.openHelper.writableDatabase
-            assertEquals(33, readUserVersion(context.getDatabasePath("pushgo.db")))
+            assertEquals(34, readUserVersion(context.getDatabasePath("pushgo.db")))
             retainedRouteCleanupTables.forEach { table ->
                 val actual = sqlite.query("SELECT * FROM $table").use(::readBusinessRows)
                 assertEquals("Preserve $table", expected[table], actual)
@@ -868,7 +998,7 @@ class PushGoDatabaseMigrationDeviceTest {
         val migrated = PushGoDatabase.build(context)
         try {
             assertPendingDeletionBusinessState(migrated)
-            assertEquals(33, readUserVersion(context.getDatabasePath("pushgo.db")))
+            assertEquals(34, readUserVersion(context.getDatabasePath("pushgo.db")))
         } finally {
             migrated.close()
         }
@@ -1197,6 +1327,79 @@ data class LegacyMessageFtsV24(
     val channel: String?,
 )
 
+@Entity(
+    tableName = "pending_thing_events",
+    indices = [
+        Index(value = ["thing_id", "event_time_epoch", "received_at"]),
+        Index(value = ["delivery_id"]),
+    ],
+)
+data class LegacyPendingThingEventV33Entity(
+    @PrimaryKey
+    @ColumnInfo(name = "id")
+    val id: String,
+    @ColumnInfo(name = "entity_id")
+    val entityId: String,
+    val channel: String?,
+    val title: String,
+    val body: String,
+    @ColumnInfo(name = "raw_payload_json")
+    val rawPayloadJson: String,
+    @ColumnInfo(name = "received_at")
+    val receivedAt: Long,
+    @ColumnInfo(name = "op_id")
+    val opId: String?,
+    @ColumnInfo(name = "delivery_id")
+    val deliveryId: String?,
+    @ColumnInfo(name = "server_id")
+    val serverId: String?,
+    @ColumnInfo(name = "event_id")
+    val eventId: String,
+    @ColumnInfo(name = "thing_id")
+    val thingId: String,
+    @ColumnInfo(name = "event_state")
+    val eventState: String?,
+    @ColumnInfo(name = "event_time_epoch")
+    val eventTimeEpoch: Long?,
+)
+
+@Entity(
+    tableName = "thing_sub_events",
+    indices = [
+        Index(value = ["delivery_id"]),
+        Index(value = ["thing_id", "event_time_epoch"]),
+        Index(value = ["event_id", "event_time_epoch"]),
+        Index(value = ["channel"]),
+        Index(value = ["received_at"]),
+    ],
+)
+data class LegacyThingSubEventV33Entity(
+    @PrimaryKey val id: String,
+    @ColumnInfo(name = "entity_id")
+    val entityId: String,
+    val channel: String?,
+    val title: String,
+    val body: String,
+    @ColumnInfo(name = "raw_payload_json")
+    val rawPayloadJson: String,
+    @ColumnInfo(name = "received_at")
+    val receivedAt: Long,
+    @ColumnInfo(name = "op_id")
+    val opId: String?,
+    @ColumnInfo(name = "delivery_id")
+    val deliveryId: String?,
+    @ColumnInfo(name = "server_id")
+    val serverId: String?,
+    @ColumnInfo(name = "event_id")
+    val eventId: String,
+    @ColumnInfo(name = "thing_id")
+    val thingId: String,
+    @ColumnInfo(name = "event_state")
+    val eventState: String?,
+    @ColumnInfo(name = "event_time_epoch")
+    val eventTimeEpoch: Long?,
+)
+
 @Database(
     entities = [
         LegacyMessageV21Entity::class,
@@ -1208,12 +1411,12 @@ data class LegacyMessageFtsV24(
         OperationLedgerEntity::class,
         EventChangeLogEntity::class,
         ThingChangeLogEntity::class,
-        ThingSubEventEntity::class,
+        LegacyThingSubEventV33Entity::class,
         TopLevelEventHeadEntity::class,
         ThingHeadEntity::class,
         ThingSubMessageEntity::class,
         PendingThingMessageEntity::class,
-        PendingThingEventEntity::class,
+        LegacyPendingThingEventV33Entity::class,
         ChannelSubscriptionEntity::class,
         LegacyAppSettingsEntity::class,
     ],
@@ -1233,12 +1436,12 @@ abstract class LegacyPushGoV21Database : RoomDatabase()
         OperationLedgerEntity::class,
         EventChangeLogEntity::class,
         ThingChangeLogEntity::class,
-        ThingSubEventEntity::class,
+        LegacyThingSubEventV33Entity::class,
         TopLevelEventHeadEntity::class,
         ThingHeadEntity::class,
         ThingSubMessageEntity::class,
         PendingThingMessageEntity::class,
-        PendingThingEventEntity::class,
+        LegacyPendingThingEventV33Entity::class,
         ChannelSubscriptionEntity::class,
         AppSettingsEntity::class,
     ],
@@ -1292,12 +1495,12 @@ data class LegacyInboundDeliveryAckOutboxV24Entity(
         OperationLedgerEntity::class,
         EventChangeLogEntity::class,
         ThingChangeLogEntity::class,
-        ThingSubEventEntity::class,
+        LegacyThingSubEventV33Entity::class,
         TopLevelEventHeadEntity::class,
         ThingHeadEntity::class,
         ThingSubMessageEntity::class,
         PendingThingMessageEntity::class,
-        PendingThingEventEntity::class,
+        LegacyPendingThingEventV33Entity::class,
         ChannelSubscriptionEntity::class,
         AppSettingsEntity::class,
     ],
@@ -1358,7 +1561,7 @@ data class LegacyPendingThingEventV25Entity(
         OperationLedgerEntity::class,
         EventChangeLogEntity::class,
         ThingChangeLogEntity::class,
-        ThingSubEventEntity::class,
+        LegacyThingSubEventV33Entity::class,
         TopLevelEventHeadEntity::class,
         ThingHeadEntity::class,
         ThingSubMessageEntity::class,

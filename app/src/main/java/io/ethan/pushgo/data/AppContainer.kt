@@ -134,7 +134,6 @@ class AppContainer(
         topLevelEventHeadDao = database.topLevelEventHeadDao(),
         thingHeadDao = database.thingHeadDao(),
         thingSubMessageDao = database.thingSubMessageDao(),
-        pendingThingEventDao = database.pendingThingEventDao(),
     )
     val messageStateCoordinator = MessageStateCoordinator(
         context = appContext,

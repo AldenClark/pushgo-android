@@ -1565,7 +1565,6 @@ class RuntimeDataLayerInstrumentedTest {
             topLevelEventHeadDao = db.topLevelEventHeadDao(),
             thingHeadDao = db.thingHeadDao(),
             thingSubMessageDao = db.thingSubMessageDao(),
-            pendingThingEventDao = db.pendingThingEventDao(),
         )
     }
 

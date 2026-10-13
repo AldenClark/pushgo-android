@@ -237,10 +237,10 @@ class RuntimeExtendedJourneyInstrumentedTest {{
             for run in plan["required_device_runs"]
         }
         self.assertEqual(
-            {"accessibility": 1, "app-owned": 35, "system-notification": 3},
+            {"accessibility": 1, "app-owned": 36, "system-notification": 3},
             profiles,
         )
-        self.assertEqual(39, len(plan["required_device_scopes"]))
+        self.assertEqual(40, len(plan["required_device_scopes"]))
 
     def test_unknown_changed_instrumented_class_forces_full_lane(self):
         path = "app/src/androidTest/java/io/ethan/pushgo/testing/Unknown.kt"

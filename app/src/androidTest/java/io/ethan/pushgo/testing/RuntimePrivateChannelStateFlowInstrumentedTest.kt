@@ -923,7 +923,6 @@ class RuntimePrivateChannelStateFlowInstrumentedTest {
             topLevelEventHeadDao = database.topLevelEventHeadDao(),
             thingHeadDao = database.thingHeadDao(),
             thingSubMessageDao = database.thingSubMessageDao(),
-            pendingThingEventDao = database.pendingThingEventDao(),
         )
         val channelRepository = ChannelSubscriptionRepository(
             store = ChannelSubscriptionStore(database.channelSubscriptionDao(), secretStore),

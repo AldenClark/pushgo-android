@@ -14,15 +14,6 @@ class EntityBatchDeletePathContractTest {
     }
 
     @Test
-    fun thingDeletePathsAlsoClearPendingThingScopedEvents() {
-        val source = readSource("src/main/java/io/ethan/pushgo/data/EntityRepository.kt")
-        assertTrue(source.contains("pendingThingEventDao.deleteByThingId(normalized)"))
-        assertTrue(source.contains("pendingThingEventDao.deleteByThingIds(normalizedIds)"))
-        assertTrue(source.contains("pendingThingEventDao.deleteByChannel(normalizedChannel)"))
-        assertTrue(source.contains("pendingThingEventDao.deleteAll()"))
-    }
-
-    @Test
     fun channelRemovalAlsoClearsPendingThingMessagesThatCouldReplayLater() {
         val repository = readSource("src/main/java/io/ethan/pushgo/data/MessageRepository.kt")
         val channelRepository = readSource("src/main/java/io/ethan/pushgo/data/ChannelSubscriptionRepository.kt")

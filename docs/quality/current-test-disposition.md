@@ -366,3 +366,16 @@ Gateway 的正向终点不再停在地址持久化或旧行消失：现有 `serv
 最终路由候选 `e9f4659` 的累计 PR [run 38212761936](https://github.com/AldenClark/pushgo-android/actions/runs/38212761936) 首次结果保留：host 的 310 个 JVM、246 个脚本合同及编译/静态检查通过；API35 设备第一批 34 个 UI 方法中 33 通过，`thingFixtureShowsAccurateOverviewAndAllThreeRealRelationTabs` 在重启到已删除 Thing 后的目标不可用提示断言失败，原收据仍为 product `FAILED` / test-system `PASSED`。后续 data/system/accessibility/performance/upgrade 阶段未执行，不能将该批次称为 Release 通过。
 
 该测试原先只等待 Activity `RESUMED`，随后立即断言；Intent 导航及 Room 目标查询异步完成。只在这一重启 checkpoint 沿用同类目标不可用流程的 8 秒预算等待真实反馈可见，保留准确文案、删除目标不出现、控制对象及后续关系页断言，超时输出语义树。产品逻辑、阈值、选择器和跳过规则未改。专用 API37 / 1080×1920 模拟器复用已有 App APK，原方法及仅修改断言同步后的方法分别实际执行 1/1 通过（12.926 秒、13.184 秒）；这不复现或清除 API35 首败，也不是累计通过。新的最终 head 仍由 PR 既有累计 CI 验证，不新增或手工重复全量车道。
+
+
+## 2026-10-13 Android Thing 子 Event 生命周期域有限收敛
+
+仅按用户批准的“生命周期域＋原存储 ID”方案实现 Android Thing 子 Event。Room 34 使用 `(id, activated)` 联合键，active/waiting 各保留一份同 ID 内容；33→34 逐列复制两域，包括相同 ID 的不同内容，迁移期间不激活、不消费冲突行。历史 schema 保留。
+
+删除生产 pending 子 Event 模型、DAO、表注册/访问器、Incoming 往返转换、跨表搬运与 consumed ID 收集，以及对应构造依赖。父到仍在旧触发点按旧顺序处理：读取七个键/标量字段，沿用 Kotlin trim 和 fallback 做全局 active 查重；命中只消费 waiting，未命中就地更新激活。新增责任限于联合键/activated 字段、active 查询过滤、轻量字段投影、顺序激活事务及一次数据库迁移；正文/raw payload 不读回应用层、不另建队列、账本或协调框架。Event 删除仍只清 active，Thing 删除仍处理两域，既有跨频道、无 head、重复和迟到行为保持；子 Message 与其他平台属于原条目未完成范围。
+
+最终生产字节沿用本轮 host PR 311 项 JVM、本地化、Debug/androidTest 编译构建通过；测试脚本 246 项通过，AI history 检查通过。最终设备 APK 重新编译后，在专用 `pushgo_release_20260929 / emulator-5554 / API37` 精确执行数据选集 22/22（6 项生命周期、13 项迁移、2 项既有投影、1 项既有 ACK 作用域），以及唯一代表性 UI 1/1，均无 failure/error/skip，两个最终收据 product/test-system=PASSED/PASSED、无 incomplete claim。断言实际两域内容、父到冲突/删除顺序、跨 Thing 全局冲突、非规范 ID/Unicode 规范化/有序别名、重开、迁移事务回滚和 ACK 目的地/完成状态；UI 从正式 Worker 写入，验证子先到隐藏、父到后 Thing 详情准确标题/正文、父通知恰好一个且没有子通知。
+
+首轮 Python3.9/测试类归属清单失败和设备选择器因注解同行而在执行前 BLOCKED 均保留；修正运行环境、既有清单计数及注解格式后形成上述新证据，没有业务断言失败或业务重试。影响计划 READY/release 仅为计划；用户明确限定必要检查及不测性能，未执行累计 Release/nightly、性能、真机/OEM、真实 Provider/FCM/Private 网络、签名安装/降级或发布。旧 baseline/startup profile 只删除失效 DAO/构造引用，未重新采样或宣称性能结果。
+
+证据 `build/quality-results/thing-event-lifecycle-20261013/{pr,data-final,ui}/`（最终两批 native-results 独立保存），`source-identity.json` 绑定未提交 HEAD 2cd780b 的最终源码哈希；验证后源码哈希未漂移。任务 AVD 已关闭，实体 Redmi 未操作。改动保留本地未提交、未推送、未发布，完成后停止。
