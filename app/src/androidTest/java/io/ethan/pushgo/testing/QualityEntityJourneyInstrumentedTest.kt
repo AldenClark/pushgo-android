@@ -39,6 +39,11 @@ class QualityEntityJourneyInstrumentedTest : QualityAppJourneyTestCase() {
         composeRule.onNodeWithTag("field.event.detail.summary")
             .assertTextEquals("Cooling loop temperature crossed the quality threshold.")
 
+        composeRule.onNodeWithContentDescription(app.getString(R.string.action_delete)).assertIsDisplayed().performClick()
+        composeRule.onNodeWithTag("action.delete.cancel").assertIsDisplayed().performClick()
+        composeRule.onNodeWithTag("field.event.detail.summary")
+            .assertTextEquals("Cooling loop temperature crossed the quality threshold.")
+
         composeRule.onNodeWithTag("event.close.action").assertIsDisplayed().performClick()
         composeRule.onNodeWithTag("event.close.cancel").assertIsDisplayed().performClick()
         composeRule.onNodeWithTag("sheet.event.detail").assertIsDisplayed()
@@ -90,6 +95,13 @@ class QualityEntityJourneyInstrumentedTest : QualityAppJourneyTestCase() {
         composeRule.onNodeWithTag("field.event.detail.status.closed").assertIsDisplayed()
         composeRule.onNodeWithTag("event.timeline.count.3").assertIsDisplayed()
         composeRule.onNodeWithTag("event.close.action").assertDoesNotExist()
+        composeRule.onNodeWithContentDescription(app.getString(R.string.action_delete)).assertIsDisplayed().performClick()
+        composeRule.onNodeWithTag("action.delete.confirm").assertIsDisplayed().performClick()
+        composeRule.waitUntil(timeoutMillis = 8_000) {
+            composeRule.onAllNodes(hasTestTag("sheet.event.detail")).fetchSemanticsNodes().isEmpty()
+        }
+        org.junit.Assert.assertNull(kotlinx.coroutines.runBlocking { app.container.entityRepository.getEventProjectionDetail("quality-event") })
+        org.junit.Assert.assertNotNull(kotlinx.coroutines.runBlocking { app.container.entityRepository.getThingProjectionDetail("quality-thing") })
     }
 
     @Test
@@ -248,9 +260,9 @@ class QualityEntityJourneyInstrumentedTest : QualityAppJourneyTestCase() {
         composeRule.onNodeWithTag("thing.row.quality-thing-distractor").performClick()
         composeRule.onNodeWithTag("sheet.thing.detail").assertIsDisplayed()
         composeRule.onNodeWithTag("action.thing.delete").assertIsDisplayed().performClick()
+        composeRule.onNodeWithTag("action.delete.confirm").assertIsDisplayed().performClick()
         composeRule.onNodeWithTag("thing.row.quality-thing-distractor").assertDoesNotExist()
         composeRule.onNodeWithTag("thing.row.quality-thing").assertIsDisplayed()
-        composeRule.onNodeWithTag("action.pending_deletion.undo").assertIsDisplayed()
         composeRule.onNodeWithTag("thing.search.input").assertIsDisplayed().performTextInput("Reactor Alpha")
         composeRule.waitUntil(timeoutMillis = 5_000) {
             composeRule.onAllNodes(hasTestTag("thing.row.quality-thing-distractor"))

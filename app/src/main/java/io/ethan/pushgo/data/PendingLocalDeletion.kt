@@ -107,17 +107,7 @@ data class PendingLocalDeletionRecord(
     val nextAttemptAtEpochMillis: Long,
     val updatedAtEpochMillis: Long,
     val lastError: String?,
-) {
-    /** Undo is a one-way capability: the first execution attempt permanently consumes it. */
-    val isUndoable: Boolean
-        get() = state == PendingLocalDeletionState.PENDING && attemptCount == 0
-
-    fun eligibleAtEpochMillis(): Long = if (attemptCount == 0) {
-        maxOf(undoDeadlineEpochMillis, nextAttemptAtEpochMillis)
-    } else {
-        nextAttemptAtEpochMillis
-    }
-}
+)
 
 /**
  * Executes only declarative operations. Implementations must treat an already-applied deletion as success;
@@ -125,6 +115,14 @@ data class PendingLocalDeletionRecord(
  */
 fun interface PendingLocalDeletionExecutor {
     suspend fun execute(operation: PendingLocalDeletionOperation)
+
+    /** Foreground-only validation; legacy accepted rows continue through execute. */
+    suspend fun captureConfirmation(operation: PendingLocalDeletionOperation): OrdinaryDeletionConfirmation.Identity? = null
+
+    suspend fun executeConfirmed(
+        operation: PendingLocalDeletionOperation,
+        identity: OrdinaryDeletionConfirmation.Identity?,
+    ) = execute(operation)
 }
 
 /** The channel implementation must reconcile remote/local state so repeated execution is idempotent. */

@@ -98,7 +98,6 @@
     <string name="label_decryption_state_not_configured_short">無金鑰</string>
     <string name="label_decryption_state_alg_mismatch_short">演算法不匹配</string>
     <string name="label_cancel">取消</string>
-    <string name="label_undo">復原</string>
     <string name="label_urgent_attention">緊急提醒</string>
     <string name="label_enable_notifications">通知已關閉</string>
     <string name="label_enable_notifications_hint">我們發現你已關閉 PushGo 通知，可能會錯過新的訊息、事件與物件更新。到系統設定開啟通知後，回來就能第一時間收到提醒。</string>
@@ -337,9 +336,6 @@
     <plurals name="message_marked_read_selected_count">
         <item quantity="other">已將 %1$d 則訊息標記為已讀</item>
     </plurals>
-    <plurals name="a11y_pending_deletion_summary">
-        <item quantity="other">%1$s。可在 %2$d 秒內還原。</item>
-    </plurals>
     <string name="a11y_pane_message_detail">訊息詳情</string>
     <string name="a11y_pane_image_preview">圖片預覽</string>
     <string name="a11y_pane_channel_management">管理頻道</string>
@@ -359,4 +355,8 @@
     <string name="channel_stats_no_recent">暫無最近訊息</string>
     <string name="channel_stats_summary">%1$d 則訊息 · %2$d 則未讀 · 最近 %3$s</string>
     <string name="channel_stats_unavailable">動態暫不可用</string>
+    <string name="delete_confirmation_body">刪除「%1$s」？這將永久刪除其本機歷史記錄。</string>
+    <string name="delete_decryption_key_confirmation">刪除解密金鑰？加密訊息將需要重新設定金鑰。</string>
+    <string name="error_deletion_target_changed">內容、關聯記錄或設定已變更。請查看目前內容後重新確認刪除。</string>
+    <string name="delete_confirmation_untitled_body">要刪除此項目嗎？其本機歷史記錄將被永久刪除。</string>
 </resources>

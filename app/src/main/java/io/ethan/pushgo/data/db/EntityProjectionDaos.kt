@@ -196,6 +196,10 @@ interface ThingSubEventDao {
     )
     suspend fun getByThingId(thingId: String): List<ThingSubEventEntity>
 
+    // Ordinary Thing deletion removes both lifecycle slots, including waiting rows.
+    @Query("SELECT * FROM thing_sub_events WHERE thing_id = :thingId")
+    suspend fun getByThingIdIncludingWaiting(thingId: String): List<ThingSubEventEntity>
+
     @Query("DELETE FROM thing_sub_events")
     suspend fun deleteAll(): Int
 

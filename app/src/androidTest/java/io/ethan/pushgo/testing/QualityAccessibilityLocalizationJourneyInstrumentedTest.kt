@@ -124,6 +124,12 @@ class QualityAccessibilityLocalizationJourneyInstrumentedTest : QualityAppJourne
             .assertIsDisplayed()
             .assertTextContains("Seeded from fixture.seed_messages for UI validation.")
 
+        composeRule.onNodeWithTag("action.message.delete").assertIsDisplayed().performClick()
+        composeRule.onNodeWithTag("action.delete.confirm").assertIsDisplayed()
+        composeRule.onNodeWithTag("action.delete.cancel").assertIsDisplayed().performClick()
+        composeRule.onNodeWithTag("field.message.detail.body")
+            .assertTextContains("Seeded from fixture.seed_messages for UI validation.")
+
         pressBack()
         composeRule.waitUntil(timeoutMillis = 8_000) {
             composeRule.onAllNodes(hasTestTag("sheet.message.detail")).fetchSemanticsNodes().isEmpty()
@@ -150,6 +156,9 @@ class QualityAccessibilityLocalizationJourneyInstrumentedTest : QualityAppJourne
             .assert(SemanticsMatcher.expectValue(SemanticsProperties.Password, Unit))
             .performTextInput("quality-channel-password")
         channelPassword.assert(SemanticsMatcher.expectValue(SemanticsProperties.Password, Unit))
+        androidx.test.espresso.Espresso.closeSoftKeyboard()
+        composeRule.onNodeWithTag("sheet.channels.entry").assertIsDisplayed()
+        channelPassword.assertTextContains("quality-channel-password")
         composeRule.onNodeWithTag("action.channels.entry.submit")
             .performScrollTo()
             .assertIsDisplayed()

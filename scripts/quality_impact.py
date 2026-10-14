@@ -112,6 +112,23 @@ SYSTEM_NOTIFICATION_PROFILE_SCOPES = {
     "io.ethan.pushgo.testing.QualitySystemNotificationJourneyInstrumentedTest#entityInboundNotificationsOpenExactColdEventAndWarmThingDetails",
     "io.ethan.pushgo.testing.QualityPrivateForegroundServiceJourneyInstrumentedTest#privateSelectionStartsDurableSystemServiceAndFcmSelectionStopsIt",
 }
+# Explicit behavior-retirement mapping, 2026-10-14. Unknown removed tests still block.
+# The replacement must be a real runnable method in the same current class.
+DELETE_CONFIRMATION_TEST_REPLACEMENTS = {
+    "app/src/androidTest/java/io/ethan/pushgo/data/PendingLocalDeletionRoomDeviceTest.kt": {
+        "cancelIsDurableAcrossCloseAndReopen": "failedAcceptedIntentSurvivesReopenAndExplicitRetryKeepsExactTarget",
+        "cancelRequiresTimeBeforeDeadlineAndClaimIsAtomicWithIt": "concurrentLegacyClaimsHaveOneOwner",
+        "retryPendingCannotBeCancelledAfterFirstClaim": "failedAcceptedIntentSurvivesReopenAndExplicitRetryKeepsExactTarget",
+    },
+    "app/src/androidTest/java/io/ethan/pushgo/testing/QualityMessageJourneyInstrumentedTest.kt": {
+        "deleteUndoRestoresTheSameObjectAcrossActivityRelaunch": "deleteCancelPreservesTheSameObjectAcrossActivityRelaunch",
+        "deleteWithoutUndoPermanentlyRemovesOnlyTargetAcrossStorageRecreation": "confirmedDeletePermanentlyRemovesOnlyTargetAcrossStorageRecreation",
+    },
+    "app/src/androidTest/java/io/ethan/pushgo/ui/accessibility/SharedAccessibilitySemanticsTest.kt": {
+        "pendingDeletionBar_announcesUndoWindowAsLiveRegion": "deleteConfirmationExposesExactTargetAndBothActions",
+    },
+}
+
 PACKAGE_PATTERN = re.compile(r"^\s*package\s+([A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*)\s*$", re.MULTILINE)
 CLASS_PATTERN = re.compile(r"^\s*(?:public\s+|internal\s+)?(?:abstract\s+)?class\s+([A-Za-z_]\w*)\b", re.MULTILINE)
 TEST_ANNOTATION_PATTERN = re.compile(r"^\s*@(?:org\.junit\.)?Test(?:\s*\([^\n]*\))?\s*$")
@@ -370,6 +387,13 @@ def resolve_kotlin_instrumented_test_change(
     old_selected, old_unowned, old_ambiguous = methods_covering_changes(old_methods, ranges[0])
     new_selected, new_unowned, new_ambiguous = methods_covering_changes(new_methods, ranges[1])
     removed_methods = old_selected - set(new_methods)
+    replacements = DELETE_CONFIRMATION_TEST_REPLACEMENTS.get(path, {})
+    mapped = {replacements[name] for name in removed_methods if name in replacements}
+    if removed_methods and all(name in replacements for name in removed_methods) and mapped <= set(new_methods):
+        # Rename only the explicitly approved old ownership. Preserve the existing
+        # helper/unowned/ambiguous-change fallback rather than narrowing its scope.
+        old_selected = (old_selected - removed_methods) | mapped
+        removed_methods = set()
     if removed_methods:
         return {
             "selection": "blocked",

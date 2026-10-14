@@ -448,6 +448,7 @@ class AppContainer(
             privateChannelClient = privateChannelClient,
         ),
     )
+    val deletionNotificationCleanup = DeletionNotificationCleanup(appContext, database)
     val pendingLocalDeletionCoordinator = PendingLocalDeletionCoordinator(
         appScope = appScope,
         repository = pendingLocalDeletionRepository,
@@ -456,10 +457,11 @@ class AppContainer(
             messageStateCoordinator = messageStateCoordinator,
             entityRepository = entityRepository,
             channelExecutor = pendingChannelDeletionExecutor,
+            database = database,
+            messageRepository = messageRepository,
+            notificationCleanup = deletionNotificationCleanup,
         ),
         drainScheduler = pendingLocalDeletionDrainScheduler,
-        countdownMillis = qualitySession?.pendingDeletionUndoWindowMillis
-            ?: PendingLocalDeletionCoordinator.DEFAULT_COUNTDOWN_MILLIS,
     )
     val updateManager = UpdateManager(
         context = appContext,

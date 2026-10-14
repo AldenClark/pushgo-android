@@ -145,7 +145,6 @@ fun MessageListScreen(
     val facetTagCounts by viewModel.facetTagCounts.collectAsStateWithLifecycle()
     val query by searchViewModel.queryState.collectAsStateWithLifecycle()
     val searchResults = searchViewModel.results.collectAsLazyPagingItems()
-    val effectivePendingScope by container.pendingLocalDeletionCoordinator.effectiveScope.collectAsStateWithLifecycle()
     
     val context = LocalContext.current
     val resources = LocalResources.current
@@ -207,15 +206,10 @@ fun MessageListScreen(
         }
     }
 
-    fun isPendingLocalDeletion(message: MessageListItem): Boolean {
-        return effectivePendingScope.suppressesMessage(
-            id = message.id,
-            channelId = message.channel,
-        )
-    }
 
-    val visibleSearchResults = remember(searchResults.itemSnapshotList.items, effectivePendingScope) {
-        searchResults.itemSnapshotList.items.filterNot(::isPendingLocalDeletion)
+
+    val visibleSearchResults = remember(searchResults.itemSnapshotList.items) {
+        searchResults.itemSnapshotList.items
     }
 
     suspend fun scheduleDeletion(targetMessages: List<MessageListItem>) {
@@ -232,7 +226,7 @@ fun MessageListScreen(
         }
         val messageIds = uniqueMessages.map { it.id }.toSet()
 
-        container.pendingLocalDeletionCoordinator.schedule(
+        container.pendingLocalDeletionCoordinator.confirmAndDelete(
             summary = summary,
             operation = PendingLocalDeletionOperation.messages(messageIds),
             onCompletion = { result ->
@@ -398,12 +392,7 @@ fun MessageListScreen(
         listState.animateScrollToItem(0)
     }
 
-    LaunchedEffect(effectivePendingScope) {
-        val suppressedIds = effectivePendingScope.messageIds
-        viewModel.setLocallySuppressedMessageIds(suppressedIds)
-        searchViewModel.setLocallySuppressedMessageIds(suppressedIds)
-        if (suppressedIds.isEmpty()) return@LaunchedEffect
-    }
+
 
     LaunchedEffect(filterState) {
         searchViewModel.setFilter(filterState)
@@ -411,8 +400,8 @@ fun MessageListScreen(
 
     val selectedChannels = filterState.channels
     val selectedTags = filterState.tags
-    val visiblePagedItems = remember(messages.itemSnapshotList.items, effectivePendingScope) {
-        messages.itemSnapshotList.items.filterNot(::isPendingLocalDeletion)
+    val visiblePagedItems = remember(messages.itemSnapshotList.items) {
+        messages.itemSnapshotList.items
     }
     val filteredPagedItems = visiblePagedItems
     val filteredSearchResults = visibleSearchResults
@@ -736,7 +725,7 @@ fun MessageListScreen(
                             val message = messages[index]
                             if (
                                 message != null &&
-                                !isPendingLocalDeletion(message)
+                                true
                             ) {
                                 val listImageModels = remember(message.listPayloadJson) {
                                     container.messageImageStore.resolveListImageModels(message.listPayloadJson, MessageListImagePreviewMaxItems)
@@ -824,7 +813,7 @@ fun MessageListScreen(
                         } else {
                             items(count = searchResults.itemCount, key = searchResults.itemKey { it.id }) { index ->
                                 val message = searchResults[index]
-                                if (message != null && !isPendingLocalDeletion(message)) {
+                                if (message != null) {
                                     val listImageModels = remember(message.listPayloadJson) {
                                         container.messageImageStore.resolveListImageModels(message.listPayloadJson, MessageListImagePreviewMaxItems)
                                     }
@@ -1033,7 +1022,6 @@ internal fun MessageRow(
                 .pushGoMergedActionSemantics(
                     summary = rowSummary,
                     stateDescription = rowStateDescription,
-                    selectedState = null,
                     onClickLabel = stringResource(R.string.a11y_action_open_message),
                     onClickAction = onClick,
                     onLongClickLabel = null,

@@ -116,7 +116,6 @@
     <string name="label_decryption_state_not_configured_short">无密钥</string>
     <string name="label_decryption_state_alg_mismatch_short">算法不匹配</string>
     <string name="label_cancel">取消</string>
-    <string name="label_undo">撤销</string>
     <string name="label_got_it">知道了</string>
     <string name="label_urgent_attention">紧急提醒</string>
     <string name="label_enable_notifications">通知已关闭</string>
@@ -335,9 +334,6 @@
     <plurals name="message_marked_read_selected_count">
         <item quantity="other">已将 %1$d 条消息标记为已读</item>
     </plurals>
-    <plurals name="a11y_pending_deletion_summary">
-        <item quantity="other">%1$s。可在 %2$d 秒内撤销。</item>
-    </plurals>
     <string name="a11y_pane_message_detail">消息详情</string>
     <string name="a11y_pane_image_preview">图片预览</string>
     <string name="a11y_pane_channel_management">管理频道</string>
@@ -356,4 +352,8 @@
     <string name="channel_stats_no_recent">暂无最近消息</string>
     <string name="channel_stats_summary">%1$d 条消息 · %2$d 条未读 · 最近 %3$s</string>
     <string name="channel_stats_unavailable">动态暂不可用</string>
+    <string name="delete_confirmation_body">删除“%1$s”？这将永久删除其本地历史记录。</string>
+    <string name="delete_decryption_key_confirmation">删除解密密钥？加密消息将需要重新配置密钥。</string>
+    <string name="error_deletion_target_changed">内容、关联记录或设置已变化。请查看当前内容后重新确认删除。</string>
+    <string name="delete_confirmation_untitled_body">要删除此项吗？其本地历史记录将被永久删除。</string>
 </resources>

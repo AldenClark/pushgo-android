@@ -153,12 +153,7 @@ data class QualitySessionDescriptor(
     val updateScenario: QualityUpdateScenario = QualityUpdateScenario.NONE,
     val updateArtifact: QualityUpdateArtifact? = null,
     val systemCapabilities: Set<QualitySystemCapability> = emptySet(),
-    /**
-     * Optional bounded undo window for a host-driven quality journey.  This is
-     * intentionally session-scoped so a process-restart test can leave enough
-     * time to cross a real PID boundary without changing production timing.
-     */
-    val pendingDeletionUndoWindowMillis: Long? = null,
+
 ) {
     val databaseName: String
         get() = "pushgo-quality-$sessionId.db"
@@ -621,19 +616,7 @@ object QualityRuntime {
                 }
             }
         }.orEmpty()
-        val pendingDeletionUndoWindowMillis = if (
-            payload.has("pending_deletion_undo_window_ms")
-        ) {
-            payload.getLong("pending_deletion_undo_window_ms")
-        } else {
-            null
-        }
-        require(
-            pendingDeletionUndoWindowMillis == null ||
-                pendingDeletionUndoWindowMillis in 5_000L..120_000L,
-        ) {
-            "pending deletion undo window must be between 5000 and 120000 ms"
-        }
+
         val faultsJson = payload.optJSONObject("faults")
         val delay = faultsJson?.takeIf { it.has("message_load_delay_ms") }
             ?.getInt("message_load_delay_ms")
@@ -722,7 +705,6 @@ object QualityRuntime {
             updateScenario = updateScenario,
             updateArtifact = updateArtifact,
             systemCapabilities = systemCapabilities,
-            pendingDeletionUndoWindowMillis = pendingDeletionUndoWindowMillis,
         )
     }
 
@@ -791,9 +773,7 @@ object QualityRuntime {
                 JSONArray(session.systemCapabilities.map(QualitySystemCapability::wireValue)),
             )
             .put("faults", faults)
-        session.pendingDeletionUndoWindowMillis?.let {
-            payload.put("pending_deletion_undo_window_ms", it)
-        }
+
         session.updateArtifact?.let { artifact ->
             payload.put(
                 "update_artifact",
@@ -899,7 +879,23 @@ object QualityRuntime {
         session: QualitySessionDescriptor,
     ): File = File(filesDir, "quality/sessions/${session.sessionId}")
 
+    @Volatile
+    private var ordinaryDeletionAfterCommitHook: (suspend () -> Unit)? = null
+
+    internal fun installOrdinaryDeletionAfterCommitHookForTest(hook: (suspend () -> Unit)?) {
+        check(InstrumentationRuntime.isUnderInstrumentationTest())
+        ordinaryDeletionAfterCommitHook = hook
+    }
+
+    internal suspend fun afterOrdinaryDeletionCommit() {
+        val hook = ordinaryDeletionAfterCommitHook ?: return
+        ordinaryDeletionAfterCommitHook = null
+        check(InstrumentationRuntime.isUnderInstrumentationTest())
+        hook()
+    }
+
     internal fun resetForTesting() {
+        ordinaryDeletionAfterCommitHook = null
         configuredProfile = RuntimeProfile.Production
         pendingMessageLoadDelay.set(false)
         pendingMessagePageLoadDelay.set(false)

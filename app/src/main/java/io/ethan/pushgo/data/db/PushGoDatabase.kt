@@ -33,8 +33,9 @@ import java.io.File
         ChannelSubscriptionEntity::class,
         AppSettingsEntity::class,
         PendingLocalDeletionEntity::class,
+        DeletionNotificationCleanupEntity::class,
     ],
-    version = 34,
+    version = 35,
     exportSchema = true,
 )
 abstract class PushGoDatabase : RoomDatabase() {
@@ -55,6 +56,7 @@ abstract class PushGoDatabase : RoomDatabase() {
     abstract fun channelSubscriptionDao(): ChannelSubscriptionDao
     abstract fun appSettingsDao(): AppSettingsDao
     abstract fun pendingLocalDeletionDao(): PendingLocalDeletionDao
+    abstract fun deletionNotificationCleanupDao(): DeletionNotificationCleanupDao
 
     companion object {
         private const val TAG = "PushGoDatabase"
@@ -351,6 +353,22 @@ abstract class PushGoDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_34_35 = object : Migration(34, 35) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS notification_deletion_cleanup (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        tag TEXT,
+                        notification_id INTEGER NOT NULL,
+                        post_time INTEGER NOT NULL,
+                        generation TEXT
+                    )
+                    """.trimIndent()
+                )
+            }
+        }
+
         private val MIGRATION_33_34 = object : Migration(33, 34) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 // Each old table had its own local-ID domain. Preserve both rows on overlap,
@@ -471,6 +489,7 @@ abstract class PushGoDatabase : RoomDatabase() {
                     MIGRATION_31_32,
                     MIGRATION_32_33,
                     MIGRATION_33_34,
+                    MIGRATION_34_35,
                 )
                 .setJournalMode(RoomDatabase.JournalMode.WRITE_AHEAD_LOGGING)
                 .addCallback(object : RoomDatabase.Callback() {

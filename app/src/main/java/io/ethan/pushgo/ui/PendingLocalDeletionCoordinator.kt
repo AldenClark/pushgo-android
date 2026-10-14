@@ -1,517 +1,200 @@
 package io.ethan.pushgo.ui
 
-import android.os.SystemClock
-import io.ethan.pushgo.data.InMemoryPendingLocalDeletionRepository
-import io.ethan.pushgo.data.PendingLocalDeletionExecutor
-import io.ethan.pushgo.data.PendingLocalDeletionKind
-import io.ethan.pushgo.data.PendingLocalDeletionOperation
-import io.ethan.pushgo.data.PendingLocalDeletionRecord
-import io.ethan.pushgo.data.PendingLocalDeletionRepository
-import io.ethan.pushgo.data.PendingLocalDeletionState
-import io.ethan.pushgo.data.PermanentPendingLocalDeletionException
-import io.ethan.pushgo.util.SilentSink
-import java.util.concurrent.atomic.AtomicBoolean
+import io.ethan.pushgo.data.*
+import java.util.concurrent.atomic.AtomicLong
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
+/** Scheduling is reserved for accepted legacy rows and durable remote channel removal. */
 interface PendingLocalDeletionDrainScheduler {
     fun scheduleImmediate()
-    fun scheduleImmediateForInteraction(revision: Long) = scheduleImmediate()
     fun scheduleAt(epochMillis: Long)
-
     object None : PendingLocalDeletionDrainScheduler {
         override fun scheduleImmediate() = Unit
         override fun scheduleAt(epochMillis: Long) = Unit
     }
 }
 
+/** A foreground confirmation owns no persisted state. Ordinary local deletes transact directly. */
 class PendingLocalDeletionCoordinator(
     private val appScope: CoroutineScope,
     private val repository: PendingLocalDeletionRepository = InMemoryPendingLocalDeletionRepository(),
-    private val operationExecutor: PendingLocalDeletionExecutor? = null,
+    private val operationExecutor: PendingLocalDeletionExecutor,
     private val drainScheduler: PendingLocalDeletionDrainScheduler = PendingLocalDeletionDrainScheduler.None,
-    private val countdownMillis: Long = DEFAULT_COUNTDOWN_MILLIS,
     private val wallClockEpochMillis: () -> Long = System::currentTimeMillis,
-    private val elapsedRealtimeMillis: () -> Long = { SystemClock.elapsedRealtime() },
     private val completionDispatcher: CoroutineDispatcher = Dispatchers.Main.immediate,
 ) {
-    data class Scope(
-        val messageIds: Set<String> = emptySet(),
-        val eventIds: Set<String> = emptySet(),
-        val thingIds: Set<String> = emptySet(),
-        val channelIds: Set<String> = emptySet(),
-    ) {
-        fun suppressesMessage(id: String, channelId: String?): Boolean {
-            val normalizedId = id.trim()
-            return (normalizedId.isNotEmpty() && normalizedId in messageIds) || suppressesChannel(channelId)
-        }
-
-        fun suppressesMessageId(id: String): Boolean {
-            val normalizedId = id.trim()
-            return normalizedId.isNotEmpty() && normalizedId in messageIds
-        }
-
-        fun suppressesEvent(id: String, channelId: String?): Boolean {
-            val normalizedId = id.trim()
-            return (normalizedId.isNotEmpty() && normalizedId in eventIds) || suppressesChannel(channelId)
-        }
-
-        fun suppressesThing(id: String, channelId: String?): Boolean {
-            val normalizedId = id.trim()
-            return (normalizedId.isNotEmpty() && normalizedId in thingIds) || suppressesChannel(channelId)
-        }
-
-        fun suppressesChannel(channelId: String?): Boolean {
-            val normalizedChannelId = channelId?.trim().orEmpty()
-            return normalizedChannelId.isNotEmpty() && normalizedChannelId in channelIds
-        }
-    }
-
-    data class PendingDeletion(
-        val id: Long,
-        val summary: String,
-        val scope: Scope,
-        val deadlineElapsedRealtimeMillis: Long,
-        val frozenRemainingMillis: Long = 0L,
-        val isCountdownActive: Boolean = true,
-    ) {
-        fun remainingMillis(nowElapsedRealtimeMillis: Long): Long = if (isCountdownActive) {
-            (deadlineElapsedRealtimeMillis - nowElapsedRealtimeMillis).coerceAtLeast(0L)
-        } else {
-            frozenRemainingMillis.coerceAtLeast(0L)
-        }
-    }
-
-    private data class RuntimeCallbacks(
-        val compatibilityCommit: (suspend () -> Unit)?,
-        val completion: (Result<Unit>) -> Unit,
-    )
-
-    private val stateMutex = Mutex()
+    data class Confirmation(val id: Long, val summary: String)
+    private data class Request(val confirmation: Confirmation, val answer: CompletableDeferred<Boolean>)
+    private val requestLock = Any()
+    private val sequence = AtomicLong()
+    private var request: Request? = null
+    private val executing = mutableSetOf<PendingLocalDeletionOperation>()
+    private val _confirmation = MutableStateFlow<Confirmation?>(null)
+    val confirmation: StateFlow<Confirmation?> = _confirmation.asStateFlow()
+    private val _failures = MutableStateFlow<List<PendingLocalDeletionRecord>>(emptyList())
+    val failures: StateFlow<List<PendingLocalDeletionRecord>> = _failures.asStateFlow()
     private val drainMutex = Mutex()
-    private val started = AtomicBoolean(false)
-    private val initialization = CompletableDeferred<Unit>()
-    private val runtimeCallbacks = mutableMapOf<Long, RuntimeCallbacks>()
-    private val terminalIds = linkedSetOf<Long>()
-    private val _pendingDeletion = MutableStateFlow<PendingDeletion?>(null)
-    private val _effectiveScope = MutableStateFlow(Scope())
-    private var countdownJob: Job? = null
-    private var interactionActive = true
-    private var interactionRevision = 0L
-    private var latestInteractionGeneration = Long.MIN_VALUE
+    private var started = false
 
-    val pendingDeletion: StateFlow<PendingDeletion?> = _pendingDeletion.asStateFlow()
-    val effectiveScope: StateFlow<Scope> = _effectiveScope.asStateFlow()
-
-    fun start() {
-        if (!started.compareAndSet(false, true)) return
-        appScope.launch {
-            try {
-                repository.recoverInterruptedClaims(wallClockEpochMillis())
-                initialization.complete(Unit)
-            } catch (error: Throwable) {
-                initialization.completeExceptionally(error)
-                throw error
-            }
-            repository.observeActive().collect(::publishRecords)
-        }
+    fun start() = synchronized(requestLock) {
+        if (started) return@synchronized
+        started = true
+        appScope.launch { repository.observeFailures().collect { _failures.value = it } }
+        appScope.launch { drainRecoverable() }
     }
 
-    suspend fun schedule(
+    /** Capture the production deletion footprint before presenting; revalidate at commit. */
+    suspend fun confirmAndDelete(
         summary: String,
         operation: PendingLocalDeletionOperation,
-        compatibilityCommit: (suspend () -> Unit)? = null,
         onCompletion: (Result<Unit>) -> Unit = {},
-    ) {
-        start()
-        initialization.await()
-        val record = repository.enqueue(
-            summary = summary.trim(),
-            operation = operation,
-            requestedAtEpochMillis = wallClockEpochMillis(),
-            undoWindowMillis = countdownMillis,
-        )
-        stateMutex.withLock {
-            runtimeCallbacks[record.id] = RuntimeCallbacks(compatibilityCommit, onCompletion)
+    ): Boolean {
+        require(operation.kind in LOCAL_KINDS && operation.targetIds.size == 1)
+        val snapshot = operation.copy(targetIds = operation.targetIds.toSet())
+        val pending = synchronized(requestLock) {
+            if (request != null || snapshot in executing) return false
+            Request(Confirmation(sequence.incrementAndGet(), summary.trim()), CompletableDeferred()).also {
+                request = it
+            }
         }
-        // WorkManager is best-effort here; its periodic safety net closes the process-death
-        // window between this committed Room insert and the exact one-time registration.
-        drainScheduler.scheduleAt(record.eligibleAtEpochMillis())
-        publishRecords(repository.loadActive())
+        try {
+            val identity = try {
+                operationExecutor.captureConfirmation(snapshot)
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Throwable) {
+                withContext(completionDispatcher) { onCompletion(Result.failure(error)) }
+                return false
+            }
+            synchronized(requestLock) {
+                _confirmation.value = pending.confirmation.copy(
+                    summary = if (identity == null) pending.confirmation.summary
+                        else identity.displayTitle?.trim().orEmpty(),
+                )
+            }
+            if (!pending.answer.await()) return false
+            synchronized(requestLock) { executing.add(snapshot) }
+            val result = try {
+                withContext(NonCancellable) { operationExecutor.executeConfirmed(snapshot, identity) }
+                Result.success(Unit)
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Throwable) {
+                Result.failure(error)
+            }
+            withContext(completionDispatcher) { onCompletion(result) }
+            return result.isSuccess
+        } finally {
+            synchronized(requestLock) {
+                executing.remove(snapshot)
+                if (request === pending) {
+                    request = null
+                    _confirmation.value = null
+                }
+            }
+        }
     }
 
-    /** Compatibility adapter. The executable callback is never serialized. */
-    suspend fun schedule(
+    fun confirm(id: Long) = answer(id, true)
+    fun cancel(id: Long) = answer(id, false)
+    private fun answer(id: Long, accepted: Boolean) = synchronized(requestLock) {
+        val current = request ?: return@synchronized
+        if (current.confirmation.id != id || current.answer.isCompleted) return@synchronized
+        // Retain the request lock until execution finishes so rapid duplicate clicks cannot
+        // open another confirmation in the gap before the confirmed coroutine resumes.
+        _confirmation.value = null
+        current.answer.complete(accepted)
+    }
+
+    /** The channel dialog already confirmed its captured origin/version/mode. */
+    suspend fun deleteConfirmedChannel(
         summary: String,
-        scope: Scope,
-        onCommit: suspend () -> Unit,
+        operation: PendingLocalDeletionOperation,
         onCompletion: (Result<Unit>) -> Unit = {},
     ) {
-        schedule(
-            summary = summary,
-            operation = operationFromScope(scope),
-            compatibilityCommit = onCommit,
-            onCompletion = onCompletion,
-        )
-    }
-
-    /** Backgrounding drains immediately instead of indefinitely freezing an undo window. */
-    suspend fun setInteractionActive(active: Boolean, generation: Long? = null) {
-        start()
-        initialization.await()
-        val acceptedRevision = stateMutex.withLock {
-            if (generation != null) {
-                if (generation <= latestInteractionGeneration) return@withLock null
-                latestInteractionGeneration = generation
-            }
-            interactionActive = active
-            ++interactionRevision
-        }
-        if (acceptedRevision == null) return
-        if (active) {
-            publishRecords(repository.loadActive())
-        } else {
-            drainScheduler.scheduleImmediateForInteraction(acceptedRevision)
-            drainRecoverable(force = true, expectedBackgroundRevision = acceptedRevision)
-        }
-    }
-
-    suspend fun undoCurrent() {
-        start()
-        initialization.await()
-        val id = _pendingDeletion.value?.id ?: return
-        if (repository.cancelPending(id, wallClockEpochMillis())) {
-            stateMutex.withLock {
-                runtimeCallbacks.remove(id)
-                markTerminalLocked(id)
-            }
-        }
-        publishRecords(repository.loadActive())
-    }
-
-    suspend fun commitCurrentIfNeeded() {
-        drainRecoverable(force = true)
-    }
-
-    /** Startup/worker entry point. Returns true while recoverable work remains. */
-    suspend fun drainRecoverable(
-        force: Boolean = false,
-        expectedBackgroundRevision: Long? = null,
-    ): Boolean {
-        start()
-        initialization.await()
-        return drainMutex.withLock {
-            // A previous drain can be interrupted after the external/local effect has completed
-            // but before its claim is finalized. Recovery must not depend on process restart.
-            withContext(NonCancellable) {
-                repository.recoverInterruptedClaims(wallClockEpochMillis())
-            }
-            while (true) {
-                val rows = repository.loadActive()
-                if (rows.isEmpty()) {
-                    publishRecords(emptyList())
-                    return@withLock false
-                }
-                val now = wallClockEpochMillis()
-                var claim: PendingLocalDeletionRecord? = null
-                for (record in rows) {
-                    if (record.state != PendingLocalDeletionState.PENDING) continue
-                    if (record.nextAttemptAtEpochMillis > now) continue
-                    if (!force && record.attemptCount == 0 && record.undoDeadlineEpochMillis > now) continue
-                    claim = if (expectedBackgroundRevision == null) {
-                        repository.claim(record.id, now, force)
-                    } else {
-                        stateMutex.withLock {
-                            // A newer foreground transition can overtake the old background
-                            // drain while it waits for storage or WorkManager. Keep the check
-                            // and atomic claim under the same lock as lifecycle acceptance.
-                            if (
-                                interactionRevision != 0L &&
-                                (interactionRevision != expectedBackgroundRevision || interactionActive)
-                            ) null else repository.claim(record.id, now, force)
-                        }
-                    }
-                    if (claim != null) break
-                }
-                if (claim == null) {
-                    val currentRows = repository.loadActive()
-                    publishRecords(currentRows)
-                    scheduleNextDrain(currentRows, now)
-                    return@withLock currentRows.isNotEmpty()
-                }
-                publishRecords(repository.loadActive())
-                val result = executeClaim(claim)
-                if (result.isSuccess) {
-                    val finalizationError = withContext(NonCancellable) {
-                        runCatching {
-                            check(repository.completeClaimed(claim.id)) {
-                                "Claimed deletion ${claim.id} was not finalized"
-                            }
-                        }.exceptionOrNull()
-                    }
-                    if (finalizationError != null) {
-                        val retryScheduled = withContext(NonCancellable) {
-                            recoverFinalizationFailure(claim, finalizationError)
-                        }
-                        if (retryScheduled) {
-                            if (finalizationError is CancellationException) throw finalizationError
-                            continue
-                        }
-                        continue
-                    }
-                    stateMutex.withLock { markTerminalLocked(claim.id) }
-                    completeRuntimeCallback(claim.id, result, removeCompatibilityCommit = true)
-                } else {
-                    val error = result.exceptionOrNull() ?: IllegalStateException("Deletion failed")
-                    if (error is PermanentPendingLocalDeletionException) {
-                        withContext(NonCancellable) {
-                            repository.failClaimed(
-                                id = claim.id,
-                                nowEpochMillis = wallClockEpochMillis(),
-                                lastError = error.toPersistedError(),
-                            )
-                        }
-                        stateMutex.withLock { markTerminalLocked(claim.id) }
-                        completeRuntimeCallback(claim.id, result, removeCompatibilityCommit = true)
-                        publishRecords(repository.loadActive())
-                        continue
-                    }
-                    val failedAt = wallClockEpochMillis()
-                    val retryAt = failedAt + retryDelayMillis(claim.attemptCount)
-                    withContext(NonCancellable) {
-                        repository.retryClaimed(
-                            id = claim.id,
-                            nowEpochMillis = failedAt,
-                            nextAttemptAtEpochMillis = retryAt,
-                            lastError = error.toPersistedError(),
-                        )
-                    }
-                    completeRuntimeCallback(claim.id, result, removeCompatibilityCommit = false)
-                    drainScheduler.scheduleAt(retryAt)
-                    publishRecords(repository.loadActive())
-                    if (error is CancellationException) throw error
-                    // A backed-off row must not head-of-line block other due operations.
-                    continue
-                }
-            }
-            @Suppress("UNREACHABLE_CODE")
-            false
-        }
-    }
-
-    private suspend fun recoverFinalizationFailure(
-        claim: PendingLocalDeletionRecord,
-        error: Throwable,
-    ): Boolean {
-        val failedAt = wallClockEpochMillis()
-        val retryAt = failedAt + retryDelayMillis(claim.attemptCount)
-        val recovered = withContext(NonCancellable) {
-            runCatching {
-                repository.retryClaimed(
-                    id = claim.id,
-                    nowEpochMillis = failedAt,
-                    nextAttemptAtEpochMillis = retryAt,
-                    lastError = "Finalization failed after deletion effect: ${error.toPersistedError()}",
-                )
-            }.getOrDefault(false) || runCatching {
-                repository.recoverInterruptedClaims(failedAt) > 0
-            }.getOrDefault(false)
-        }
-        val rows = repository.loadActive()
-        if (rows.none { it.id == claim.id }) {
-            stateMutex.withLock { markTerminalLocked(claim.id) }
-            completeRuntimeCallback(
-                id = claim.id,
-                result = Result.success(Unit),
-                removeCompatibilityCommit = true,
-            )
-            publishRecords(rows)
-            return false
-        }
-        completeRuntimeCallback(
-            id = claim.id,
-            result = Result.failure(error),
-            removeCompatibilityCommit = false,
-        )
-        publishRecords(rows)
-        if (recovered) {
-            val active = rows.firstOrNull { it.id == claim.id }
-            val dueAt = active?.let {
-                maxOf(it.eligibleAtEpochMillis(), failedAt)
-            } ?: failedAt
-            drainScheduler.scheduleAt(dueAt)
-        } else {
-            // If recovery itself could not reach storage, let WorkManager invoke a fresh drain;
-            // its entry recovery above will reclaim any row still left COMMITTING.
+        require(operation.kind == PendingLocalDeletionKind.CHANNEL)
+        synchronized(requestLock) { if (!executing.add(operation)) return }
+        try {
+            val row = repository.loadActive().firstOrNull { it.operation == operation }
+                ?: repository.enqueue(summary, operation, wallClockEpochMillis(), undoWindowMillis = 0L)
             drainScheduler.scheduleImmediate()
-        }
-        return true
-    }
-
-    private suspend fun executeClaim(record: PendingLocalDeletionRecord): Result<Unit> = runCatching {
-        val callbacks = stateMutex.withLock { runtimeCallbacks[record.id] }
-        if (operationExecutor != null && record.operation.kind != PendingLocalDeletionKind.RUNTIME_COMPATIBILITY) {
-            operationExecutor.execute(record.operation)
-        } else {
-            val compatibilityCommit = callbacks?.compatibilityCommit
-                ?: error("No durable executor is registered for ${record.operation.kind}")
-            compatibilityCommit()
-        }
-    }
-
-    private suspend fun completeRuntimeCallback(
-        id: Long,
-        result: Result<Unit>,
-        removeCompatibilityCommit: Boolean,
-    ) {
-        val callback = stateMutex.withLock {
-            val current = runtimeCallbacks[id] ?: return@withLock null
-            if (removeCompatibilityCommit) {
-                runtimeCallbacks.remove(id)
-            } else {
-                runtimeCallbacks[id] = current.copy(completion = {})
+            drainRecoverable()
+            val active = repository.loadActive().firstOrNull { it.id == row.id }
+            val failed = repository.loadFailures().firstOrNull { it.id == row.id }
+            val result = when {
+                failed != null -> Result.failure<Unit>(IllegalStateException(failed.lastError ?: "Channel removal failed"))
+                active != null -> Result.failure<Unit>(IllegalStateException(active.lastError ?: "Channel removal is awaiting recovery"))
+                else -> Result.success(Unit)
             }
-            current.completion
-        } ?: return
-        runCatching {
-            withContext(completionDispatcher) { callback(result) }
-        }.onFailure { error ->
-            SilentSink.w(TAG, "completion callback failed for pending local deletion id=$id", error)
+            withContext(completionDispatcher) { onCompletion(result) }
+        } finally {
+            synchronized(requestLock) { executing.remove(operation) }
         }
     }
 
-    private suspend fun publishRecords(records: List<PendingLocalDeletionRecord>) {
-        stateMutex.withLock {
-            val visibleRecords = records.filterNot { it.id in terminalIds }
-            countdownJob?.cancel()
-            countdownJob = null
-            val nowEpoch = wallClockEpochMillis()
-            val nowElapsed = elapsedRealtimeMillis()
-            _effectiveScope.value = visibleRecords.fold(Scope()) { accumulated, record ->
-                accumulated + record.operation.toScope()
+    /** Old accepted local requests ignore their retired Undo deadline. No new local rows enter here. */
+    suspend fun retryFailed(id: Long) {
+        if (repository.retryFailed(id, wallClockEpochMillis())) {
+            drainScheduler.scheduleImmediate()
+            drainRecoverable()
+        }
+    }
+
+    suspend fun drainRecoverable(): Boolean = drainMutex.withLock {
+        withContext(NonCancellable) { repository.recoverInterruptedClaims(wallClockEpochMillis()) }
+        while (true) {
+            val now = wallClockEpochMillis()
+            val rows = repository.loadActive()
+            val due = rows.firstOrNull {
+                it.state == PendingLocalDeletionState.PENDING && it.nextAttemptAtEpochMillis <= now
             }
-            val undoable = visibleRecords.firstOrNull {
-                it.isUndoable && it.undoDeadlineEpochMillis > nowEpoch
+            if (due == null) {
+                rows.minOfOrNull { it.nextAttemptAtEpochMillis }?.let(drainScheduler::scheduleAt)
+                return@withLock rows.isNotEmpty()
             }
-            _pendingDeletion.value = undoable?.let { record ->
-                val remaining = (record.undoDeadlineEpochMillis - nowEpoch).coerceAtLeast(0L)
-                PendingDeletion(
-                    id = record.id,
-                    summary = record.summary,
-                    scope = record.operation.toScope(),
-                    deadlineElapsedRealtimeMillis = nowElapsed + remaining,
-                    frozenRemainingMillis = remaining,
-                    isCountdownActive = interactionActive,
-                )
-            }
-            if (interactionActive) {
-                val dueAt = visibleRecords
-                    .asSequence()
-                    .filter { it.state == PendingLocalDeletionState.PENDING }
-                    .map { it.eligibleAtEpochMillis() }
-                    .minOrNull()
-                if (dueAt != null) {
-                    countdownJob = appScope.launch {
-                        delay((dueAt - nowEpoch).coerceAtLeast(0L))
-                        val currentJob = currentCoroutineContext()[Job]
-                        stateMutex.withLock {
-                            if (countdownJob === currentJob) countdownJob = null
-                        }
-                        drainRecoverable(force = false)
-                    }
-                    drainScheduler.scheduleAt(dueAt)
+            val claim = repository.claim(due.id, now, force = true) ?: continue
+            var error: Throwable? = null
+            try {
+                operationExecutor.execute(claim.operation)
+                withContext(NonCancellable) {
+                    check(repository.completeClaimed(claim.id)) { "Deletion finalization failed" }
                 }
+            } catch (caught: Throwable) {
+                error = caught
+            }
+            if (error != null) {
+                withContext(NonCancellable) {
+                    val failedAt = wallClockEpochMillis()
+                    val terminal = error is PermanentPendingLocalDeletionException ||
+                        claim.operation.kind != PendingLocalDeletionKind.CHANNEL
+                    if (terminal) {
+                        check(repository.failClaimed(claim.id, failedAt, error.message ?: error.javaClass.simpleName))
+                    } else {
+                        val retryAt = failedAt + RETRY_DELAY_MILLIS
+                        check(repository.retryClaimed(claim.id, failedAt, retryAt, error.message ?: error.javaClass.simpleName))
+                        drainScheduler.scheduleAt(retryAt)
+                    }
+                }
+                if (error is CancellationException) throw error
             }
         }
-    }
-
-    private fun scheduleNextDrain(records: List<PendingLocalDeletionRecord>, nowEpochMillis: Long) {
-        val next = records
-            .asSequence()
-            .filter { it.state == PendingLocalDeletionState.PENDING }
-            .map { it.eligibleAtEpochMillis() }
-            .minOrNull()
-            ?: return
-        drainScheduler.scheduleAt(maxOf(next, nowEpochMillis))
-    }
-
-    private fun operationFromScope(scope: Scope): PendingLocalDeletionOperation {
-        val populatedKinds = listOf(
-            scope.messageIds.isNotEmpty(),
-            scope.eventIds.isNotEmpty(),
-            scope.thingIds.isNotEmpty(),
-            scope.channelIds.isNotEmpty(),
-        ).count { it }
-        if (populatedKinds != 1) {
-            return PendingLocalDeletionOperation.runtimeCompatibility(
-                scope.messageIds + scope.eventIds + scope.thingIds + scope.channelIds
-            )
-        }
-        return when {
-            scope.messageIds.isNotEmpty() -> PendingLocalDeletionOperation.messages(scope.messageIds)
-            scope.eventIds.isNotEmpty() -> PendingLocalDeletionOperation.events(scope.eventIds)
-            scope.thingIds.isNotEmpty() -> PendingLocalDeletionOperation.things(scope.thingIds)
-            else -> PendingLocalDeletionOperation.runtimeCompatibility(scope.channelIds)
-        }
-    }
-
-    private fun retryDelayMillis(attemptCount: Int): Long {
-        val exponent = (attemptCount - 1).coerceIn(0, 10)
-        return (RETRY_BASE_MILLIS * (1L shl exponent)).coerceAtMost(RETRY_MAX_MILLIS)
-    }
-
-    private fun markTerminalLocked(id: Long) {
-        terminalIds += id
-        while (terminalIds.size > MAX_RECENT_TERMINAL_IDS) {
-            val oldest = terminalIds.iterator()
-            oldest.next()
-            oldest.remove()
-        }
-    }
-
-    private fun Throwable.toPersistedError(): String = buildString {
-        append(this@toPersistedError::class.java.simpleName)
-        message?.trim()?.takeIf { it.isNotEmpty() }?.let {
-            append(": ")
-            append(it)
-        }
-    }
-
-    private operator fun Scope.plus(other: Scope) = Scope(
-        messageIds = messageIds + other.messageIds,
-        eventIds = eventIds + other.eventIds,
-        thingIds = thingIds + other.thingIds,
-        channelIds = channelIds + other.channelIds,
-    )
-
-    private fun PendingLocalDeletionOperation.toScope(): Scope = when (kind) {
-        PendingLocalDeletionKind.MESSAGES -> Scope(messageIds = targetIds)
-        PendingLocalDeletionKind.EVENTS -> Scope(eventIds = targetIds)
-        PendingLocalDeletionKind.THINGS -> Scope(thingIds = targetIds)
-        PendingLocalDeletionKind.CHANNEL -> Scope(channelIds = targetIds)
-        PendingLocalDeletionKind.RUNTIME_COMPATIBILITY -> Scope()
+        @Suppress("UNREACHABLE_CODE") false
     }
 
     companion object {
-        const val DEFAULT_COUNTDOWN_MILLIS: Long = 5_000L
-        private const val RETRY_BASE_MILLIS = 1_000L
-        private const val RETRY_MAX_MILLIS = 15L * 60L * 1_000L
-        private const val MAX_RECENT_TERMINAL_IDS = 256
-        private const val TAG = "PendingLocalDeletion"
+        private val LOCAL_KINDS = setOf(PendingLocalDeletionKind.MESSAGES, PendingLocalDeletionKind.EVENTS, PendingLocalDeletionKind.THINGS)
+        const val RETRY_DELAY_MILLIS = 5_000L
     }
 }

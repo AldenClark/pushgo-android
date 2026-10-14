@@ -128,8 +128,9 @@ fun PushGoAppRoot(
     val eventRefreshToken by container.entityRepository.observeEventRefreshToken().collectAsStateWithLifecycle(initialValue = 0L)
     val thingCount by container.entityRepository.observeThingCount().collectAsStateWithLifecycle(initialValue = 0)
     val thingRefreshToken by container.entityRepository.observeThingRefreshToken().collectAsStateWithLifecycle(initialValue = 0L)
-    val pendingLocalDeletion by container.pendingLocalDeletionCoordinator.pendingDeletion.collectAsStateWithLifecycle()
-    val effectivePendingScope by container.pendingLocalDeletionCoordinator.effectiveScope.collectAsStateWithLifecycle()
+    val deletionFailures by container.pendingLocalDeletionCoordinator.failures.collectAsStateWithLifecycle()
+    var dismissedDeletionFailures by remember { mutableStateOf<Set<Long>>(emptySet()) }
+    val deletionConfirmation by container.pendingLocalDeletionCoordinator.confirmation.collectAsStateWithLifecycle()
 
     val isMessagePageEnabled by container.settingsRepository.messagePageEnabledFlow
         .collectAsStateWithLifecycle(initialValue = container.settingsRepository.getCachedMessagePageEnabled())
@@ -298,12 +299,7 @@ fun PushGoAppRoot(
         }
     }
 
-    LaunchedEffect(selectedMessageId, effectivePendingScope) {
-        val currentMessageId = selectedMessageId ?: return@LaunchedEffect
-        if (effectivePendingScope.suppressesMessageId(currentMessageId)) {
-            selectedMessageId = null
-        }
-    }
+
 
     Scaffold(
         modifier = Modifier
@@ -482,23 +478,48 @@ fun PushGoAppRoot(
                     },
                 )
             }
-            PendingLocalDeletionBar(
-                pendingDeletion = pendingLocalDeletion,
-                onUndo = {
-                    appScope.launch {
-                        container.pendingLocalDeletionCoordinator.undoCurrent()
-                    }
-                },
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .padding(
-                        start = 12.dp,
-                        end = 12.dp,
-                        top = 12.dp,
-                        bottom = padding.calculateBottomPadding() + 6.dp,
-                    ),
-            )
+
         }
+    }
+
+    deletionConfirmation?.let { request ->
+        DeleteConfirmationDialog(
+            summary = request.summary,
+            onConfirm = { container.pendingLocalDeletionCoordinator.confirm(request.id) },
+            onCancel = { container.pendingLocalDeletionCoordinator.cancel(request.id) },
+        )
+    }
+
+    deletionFailures.firstOrNull { it.id !in dismissedDeletionFailures }?.let { failed ->
+        PushGoAlertDialog(
+            onDismissRequest = { dismissedDeletionFailures = dismissedDeletionFailures + failed.id },
+            paneTitle = stringResource(R.string.error_request_failed),
+            title = { Text(stringResource(R.string.error_request_failed)) },
+            text = { Text(failed.summary + "\n" + failed.lastError.orEmpty()) },
+            confirmButton = {
+                TextButton(onClick = {
+                    dismissedDeletionFailures = dismissedDeletionFailures + failed.id
+                    appScope.launch {
+                        try {
+                            container.pendingLocalDeletionCoordinator.retryFailed(failed.id)
+                        } catch (error: kotlinx.coroutines.CancellationException) {
+                            throw error
+                        } catch (error: Exception) {
+                            android.widget.Toast.makeText(context, error.localizedMessage ?: context.getString(R.string.error_request_failed), android.widget.Toast.LENGTH_LONG).show()
+                        } finally {
+                            dismissedDeletionFailures = dismissedDeletionFailures - failed.id
+                        }
+                    }
+                }, modifier = Modifier.testTag("action.delete.recovery.retry")) {
+                    Text(stringResource(R.string.action_retry))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { dismissedDeletionFailures = dismissedDeletionFailures + failed.id }) {
+                    Text(stringResource(R.string.label_got_it))
+                }
+            },
+        )
     }
 
     val availableUpdate = settingsViewModel.availableUpdate

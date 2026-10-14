@@ -3,8 +3,6 @@ package io.ethan.pushgo
 import android.app.Application
 import android.os.Bundle
 import android.os.Build
-import android.os.Handler
-import android.os.Looper
 import coil3.ImageLoader
 import coil3.SingletonImageLoader
 import coil3.disk.DiskCache
@@ -147,7 +145,6 @@ class PushGoApp : Application(), SingletonImageLoader.Factory {
     private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val imageStoreForCoil by lazy { MessageImageStore(this) }
     private var startedActivities: Int = 0
-    private var pendingDeletionLifecycleGeneration: Long = 0L
 
     override fun onCreate() {
         super.onCreate()
@@ -189,17 +186,10 @@ class PushGoApp : Application(), SingletonImageLoader.Factory {
         if (io.ethan.pushgo.testing.QualityRuntime.currentSession() != null) {
             // Preserve the real Room/UI composition root while excluding
             // unrelated Firebase, Worker, service, and sync noise from the CUJ.
-            // The coordinator is intentionally the only background boundary
-            // started here: a host-driven process-restart journey must observe
-            // durable pending deletion rows in the new process, while the
-            // production Activity lifecycle bridge would turn force-stop into
-            // an ambiguous foreground/background commit race.
-            container.pendingLocalDeletionCoordinator.start()
             NotificationHelper.cleanupObsoleteChannels(this)
             NotificationHelper.ensureManagedChannels(this)
             return
         }
-        container.pendingLocalDeletionCoordinator.start()
         appScope.launch {
             try {
                 container.transportSwitchCoordinator.synchronize()
@@ -241,25 +231,9 @@ class PushGoApp : Application(), SingletonImageLoader.Factory {
         UpdateCheckScheduler.refreshSchedule(this)
         ImageCacheCleanupScheduler.refreshSchedule(this)
         scheduleStartupSyncIfNeeded()
-        val lifecycleHandler = Handler(Looper.getMainLooper())
-        val deletionInteractionBoundary = StartedActivityInteractionBoundary(
-            scheduleDelayed = { delayMillis, block ->
-                lifecycleHandler.postDelayed(block, delayMillis)
-            },
-            onInteractionChanged = { interactionActive ->
-                val generation = ++pendingDeletionLifecycleGeneration
-                appScope.launch {
-                    container.pendingLocalDeletionCoordinator.setInteractionActive(
-                        interactionActive,
-                        generation,
-                    )
-                }
-            },
-        )
         registerActivityLifecycleCallbacks(object : ActivityLifecycleCallbacks {
             override fun onActivityStarted(activity: android.app.Activity) {
                 startedActivities += 1
-                deletionInteractionBoundary.onActivityStarted()
                 val becameForeground = startedActivities == 1
                 AlertPlaybackController.stopAll(this@PushGoApp)
                 val automationSession = PushGoAutomation.isSessionConfigured()
@@ -277,7 +251,6 @@ class PushGoApp : Application(), SingletonImageLoader.Factory {
 
             override fun onActivityStopped(activity: android.app.Activity) {
                 startedActivities = (startedActivities - 1).coerceAtLeast(0)
-                deletionInteractionBoundary.onActivityStopped(activity.isChangingConfigurations)
                 container.privateChannelClient.setForeground(startedActivities > 0)
                 if (routeSynchronizationReady.isCompleted) {
                     PrivateChannelServiceManager.refreshForMode(this@PushGoApp, isEffectiveFcmModeEnabled())
@@ -339,9 +312,13 @@ class PushGoApp : Application(), SingletonImageLoader.Factory {
             // settings.  A failure keeps the app out of normal operation and
             // is surfaced by the existing composition-root error path.
             runBlocking { container.recoverGatewayTransitionBeforeUse() }
+            // The Room delete may have committed before the previous process could
+            // cancel its OS notifications. Finish only those recorded instances.
+            runBlocking { container.deletionNotificationCleanup.recover() }
             if (io.ethan.pushgo.testing.QualityRuntime.currentSession() != null) {
                 runBlocking { container.initializeQualityFixtureIfNeeded() }
             }
+            container.pendingLocalDeletionCoordinator.start()
             container
         }.onSuccess {
             containerJob = job
@@ -654,40 +631,5 @@ class PushGoApp : Application(), SingletonImageLoader.Factory {
 
     private fun isEffectiveFcmModeEnabled(): Boolean {
         return effectiveFcmModeForSelection(cachedUseFcmChannel)
-    }
-}
-
-/** Mirrors ProcessLifecycleOwner's started boundary without treating pause/configuration as background. */
-internal class StartedActivityInteractionBoundary(
-    private val scheduleDelayed: (delayMillis: Long, block: Runnable) -> Unit,
-    private val onInteractionChanged: (Boolean) -> Unit,
-) {
-    private var startedCount = 0
-    private var generation = 0L
-    private var interactionActive = false
-
-    fun onActivityStarted() {
-        startedCount += 1
-        generation += 1
-        if (!interactionActive) {
-            interactionActive = true
-            onInteractionChanged(true)
-        }
-    }
-
-    fun onActivityStopped(isChangingConfigurations: Boolean = false) {
-        startedCount = (startedCount - 1).coerceAtLeast(0)
-        if (startedCount != 0 || isChangingConfigurations) return
-        val scheduledGeneration = ++generation
-        scheduleDelayed(PROCESS_STOP_DEBOUNCE_MILLIS, Runnable {
-            if (startedCount == 0 && generation == scheduledGeneration) {
-                interactionActive = false
-                onInteractionChanged(false)
-            }
-        })
-    }
-
-    companion object {
-        internal const val PROCESS_STOP_DEBOUNCE_MILLIS = 700L
     }
 }

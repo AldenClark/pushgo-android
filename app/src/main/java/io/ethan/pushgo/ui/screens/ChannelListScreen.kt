@@ -96,6 +96,8 @@ private sealed interface ChannelActivityState {
     data class Loaded(val byIdentifier: Map<String, MessageChannelCount>) : ChannelActivityState
 }
 
+private data class ChannelRemovalConfirmation(val subscription: ChannelSubscription, val operation: PendingLocalDeletionOperation)
+
 @Composable
 @OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 fun ChannelListScreen(
@@ -114,10 +116,7 @@ fun ChannelListScreen(
         onBottomBarVisibilityChanged,
         canScroll = listState.canScrollBackward || listState.canScrollForward,
     )
-    val effectivePendingScope by container.pendingLocalDeletionCoordinator.effectiveScope.collectAsStateWithLifecycle()
-    val visibleChannelSubscriptions = viewModel.channelSubscriptions.filterNot {
-        effectivePendingScope.suppressesChannel(it.channelId)
-    }
+    val visibleChannelSubscriptions = viewModel.channelSubscriptions
     val channelActivityState by produceState<ChannelActivityState>(
         initialValue = ChannelActivityState.Loading,
         key1 = container.messageRepository,
@@ -165,7 +164,8 @@ fun ChannelListScreen(
             onBottomBarVisibilityChanged(true)
         }
     }
-    var pendingChannelRemoval by remember { mutableStateOf<ChannelSubscription?>(null) }
+    var pendingChannelRemoval by remember { mutableStateOf<ChannelRemovalConfirmation?>(null) }
+    var isPreparingChannelRemoval by remember { mutableStateOf(false) }
     var pendingChannelRename by remember { mutableStateOf<ChannelSubscription?>(null) }
     var showChannelEntrySheet by remember { mutableStateOf(false) }
     var channelEntryMode by remember { mutableStateOf(ChannelEntryMode.Create) }
@@ -266,7 +266,26 @@ fun ChannelListScreen(
                             pendingChannelRename = subscription
                             renameAlias = subscription.displayName
                         },
-                        onDelete = { pendingChannelRemoval = subscription },
+                        onDelete = delete@{
+                            if (isPreparingChannelRemoval || pendingChannelRemoval != null) return@delete
+                            isPreparingChannelRemoval = true
+                            scope.launch {
+                                try {
+                                    val operation = PendingLocalDeletionOperation.channel(
+                                        id = subscription.channelId,
+                                        expectedGatewayUrl = container.channelRepository.loadGatewayConfig().first,
+                                        expectedUpdatedAt = subscription.updatedAt,
+                                        expectedUseProvider = viewModel.channelRemovalUsesProvider(context.applicationContext),
+                                    )
+                                    pendingChannelRemoval = ChannelRemovalConfirmation(subscription, operation)
+                                } catch (error: Exception) {
+                                    if (error is CancellationException) throw error
+                                    viewModel.handleUnsubscribeAndDeleteHistoryCompletion(Result.failure(error))
+                                } finally {
+                                    isPreparingChannelRemoval = false
+                                }
+                            }
+                        },
                         onCopy = {
                             scope.launch {
                                 clipboard.setText(AnnotatedString(subscription.channelId))
@@ -281,7 +300,8 @@ fun ChannelListScreen(
         }
     }
     if (pendingChannelRemoval != null) {
-        val target = pendingChannelRemoval
+        val confirmation = pendingChannelRemoval
+        val target = confirmation?.subscription
         val unsubscribeTitle = stringResource(
             R.string.label_unsubscribe_channel_title,
             target?.displayName ?: "",
@@ -302,7 +322,9 @@ fun ChannelListScreen(
                     PushGoDestructiveTextButton(
                         text = stringResource(R.string.label_unsubscribe_delete_history),
                         onClick = {
+                            if (pendingChannelRemoval !== confirmation) return@PushGoDestructiveTextButton
                             val removalTarget = target ?: return@PushGoDestructiveTextButton
+                            val capturedOperation = confirmation?.operation ?: return@PushGoDestructiveTextButton
                             // Claim this dialog action synchronously. Snapshot reads below may
                             // suspend; leaving the dialog actionable would allow a duplicate or
                             // conflicting "keep history" unsubscribe to be queued meanwhile.
@@ -311,18 +333,9 @@ fun ChannelListScreen(
                                 try {
                                     val channelId = removalTarget.channelId
                                     val summary = removalTarget.displayName.ifBlank { channelId }
-                                    val appContext = context.applicationContext
-                                    val expectedGateway = container.channelRepository.loadGatewayConfig().first
-                                    val expectedUpdatedAt = removalTarget.updatedAt
-                                    val expectedUseProvider = viewModel.channelRemovalUsesProvider(appContext)
-                                    container.pendingLocalDeletionCoordinator.schedule(
+                                    container.pendingLocalDeletionCoordinator.deleteConfirmedChannel(
                                         summary = summary,
-                                        operation = PendingLocalDeletionOperation.channel(
-                                            id = channelId,
-                                            expectedGatewayUrl = expectedGateway,
-                                            expectedUpdatedAt = expectedUpdatedAt,
-                                            expectedUseProvider = expectedUseProvider,
-                                        ),
+                                        operation = capturedOperation,
                                         onCompletion = viewModel::handleUnsubscribeAndDeleteHistoryCompletion,
                                     )
                                 } catch (error: Exception) {
@@ -338,9 +351,11 @@ fun ChannelListScreen(
                     )
                     TextButton(
                         onClick = {
-                            val channelId = target?.channelId ?: return@TextButton
+                            if (pendingChannelRemoval !== confirmation) return@TextButton
+                            val capturedOperation = confirmation?.operation ?: return@TextButton
+                            pendingChannelRemoval = null
                             scope.launch {
-                                viewModel.unsubscribeChannel(context, channelId)
+                                viewModel.unsubscribeChannel(context, capturedOperation)
                                 pendingChannelRemoval = null
                             }
                         },

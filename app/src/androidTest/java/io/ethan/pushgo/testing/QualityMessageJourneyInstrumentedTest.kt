@@ -35,6 +35,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.json.JSONObject
+import androidx.room.withTransaction
 import kotlinx.coroutines.runBlocking
 
 @RunWith(AndroidJUnit4::class)
@@ -1132,20 +1133,47 @@ class QualityMessageJourneyInstrumentedTest : QualityAppJourneyTestCase() {
     }
 
     @Test
-    fun deleteUndoRestoresTheSameObjectAcrossActivityRelaunch() {
+    fun legacyFailedDeleteCanRetryItsOriginalTargetWithoutDiscardAcrossReopen() {
+        configureAndLaunch(fixture = QualityFixture.CHANNELS_STANDARD)
+        val repository = io.ethan.pushgo.data.RoomPendingLocalDeletionRepository(app.container.database, app.container.database.pendingLocalDeletionDao())
+        runBlocking { app.container.database.withTransaction {
+            val row = repository.enqueue("Quality Delete History Message", io.ethan.pushgo.data.PendingLocalDeletionOperation.messages(setOf("quality-channel-delete-message")), System.currentTimeMillis(), 0L)
+            repository.claim(row.id, System.currentTimeMillis(), true)
+            repository.failClaimed(row.id, System.currentTimeMillis(), "Legacy local storage unavailable")
+        } }
+        composeRule.waitUntil(timeoutMillis = 5_000) {
+            composeRule.onAllNodes(hasTestTag("action.delete.recovery.retry")).fetchSemanticsNodes().isNotEmpty()
+        }
+        composeRule.onNodeWithText("Quality Delete History Message\nLegacy local storage unavailable").assertIsDisplayed()
+        scenario?.close()
+        app.releaseStorageForInstrumentationTest()
+        scenario = launchMainActivity()
+        composeRule.waitUntil(timeoutMillis = 8_000) {
+            composeRule.onAllNodes(hasTestTag("action.delete.recovery.retry")).fetchSemanticsNodes().isNotEmpty()
+        }
+        composeRule.onNodeWithTag("action.delete.recovery.retry").assertIsDisplayed().performClick()
+        composeRule.waitUntil(timeoutMillis = 8_000) {
+            composeRule.onAllNodes(hasTestTag("message.row.quality-channel-delete-message")).fetchSemanticsNodes().isEmpty()
+        }
+        val reopenedRepository = io.ethan.pushgo.data.RoomPendingLocalDeletionRepository(app.container.database, app.container.database.pendingLocalDeletionDao())
+        assertTrue(runBlocking { reopenedRepository.loadFailures().isEmpty() })
+        composeRule.onNodeWithText("Quality Keep History Message").assertIsDisplayed().performClick()
+        composeRule.onNodeWithTag("field.message.detail.body")
+            .assertTextContains("Deterministic history owned by 01H00000000000000000000001.")
+    }
+
+    @Test
+    fun deleteCancelPreservesTheSameObjectAcrossActivityRelaunch() {
         configureAndLaunch(fixture = QualityFixture.MESSAGES_STANDARD)
 
         composeRule.onNodeWithText("P2 Split Seed Message").assertIsDisplayed().performClick()
         composeRule.onNodeWithTag("action.message.delete").assertIsDisplayed().performClick()
-        composeRule.waitUntil(timeoutMillis = 5_000) {
-            composeRule.onAllNodes(hasTestTag("state.pending_deletion"))
-                .fetchSemanticsNodes().isNotEmpty()
-        }
-        composeRule.onNodeWithTag("message.row.quality-standard-message").assertDoesNotExist()
-        composeRule.onNodeWithTag("action.pending_deletion.undo").assertIsDisplayed().performClick()
+        composeRule.onNodeWithTag("action.delete.cancel").assertIsDisplayed().performClick()
+        composeRule.onNodeWithTag("field.message.detail.body")
+            .assertTextEquals("Seeded from fixture.seed_messages for UI validation.")
+        pressBack()
         composeRule.waitUntil(timeoutMillis = 8_000) {
-            composeRule.onAllNodes(hasText("P2 Split Seed Message"))
-                .fetchSemanticsNodes().isNotEmpty()
+            composeRule.onAllNodes(hasText("P2 Split Seed Message")).fetchSemanticsNodes().isNotEmpty()
         }
 
         scenario?.close()
@@ -1158,7 +1186,7 @@ class QualityMessageJourneyInstrumentedTest : QualityAppJourneyTestCase() {
     }
 
     @Test
-    fun deleteWithoutUndoPermanentlyRemovesOnlyTargetAcrossStorageRecreation() {
+    fun confirmedDeletePermanentlyRemovesOnlyTargetAcrossStorageRecreation() {
         configureAndLaunch(fixture = QualityFixture.CHANNELS_STANDARD)
 
         composeRule.onNodeWithText("Quality Delete History Message")
@@ -1168,15 +1196,9 @@ class QualityMessageJourneyInstrumentedTest : QualityAppJourneyTestCase() {
         composeRule.onNodeWithTag("field.message.detail.body")
             .assertTextContains("Deterministic history owned by 01H00000000000000000000002.")
         composeRule.onNodeWithTag("action.message.delete").assertIsDisplayed().performClick()
-        composeRule.waitUntil(timeoutMillis = 5_000) {
-            composeRule.onAllNodes(hasTestTag("state.pending_deletion"))
-                .fetchSemanticsNodes().isNotEmpty()
-        }
-        composeRule.onNodeWithTag("message.row.quality-channel-delete-message")
-            .assertDoesNotExist()
-        composeRule.onNodeWithTag("action.pending_deletion.undo").assertIsDisplayed()
-        composeRule.waitUntil(timeoutMillis = 15_000) {
-            composeRule.onAllNodes(hasTestTag("state.pending_deletion"))
+        composeRule.onNodeWithTag("action.delete.confirm").assertIsDisplayed().performClick()
+        composeRule.waitUntil(timeoutMillis = 8_000) {
+            composeRule.onAllNodes(hasTestTag("message.row.quality-channel-delete-message"))
                 .fetchSemanticsNodes().isEmpty()
         }
 

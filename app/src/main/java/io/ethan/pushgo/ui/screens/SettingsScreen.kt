@@ -510,6 +510,7 @@ fun SettingsScreen(
                             showDecryptionSheet = false
                         }
                     },
+                    onClear = { expectedUpdatedAt -> viewModel.clearDecryptionConfig(expectedUpdatedAt) { showDecryptionSheet = false } },
                     fillRemaining = false,
                     modifier = Modifier
                         .fillMaxWidth()

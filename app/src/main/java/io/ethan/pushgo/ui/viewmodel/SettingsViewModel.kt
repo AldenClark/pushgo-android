@@ -132,6 +132,8 @@ class SettingsViewModel(
         private set
     var decryptionErrorMessage by mutableStateOf<UiMessage?>(null)
         private set
+    val savingWouldClearDecryptionKey: Boolean
+        get() = isDecryptionConfigured && hasEditedDecryptionKeyInput && decryptionKeyInput.isBlank()
     private var hasEditedDecryptionKeyInput = false
 
     var isMessagePageEnabled by mutableStateOf(true)
@@ -1208,24 +1210,22 @@ class SettingsViewModel(
         channelRenameErrorMessage = null
     }
 
-    suspend fun unsubscribeChannel(context: Context, channelId: String): Boolean {
+    suspend fun unsubscribeChannel(context: Context, operation: io.ethan.pushgo.data.PendingLocalDeletionOperation): Boolean {
         if (isRemovingChannel) return false
         isRemovingChannel = true
         try {
-            if (shouldUseFcm(context)) {
-                val token = settingsRepository.getFcmToken()?.trim().takeUnless { it.isNullOrEmpty() }
-                    ?: requireFcmToken(context)
-                    ?: return false
-                channelRepository.syncProviderDeviceToken(token)
-                channelRepository.unsubscribeChannel(channelId, token)
-            } else {
-                val normalizedChannelId = ChannelIdValidator.normalize(channelId)
-                val unsubscribed = privateChannelClient.privateUnsubscribeChannel(normalizedChannelId)
-                if (!unsubscribed) {
-                    errorMessage = ResMessage(R.string.error_private_channel_unsubscribe_failed)
-                    return false
-                }
-                channelRepository.softDeleteLocalSubscription(rawChannelId = normalizedChannelId)
+            check(shouldUseFcm(context) == operation.expectedUseProvider) {
+                "Channel delivery mode changed before confirmation was applied"
+            }
+            val token = if (operation.expectedUseProvider == true) {
+                settingsRepository.getFcmToken()?.trim().takeUnless { it.isNullOrEmpty() }
+                    ?: requireFcmToken(context) ?: return false
+            } else null
+            check(shouldUseFcm(context) == operation.expectedUseProvider) {
+                "Channel delivery mode changed before confirmation was applied"
+            }
+            channelRepository.unsubscribeConfirmedKeepingHistory(operation, token) {
+                privateChannelClient.privateUnsubscribeChannel(operation.targetIds.single(), operation.expectedGatewayUrl)
             }
             refreshChannelSubscriptions()
             successMessage = ResMessage(R.string.message_channel_unsubscribed)
@@ -1407,6 +1407,33 @@ class SettingsViewModel(
             category = io.ethan.pushgo.data.GatewayErrorCategory.VALIDATION,
         )
 
+    /** Clearing is a separate confirmed action; untouched/edited save behavior is unchanged. */
+    fun clearDecryptionConfig(expectedUpdatedAt: Instant?, onSuccess: () -> Unit = {}) {
+        if (isSavingDecryption) return
+        isSavingDecryption = true
+        viewModelScope.launch {
+            decryptionErrorMessage = null
+            try {
+                check(settingsRepository.getNotificationKeyUpdatedAt() == expectedUpdatedAt) {
+                    "Decryption key changed before confirmation was applied"
+                }
+                settingsRepository.setNotificationKeyBytes(null)
+                decryptionUpdatedAt = null
+                isDecryptionConfigured = false
+                decryptionKeyInput = ""
+                hasEditedDecryptionKeyInput = false
+                successMessage = ResMessage(R.string.message_decryption_saved)
+                onSuccess()
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                decryptionErrorMessage = error.toUiErrorMessage(R.string.error_request_failed)
+            } finally {
+                isSavingDecryption = false
+            }
+        }
+    }
+
     fun saveDecryptionConfig(onSuccess: () -> Unit = {}) {
         viewModelScope.launch {
             isSavingDecryption = true
@@ -1414,6 +1441,9 @@ class SettingsViewModel(
             try {
                 val trimmed = decryptionKeyInput.trim()
                 if (trimmed.isEmpty()) {
+                    check(!hasEditedDecryptionKeyInput || settingsRepository.getNotificationKeyBytes()?.isNotEmpty() != true) {
+                        "Confirm decryption key removal before saving an empty key"
+                    }
                     // Initialization is asynchronous; its initial UI value cannot
                     // authorize erasing an untouched Key that already exists in storage.
                     val retainStoredKey = !hasEditedDecryptionKeyInput &&

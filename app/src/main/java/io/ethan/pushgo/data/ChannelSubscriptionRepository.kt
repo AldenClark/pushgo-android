@@ -340,6 +340,32 @@ class ChannelSubscriptionRepository(
         }
     }
 
+    /** The confirmation snapshot and channel lock protect keep-history unsubscribe too. */
+    suspend fun unsubscribeConfirmedKeepingHistory(
+        operation: PendingLocalDeletionOperation,
+        providerToken: String?,
+        unsubscribePrivate: suspend () -> Boolean,
+    ) {
+        val channelId = operation.targetIds.single()
+        val gateway = requireNotNull(operation.expectedGatewayUrl)
+        store.withChannelMutation(gateway, channelId) {
+            val config = resolveServerConfig()
+            requireExpectedGateway(config, gateway)
+            when (store.pendingDeletionTargetState(gateway, channelId, requireNotNull(operation.expectedUpdatedAt))) {
+                PendingChannelDeletionTargetState.ALREADY_DELETED -> return@withChannelMutation
+                PendingChannelDeletionTargetState.CONFLICTING_VERSION -> throw PermanentPendingLocalDeletionException("Channel subscription changed before confirmation was applied")
+                PendingChannelDeletionTargetState.ACTIVE_EXPECTED_VERSION -> Unit
+            }
+            if (operation.expectedUseProvider == true) {
+                syncProviderDeviceToken(requireNotNull(providerToken), gateway)
+                unsubscribeProviderRemote(channelId, providerToken, config)
+            } else {
+                check(unsubscribePrivate()) { "Private channel unsubscribe failed" }
+            }
+            store.softDeleteSubscription(gateway, channelId)
+        }
+    }
+
     suspend fun unsubscribeChannel(
         rawChannelId: String,
         deviceToken: String?,

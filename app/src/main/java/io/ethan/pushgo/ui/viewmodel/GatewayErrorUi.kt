@@ -13,6 +13,9 @@ import java.net.UnknownHostException
 import javax.net.ssl.SSLException
 
 fun Throwable.toUiErrorMessage(@StringRes fallbackResId: Int): UiMessage {
+    if (this is io.ethan.pushgo.data.OrdinaryDeletionTargetChangedException) {
+        return ResMessage(R.string.error_deletion_target_changed)
+    }
     if (this is ChannelSubscriptionException) {
         if (matchesCode("private_channel_disabled")) {
             return ResMessage(R.string.error_gateway_private_disabled_use_fcm)

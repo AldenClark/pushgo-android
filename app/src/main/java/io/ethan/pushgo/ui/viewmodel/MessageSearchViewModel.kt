@@ -24,24 +24,21 @@ class MessageSearchViewModel(
 ) : ViewModel() {
     private val query = MutableStateFlow("")
     private val filter = MutableStateFlow(MessageFilter())
-    private val locallySuppressedMessageIds = MutableStateFlow<Set<String>>(emptySet())
 
     val queryState: StateFlow<String> = query
 
     val results: Flow<PagingData<MessageListItem>> = combine(
         query.debounce(200),
         filter,
-        locallySuppressedMessageIds,
-    ) { rawQuery, currentFilter, suppressedIds ->
-        Triple(rawQuery, currentFilter, suppressedIds)
+    ) { rawQuery, currentFilter ->
+        rawQuery to currentFilter
     }
-        .flatMapLatest { (rawQuery, currentFilter, suppressedIds) ->
+        .flatMapLatest { (rawQuery, currentFilter) ->
             flow {
                 emitAll(
                     repository.searchMessages(
                         rawQuery = rawQuery,
                         unreadOnly = currentFilter.unreadOnly,
-                        excludedIds = suppressedIds,
                         channels = currentFilter.channels,
                         facetTags = currentFilter.tags,
                     )
@@ -59,12 +56,4 @@ class MessageSearchViewModel(
         filter.value = value
     }
 
-    fun setLocallySuppressedMessageIds(messageIds: Set<String>) {
-        val normalized = messageIds.asSequence()
-            .map(String::trim)
-            .filter(String::isNotEmpty)
-            .toSet()
-        if (locallySuppressedMessageIds.value == normalized) return
-        locallySuppressedMessageIds.value = normalized
-    }
 }

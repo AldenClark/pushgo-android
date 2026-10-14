@@ -245,8 +245,6 @@ class QualityChannelJourneyInstrumentedTest : QualityAppJourneyTestCase() {
         openChannelAction("01H00000000000000000000002", "unsubscribe")
         composeRule.onNodeWithTag("action.channel.unsubscribe.delete_history").performClick()
         waitForNodeToDisappear("channel.row.01H00000000000000000000002")
-        waitForNode("state.pending_deletion")
-        waitForNodeToDisappear("state.pending_deletion", timeoutMillis = 15_000)
 
         openMessages()
         composeRule.onNodeWithText("Quality Keep History Message").assertIsDisplayed()

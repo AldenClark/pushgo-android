@@ -408,6 +408,43 @@ class EntityRepository(
         }
     }
 
+    /** Verify the concrete delivery record, never just its mutable semantic head. */
+    suspend fun publishNotificationIfCurrent(
+        entity: IncomingEntityRecord,
+        deliveryScope: InboundDeliveryScope?,
+        replay: Boolean,
+        publish: () -> Boolean,
+    ): Boolean? = database.withTransaction {
+        val scoped = entity.copy(
+            localDeliveryKey = entity.deliveryId?.trim()?.takeIf { it.isNotEmpty() }
+                ?.let { deliveryScope.scopedDeliveryStorageKey(it) },
+        )
+        when (scoped.entityType.trim().lowercase()) {
+            "event" -> if (scoped.thingId.isNullOrBlank()) {
+                val expected = EventChangeLogEntity.fromIncoming(scoped)
+                val current = eventChangeLogDao.getById(expected.id) ?: return@withTransaction null
+                if (current != expected.copy(receivedAt = if (replay) current.receivedAt else expected.receivedAt)) {
+                    return@withTransaction null
+                }
+            } else {
+                val expected = ThingSubEventEntity.fromIncoming(scoped)
+                val current = thingSubEventDao.getById(expected.id) ?: return@withTransaction null
+                if (current != expected.copy(receivedAt = if (replay) current.receivedAt else expected.receivedAt)) {
+                    return@withTransaction null
+                }
+            }
+            "thing" -> {
+                val expected = ThingChangeLogEntity.fromIncoming(scoped)
+                val current = thingChangeLogDao.getById(expected.id) ?: return@withTransaction null
+                if (current != expected.copy(receivedAt = if (replay) current.receivedAt else expected.receivedAt)) {
+                    return@withTransaction null
+                }
+            }
+            else -> return@withTransaction null
+        }
+        publish()
+    }
+
     suspend fun deleteEvent(eventId: String): Int {
         val normalized = eventId.trim()
         if (normalized.isEmpty()) return 0

@@ -153,7 +153,6 @@
     <string name="label_decryption_state_not_configured_short">No key</string>
     <string name="label_decryption_state_alg_mismatch_short">Alg mismatch</string>
     <string name="label_cancel">Cancel</string>
-    <string name="label_undo">Undo</string>
     <string name="label_got_it">Got it</string>
     <string name="label_urgent_attention">Urgent</string>
     <string name="label_enable_notifications">Notifications are off</string>
@@ -339,10 +338,6 @@
     <string name="a11y_action_save_image">Save image</string>
     <string name="a11y_action_share_image">Share image</string>
     <string name="a11y_action_close_image_preview">Close image preview</string>
-    <plurals name="a11y_pending_deletion_summary">
-        <item quantity="one">%1$s. Undo available for %2$d second.</item>
-        <item quantity="other">%1$s. Undo available for %2$d seconds.</item>
-    </plurals>
     <string name="a11y_pane_message_detail">Message details</string>
     <string name="a11y_pane_image_preview">Image preview</string>
     <string name="a11y_pane_channel_management">Manage channels</string>
@@ -361,4 +356,8 @@
     <string name="channel_stats_no_recent">No recent message</string>
     <string name="channel_stats_summary">%1$d messages · %2$d unread · Latest %3$s</string>
     <string name="channel_stats_unavailable">Activity unavailable</string>
+    <string name="delete_confirmation_body">Delete “%1$s”? This permanently removes its local history.</string>
+    <string name="delete_decryption_key_confirmation">Remove the decryption key? Encrypted messages will require a key again.</string>
+    <string name="error_deletion_target_changed">The content, related records, or settings changed. Review the current content and confirm deletion again.</string>
+    <string name="delete_confirmation_untitled_body">Delete this item? This permanently removes its local history.</string>
 </resources>

@@ -49,6 +49,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import io.ethan.pushgo.R
 import io.ethan.pushgo.data.model.KeyEncoding
+import io.ethan.pushgo.ui.DeleteConfirmationDialog
 import io.ethan.pushgo.ui.PushGoViewModelFactory
 import io.ethan.pushgo.ui.rememberBottomGestureInset
 import io.ethan.pushgo.ui.theme.pushGoPrimaryButtonElevation
@@ -139,6 +140,7 @@ fun MessageDecryptionScreen(
                         navController.popBackStack()
                     }
                 },
+                onClear = { expectedUpdatedAt -> viewModel.clearDecryptionConfig(expectedUpdatedAt) { navController.popBackStack() } },
                 fillRemaining = true,
                 modifier = Modifier.fillMaxWidth(),
             )
@@ -150,13 +152,32 @@ fun MessageDecryptionScreen(
 fun DecryptionKeyForm(
     viewModel: SettingsViewModel,
     onSave: () -> Unit,
+    onClear: (java.time.Instant?) -> Unit,
     modifier: Modifier = Modifier,
     fillRemaining: Boolean,
 ) {
     val context = LocalContext.current
     val uiColors = PushGoThemeExtras.colors
     var showKey by remember { mutableStateOf(false) }
+    var pendingClear by remember { mutableStateOf<Triple<java.time.Instant?, String, KeyEncoding>?>(null) }
     val visibilityStateLabel = toggleStateDescription(showKey)
+    pendingClear?.let { snapshot ->
+        DeleteConfirmationDialog(
+            summary = stringResource(R.string.section_decryption),
+            bodyText = stringResource(R.string.delete_decryption_key_confirmation),
+            onCancel = { pendingClear = null },
+            onConfirm = {
+                if (pendingClear === snapshot) {
+                    pendingClear = null
+                    if (viewModel.decryptionUpdatedAt == snapshot.first && viewModel.decryptionKeyInput == snapshot.second && viewModel.keyEncoding == snapshot.third) {
+                        onClear(snapshot.first)
+                    } else {
+                        Toast.makeText(context, R.string.error_request_failed, Toast.LENGTH_SHORT).show()
+                    }
+                }
+            },
+        )
+    }
 
     Column(
         modifier = modifier,
@@ -247,8 +268,7 @@ fun DecryptionKeyForm(
             PushGoDestructiveTextButton(
                 text = stringResource(R.string.action_delete),
                 onClick = {
-                    viewModel.updateDecryptionKeyInput("")
-                    onSave()
+                    if (pendingClear == null) pendingClear = Triple(viewModel.decryptionUpdatedAt, viewModel.decryptionKeyInput, viewModel.keyEncoding)
                 },
                 enabled = !viewModel.isSavingDecryption,
                 modifier = Modifier.testTag("action.settings.decryption.clear"),
@@ -260,7 +280,11 @@ fun DecryptionKeyForm(
         }
         Spacer(modifier = Modifier.height(20.dp))
         Button(
-            onClick = onSave,
+            onClick = {
+                if (viewModel.savingWouldClearDecryptionKey) {
+                    if (pendingClear == null) pendingClear = Triple(viewModel.decryptionUpdatedAt, viewModel.decryptionKeyInput, viewModel.keyEncoding)
+                } else onSave()
+            },
             enabled = !viewModel.isSavingDecryption,
             modifier = Modifier
                 .fillMaxWidth()
