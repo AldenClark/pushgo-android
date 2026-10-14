@@ -372,6 +372,7 @@ fun EventListScreen(
                 )
                 reloadEventsInternal()
             }.onFailure { error ->
+                showToast(error.toUserFacingText(context, R.string.error_request_failed))
                 io.ethan.pushgo.util.SilentSink.w(
                     "EventListScreen",
                     "provider ingress refresh failed",

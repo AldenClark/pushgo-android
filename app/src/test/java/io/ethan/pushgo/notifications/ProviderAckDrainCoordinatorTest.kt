@@ -11,6 +11,29 @@ import org.junit.Test
 
 class ProviderAckDrainCoordinatorTest {
     @Test
+    fun drainPendingAcksRetainsUpgradeFailureAndOriginalIdentity() = runBlocking {
+        val records = listOf(record("delivery-retained"))
+        val failure = io.ethan.pushgo.data.ChannelSubscriptionException(
+            "upgrade", code = "gateway_v2_required",
+            category = io.ethan.pushgo.data.GatewayErrorCategory.FEATURE_DISABLED,
+            httpStatus = 404,
+        )
+        val result = ProviderAckDrainCoordinator.drainPendingAcks(
+            loadPendingAcks = { records },
+            ackMessages = { destination, contract, ids ->
+                assertEquals(ProviderAckDestination(GATEWAY_A, DEVICE_A), destination)
+                assertEquals(ProviderAckContract.V2_BATCH, contract)
+                assertEquals(listOf("delivery-retained"), ids)
+                throw failure
+            },
+            markAcked = { error("Unsupported ACK must retain the pending record") },
+        )
+        org.junit.Assert.assertSame(failure, result.failureCause)
+        assertEquals(claimed(records), result.failed)
+        assertTrue(result.acked.isEmpty())
+    }
+
+    @Test
     fun drainPendingAcks_marksOnlyGatewayConfirmedRecords() = runBlocking {
         val submitted = mutableListOf<String>()
         val markedAcked = mutableListOf<InboundDeliveryAckOutboxEntity>()

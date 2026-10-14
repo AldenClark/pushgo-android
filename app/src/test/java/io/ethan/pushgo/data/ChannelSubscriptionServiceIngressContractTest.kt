@@ -290,7 +290,6 @@ class ChannelSubscriptionServiceIngressContractTest {
                 deliveryId = null,
             )
             assertTrue(page.items.isEmpty())
-            assertEquals(ProviderPullContract.V2, page.contract)
 
             val request = server.firstRequest()
             assertEquals("POST", request.method)
@@ -344,13 +343,12 @@ class ChannelSubscriptionServiceIngressContractTest {
             )
 
             assertTrue(page.hasMore)
-            assertEquals(ProviderPullContract.V2, page.contract)
             assertEquals(listOf("outer"), page.items.map { it.deliveryId })
         }
     }
 
     @Test
-    fun pullMessages_fallsBackToLegacyOnlyWhenV2RouteIsUnavailable() = runBlocking {
+    fun pullMessages_requiresGatewayUpgradeWithoutDestructiveFallback() = runBlocking {
         CapturingGatewayServer(
             responseBody = """{"success":false,"error_code":"route_not_found","problem":{"code":"route_not_found","category":"not_found","status":404,"retryable":false}}""",
             responseCode = 404,
@@ -358,40 +356,45 @@ class ChannelSubscriptionServiceIngressContractTest {
                 200 to """{"success":true,"data":{"has_more":true,"items":[{"delivery_id":"legacy-001","payload":{"title":"legacy"}}]}}""",
             ),
         ).use { server ->
-            val page = ChannelSubscriptionService().pullMessages(
-                baseUrl = server.baseUrl,
-                token = null,
-                deviceKey = "device-001",
-            )
+            val failure = runCatching {
+                ChannelSubscriptionService().pullMessages(
+                    baseUrl = server.baseUrl,
+                    token = null,
+                    deviceKey = "device-001",
+                )
+            }.exceptionOrNull()
 
-            assertEquals(ProviderPullContract.LEGACY, page.contract)
-            assertFalse(page.hasMore)
-            assertEquals(listOf("legacy-001"), page.items.map { it.deliveryId })
+            assertTrue("V2-unavailable Gateway must fail instead of consuming legacy content", failure is ChannelSubscriptionException)
+            failure as ChannelSubscriptionException
+            assertEquals("gateway_v2_required", failure.code)
+            assertEquals(GatewayErrorCategory.FEATURE_DISABLED, failure.category)
+            assertEquals(404, failure.httpStatus)
+            assertFalse(failure.retryable)
             assertEquals(
-                listOf("/v2/messages/pull", "/messages/pull"),
+                listOf("/v2/messages/pull"),
                 server.allRequests().map { it.path },
             )
         }
     }
 
     @Test
-    fun pullMessages_canDisableLegacyFallbackAndPreservesV2RouteError() = runBlocking {
+    fun ackMessages_requiresGatewayUpgradeWithoutLegacyAckFallback() = runBlocking {
         CapturingGatewayServer(
             responseBody = """{"success":false,"error_code":"route_not_found","problem":{"code":"route_not_found","category":"not_found","status":404,"retryable":false}}""",
             responseCode = 404,
         ).use { server ->
             val failure = runCatching {
-                ChannelSubscriptionService().pullMessages(
+                ChannelSubscriptionService().ackMessages(
                     baseUrl = server.baseUrl,
                     token = null,
                     deviceKey = "device-001",
-                    allowLegacyFallback = false,
+                    deliveryIds = listOf("delivery-001"),
                 )
             }.exceptionOrNull() as ChannelSubscriptionException
 
-            assertEquals("route_not_found", failure.code)
-            assertEquals(GatewayErrorCategory.NOT_FOUND, failure.category)
-            assertEquals(listOf("/v2/messages/pull"), server.allRequests().map { it.path })
+            assertEquals("gateway_v2_required", failure.code)
+            assertEquals(GatewayErrorCategory.FEATURE_DISABLED, failure.category)
+            assertEquals(listOf("/v2/messages/ack"), server.allRequests().map { it.path })
         }
     }
 
@@ -411,6 +414,105 @@ class ChannelSubscriptionServiceIngressContractTest {
 
             assertEquals("device_not_found", failure.code)
             assertEquals(listOf("/v2/messages/pull"), server.allRequests().map { it.path })
+        }
+    }
+
+    @Test
+    fun requiredV2RejectsConflictingGatewayErrorCodesAsUpgradeEvidence() = runBlocking {
+        val conflicts = listOf(
+            Triple("authentication_failed", "route_not_found", "not_found"),
+            Triple("device_key_not_found", "route_not_found", "not_found"),
+            Triple("route_not_found", "authentication_failed", "auth"),
+            Triple("route_not_found", "device_key_not_found", "not_found"),
+            // A malformed problem must not lose its conflicting code when category parsing fails.
+            Triple("route_not_found", "authentication_failed", null),
+        )
+        for ((topCode, problemCode, category) in conflicts) {
+            val problem = JSONObject().put("code", problemCode).put("status", 404)
+            if (category != null) problem.put("category", category)
+            val body = JSONObject().put("success", false).put("error_code", topCode).put("problem", problem)
+            for (ack in listOf(false, true)) {
+                CapturingGatewayServer(responseBody = body.toString(), responseCode = 404).use { server ->
+                    val failure = runCatching {
+                        if (ack) ChannelSubscriptionService().ackMessages(
+                            server.baseUrl, null, "device-001", listOf("delivery-001"),
+                        ) else ChannelSubscriptionService().pullMessages(server.baseUrl, null, "device-001")
+                    }.exceptionOrNull() as ChannelSubscriptionException
+                    assertFalse("Conflicting $topCode / $problemCode must not require upgrade", failure.matchesCode("gateway_v2_required"))
+                    assertEquals(404, failure.httpStatus)
+                    assertNull("The existing Gateway error must be preserved", failure.cause)
+                    assertEquals(listOf(if (ack) "/v2/messages/ack" else "/v2/messages/pull"), server.allRequests().map { it.path })
+                }
+            }
+        }
+    }
+
+    @Test
+    fun requiredV2AcceptsOnlyConsistentNonemptyRouteCodesAsUpgradeEvidence() = runBlocking {
+        val bodies = listOf(
+            """{"success":false,"error_code":"route_not_found"}""",
+            """{"success":false,"problem":{"code":"route_not_found","category":"not_found","status":404}}""",
+            """{"success":false,"error_code":" ROUTE_NOT_FOUND ","problem":{"code":"route_not_found","category":"not_found","status":404}}""",
+        )
+        for (body in bodies) {
+            for (ack in listOf(false, true)) {
+                CapturingGatewayServer(responseBody = body, responseCode = 404).use { server ->
+                    val failure = runCatching {
+                        if (ack) ChannelSubscriptionService().ackMessages(
+                            server.baseUrl, null, "device-001", listOf("delivery-001"),
+                        ) else ChannelSubscriptionService().pullMessages(server.baseUrl, null, "device-001")
+                    }.exceptionOrNull() as ChannelSubscriptionException
+                    assertEquals("gateway_v2_required", failure.code)
+                    assertEquals(404, failure.httpStatus)
+                    assertEquals(listOf(if (ack) "/v2/messages/ack" else "/v2/messages/pull"), server.allRequests().map { it.path })
+                }
+            }
+        }
+    }
+
+    @Test
+    fun requiredV2PreservesAuthMalformedAndOtherStatusFailures() = runBlocking {
+        val cases = listOf(
+            Triple(401, """{"success":false,"error_code":"authentication_failed"}""", "authentication_failed"),
+            Triple(500, """{"success":false,"error_code":"route_not_found","problem":{"code":"route_not_found","category":"internal","status":500}}""", "route_not_found"),
+            Triple(404, "<html>proxy route missing</html>", null),
+            Triple(200, "not-json", "gateway_invalid_response"),
+        )
+        for ((status, body, expectedCode) in cases) {
+            for (ack in listOf(false, true)) {
+                CapturingGatewayServer(responseBody = body, responseCode = status).use { server ->
+                    val failure = runCatching {
+                        if (ack) ChannelSubscriptionService().ackMessages(
+                            server.baseUrl, null, "device-001", listOf("delivery-001"),
+                        ) else ChannelSubscriptionService().pullMessages(server.baseUrl, null, "device-001")
+                    }.exceptionOrNull()
+                    if (failure is java.net.HttpRetryException) {
+                        // The host JDK refuses authentication retries for a streamed body.
+                        // Preserve that transport failure; Android validates AUTH natively.
+                        assertEquals(401, status)
+                        assertEquals(401, failure.responseCode())
+                    } else {
+                        assertTrue(failure is ChannelSubscriptionException)
+                        assertEquals(expectedCode, (failure as ChannelSubscriptionException).code)
+                    }
+                    assertEquals(listOf(if (ack) "/v2/messages/ack" else "/v2/messages/pull"), server.allRequests().map { it.path })
+                }
+            }
+        }
+    }
+
+    @Test
+    fun requiredV2PreservesNetworkFailure() = runBlocking {
+        val server = CapturingGatewayServer(responseBody = "")
+        val closedUrl = server.baseUrl
+        server.close()
+        for (ack in listOf(false, true)) {
+            val failure = runCatching {
+                if (ack) ChannelSubscriptionService().ackMessages(
+                    closedUrl, null, "device-001", listOf("delivery-001"),
+                ) else ChannelSubscriptionService().pullMessages(closedUrl, null, "device-001")
+            }.exceptionOrNull()
+            assertTrue(failure is java.io.IOException)
         }
     }
 

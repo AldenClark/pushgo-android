@@ -98,11 +98,6 @@ data class PullItem(
     val payload: Map<String, String>,
 )
 
-enum class ProviderPullContract {
-    V2,
-    LEGACY,
-}
-
 enum class ProviderAckContract(val persistedValue: String) {
     V2_BATCH("v2_batch"),
     LEGACY_SINGLE("legacy_single");
@@ -174,7 +169,6 @@ data class ProviderAckAttemptResult(
 data class ProviderPullPage(
     val items: List<PullItem>,
     val hasMore: Boolean,
-    val contract: ProviderPullContract,
     val destination: ProviderAckDestination? = null,
 )
 
@@ -239,7 +233,6 @@ class ChannelSubscriptionService(
         internal const val DEVICE_CHANNEL_DELETE_ENDPOINT = "/channel/device/delete"
         internal const val PROVIDER_TOKEN_RETIRE_ENDPOINT = "/channel/device/provider-token/retire"
         internal const val PULL_MESSAGE_V2_ENDPOINT = "/v2/messages/pull"
-        internal const val PULL_MESSAGE_ENDPOINT = "/messages/pull"
         internal const val ACK_MESSAGE_ENDPOINT = "/messages/ack"
         internal const val ACK_MESSAGE_V2_ENDPOINT = "/v2/messages/ack"
     }
@@ -433,7 +426,6 @@ class ChannelSubscriptionService(
         token: String?,
         deviceKey: String,
         deliveryId: String? = null,
-        allowLegacyFallback: Boolean = true,
     ): ProviderPullPage = withContext(ioDispatcher) {
         val normalizedDeviceKey = deviceKey.trim()
         if (normalizedDeviceKey.isEmpty()) {
@@ -450,23 +442,7 @@ class ChannelSubscriptionService(
                 put("delivery_id", normalizedDeliveryId)
             }
         }
-        val (response, contract) = try {
-            execute(buildUrl(baseUrl, PULL_MESSAGE_V2_ENDPOINT), token, "POST", payload) to
-                ProviderPullContract.V2
-        } catch (error: ChannelSubscriptionException) {
-            if (error.httpStatus == 404 && error.matchesCode("route_not_found")) {
-                if (!allowLegacyFallback) throw error
-                // Keep Android aligned with Apple: only an exact missing-v2-route response may
-                // fall back to the destructive legacy Pull contract. The ingress coordinator
-                // stages every returned legacy item in one Room transaction before parsing or
-                // canonical persistence. A v1 Gateway still has an unavoidable response-to-
-                // local-stage process-death window, so v2 remains the preferred contract.
-                execute(buildUrl(baseUrl, PULL_MESSAGE_ENDPOINT), token, "POST", payload) to
-                    ProviderPullContract.LEGACY
-            } else {
-                throw error
-            }
-        }
+        val response = executeRequiredV2(buildUrl(baseUrl, PULL_MESSAGE_V2_ENDPOINT), token, payload)
         val data = response.data ?: throw ChannelSubscriptionException.local(
             message = "Request failed",
             code = "gateway_invalid_response",
@@ -490,9 +466,26 @@ class ChannelSubscriptionService(
         }
         return@withContext ProviderPullPage(
             items = items,
-            hasMore = contract == ProviderPullContract.V2 && data.optBoolean("has_more", false),
-            contract = contract,
+            hasMore = data.optBoolean("has_more", false),
         )
+    }
+
+    private fun executeRequiredV2(endpoint: String, token: String?, payload: JSONObject): StatusResponse {
+        return try {
+            execute(endpoint, token, "POST", payload)
+        } catch (error: ChannelSubscriptionException) {
+            // Conflicting top-level/problem codes are not evidence of an old Gateway.
+            if (error.httpStatus != 404 || error.reportedGatewayCodes != setOf("route_not_found")) throw error
+            throw ChannelSubscriptionException(
+                message = "Upgrade the Gateway to support V2 message recovery and acknowledgements.",
+                code = "gateway_v2_required",
+                category = GatewayErrorCategory.FEATURE_DISABLED,
+                detail = error.detail,
+                httpStatus = error.httpStatus,
+                retryable = false,
+                requestId = error.requestId,
+            ).apply { initCause(error) }
+        }
     }
 
     suspend fun ackMessage(
@@ -559,7 +552,7 @@ class ChannelSubscriptionService(
             put("device_key", normalizedDeviceKey)
             put("delivery_ids", JSONArray(normalizedDeliveryIds))
         }
-        val response = execute(buildUrl(baseUrl, ACK_MESSAGE_V2_ENDPOINT), token, "POST", payload)
+        val response = executeRequiredV2(buildUrl(baseUrl, ACK_MESSAGE_V2_ENDPOINT), token, payload)
         val data = response.data ?: throw ChannelSubscriptionException.local(
             message = "Request failed",
             code = "gateway_invalid_response",
@@ -737,6 +730,10 @@ class ChannelSubscriptionService(
                 val success = json.optBoolean("success", false)
                 val error = json.optString("error", "").trim()
                 val errorCode = json.optString("error_code", "").trim()
+                val reportedGatewayCodes = listOfNotNull(
+                    errorCode,
+                    json.optJSONObject("problem")?.optString("code", ""),
+                ).mapNotNull { it.trim().lowercase().takeIf(String::isNotEmpty) }.toSet()
                 val problem = json.optJSONObject("problem")?.toGatewayProblem(
                     statusCode = code,
                     fallbackCode = errorCode,
@@ -749,6 +746,7 @@ class ChannelSubscriptionService(
                         errorCode = errorCode.ifEmpty { null },
                         legacyDetail = error.ifEmpty { null },
                         problem = problem,
+                        reportedGatewayCodes = reportedGatewayCodes,
                     )
                 }
                 if (code !in 200..299) {
@@ -757,6 +755,7 @@ class ChannelSubscriptionService(
                         errorCode = errorCode.ifEmpty { null },
                         legacyDetail = error.ifEmpty { null },
                         problem = problem,
+                        reportedGatewayCodes = reportedGatewayCodes,
                     )
                 }
                 return StatusResponse(success = success, data = data)
@@ -853,6 +852,7 @@ class ChannelSubscriptionException(
     val httpStatus: Int? = null,
     val retryable: Boolean = false,
     val requestId: String? = null,
+    internal val reportedGatewayCodes: Set<String> = emptySet(),
 ) : Exception(message) {
     fun matchesCode(expected: String): Boolean {
         return code?.equals(expected, ignoreCase = true) == true
@@ -890,6 +890,7 @@ class ChannelSubscriptionException(
             errorCode: String?,
             legacyDetail: String?,
             problem: GatewayProblem?,
+            reportedGatewayCodes: Set<String> = emptySet(),
         ): ChannelSubscriptionException {
             val normalizedCode = errorCode?.trim()?.ifEmpty { null } ?: problem?.code
             val normalizedDetail = legacyDetail?.trim()?.ifEmpty { null } ?: problem?.detail
@@ -911,6 +912,7 @@ class ChannelSubscriptionException(
                 httpStatus = httpStatus,
                 retryable = resolved?.retryable ?: (httpStatus == 429 || httpStatus >= 500),
                 requestId = resolved?.requestId,
+                reportedGatewayCodes = reportedGatewayCodes,
             )
         }
 

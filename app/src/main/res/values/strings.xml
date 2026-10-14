@@ -215,6 +215,7 @@
     <string name="error_gateway_device_registration_stale" tools:ignore="MissingTranslation">Device registration expired. Please retry.</string>
     <string name="error_gateway_device_route_stale" tools:ignore="MissingTranslation">Device route expired. Please retry.</string>
     <string name="error_gateway_route_not_found" tools:ignore="MissingTranslation">This gateway does not support the requested API route.</string>
+    <string name="error_gateway_v2_required">The current gateway is unavailable. Upgrade the gateway to the latest version.</string>
     <string name="error_private_disabled_and_fcm_unavailable">Gateway private channel is disabled and this device cannot use FCM. Push is unavailable.</string>
     <string name="error_request_failed">Request failed. Please retry.</string>
     <string name="error_private_channel_create_failed">Private channel create failed. Please retry.</string>

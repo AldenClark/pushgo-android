@@ -191,6 +191,9 @@ class ChannelSubscriptionRepository(
         if (normalizedDeliveryIds.isEmpty()) {
             return ProviderAckAttemptResult(requestedCount = 0, removedCount = 0)
         }
+        QualityRuntime.takeMessageRefreshAckOverride(destination, contract, normalizedDeliveryIds)?.let {
+            return it
+        }
         val currentConfig = resolveServerConfig()
         val normalizedDestinationUrl = destination.baseUrl.trim().removeSuffix("/")
         val token = if (currentConfig.address.trim().removeSuffix("/") == normalizedDestinationUrl) {

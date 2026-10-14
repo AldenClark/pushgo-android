@@ -160,7 +160,8 @@ fun MessageListScreen(
     var channelNameMap by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
     var isPullRefreshing by remember { mutableStateOf(false) }
     var isPullRefreshSlow by remember { mutableStateOf(false) }
-    var didPullRefreshFail by remember { mutableStateOf(false) }
+    var pullRefreshFailureMessage by remember { mutableStateOf<String?>(null) }
+    val didPullRefreshFail = pullRefreshFailureMessage != null
     var isHistoryCleanupSheetVisible by rememberSaveable { mutableStateOf(false) }
     val messagesTabLabel = stringResource(R.string.tab_messages)
 
@@ -307,12 +308,12 @@ fun MessageListScreen(
                     presentationAdvance = nextPagingPresentation,
                     timeoutMillis = 8_000L,
                 )
-                didPullRefreshFail = false
+                pullRefreshFailureMessage = null
                 refreshCompleted = true
             } catch (error: CancellationException) {
                 throw error
             } catch (error: Throwable) {
-                didPullRefreshFail = true
+                pullRefreshFailureMessage = error.toUserFacingText(context, R.string.message_refresh_failed)
                 io.ethan.pushgo.util.SilentSink.w(
                     "MessageListScreen",
                     "provider ingress refresh failed",
@@ -654,7 +655,7 @@ fun MessageListScreen(
                             ) {
                                 Icon(Icons.Outlined.Warning, contentDescription = null)
                                 Text(
-                                    text = stringResource(R.string.message_refresh_failed),
+                                    text = pullRefreshFailureMessage.orEmpty(),
                                     style = MaterialTheme.typography.bodyMedium,
                                     color = uiColors.textSecondary,
                                     modifier = Modifier.weight(1f),

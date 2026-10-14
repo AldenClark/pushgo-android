@@ -72,6 +72,7 @@ private fun ChannelSubscriptionException.gatewayCodeResId(): Int? {
             R.string.error_gateway_validation_failed
         matchesCode("device_key_not_found") -> R.string.error_gateway_device_registration_stale
         matchesCode("device_not_found") -> R.string.error_gateway_device_route_stale
+        matchesCode("gateway_v2_required") -> R.string.error_gateway_v2_required
         matchesCode("route_not_found") -> R.string.error_gateway_route_not_found
         matchesCode("event_missing_channel_id") -> R.string.error_event_missing_channel
         else -> null

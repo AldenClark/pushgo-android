@@ -3,7 +3,8 @@ package io.ethan.pushgo.testing
 import android.content.Context
 import io.ethan.pushgo.BuildConfig
 import io.ethan.pushgo.data.ProviderAckDestination
-import io.ethan.pushgo.data.ProviderPullContract
+import io.ethan.pushgo.data.ProviderAckContract
+import io.ethan.pushgo.data.ProviderAckAttemptResult
 import io.ethan.pushgo.data.ProviderPullPage
 import io.ethan.pushgo.data.PullItem
 import java.io.File
@@ -449,13 +450,28 @@ object QualityRuntime {
             ProviderPullPage(
                 items = items,
                 hasMore = false,
-                contract = ProviderPullContract.LEGACY,
                 destination = ProviderAckDestination(
                     baseUrl = "https://quality.invalid",
                     deviceKey = "quality-device",
                 ),
             ),
         )
+    }
+
+    fun takeMessageRefreshAckOverride(
+        destination: ProviderAckDestination,
+        contract: ProviderAckContract,
+        deliveryIds: Collection<String>,
+    ): ProviderAckAttemptResult? {
+        val scenario = currentSession()?.messageRefreshScenario ?: return null
+        if (scenario == QualityMessageRefreshScenario.NONE) return null
+        val issuedAtAttempt = if (scenario == QualityMessageRefreshScenario.FAIL_ONCE_THEN_NEW_MESSAGE) 2 else 1
+        if (messageRefreshScenarioAttempts.get() < issuedAtAttempt ||
+            contract != ProviderAckContract.V2_BATCH ||
+            destination != ProviderAckDestination("https://quality.invalid", "quality-device") ||
+            deliveryIds.toSet() != setOf("quality-delivery-refresh-result")
+        ) return null
+        return ProviderAckAttemptResult(requestedCount = 1, removedCount = 1)
     }
 
     fun currentSession(): QualitySessionDescriptor? {

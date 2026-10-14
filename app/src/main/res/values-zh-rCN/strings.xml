@@ -217,6 +217,7 @@
     <string name="error_gateway_device_registration_stale">当前设备注册已失效，请重试。</string>
     <string name="error_gateway_device_route_stale">当前设备路由已失效，请重试。</string>
     <string name="error_gateway_route_not_found">当前网关不存在该 API 路由。</string>
+    <string name="error_gateway_v2_required">当前网关无法使用，请升级网关到最新版本</string>
     <string name="error_private_disabled_and_fcm_unavailable">网关已关闭私有通道，且当前设备不支持 FCM，推送不可用。</string>
     <string name="error_channel_password_mismatch_removed">频道密码不匹配，已移除本地订阅：%1$s</string>
     <string name="action_close_event">关闭事件</string>

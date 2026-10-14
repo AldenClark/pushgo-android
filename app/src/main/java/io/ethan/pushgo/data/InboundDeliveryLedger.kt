@@ -8,7 +8,6 @@ import io.ethan.pushgo.data.db.InboundDeliveryLedgerEntity
 import io.ethan.pushgo.data.db.LegacyProviderIngressDao
 import io.ethan.pushgo.data.db.LegacyProviderIngressEntity
 import io.ethan.pushgo.data.db.PushGoDatabase
-import org.json.JSONObject
 
 internal const val INBOUND_DELIVERY_ACK_STATE_PENDING = "pending"
 internal const val INBOUND_DELIVERY_ACK_STATE_ACKED = "acked"
@@ -57,32 +56,8 @@ class InboundDeliveryLedgerRepository(
     private val inboundDeliveryAckOutboxDao: InboundDeliveryAckOutboxDao,
     private val legacyProviderIngressDao: LegacyProviderIngressDao,
 ) {
-    suspend fun stageLegacyPull(
-        destination: ProviderAckDestination,
-        items: Collection<PullItem>,
-    ) {
-        if (items.isEmpty()) return
-        val identity = ProviderAckIdentity.create(
-            destination = destination,
-            contract = ProviderAckContract.LEGACY_SINGLE,
-            source = "legacy_provider_staging",
-        ) ?: error("legacy provider pull has invalid destination")
-        val now = System.currentTimeMillis()
-        database.withTransaction {
-            legacyProviderIngressDao.insertAll(
-                items.mapIndexed { index, item ->
-                    LegacyProviderIngressEntity(
-                        gatewayUrl = identity.gatewayUrl,
-                        deviceKey = identity.deviceKey,
-                        deliveryId = item.deliveryId,
-                        payloadJson = JSONObject(item.authoritativePayloadForStorage()).toString(),
-                        enqueuedAt = now + index,
-                    )
-                }
-            )
-        }
-    }
-
+    // Upgrade-only recovery: no new network Pull writes this table. Keep the
+    // consumer until previously destructive legacy receipts have settled locally.
     suspend fun loadPendingLegacyPull(limit: Int = 200): List<LegacyProviderIngressEntity> =
         legacyProviderIngressDao.loadPending(limit.coerceIn(1, 1_000))
 
@@ -365,6 +340,3 @@ class InboundDeliveryLedgerRepository(
 
 private fun InboundDeliveryAckOutboxEntity.fairSelectionKey(): Triple<String, String, String> =
     Triple(gatewayUrl, deviceKey, deliveryId)
-
-private fun PullItem.authoritativePayloadForStorage(): Map<String, String> =
-    payload.toMutableMap().apply { this["delivery_id"] = deliveryId }

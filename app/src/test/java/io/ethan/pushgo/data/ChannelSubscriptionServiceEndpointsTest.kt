@@ -12,7 +12,6 @@ class ChannelSubscriptionServiceEndpointsTest {
         assertEquals("/channel/device/delete", ChannelSubscriptionService.DEVICE_CHANNEL_DELETE_ENDPOINT)
         assertEquals("/channel/device/provider-token/retire", ChannelSubscriptionService.PROVIDER_TOKEN_RETIRE_ENDPOINT)
         assertEquals("/v2/messages/pull", ChannelSubscriptionService.PULL_MESSAGE_V2_ENDPOINT)
-        assertEquals("/messages/pull", ChannelSubscriptionService.PULL_MESSAGE_ENDPOINT)
         assertEquals("/messages/ack", ChannelSubscriptionService.ACK_MESSAGE_ENDPOINT)
         assertEquals("/v2/messages/ack", ChannelSubscriptionService.ACK_MESSAGE_V2_ENDPOINT)
     }

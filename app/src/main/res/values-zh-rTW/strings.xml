@@ -284,6 +284,7 @@
     <string name="error_gateway_rate_limited">請求過於頻繁。請稍候再試。</string>
     <string name="error_gateway_resource_not_found">找不到請求的項目，或項目已失效。</string>
     <string name="error_gateway_route_not_found">此網關不支援請求的 API 路由。</string>
+    <string name="error_gateway_v2_required">當前網關無法使用，請升級網關到最新版本</string>
     <string name="error_gateway_temporarily_unavailable">服務暫時不可用。請稍後重試。</string>
     <string name="error_gateway_upstream_unavailable">上游推送服務不可用。請稍後重試。</string>
     <string name="error_gateway_validation_failed">請求內容無效。請檢查輸入後重試。</string>

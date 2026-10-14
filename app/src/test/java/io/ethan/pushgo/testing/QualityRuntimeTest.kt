@@ -514,6 +514,29 @@ class QualityRuntimeTest {
         assertTrue(checkNotNull(QualityRuntime.takeMessageRefreshPullOverride()).getOrThrow().items.isEmpty())
     }
 
+    @Test
+    fun refreshAckOverrideIsLimitedToAnIssuedFixtureInTheActiveSession() {
+        val destination = io.ethan.pushgo.data.ProviderAckDestination("https://quality.invalid", "quality-device")
+        val contract = io.ethan.pushgo.data.ProviderAckContract.V2_BATCH
+        val ids = listOf("quality-delivery-refresh-result")
+        QualityRuntime.configure(null)
+        assertEquals(null, QualityRuntime.takeMessageRefreshAckOverride(destination, contract, ids))
+        val session = QualitySessionDescriptor(
+            schemaVersion = 1, sessionId = "refresh-ack-contract",
+            fixture = QualityFixture.MESSAGES_STANDARD, faults = QualityFaults(),
+            messageRefreshScenario = QualityMessageRefreshScenario.NEW_MESSAGE,
+        )
+        QualityRuntime.configure(QualityRuntime.encode(session))
+        assertEquals(null, QualityRuntime.takeMessageRefreshAckOverride(destination, contract, ids))
+        checkNotNull(QualityRuntime.takeMessageRefreshPullOverride()).getOrThrow()
+        assertEquals(1, QualityRuntime.takeMessageRefreshAckOverride(destination, contract, ids)?.removedCount)
+        assertEquals(null, QualityRuntime.takeMessageRefreshAckOverride(destination.copy(deviceKey = "real-device"), contract, ids))
+        assertEquals(null, QualityRuntime.takeMessageRefreshAckOverride(destination, io.ethan.pushgo.data.ProviderAckContract.LEGACY_SINGLE, ids))
+        assertEquals(null, QualityRuntime.takeMessageRefreshAckOverride(destination, contract, ids + "real-delivery"))
+        QualityRuntime.configure(null)
+        assertEquals(null, QualityRuntime.takeMessageRefreshAckOverride(destination, contract, ids))
+    }
+
     private fun encodeJson(json: JSONObject): String {
         return java.util.Base64.getEncoder().encodeToString(json.toString().toByteArray())
     }
