@@ -1203,6 +1203,50 @@ mod tests {
     use std::sync::atomic::AtomicBool;
 
     #[test]
+    fn complete_private_payload_above_old_frame_limit_reaches_jni_map() {
+        let body = format!("{}\nC7-END-完整正文", "0123456789abcdef".repeat(3_072));
+        let mut data = HashMap::new();
+        data.insert("title".to_string(), "C7 full DELIVER".to_string());
+        data.insert("body".to_string(), body.clone());
+        let envelope = PrivatePayloadEnvelope { payload_version: 1, data };
+        let payload = postcard::to_stdvec(&envelope).expect("synthetic payload serializes");
+        assert!(payload.len() > 32 * 1024);
+        assert!(payload.len() < 64 * 1024);
+        let (decoded, valid) = decode_payload_map(&payload);
+        assert!(valid);
+        assert_eq!(decoded["body"].as_str(), Some(body.as_str()));
+        assert_eq!(decoded["title"], "C7 full DELIVER");
+        let (truncated, valid) = decode_payload_map(&payload[..payload.len() - 1]);
+        assert!(!valid, "a cut tail must not become a successful JNI payload");
+        assert_eq!(truncated, serde_json::json!({}));
+    }
+
+    #[test]
+    fn numeric_metadata_above_64k_survives_decoder_and_event_json() {
+        let metadata: HashMap<String, f64> = (0..3_000)
+            .map(|index| (format!("{index:x}"), 1e15))
+            .collect();
+        let mut data = HashMap::new();
+        data.insert("body".to_string(), "C7 metadata tail 完整".to_string());
+        data.insert("metadata".to_string(), serde_json::to_string(&metadata).unwrap());
+        let payload = postcard::to_stdvec(&PrivatePayloadEnvelope { payload_version: 1, data }).unwrap();
+        assert!(payload.len() > 64 * 1024, "protect the independently observed old64KiB failure");
+        assert!(payload.len() < 128 * 1024);
+        let (decoded, valid) = decode_payload_map(&payload);
+        assert!(valid);
+        // This is the same JSON String boundary EventApp uses before JNI.
+        // It is a component proof, not a live Android TLS/jstring/store claim.
+        let event = serde_json::json!({"payload": decoded, "payload_len": payload.len()}).to_string();
+        let event: serde_json::Value = serde_json::from_str(&event).unwrap();
+        assert_eq!(event["payload"]["body"], "C7 metadata tail 完整");
+        let stored: HashMap<String, f64> = serde_json::from_str(event["payload"]["metadata"].as_str().unwrap()).unwrap();
+        assert_eq!(stored.len(), 3_000);
+        for index in 0..3_000 {
+            assert_eq!(stored.get(&format!("{index:x}")), Some(&1e15));
+        }
+    }
+
+    #[test]
     fn poll_session_events_distinguishes_timeout_event_and_close() {
         let (tx, rx) = std_mpsc::sync_channel(1);
         assert_eq!(

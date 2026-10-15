@@ -375,3 +375,12 @@ dependencies {
     baselineProfile(project(":macrobenchmark"))
 
 }
+
+// C7 isolated local native validation only; inactive for normal builds.
+if (providers.gradleProperty("pushgo.c7IsolatedNativeQa").orNull == "true") {
+    android {
+        buildTypes.getByName("debug") { applicationIdSuffix = ".c7evidence" }
+        defaultConfig { ndk { abiFilters += "arm64-v8a" } }
+        packaging { jniLibs { keepDebugSymbols += "**/libpushgo_quinn_jni.so" } }
+    }
+}
