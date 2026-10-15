@@ -24,6 +24,28 @@ class QualityUIEntrypointAuditTests(unittest.TestCase):
             tests.write_text(test_source, encoding="utf-8")
             return AUDIT.build_report("unit", [product], [tests], root)
 
+    def test_source_scan_ignores_excluded_ancestors_above_selected_root(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            for ancestor in sorted(AUDIT.EXCLUDED_DIRECTORIES):
+                with self.subTest(ancestor=ancestor):
+                    root = Path(temporary) / ancestor / "checkout" / "app/src/main"
+                    root.mkdir(parents=True)
+                    source = root / "Screen.kt"
+                    source.write_text('Modifier.testTag("action.message.open")')
+                    self.assertEqual([source.resolve()], AUDIT.source_files([root]))
+
+    def test_source_scan_still_excludes_generated_directories_inside_selected_root(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "src"
+            root.mkdir()
+            source = root / "Screen.kt"
+            source.write_text('Modifier.testTag("action.message.open")')
+            for directory in sorted(AUDIT.EXCLUDED_DIRECTORIES):
+                generated = root / directory / "nested"
+                generated.mkdir(parents=True)
+                (generated / "Generated.kt").write_text('Modifier.testTag("action.generated")')
+            self.assertEqual([source.resolve()], AUDIT.source_files([root]))
+
     def test_identifier_overlap_never_claims_semantic_product_coverage(self):
         report = self.report(
             '.accessibilityIdentifier("action.message.open")',
