@@ -378,6 +378,8 @@ dependencies {
 
 // C7 isolated local native validation only; inactive for normal builds.
 if (providers.gradleProperty("pushgo.c7IsolatedNativeQa").orNull == "true") {
+    // Isolated QA package has no Firebase identity, just like benchmark.
+    tasks.matching { it.name == "processDebugGoogleServices" }.configureEach { enabled = false }
     android {
         buildTypes.getByName("debug") { applicationIdSuffix = ".c7evidence" }
         defaultConfig { ndk { abiFilters += "arm64-v8a" } }
