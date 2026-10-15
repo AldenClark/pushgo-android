@@ -376,11 +376,21 @@ dependencies {
 
 }
 
-// C7 isolated local native validation only; inactive for normal builds.
-if (providers.gradleProperty("pushgo.c7IsolatedNativeQa").orNull == "true") {
+// Isolated local native validation only; normal builds retain their own JNI inputs.
+val isolatedNativeQa = providers.gradleProperty("pushgo.c7IsolatedNativeQa").orNull == "true"
+val qaJniInput = providers.gradleProperty("pushgo.c8QaJniDir").orNull
+require(qaJniInput == null || isolatedNativeQa) { "QA JNI directory requires isolated QA mode" }
+if (isolatedNativeQa) {
+    val qaJniDir = file(requireNotNull(qaJniInput) { "Isolated QA requires its own JNI directory" }).canonicalFile
+    require(qaJniDir == rootProject.file("../../../c8-private48-20261015/native/qa-jni-libs").canonicalFile && qaJniDir != generatedRustJniDir.canonicalFile) { "Unexpected QA JNI directory" }
+    require(gradle.startParameter.excludedTaskNames.any { it == ":app:buildRustJniLibs" || it == "buildRustJniLibs" }) { "QA must exclude the normal JNI builder" }
+    gradle.taskGraph.whenReady {
+        require(allTasks.none { it.name.contains("release", ignoreCase = true) }) { "QA JNI cannot be packaged as Release" }
+    }
     // Isolated QA package has no Firebase identity, just like benchmark.
     tasks.matching { it.name == "processDebugGoogleServices" }.configureEach { enabled = false }
     android {
+        sourceSets.getByName("main").jniLibs.setSrcDirs(listOf(qaJniDir))
         buildTypes.getByName("debug") { applicationIdSuffix = ".c7evidence" }
         defaultConfig { ndk { abiFilters += "arm64-v8a" } }
         packaging { jniLibs { keepDebugSymbols += "**/libpushgo_quinn_jni.so" } }
