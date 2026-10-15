@@ -13,6 +13,7 @@ import java.net.URL
 import java.util.UUID
 import java.security.MessageDigest
 import kotlinx.coroutines.*
+import kotlinx.coroutines.flow.collect
 import org.json.JSONObject
 import org.junit.After
 import org.junit.Assert.*
@@ -218,6 +219,44 @@ class CandidatePrivateC7DeviceTest {
             .put("ledger_state",ackState(expected.getString("delivery_id"),owner)))
     }
 
+    @Test fun tlsRejectsWrongCaHostOrLeafPinBeforePrivateDelivery() = runBlocking {
+        phase="tls-negative";assertEquals(0,count("messages"))
+        val kind=requireNotNull(args.getString("c7TlsFailureKind"));assertTrue(kind in setOf("wrong_ca","wrong_host","wrong_pin"))
+        settings.setServerAddress(base);settings.setGatewayToken(auth);settings.setUseFcmChannel(false)
+        val transitions=java.util.Collections.synchronizedList(mutableListOf<PrivateChannelClient.TransportStatus>())
+        val observed=java.util.concurrent.atomic.AtomicReference<String?>(null)
+        // Observe the existing production flow synchronously before real session start.
+        // A Fatal TLS detail is immediately followed by Reconnecting/backoff; polling
+        // only the latest state can miss it. No fake runtime or native event injection.
+        val watcher=launch(Dispatchers.Unconfined,start=CoroutineStart.UNDISPATCHED) {
+            client.transportStatusFlow.collect { status ->
+                if(transitions.size<128) transitions.add(status)
+                val detail=status.detail.orEmpty();val value=detail.lowercase()
+                val matches=when(kind) {
+                    "wrong_ca" -> value.contains("unknownissuer") || value.contains("unknown issuer")
+                    "wrong_host" -> value.contains("notvalidforname") || value.contains("not valid for name") || value.contains("name mismatch")
+                    else -> value.contains("certificate pin mismatch")
+                }
+                if(matches) observed.compareAndSet(null,detail)
+            }
+        }
+        try {
+            startLoop()
+            await("actual native TLS rejection") { observed.get()!=null }
+            val detail=requireNotNull(observed.get())
+            checkpoint("tls-rejected",JSONObject().put("kind",kind).put("native_detail",detail))
+            assertEquals(0,count("messages"));assertEquals(0,count("inbound_delivery_ledger"))
+            receipt("tls-$kind",JSONObject().put("kind",kind).put("native_detail",detail).put("canonical_count",0))
+        } finally {
+            watcher.cancelAndJoin()
+            val snapshot=synchronized(transitions) { transitions.toList() }
+            val sequence=org.json.JSONArray()
+            snapshot.forEach { status -> sequence.put(JSONObject().put("stage",status.stage).put("transport",status.transport)
+                .put("detail",status.detail).put("updated_at_ms",status.updatedAtMs)) }
+            receipt("tls-observer-$kind",JSONObject().put("kind",kind).put("transitions",sequence)
+                .put("specific_native_detail_observed",observed.get()!=null).put("deadline_ms",20_000))
+        }
+    }
     private fun startLoop() { client.setRuntime(false,null);client.setForeground(true) }
     private suspend fun stopLoop() {
         client.setForeground(false);client.setRuntime(true,null)
