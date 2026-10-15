@@ -151,8 +151,14 @@ class CandidatePrivateC7DeviceTest {
 
     @Test fun phase3FreshRealOwnerCoalescesAndConsumesRetainedPrivateDelivery() = runBlocking {
         phase="phase3";check(!session.exists());assertEquals(0,count("messages"))
-        val transfer=JSONObject(String(android.util.Base64.decode(requireNotNull(args.getString("c7OwnerTransferBase64")),
-            android.util.Base64.DEFAULT),Charsets.UTF_8))
+        val transferFile=File(context.filesDir,"c8-owner-transfer-input.json")
+        val expectedSize=requireNotNull(args.getString("c8OwnerTransferBytes")).toLong()
+        val expectedHash=requireNotNull(args.getString("c8OwnerTransferSha256"))
+        require(expectedSize in 1L..131072L && expectedHash.matches(Regex("[0-9a-f]{64}")))
+        assertEquals("exact host transfer byte count",expectedSize,transferFile.length())
+        val transferRaw=transferFile.readText(Charsets.UTF_8)
+        assertEquals("exact host transfer SHA-256",expectedHash,sha256(transferRaw))
+        val transfer=JSONObject(transferRaw)
         val oldOwner=transfer.getString("old_owner");val expected=transfer.getJSONObject("delivery")
         val mergeCapability=transfer.getString("merge_provider_token")
         settings.setServerAddress(base);settings.setGatewayToken(auth);settings.setUseFcmChannel(true);settings.setFcmToken(mergeCapability)
