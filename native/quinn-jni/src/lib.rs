@@ -1223,14 +1223,14 @@ mod tests {
 
     #[test]
     fn numeric_metadata_above_64k_survives_decoder_and_event_json() {
-        let metadata: HashMap<String, f64> = (0..3_000)
+        let metadata: HashMap<String, f64> = (0..4_500)
             .map(|index| (format!("{index:x}"), 1e15))
             .collect();
         let mut data = HashMap::new();
         data.insert("body".to_string(), "C7 metadata tail 完整".to_string());
         data.insert("metadata".to_string(), serde_json::to_string(&metadata).unwrap());
         let payload = postcard::to_stdvec(&PrivatePayloadEnvelope { payload_version: 1, data }).unwrap();
-        assert!(payload.len() > 64 * 1024, "protect the independently observed old64KiB failure");
+        assert!(payload.len() > 96 * 1024, "protect metadata expansion near the C8 legal48KiB HTTP boundary");
         assert!(payload.len() < 128 * 1024);
         let (decoded, valid) = decode_payload_map(&payload);
         assert!(valid);
@@ -1240,8 +1240,8 @@ mod tests {
         let event: serde_json::Value = serde_json::from_str(&event).unwrap();
         assert_eq!(event["payload"]["body"], "C7 metadata tail 完整");
         let stored: HashMap<String, f64> = serde_json::from_str(event["payload"]["metadata"].as_str().unwrap()).unwrap();
-        assert_eq!(stored.len(), 3_000);
-        for index in 0..3_000 {
+        assert_eq!(stored.len(), 4_500);
+        for index in 0..4_500 {
             assert_eq!(stored.get(&format!("{index:x}")), Some(&1e15));
         }
     }

@@ -171,7 +171,7 @@ class CandidatePrivateC7DeviceTest {
             .put("delivery",expected).put("canonical_count",1).put("ledger_state",ackState(expected.getString("delivery_id"),owner)))
     }
 
-    @Test fun numericMetadataLegalHttp32kPersistsEverySemanticValueBeforeAck() = runBlocking {
+    @Test fun numericMetadataLegalHttp48kPersistsEverySemanticValueBeforeAck() = runBlocking {
         phase="numeric-metadata";check(!session.exists());assertEquals(0,count("messages"))
         settings.setServerAddress(base);settings.setGatewayToken(auth);settings.setUseFcmChannel(false)
         coordinator.synchronize();val owner=requireNotNull(settings.getDeviceKey())
@@ -186,11 +186,11 @@ class CandidatePrivateC7DeviceTest {
         fun rawWithMetadata()=rawBase.replace("\"metadata\":null","\"metadata\":{${entries.joinToString(",")}}")
         while(true) {
             entries.add("\"${entries.size.toString(16)}\":1e15")
-            if(rawWithMetadata().toByteArray(Charsets.UTF_8).size>32768) { entries.removeAt(entries.lastIndex);break }
+            if(rawWithMetadata().toByteArray(Charsets.UTF_8).size>49152) { entries.removeAt(entries.lastIndex);break }
         }
         val unpadded=rawWithMetadata()
-        val raw=unpadded.replace("\"body\":\"\"","\"body\":\"${"x".repeat(32768-unpadded.toByteArray(Charsets.UTF_8).size)}\"")
-        assertEquals(32768,raw.toByteArray(Charsets.UTF_8).size);assertTrue(entries.size>2000)
+        val raw=unpadded.replace("\"body\":\"\"","\"body\":\"${"x".repeat(49152-unpadded.toByteArray(Charsets.UTF_8).size)}\"")
+        assertEquals(49152,raw.toByteArray(Charsets.UTF_8).size);assertTrue(entries.size>3500)
         val source=JSONObject(raw)
         val expected=checkpoint("submit",JSONObject().put("label","numeric-metadata").put("channel_id",channel.channelId)
             .put("password",credential).put("title","x").put("body",source.getString("body"))
@@ -214,7 +214,7 @@ class CandidatePrivateC7DeviceTest {
         await("numeric metadata durable ACKED") { ackState(expected.getString("delivery_id"),owner)=="acked" }
         assertEquals(metadataDigest,assertStoredMetadata());assertEquals(1,count("messages"))
         receipt("numeric-metadata",JSONObject().put("metadata_keys",entries.size).put("semantic_sha256",metadataDigest)
-            .put("request_sha256",sha256(raw)).put("request_utf8_bytes",32768).put("delivery",expected)
+            .put("request_sha256",sha256(raw)).put("request_utf8_bytes",49152).put("delivery",expected)
             .put("ledger_state",ackState(expected.getString("delivery_id"),owner)))
     }
 
@@ -255,18 +255,18 @@ class CandidatePrivateC7DeviceTest {
             .put("title",title).put("body",head+tail).put("op_id",UUID.randomUUID().toString())
         // Measure the ENTIRE HTTP JSON entity, including JSON escaping, fields,
         // generated op_id and multibyte tail. ASCII padding cannot add escapes.
-        val padding=32768-request.toString().toByteArray(Charsets.UTF_8).size
+        val padding=49152-request.toString().toByteArray(Charsets.UTF_8).size
         assertTrue("request metadata leaves room for a real body",padding>0)
         val complete=head+"0123456789abcdef".repeat((padding+15)/16).take(padding)+tail
         request.put("body",complete)
         val raw=request.toString()
-        assertEquals("legal HTTP request cap, measured as UTF-8",32768,raw.toByteArray(Charsets.UTF_8).size)
+        assertEquals("legal HTTP request cap, measured as UTF-8",49152,raw.toByteArray(Charsets.UTF_8).size)
         val expected=checkpoint("submit",JSONObject().put("label",label).put("channel_id",channel)
             .put("password",credential).put("title",title).put("body",complete)
             .put("raw_request",raw).put("request_sha256",sha256(raw)))
         assertEquals("independent submitted-body oracle",sha256(complete),sha256(expected.getString("body")))
         assertEquals("raw request preserved by host",sha256(raw),expected.getString("request_sha256"))
-        assertEquals(32768,expected.getInt("request_utf8_bytes"))
+        assertEquals(49152,expected.getInt("request_utf8_bytes"))
         return expected
     }
     private fun checkpoint(action:String,data:JSONObject):JSONObject {
