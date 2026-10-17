@@ -178,6 +178,120 @@ class CandidatePrivateC7DeviceTest {
             .put("delivery",expected).put("canonical_count",1).put("ledger_state",ackState(expected.getString("delivery_id"),owner)))
     }
 
+    @Test fun c18SmallAndLargePersistBeforeWireAckLoss() = runBlocking {
+        phase="c18-phase1";check(!session.exists());assertEquals(0,count("messages"))
+        settings.setServerAddress(base);settings.setGatewayToken(auth);settings.setUseFcmChannel(false)
+        coordinator.synchronize();val key=requireNotNull(settings.getDeviceKey())
+        val credential=UUID.randomUUID().toString()
+        val channel=client.privateCreateChannel("C18 Private wire ACK loss",credential)
+        assertTrue(channel.subscribed)
+        store.upsertSubscription(base,channel.channelId,"C18 Private wire ACK loss",credential,System.currentTimeMillis())
+        assertEquals(credential,ChannelSubscriptionStore(db.channelSubscriptionDao(),
+            AndroidKeystoreSecretStore(context,"c7_private_keystore")).passwordFor(base,channel.channelId))
+        startLoop();checkpoint("connected",JSONObject().put("device_key",key))
+        await("real native TCP transport selected") { client.readTransportStatus().transport=="tcp" }
+
+        val smallTitle="C18 小消息 ‘quoted’"
+        val smallBody="中文 emoji 🐈，引号 \"双\" 和 \\ 反斜杠"
+        val small=submitC18("c18-small",channel.channelId,credential,smallTitle,smallBody)
+        awaitCanonical(small,key);checkpoint("ack-committed",small)
+        await("small delivery locally ACKED after server commit") {
+            ackState(small.getString("delivery_id"),key)=="acked"
+        }
+        assertEquals(1,count("messages"))
+
+        val largeTitle="C18 numeric metadata 48KiB"
+        val baseRequest=JSONObject().put("channel_id",channel.channelId).put("password",credential)
+            .put("title",largeTitle).put("body","").put("op_id",UUID.randomUUID().toString())
+            .put("metadata",JSONObject.NULL)
+        val baseRaw=baseRequest.toString()
+        val entries=mutableListOf<String>()
+        fun rawWithMetadata()=baseRaw.replace("\"metadata\":null","\"metadata\":{${entries.joinToString(",")}}")
+        while(true) {
+            entries.add("\"${entries.size.toString(16)}\":1e15")
+            if(rawWithMetadata().toByteArray(Charsets.UTF_8).size>49152) { entries.removeAt(entries.lastIndex);break }
+        }
+        val unpadded=rawWithMetadata()
+        val largeBody="x".repeat(49152-unpadded.toByteArray(Charsets.UTF_8).size)
+        val largeRaw=unpadded.replace("\"body\":\"\"","\"body\":\"$largeBody\"")
+        assertEquals("complete HTTP JSON is exactly the accepted UTF-8 ceiling",49152,
+            largeRaw.toByteArray(Charsets.UTF_8).size)
+        assertTrue("metadata has thousands of independent values",entries.size>3500)
+        checkpoint("arm-wire-ack-loss",JSONObject().put("device_key",key)
+            .put("channel_id",channel.channelId).put("password",credential))
+        val large=submitC18("c18-large-numeric-metadata",channel.channelId,credential,largeTitle,largeBody,largeRaw)
+        assertEquals("host preserved the complete raw request hash",sha256(largeRaw),large.getString("request_sha256"))
+        assertEquals(49152,large.getInt("request_utf8_bytes"))
+        awaitCanonical(large,key)
+        val metadataDigest=assertC18StoredMetadata(large,entries.size)
+        assertEquals(2,count("messages"))
+        // This checkpoint is host evidence that the actual client ACK frame was dropped.
+        // The server target remains unacknowledged; local ledger state is not server commit proof.
+        checkpoint("wire-ack-dropped",JSONObject().put("device_key",key).put("delivery",large)
+            .put("metadata_keys",entries.size).put("metadata_semantic_sha256",metadataDigest))
+        assertTrue(ackState(large.getString("delivery_id"),key) in setOf("pending","acked"))
+        stopLoop();checkpoint("old-private-offline",JSONObject().put("device_key",key))
+        assertEquals(2,count("messages"))
+        write(session,JSONObject().put("phase1_pid",Process.myPid()).put("gateway",base).put("device_key",key)
+            .put("channel_id",channel.channelId).put("password",credential).put("small",small).put("large",large)
+            .put("metadata_keys",entries.size).put("metadata_semantic_sha256",metadataDigest)
+            .put("canonical_count",2).put("phase1_complete",true))
+        receipt("c18-phase1",JSONObject().put("device_key",key).put("canonical_count",2)
+            .put("small",small).put("large",large).put("metadata_keys",entries.size)
+            .put("metadata_semantic_sha256",metadataDigest)
+            .put("scope","Room persistence before real client ACK-frame loss; server target remains unacknowledged"))
+    }
+
+    @Test fun c18NewProcessDeduplicatesRedeliveryAndReconnects() = runBlocking {
+        phase="c18-phase2";val prior=JSONObject(session.readText());assertTrue(prior.getBoolean("phase1_complete"))
+        assertNotEquals("phase two must be another Android process",prior.getInt("phase1_pid"),Process.myPid())
+        val key=prior.getString("device_key");val small=prior.getJSONObject("small");val large=prior.getJSONObject("large")
+        assertEquals(base,settings.getServerAddress());assertEquals(key,settings.getDeviceKey())
+        assertEquals(key,SettingsRepository(db.appSettingsDao(),AndroidKeystoreSecretStore(context,"c7_private_keystore"),
+            context.getSharedPreferences("c7_private_settings",Context.MODE_PRIVATE)).getDeviceKey())
+        assertEquals(prior.getString("password"),ChannelSubscriptionStore(db.channelSubscriptionDao(),
+            AndroidKeystoreSecretStore(context,"c7_private_keystore")).passwordFor(base,prior.getString("channel_id")))
+        assertCanonical(small,key);assertCanonical(large,key)
+        assertEquals(prior.getInt("canonical_count"),count("messages"))
+        val entries=prior.getInt("metadata_keys")
+        assertEquals(prior.getString("metadata_semantic_sha256"),assertC18StoredMetadata(large,entries))
+
+        startLoop();checkpoint("replay-ack-committed",JSONObject().put("device_key",key).put("delivery",large))
+        await("replayed large delivery locally ACKED after server commit") {
+            ackState(large.getString("delivery_id"),key)=="acked"
+        }
+        assertEquals(prior.getInt("canonical_count"),count("messages"))
+        assertCanonical(small,key);assertCanonical(large,key)
+        checkpoint("cut-owned-tcp-relay",JSONObject().put("device_key",key))
+        checkpoint("reconnected",JSONObject().put("device_key",key))
+
+        val third=submitC18("c18-after-reconnect",prior.getString("channel_id"),prior.getString("password"),
+            "C18 after reconnect","第三条小消息 🐈")
+        awaitCanonical(third,key);checkpoint("ack-committed",third)
+        await("reconnected delivery locally ACKED after server commit") {
+            ackState(third.getString("delivery_id"),key)=="acked"
+        }
+        assertEquals(3,count("messages"))
+        assertEquals("acked",ackState(small.getString("delivery_id"),key))
+        assertEquals("acked",ackState(large.getString("delivery_id"),key))
+
+        val rejected=checkpoint("reject-overlimit",JSONObject().put("channel_id",prior.getString("channel_id"))
+            .put("password",prior.getString("password")))
+        assertEquals(400,rejected.getInt("status"))
+        assertEquals("invalid_request_body",rejected.getString("error_code"))
+        assertFalse("oversized request is rejected before identity",rejected.getBoolean("identity_established"))
+        assertEquals(0,rejected.getInt("target_count"))
+        assertEquals(3,count("messages"))
+        receipt("c18-phase2",JSONObject().put("device_key",key).put("canonical_count",3)
+            .put("small",small).put("large",large).put("third",third).put("metadata_keys",entries)
+            .put("metadata_semantic_sha256",prior.getString("metadata_semantic_sha256"))
+            .put("ledger_small",ackState(small.getString("delivery_id"),key))
+            .put("ledger_large",ackState(large.getString("delivery_id"),key))
+            .put("ledger_third",ackState(third.getString("delivery_id"),key))
+            .put("overlimit_status",rejected.getInt("status")).put("overlimit_identity_established",false)
+            .put("overlimit_target_count",0))
+    }
+
     @Test fun numericMetadataLegalHttp48kPersistsEverySemanticValueBeforeAck() = runBlocking {
         phase="numeric-metadata";check(!session.exists());assertEquals(0,count("messages"))
         settings.setServerAddress(base);settings.setGatewayToken(auth);settings.setUseFcmChannel(false)
@@ -294,6 +408,41 @@ class CandidatePrivateC7DeviceTest {
     ).use { if(it.moveToFirst())it.getString(0) else null }
     private fun sha256(value:String)=MessageDigest.getInstance("SHA-256").digest(value.toByteArray(Charsets.UTF_8))
         .joinToString("") { "%02x".format(it.toInt() and 0xff) }
+    private fun submitC18(label:String,channel:String,credential:String,title:String,body:String,raw:String?=null):JSONObject {
+        val entity=raw ?: JSONObject().put("channel_id",channel).put("password",credential)
+            .put("title",title).put("body",body).put("op_id",UUID.randomUUID().toString()).toString()
+        val bytes=entity.toByteArray(Charsets.UTF_8)
+        require(bytes.size in 1..49152)
+        val parsed=JSONObject(entity)
+        assertEquals(channel,parsed.getString("channel_id"));assertEquals(credential,parsed.getString("password"))
+        assertEquals(title,parsed.getString("title"));assertEquals(body,parsed.getString("body"))
+        val expected=checkpoint("submit",JSONObject().put("label",label).put("channel_id",channel)
+            .put("password",credential).put("title",title).put("body",body)
+            .put("raw_request",entity).put("request_sha256",sha256(entity)))
+        assertEquals("host preserved the submitted title",title,expected.getString("title"))
+        assertEquals("host preserved the submitted body",body,expected.getString("body"))
+        assertEquals("host preserved the complete request byte count",bytes.size,expected.getInt("request_utf8_bytes"))
+        assertEquals("host preserved the complete request hash",sha256(entity),expected.getString("request_sha256"))
+        assertTrue("host returned a canonical message identity",expected.getString("message_id").isNotBlank())
+        assertTrue("host returned a delivery identity",expected.getString("delivery_id").isNotBlank())
+        return expected
+    }
+    private fun assertC18StoredMetadata(expected:JSONObject,keyCount:Int):String {
+        val payload=db.openHelper.readableDatabase.query("SELECT raw_payload_json FROM messages WHERE message_id=?",
+            arrayOf(expected.getString("message_id"))).use { assertTrue(it.moveToFirst());it.getString(0) }
+        val encoded=JSONObject(payload)
+        assertEquals(expected.getString("title"),encoded.getString("title"))
+        assertEquals(expected.getString("body"),encoded.getString("body"))
+        val value=encoded.get("metadata")
+        val actual=if(value is JSONObject)value else JSONObject(value.toString())
+        assertEquals("all Room metadata entries persisted",keyCount,actual.length())
+        for(index in 0 until keyCount) {
+            val key=index.toString(16);assertTrue("Room metadata contains $key",actual.has(key))
+            assertEquals("semantic metadata value for $key",0,
+                java.math.BigDecimal(actual.get(key).toString()).compareTo(java.math.BigDecimal("1e15")))
+        }
+        return sha256((0 until keyCount).joinToString("\n") { "${it.toString(16)}=1000000000000000" })
+    }
     private fun submit(label:String,channel:String,credential:String,title:String,body:String):JSONObject {
         val head="C7 complete HTTP $label $body\n";val tail="\nC7-END-$label-完整正文"
         val request=JSONObject().put("channel_id",channel).put("password",credential)

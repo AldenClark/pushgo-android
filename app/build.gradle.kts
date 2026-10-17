@@ -382,7 +382,11 @@ val qaJniInput = providers.gradleProperty("pushgo.c8QaJniDir").orNull
 require(qaJniInput == null || isolatedNativeQa) { "QA JNI directory requires isolated QA mode" }
 if (isolatedNativeQa) {
     val qaJniDir = file(requireNotNull(qaJniInput) { "Isolated QA requires its own JNI directory" }).canonicalFile
-    require(qaJniDir == rootProject.file("../../../c8-private48-20261015/native/qa-jni-libs").canonicalFile && qaJniDir != generatedRustJniDir.canonicalFile) { "Unexpected QA JNI directory" }
+    val allowedQaJniDirs = listOf(
+        "../../../c8-private48-20261015/native/qa-jni-libs",
+        "../../../c18-client128-20261018/native/qa-jni-libs",
+    ).map { rootProject.file(it).canonicalFile }
+    require(qaJniDir in allowedQaJniDirs && qaJniDir != generatedRustJniDir.canonicalFile) { "Unexpected QA JNI directory" }
     require(gradle.startParameter.excludedTaskNames.any { it == ":app:buildRustJniLibs" || it == "buildRustJniLibs" }) { "QA must exclude the normal JNI builder" }
     gradle.taskGraph.whenReady {
         require(allTasks.none { it.name.contains("release", ignoreCase = true) }) { "QA JNI cannot be packaged as Release" }
