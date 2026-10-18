@@ -25,6 +25,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -80,6 +81,8 @@ import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
@@ -546,6 +549,8 @@ fun SettingsScreen(
     }
 
     if (showLocalNetworkDialog || viewModel.showLocalNetworkPermissionDialog) {
+        val density = LocalDensity.current
+        val windowHeight = with(density) { LocalWindowInfo.current.containerSize.height.toDp() }
         PushGoAlertDialog(
             paneTitle = stringResource(R.string.label_local_network_permission),
             onDismissRequest = {
@@ -553,7 +558,14 @@ fun SettingsScreen(
                 viewModel.dismissLocalNetworkPermissionDialog()
             },
             title = { Text(stringResource(R.string.label_local_network_permission)) },
-            text = { Text(stringResource(R.string.body_local_network_permission)) },
+            text = {
+                // Keep all three actions visible when large text makes the explanation taller.
+                Text(
+                    stringResource(R.string.body_local_network_permission),
+                    modifier = Modifier.heightIn(max = windowHeight * 0.3f)
+                        .verticalScroll(rememberScrollState()),
+                )
+            },
             confirmButton = {
                 TextButton(onClick = {
                     showLocalNetworkDialog = false
