@@ -1010,6 +1010,9 @@ class PrivateChannelClient(
             return false
         }
         val (baseUrl, token) = channelRepository.loadGatewayConfig()
+        withContext(Dispatchers.IO) {
+            io.ethan.pushgo.util.LocalNetworkPermission.requireAccess(appContext, baseUrl)
+        }
         val state = withDeviceStateRetry(baseUrl, token) { state ->
             ensurePrivateRoute(baseUrl, token, state)
             subscribeAll(baseUrl, token, state)
@@ -2418,6 +2421,7 @@ class PrivateChannelClient(
         method: String,
         payload: JSONObject?,
     ): JSONObject = withContext(Dispatchers.IO) {
+        io.ethan.pushgo.util.LocalNetworkPermission.requireAccess(appContext, endpoint)
         val connection = (URL(endpoint).openConnection() as HttpURLConnection).apply {
             requestMethod = method
             setRequestProperty("Content-Type", "application/json; charset=utf-8")
@@ -2839,6 +2843,14 @@ class PrivateChannelClient(
             return
         }
         if (sessionGeneration != null && activeSessionGeneration != sessionGeneration) {
+            return
+        }
+        if (error is ChannelSubscriptionException &&
+            error.matchesCode(io.ethan.pushgo.util.LocalNetworkPermission.ERROR_CODE)) {
+            failureStreak = 0
+            nextAllowedPullAtMs = System.currentTimeMillis() + 120_000L
+            saveTransportStatus(route = "private", transport = "none",
+                stage = "local_network_permission_required", detail = error.message.orEmpty())
             return
         }
         maybeForceProfileRefreshForConsecutiveFailures(stage)

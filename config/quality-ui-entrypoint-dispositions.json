@@ -116,6 +116,10 @@
         "row.settings.update.channel": {
           "disposition": "DEFERRED",
           "reason": "Stable/Beta candidate selection is residual P1-ANDROID-SETTINGS scope owned by the Android platform-settings quality owner, due 2026-11-09."
+        },
+        "row.settings.local_network_permission": {
+          "disposition": "DEFERRED",
+          "reason": "Real Android 17 runtime permission request, repeated denial, cancellation and App settings recovery are owned by the API37 normal Release runtime acceptance on 2026-10-18; JVM destination and error tests do not claim OS permission outcomes."
         }
       },
       "test_only_identifiers": {

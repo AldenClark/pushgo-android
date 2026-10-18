@@ -34,6 +34,9 @@ object PrivateTransportStatusPresenter {
         val normalizedTransport = transport.trim().lowercase()
         val normalizedStage = stage.trim().lowercase()
         val normalizedRoute = route.trim().lowercase()
+        if (normalizedStage == "local_network_permission_required") {
+            return context.getString(R.string.error_local_network_permission)
+        }
         if (keepaliveState == KeepaliveState.FGS_LOST) {
             return context.getString(R.string.private_transport_status_keepalive_lost)
         }

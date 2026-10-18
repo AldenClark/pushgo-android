@@ -94,6 +94,23 @@ class SettingsViewModel(
         PENDING,
     }
 
+    var showLocalNetworkPermissionDialog by mutableStateOf(false)
+        private set
+
+    fun dismissLocalNetworkPermissionDialog() {
+        showLocalNetworkPermissionDialog = false
+    }
+
+    fun onLocalNetworkPermissionChanged(granted: Boolean) {
+        showLocalNetworkPermissionDialog = false
+        if (granted) gatewayErrorMessage = null
+        // Cancel any old native session before re-entering the shared permission preflight.
+        privateChannelClient.onGatewayConfigChanged()
+        viewModelScope.launch {
+            gatewayPrivateChannelEnabled = runCatching { gatewayPrivateChannelEnabledFetcher() }.getOrNull()
+        }
+    }
+
     var gatewayAddress by mutableStateOf("")
         private set
     var savedGatewayAddress by mutableStateOf("")
@@ -779,6 +796,9 @@ class SettingsViewModel(
                     gatewayErrorMessage = ResMessage(R.string.error_invalid_server_address)
                     return@launch
                 }
+                withContext(Dispatchers.IO) {
+                    io.ethan.pushgo.util.LocalNetworkPermission.requireAccess(context, normalizedAddress)
+                }
                 val token = gatewayToken.trim().ifBlank { null }
                 val oldIdentity = "${previousAddress}|${previousToken.orEmpty()}"
                 val newIdentity = "${normalizedAddress}|${token.orEmpty()}"
@@ -879,6 +899,10 @@ class SettingsViewModel(
                     successMessage = ResMessage(R.string.message_gateway_saved_recovery_pending)
                 } else {
                     gatewayErrorMessage = ex.toUiErrorMessage(R.string.error_request_failed)
+                    if (ex is ChannelSubscriptionException &&
+                        ex.matchesCode(io.ethan.pushgo.util.LocalNetworkPermission.ERROR_CODE)) {
+                        showLocalNetworkPermissionDialog = true
+                    }
                 }
             } finally {
                 isSavingGateway = false

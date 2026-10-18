@@ -226,6 +226,7 @@ data class GatewayProblem(
 
 class ChannelSubscriptionService(
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
+    private val requireNetworkAccess: (String) -> Unit = {},
 ) {
     companion object {
         internal const val DEVICE_REGISTER_ENDPOINT = "/device/register"
@@ -696,6 +697,7 @@ class ChannelSubscriptionService(
         method: String,
         payload: JSONObject?,
     ): StatusResponse {
+        requireNetworkAccess(endpoint)
         val connection = (URL(endpoint).openConnection() as HttpURLConnection).apply {
             requestMethod = method
             setRequestProperty("Content-Type", "application/json; charset=utf-8")

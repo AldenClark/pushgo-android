@@ -360,4 +360,11 @@
     <string name="delete_decryption_key_confirmation">Remove the decryption key? Encrypted messages will require a key again.</string>
     <string name="error_deletion_target_changed">The content, related records, or settings changed. Review the current content and confirm deletion again.</string>
     <string name="delete_confirmation_untitled_body">Delete this item? This permanently removes its local history.</string>
+    <string name="label_local_network_permission">Local network access</string>
+    <string name="label_local_network_allowed">Allowed</string>
+    <string name="error_local_network_permission">Local network access is denied. Allow it in Settings to connect to this Gateway.</string>
+    <string name="body_local_network_permission">PushGo needs local network access only for Gateways on your local network. Public Gateways remain available. Allow access, then retry your action. If Android no longer asks, open App settings → Permissions → Nearby devices (local network).</string>
+    <string name="action_local_network_allow">Allow access</string>
+    <string name="action_local_network_settings">App settings</string>
+    <string name="label_local_network_not_allowed">Not allowed; needed only for local Gateways</string>
 </resources>

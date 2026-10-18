@@ -17,6 +17,9 @@ fun Throwable.toUiErrorMessage(@StringRes fallbackResId: Int): UiMessage {
         return ResMessage(R.string.error_deletion_target_changed)
     }
     if (this is ChannelSubscriptionException) {
+        if (matchesCode(io.ethan.pushgo.util.LocalNetworkPermission.ERROR_CODE)) {
+            return ResMessage(R.string.error_local_network_permission)
+        }
         if (matchesCode("private_channel_disabled")) {
             return ResMessage(R.string.error_gateway_private_disabled_use_fcm)
         }

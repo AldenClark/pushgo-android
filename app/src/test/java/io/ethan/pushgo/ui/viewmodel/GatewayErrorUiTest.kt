@@ -8,6 +8,16 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GatewayErrorUiTest {
+    @Test fun localNetworkDenialHasSpecificRecoveryInsteadOfGenericNetworkOrGatewayAuth() {
+        val error = ChannelSubscriptionException.local(
+            message = "permission denied",
+            code = io.ethan.pushgo.util.LocalNetworkPermission.ERROR_CODE,
+            category = GatewayErrorCategory.PERMISSION,
+        )
+        assertEquals(R.string.error_local_network_permission,
+            (error.toUiErrorMessage(R.string.error_request_failed) as ResMessage).resId)
+    }
+
     @Test
     fun requiredV2HasAnUpgradeMessageDistinctFromAuthNetworkAndMalformedResponse() {
         val cases = listOf(

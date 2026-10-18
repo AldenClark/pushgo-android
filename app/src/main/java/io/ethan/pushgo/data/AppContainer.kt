@@ -151,7 +151,10 @@ class AppContainer(
         awaitRouteSynchronization = awaitRouteSynchronization,
         transportRouteWriterGate = transportRouteWriterGate,
         onRemoteRoute = { transportSwitchCoordinator.observeRoute(it) },
-        service = ChannelSubscriptionService(ioDispatcher = coroutineDispatchers.io),
+        service = ChannelSubscriptionService(
+            ioDispatcher = coroutineDispatchers.io,
+            requireNetworkAccess = { io.ethan.pushgo.util.LocalNetworkPermission.requireAccess(appContext, it) },
+        ),
         eventCloseRoundTrip = QualityRuntime.currentSession()?.eventCloseScenario
             ?.takeUnless { it == QualityEventCloseScenario.NONE }
             ?.let { scenario ->

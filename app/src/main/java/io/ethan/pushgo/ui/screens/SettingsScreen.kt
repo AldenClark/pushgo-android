@@ -1,5 +1,9 @@
 package io.ethan.pushgo.ui.screens
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import io.ethan.pushgo.util.LocalNetworkPermission
+import android.os.Build
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
@@ -130,6 +134,13 @@ fun SettingsScreen(
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val context = LocalContext.current
+    var localNetworkGranted by remember { mutableStateOf(LocalNetworkPermission.isGranted(context)) }
+    var showLocalNetworkDialog by remember { mutableStateOf(false) }
+    val localNetworkLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { _ ->
+        localNetworkGranted = LocalNetworkPermission.isGranted(context)
+        showLocalNetworkDialog = !localNetworkGranted
+        if (localNetworkGranted) viewModel.onLocalNetworkPermissionChanged(true)
+    }
     val uiColors = PushGoThemeExtras.colors
     val fcmSupported = uiState.isFcmSupported
     var notificationsEnabled by remember { mutableStateOf(false) }
@@ -151,6 +162,9 @@ fun SettingsScreen(
     val bottomGestureInset = rememberBottomGestureInset()
 
     fun refreshDeliveryRiskState() {
+        val wasGranted = localNetworkGranted
+        localNetworkGranted = LocalNetworkPermission.isGranted(context)
+        if (wasGranted != localNetworkGranted) viewModel.onLocalNetworkPermissionChanged(localNetworkGranted)
         notificationsEnabled = NotificationManagerCompat.from(context).areNotificationsEnabled()
         batteryOptimizationEnabled = context.isAppSubjectToBatteryOptimization()
         dozeReminderSnoozed = context.isDozeReminderSnoozed()
@@ -300,6 +314,17 @@ fun SettingsScreen(
                         showGatewaySheet = true
                     },
                 )
+            }
+            if (LocalNetworkPermission.isRequired(Build.VERSION.SDK_INT, context.applicationInfo.targetSdkVersion)) {
+                item {
+                    SettingsRow(
+                        testTag = "row.settings.local_network_permission",
+                        icon = Icons.Outlined.Dns,
+                        title = stringResource(R.string.label_local_network_permission),
+                        subtitle = stringResource(if (localNetworkGranted) R.string.label_local_network_allowed else R.string.label_local_network_not_allowed),
+                        onClick = { showLocalNetworkDialog = true },
+                    )
+                }
             }
             if (uiState.isChannelModeLoaded) {
                 item {
@@ -518,6 +543,38 @@ fun SettingsScreen(
                 )
             }
         }
+    }
+
+    if (showLocalNetworkDialog || viewModel.showLocalNetworkPermissionDialog) {
+        PushGoAlertDialog(
+            paneTitle = stringResource(R.string.label_local_network_permission),
+            onDismissRequest = {
+                showLocalNetworkDialog = false
+                viewModel.dismissLocalNetworkPermissionDialog()
+            },
+            title = { Text(stringResource(R.string.label_local_network_permission)) },
+            text = { Text(stringResource(R.string.body_local_network_permission)) },
+            confirmButton = {
+                TextButton(onClick = {
+                    showLocalNetworkDialog = false
+                    viewModel.dismissLocalNetworkPermissionDialog()
+                    localNetworkLauncher.launch(LocalNetworkPermission.PERMISSION)
+                }) { Text(stringResource(R.string.action_local_network_allow)) }
+            },
+            dismissButton = {
+                Column {
+                    TextButton(onClick = {
+                        showLocalNetworkDialog = false
+                        viewModel.dismissLocalNetworkPermissionDialog()
+                    }) { Text(stringResource(R.string.label_cancel)) }
+                    TextButton(onClick = {
+                        showLocalNetworkDialog = false
+                        viewModel.dismissLocalNetworkPermissionDialog()
+                        openAppDetailsSettings(context)
+                    }) { Text(stringResource(R.string.action_local_network_settings)) }
+                }
+            },
+        )
     }
 
     if (showGatewaySheet) {

@@ -359,4 +359,11 @@
     <string name="delete_decryption_key_confirmation">刪除解密金鑰？加密訊息將需要重新設定金鑰。</string>
     <string name="error_deletion_target_changed">內容、關聯記錄或設定已變更。請查看目前內容後重新確認刪除。</string>
     <string name="delete_confirmation_untitled_body">要刪除此項目嗎？其本機歷史記錄將被永久刪除。</string>
+    <string name="label_local_network_permission">區域網路存取</string>
+    <string name="label_local_network_allowed">已允許</string>
+    <string name="error_local_network_permission">區域網路存取遭拒。請在設定中允許後連線至此閘道。</string>
+    <string name="body_local_network_permission">僅連線至區域網路中的閘道時，PushGo 需要區域網路權限。公用網路閘道仍可存取。允許後請重試操作。如系統不再詢問，請開啟應用程式設定 → 權限 → 附近的裝置（區域網路）。</string>
+    <string name="action_local_network_allow">允許存取</string>
+    <string name="action_local_network_settings">應用程式設定</string>
+    <string name="label_local_network_not_allowed">未允許；僅區域網路閘道需要</string>
 </resources>

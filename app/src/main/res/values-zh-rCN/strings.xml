@@ -356,4 +356,11 @@
     <string name="delete_decryption_key_confirmation">删除解密密钥？加密消息将需要重新配置密钥。</string>
     <string name="error_deletion_target_changed">内容、关联记录或设置已变化。请查看当前内容后重新确认删除。</string>
     <string name="delete_confirmation_untitled_body">要删除此项吗？其本地历史记录将被永久删除。</string>
+    <string name="label_local_network_permission">本地网络访问</string>
+    <string name="label_local_network_allowed">已允许</string>
+    <string name="error_local_network_permission">本地网络访问被拒绝。请在设置中允许后连接此网关。</string>
+    <string name="body_local_network_permission">仅连接本地网络中的网关时，PushGo 需要本地网络权限。公网网关仍可访问。允许后请重试操作。如系统不再询问，请打开应用设置 → 权限 → 附近的设备（本地网络）。</string>
+    <string name="action_local_network_allow">允许访问</string>
+    <string name="action_local_network_settings">应用设置</string>
+    <string name="label_local_network_not_allowed">未允许；仅本地网关需要</string>
 </resources>
