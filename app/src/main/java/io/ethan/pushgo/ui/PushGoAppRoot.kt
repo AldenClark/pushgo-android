@@ -491,6 +491,7 @@ fun PushGoAppRoot(
     }
 
     deletionFailures.firstOrNull { it.id !in dismissedDeletionFailures }?.let { failed ->
+        val requestFailedText = stringResource(R.string.error_request_failed)
         PushGoAlertDialog(
             onDismissRequest = { dismissedDeletionFailures = dismissedDeletionFailures + failed.id },
             paneTitle = stringResource(R.string.error_request_failed),
@@ -505,7 +506,7 @@ fun PushGoAppRoot(
                         } catch (error: kotlinx.coroutines.CancellationException) {
                             throw error
                         } catch (error: Exception) {
-                            android.widget.Toast.makeText(context, error.localizedMessage ?: context.getString(R.string.error_request_failed), android.widget.Toast.LENGTH_LONG).show()
+                            android.widget.Toast.makeText(context, error.localizedMessage ?: requestFailedText, android.widget.Toast.LENGTH_LONG).show()
                         } finally {
                             dismissedDeletionFailures = dismissedDeletionFailures - failed.id
                         }
