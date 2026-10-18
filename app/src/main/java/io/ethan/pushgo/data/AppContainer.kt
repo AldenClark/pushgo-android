@@ -19,6 +19,7 @@ import io.ethan.pushgo.testing.QualityFixture
 import io.ethan.pushgo.testing.QualityChannelMutationScenario
 import io.ethan.pushgo.testing.QualityEventCloseScenario
 import io.ethan.pushgo.testing.QualityRuntime
+import io.ethan.pushgo.testing.QualitySessionDescriptor
 import io.ethan.pushgo.testing.QualityTransportSwitchScenario
 import io.ethan.pushgo.testing.QualityUpdateScenario
 import io.ethan.pushgo.ui.PendingLocalDeletionDrainScheduler
@@ -413,28 +414,17 @@ class AppContainer(
             else "quality-transport-device"
         },
     )
-    val fcmSupportChecker: (Context) -> Boolean =
-        if (
-            qualityTransportScenario != QualityTransportSwitchScenario.NONE ||
-            qualitySession?.channelMutationScenario != QualityChannelMutationScenario.NONE
-        ) {
-            { true }
-        } else {
-            FcmSupport::isAvailable
-        }
-    val gatewayPrivateChannelEnabledFetcher: suspend () -> Boolean? =
-        if (
-            qualityTransportScenario != QualityTransportSwitchScenario.NONE ||
-            qualitySession?.channelMutationScenario != QualityChannelMutationScenario.NONE
-        ) {
-            // Gateway mutation journeys own a controlled transport boundary.
-            // Do not let a post-commit sync Oracle spend its budget on a real
-            // capability/DNS probe; production sessions still use the real
-            // gateway profile fetch below.
-            { true }
-        } else {
-            { privateChannelClient.gatewayPrivateChannelEnabled() }
-        }
+    val fcmSupportChecker: (Context) -> Boolean = selectTransportCapabilityProbe(
+        session = qualitySession,
+        realProbe = FcmSupport::isAvailable,
+        controlledProbe = { true },
+    )
+    val gatewayPrivateChannelEnabledFetcher: suspend () -> Boolean? = selectTransportCapabilityProbe(
+        session = qualitySession,
+        realProbe = { privateChannelClient.gatewayPrivateChannelEnabled() },
+        // Active mutation/switch journeys own a controlled transport boundary.
+        controlledProbe = { true },
+    )
     private val pendingLocalDeletionRepository = RoomPendingLocalDeletionRepository(
         database = database,
         dao = database.pendingLocalDeletionDao(),
@@ -1293,3 +1283,13 @@ class AppContainer(
         )
     }
 }
+
+/** A missing quality session must retain the production capability probes. */
+internal fun <T> selectTransportCapabilityProbe(
+    session: QualitySessionDescriptor?,
+    realProbe: T,
+    controlledProbe: T,
+): T = if (
+    (session?.transportSwitchScenario ?: QualityTransportSwitchScenario.NONE) != QualityTransportSwitchScenario.NONE ||
+    (session?.channelMutationScenario ?: QualityChannelMutationScenario.NONE) != QualityChannelMutationScenario.NONE
+) controlledProbe else realProbe
