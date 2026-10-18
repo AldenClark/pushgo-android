@@ -385,6 +385,7 @@ if (isolatedNativeQa) {
     val allowedQaJniDirs = listOf(
         "../../../c8-private48-20261015/native/qa-jni-libs",
         "../../../c18-client128-20261018/native/qa-jni-libs",
+        "../../evidence/android/native/qa-jni-libs",
     ).map { rootProject.file(it).canonicalFile }
     require(qaJniDir in allowedQaJniDirs && qaJniDir != generatedRustJniDir.canonicalFile) { "Unexpected QA JNI directory" }
     require(gradle.startParameter.excludedTaskNames.any { it == ":app:buildRustJniLibs" || it == "buildRustJniLibs" }) { "QA must exclude the normal JNI builder" }
