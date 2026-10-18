@@ -559,12 +559,19 @@ fun SettingsScreen(
             },
             title = { Text(stringResource(R.string.label_local_network_permission)) },
             text = {
-                // Keep all three actions visible when large text makes the explanation taller.
-                Text(
-                    stringResource(R.string.body_local_network_permission),
+                Column(
                     modifier = Modifier.heightIn(max = windowHeight * 0.3f)
                         .verticalScroll(rememberScrollState()),
-                )
+                ) {
+                    Text(stringResource(R.string.body_local_network_permission))
+                    TextButton(onClick = {
+                        showLocalNetworkDialog = false
+                        viewModel.dismissLocalNetworkPermissionDialog()
+                        openAppDetailsSettings(context)
+                    }, modifier = Modifier.align(Alignment.End)) {
+                        Text(stringResource(R.string.action_local_network_settings))
+                    }
+                }
             },
             confirmButton = {
                 TextButton(onClick = {
@@ -574,17 +581,10 @@ fun SettingsScreen(
                 }) { Text(stringResource(R.string.action_local_network_allow)) }
             },
             dismissButton = {
-                Column {
-                    TextButton(onClick = {
-                        showLocalNetworkDialog = false
-                        viewModel.dismissLocalNetworkPermissionDialog()
-                    }) { Text(stringResource(R.string.label_cancel)) }
-                    TextButton(onClick = {
-                        showLocalNetworkDialog = false
-                        viewModel.dismissLocalNetworkPermissionDialog()
-                        openAppDetailsSettings(context)
-                    }) { Text(stringResource(R.string.action_local_network_settings)) }
-                }
+                TextButton(onClick = {
+                    showLocalNetworkDialog = false
+                    viewModel.dismissLocalNetworkPermissionDialog()
+                }) { Text(stringResource(R.string.label_cancel)) }
             },
         )
     }
