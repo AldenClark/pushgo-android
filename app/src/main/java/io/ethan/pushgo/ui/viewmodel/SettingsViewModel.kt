@@ -251,7 +251,13 @@ class SettingsViewModel(
             if (!hasEditedKeyEncoding) keyEncoding = storedKeyEncoding
             decryptionUpdatedAt = currentKeyUpdatedAt
             isDecryptionConfigured = currentKey?.isNotEmpty() == true
-            gatewayPrivateChannelEnabled = gatewayPrivateChannelEnabledFetcher()
+            gatewayPrivateChannelEnabled = try {
+                gatewayPrivateChannelEnabledFetcher()
+            } catch (error: ChannelSubscriptionException) {
+                if (!error.matchesCode(io.ethan.pushgo.util.LocalNetworkPermission.ERROR_CODE)) throw error
+                errorMessage = ResMessage(R.string.error_local_network_permission)
+                null
+            }
             updateAutoCheckEnabled = settingsRepository.getUpdateAutoCheckEnabled()
             updateBetaChannelEnabled = settingsRepository.getUpdateBetaChannelEnabled()
             isChannelModeLoaded = true
@@ -468,7 +474,13 @@ class SettingsViewModel(
             if (supported || !useFcmChannel) {
                 return@launch
             }
-            val privateEnabled = gatewayPrivateChannelEnabledFetcher()
+            val privateEnabled = try {
+                gatewayPrivateChannelEnabledFetcher()
+            } catch (error: ChannelSubscriptionException) {
+                if (!error.matchesCode(io.ethan.pushgo.util.LocalNetworkPermission.ERROR_CODE)) throw error
+                errorMessage = ResMessage(R.string.error_local_network_permission)
+                return@launch
+            }
             gatewayPrivateChannelEnabled = privateEnabled
             if (privateEnabled == false) {
                 errorMessage = ResMessage(R.string.error_private_disabled_and_fcm_unavailable)
@@ -482,7 +494,10 @@ class SettingsViewModel(
                         "automatic private transport transition failed: ${error.message}",
                         error,
                     )
-                    errorMessage = ResMessage(R.string.error_notification_transport_switch_failed)
+                    errorMessage = transportFailureMessage(
+                        failure = error,
+                        fallbackResId = R.string.error_notification_transport_switch_failed,
+                    )
                 }
         }
     }
@@ -507,8 +522,11 @@ class SettingsViewModel(
                                 failure.message,
                             failure,
                         )
-                        transportErrorMessage =
-                            ResMessage(R.string.error_notification_transport_switch_failed)
+                        transportErrorMessage = transportFailureMessage(
+                            failure = failure,
+                            fallbackResId = R.string.error_notification_transport_switch_failed,
+                            requestPermissionRecovery = true,
+                        )
                         return@launch
                     }
                     val privateEnabled = privateEnabledResult.getOrNull()
@@ -543,6 +561,7 @@ class SettingsViewModel(
                                 failure,
                             )
                             transportErrorMessage = transportFailureMessage(
+                                failure = failure,
                                 fallbackResId = R.string.error_notification_transport_fcm_switch_failed,
                             )
                         }
@@ -561,7 +580,9 @@ class SettingsViewModel(
                             failure,
                         )
                         transportErrorMessage = transportFailureMessage(
+                            failure = failure,
                             fallbackResId = R.string.error_notification_transport_switch_failed,
+                            requestPermissionRecovery = true,
                         )
                         if (transportErrorMessage != null) return@launch
                     }
@@ -576,7 +597,18 @@ class SettingsViewModel(
         }
     }
 
-    private fun transportFailureMessage(fallbackResId: Int): UiMessage = ResMessage(fallbackResId)
+    private fun transportFailureMessage(
+        failure: Throwable,
+        fallbackResId: Int,
+        requestPermissionRecovery: Boolean = false,
+    ): UiMessage {
+        if (failure is ChannelSubscriptionException &&
+            failure.matchesCode(io.ethan.pushgo.util.LocalNetworkPermission.ERROR_CODE)) {
+            if (requestPermissionRecovery) showLocalNetworkPermissionDialog = true
+            return ResMessage(R.string.error_local_network_permission)
+        }
+        return ResMessage(fallbackResId)
+    }
 
     private suspend fun requireFcmToken(
         context: Context,
