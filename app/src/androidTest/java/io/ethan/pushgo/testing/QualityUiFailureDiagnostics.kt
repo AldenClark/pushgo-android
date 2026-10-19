@@ -3,8 +3,11 @@ package io.ethan.pushgo.testing
 import android.util.Log
 import android.os.Build
 import android.os.SystemClock
+import android.view.View
+import android.view.ViewTreeObserver
 import android.view.WindowManager
 import android.view.inspector.WindowInspector
+import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.uiautomator.UiDevice
 import java.io.ByteArrayOutputStream
 
@@ -13,6 +16,86 @@ internal object QualityUiFailureDiagnostics {
     private const val TAG = "QualityUiFailure"
     private const val MAX_CHARS = 24_000
     private const val LOG_CHUNK_CHARS = 2_500
+    private const val MAX_OBSERVED_ROOTS = 8
+
+    /** A single-test observer, not an idling resource or a focus repair. */
+    fun observeWindowLifecycle(selector: String): WindowLifecycleObservation =
+        WindowLifecycleObservation(selector)
+
+    internal class WindowLifecycleObservation(private val selector: String) : AutoCloseable {
+        private data class ObservedRoot(
+            val view: View,
+            val treeObserver: ViewTreeObserver,
+            val attachListener: View.OnAttachStateChangeListener,
+            val focusListener: ViewTreeObserver.OnWindowFocusChangeListener,
+        )
+
+        private val roots = mutableListOf<ObservedRoot>()
+        private var closed = false
+
+        fun checkpoint(stage: String) {
+            // Listener registration must use the UI thread. This and the OS snapshots
+            // change scheduling; a diagnostic PASS is not evidence of a causal repair.
+            runCatching {
+                InstrumentationRegistry.getInstrumentation().runOnMainSync {
+                    if (closed || Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return@runOnMainSync
+                    WindowInspector.getGlobalWindowViews().forEach { view ->
+                        if (roots.size >= MAX_OBSERVED_ROOTS || roots.any { it.view === view }) return@forEach
+                        val attachListener = object : View.OnAttachStateChangeListener {
+                            override fun onViewAttachedToWindow(view: View) = record(view, "attached")
+                            override fun onViewDetachedFromWindow(view: View) = record(view, "detached")
+                        }
+                        val focusListener = ViewTreeObserver.OnWindowFocusChangeListener { focused ->
+                            record(view, "windowFocus=$focused")
+                        }
+                        val treeObserver = view.viewTreeObserver
+                        roots += ObservedRoot(view, treeObserver, attachListener, focusListener)
+                        view.addOnAttachStateChangeListener(attachListener)
+                        treeObserver.addOnWindowFocusChangeListener(focusListener)
+                        record(view, "firstObserved stage=$stage")
+                    }
+                }
+            }.onFailure { logText("$selector lifecycle unavailable", "${it.javaClass.simpleName}: ${it.message}") }
+            logWindowRoots("$selector $stage")
+        }
+
+        private fun record(view: View, event: String) {
+            val parameters = view.layoutParams as? WindowManager.LayoutParams
+            logText(
+                "$selector lifecycle",
+                "elapsedRealtimeMs=${SystemClock.elapsedRealtime()} event=$event " +
+                    "identity=${System.identityHashCode(view)} type=${parameters?.type} " +
+                    "title=${parameters?.title} attached=${view.isAttachedToWindow} " +
+                    "windowFocus=${view.hasWindowFocus()} visibility=${view.visibility}",
+            )
+        }
+
+        override fun close() {
+            runCatching {
+                InstrumentationRegistry.getInstrumentation().runOnMainSync {
+                    closed = true
+                    var cleanupFailures = 0
+                    roots.forEach { root ->
+                        runCatching {
+                            root.view.removeOnAttachStateChangeListener(root.attachListener)
+                            if (root.treeObserver.isAlive) {
+                                root.treeObserver.removeOnWindowFocusChangeListener(root.focusListener)
+                            }
+                            val currentObserver = root.view.viewTreeObserver
+                            if (currentObserver !== root.treeObserver && currentObserver.isAlive) {
+                                currentObserver.removeOnWindowFocusChangeListener(root.focusListener)
+                            }
+                        }.onFailure {
+                            cleanupFailures++
+                            logText("$selector lifecycle cleanup unavailable", "${it.javaClass.simpleName}: ${it.message}")
+                        }
+                    }
+                    logText("$selector lifecycle cleanup", "observedRoots=${roots.size} cleanupFailures=$cleanupFailures")
+                    roots.clear()
+                }
+            }.onFailure { logText("$selector lifecycle cleanup unavailable", "${it.javaClass.simpleName}: ${it.message}") }
+        }
+    }
 
     fun logWindowRoots(checkpoint: String) {
         logText(checkpoint, "elapsedRealtimeMs=${SystemClock.elapsedRealtime()}")

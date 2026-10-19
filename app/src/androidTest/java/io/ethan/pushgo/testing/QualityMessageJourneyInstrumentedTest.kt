@@ -1168,34 +1168,45 @@ class QualityMessageJourneyInstrumentedTest : QualityAppJourneyTestCase() {
         val device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
         val selector = "io.ethan.pushgo.testing.QualityMessageJourneyInstrumentedTest#" +
             "deleteCancelPreservesTheSameObjectAcrossActivityRelaunch"
-
-        composeRule.onNodeWithText("P2 Split Seed Message").assertIsDisplayed().performClick()
-        composeRule.onNodeWithTag("action.message.delete").assertIsDisplayed().performClick()
-        val cancel = composeRule.onNodeWithTag("action.delete.cancel").assertIsDisplayed()
-        QualityUiFailureDiagnostics.logWindowRoots("$selector before Cancel")
-        cancel.performClick()
-        QualityUiFailureDiagnostics.logWindowRoots("$selector after Cancel")
-        composeRule.onNodeWithTag("field.message.detail.body")
-            .assertTextEquals("Seeded from fixture.seed_messages for UI validation.")
+        val windows = QualityUiFailureDiagnostics.observeWindowLifecycle(selector)
         try {
-            pressBack()
-        } catch (failure: Throwable) {
-            runCatching {
-                QualityUiFailureDiagnostics.logWindowState(device, "$selector original Back failure")
+            windows.checkpoint("baseline")
+            composeRule.onNodeWithText("P2 Split Seed Message").assertIsDisplayed().performClick()
+            windows.checkpoint("detail")
+            composeRule.onNodeWithTag("action.message.delete").assertIsDisplayed().performClick()
+            val cancel = composeRule.onNodeWithTag("action.delete.cancel").assertIsDisplayed()
+            windows.checkpoint("before Cancel")
+            cancel.performClick()
+            windows.checkpoint("after Cancel")
+            composeRule.onNodeWithTag("field.message.detail.body")
+                .assertTextEquals("Seeded from fixture.seed_messages for UI validation.")
+            windows.checkpoint("before Back")
+            QualityUiFailureDiagnostics.logWindowState(device, "$selector before Back")
+            try {
+                pressBack()
+            } catch (failure: Throwable) {
+                runCatching {
+                    windows.checkpoint("original Back failure")
+                    QualityUiFailureDiagnostics.logWindowState(device, "$selector original Back failure")
+                }
+                throw failure
             }
-            throw failure
-        }
-        composeRule.waitUntil(timeoutMillis = 8_000) {
-            composeRule.onAllNodes(hasText("P2 Split Seed Message")).fetchSemanticsNodes().isNotEmpty()
-        }
+            windows.checkpoint("after Back")
+            QualityUiFailureDiagnostics.logWindowState(device, "$selector after Back")
+            composeRule.waitUntil(timeoutMillis = 8_000) {
+                composeRule.onAllNodes(hasText("P2 Split Seed Message")).fetchSemanticsNodes().isNotEmpty()
+            }
 
-        scenario?.close()
-        scenario = launchMainActivity()
-        composeRule.waitUntil(timeoutMillis = 8_000) {
-            composeRule.onAllNodes(hasText("P2 Split Seed Message"))
-                .fetchSemanticsNodes().isNotEmpty()
+            scenario?.close()
+            scenario = launchMainActivity()
+            composeRule.waitUntil(timeoutMillis = 8_000) {
+                composeRule.onAllNodes(hasText("P2 Split Seed Message"))
+                    .fetchSemanticsNodes().isNotEmpty()
+            }
+            composeRule.onNodeWithText("P2 Split Seed Message").assertExists()
+        } finally {
+            windows.close()
         }
-        composeRule.onNodeWithText("P2 Split Seed Message").assertExists()
     }
 
     @Test
