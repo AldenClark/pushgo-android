@@ -1181,18 +1181,18 @@ class QualityMessageJourneyInstrumentedTest : QualityAppJourneyTestCase() {
             composeRule.onNodeWithTag("field.message.detail.body")
                 .assertTextEquals("Seeded from fixture.seed_messages for UI validation.")
             windows.checkpoint("before Back")
-            QualityUiFailureDiagnostics.logWindowState(device, "$selector before Back")
+            windows.logState(device, "before Back")
             try {
                 pressBack()
             } catch (failure: Throwable) {
                 runCatching {
                     windows.checkpoint("original Back failure")
-                    QualityUiFailureDiagnostics.logWindowState(device, "$selector original Back failure")
+                    windows.logState(device, "original Back failure")
                 }
                 throw failure
             }
             windows.checkpoint("after Back")
-            QualityUiFailureDiagnostics.logWindowState(device, "$selector after Back")
+            windows.logState(device, "after Back")
             composeRule.waitUntil(timeoutMillis = 8_000) {
                 composeRule.onAllNodes(hasText("P2 Split Seed Message")).fetchSemanticsNodes().isNotEmpty()
             }
