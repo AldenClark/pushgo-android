@@ -1165,13 +1165,26 @@ class QualityMessageJourneyInstrumentedTest : QualityAppJourneyTestCase() {
     @Test
     fun deleteCancelPreservesTheSameObjectAcrossActivityRelaunch() {
         configureAndLaunch(fixture = QualityFixture.MESSAGES_STANDARD)
+        val device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
+        val selector = "io.ethan.pushgo.testing.QualityMessageJourneyInstrumentedTest#" +
+            "deleteCancelPreservesTheSameObjectAcrossActivityRelaunch"
 
         composeRule.onNodeWithText("P2 Split Seed Message").assertIsDisplayed().performClick()
         composeRule.onNodeWithTag("action.message.delete").assertIsDisplayed().performClick()
-        composeRule.onNodeWithTag("action.delete.cancel").assertIsDisplayed().performClick()
+        val cancel = composeRule.onNodeWithTag("action.delete.cancel").assertIsDisplayed()
+        QualityUiFailureDiagnostics.logWindowRoots("$selector before Cancel")
+        cancel.performClick()
+        QualityUiFailureDiagnostics.logWindowRoots("$selector after Cancel")
         composeRule.onNodeWithTag("field.message.detail.body")
             .assertTextEquals("Seeded from fixture.seed_messages for UI validation.")
-        pressBack()
+        try {
+            pressBack()
+        } catch (failure: Throwable) {
+            runCatching {
+                QualityUiFailureDiagnostics.logWindowState(device, "$selector original Back failure")
+            }
+            throw failure
+        }
         composeRule.waitUntil(timeoutMillis = 8_000) {
             composeRule.onAllNodes(hasText("P2 Split Seed Message")).fetchSemanticsNodes().isNotEmpty()
         }
