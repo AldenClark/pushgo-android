@@ -109,4 +109,4 @@ ANDROID_BASELINE_PROFILE_DEVICE_SERIAL='<controlled-emulator-serial>' \
 - [Generate Baseline Profiles](https://developer.android.com/topic/performance/baselineprofiles/create-baselineprofile)
 - [Benchmark release notes](https://developer.android.com/jetpack/androidx/releases/benchmark)
 
-当前使用 Benchmark/Baseline Profile `1.5.0-rc02`，原因是仓库采用 AGP 9.2.1，而稳定版 1.4.1 不支持 AGP 9 新 DSL。升级或回退必须重新生成 Profile、构建 Release、运行隔离契约和代表性设备流程。
+当前使用稳定版 Benchmark/Baseline Profile `1.5.0`，与 AGP `9.4.1`、Kotlin `2.4.21`、Gradle `9.8.1` 一起升级。旧版本的 Profile、构建与设备结果不覆盖新依赖；升级或回退必须重新生成 Profile、构建 Release、运行隔离契约和代表性设备流程。2026-10-19 本轮尚未执行 Profile 生成或真机性能验收。

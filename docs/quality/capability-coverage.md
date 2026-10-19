@@ -1,5 +1,7 @@
 # Android 能力覆盖索引
 
+2026-10-19 上游依赖升级：Android 工具链采用 AGP 9.4.1 / Kotlin 2.4.21 / Gradle 9.8.1，Compose BOM 2026.09.00、Room 2.8.5、Paging 3.5.3、Work 2.12.0、Firebase BOM 35.0.2 与其余直接依赖对齐官方稳定版。Rust JNI 直接依赖与锁图同步刷新；SDK 37、权限、Room schema、ACK 与生产信任合同保持原有语义。当前只有 JNI/工具链静态合同、Gradle Wrapper 版本检查与 Python 251 项选择器测试通过；影响计划为 READY/release，产品编译、JVM、设备、Release 签名/安装与物理性能验收仍为 NOT RUN，旧依赖的结果不覆盖本次升级。
+
 2026-10-14 当前复核纠正：此前 Android「冻结 canonical 行及 config」表述超过当时实现。旧分段通过证据保留原范围；本轮仅修普通删除确认身份与提交后通知清理恢复。临时确认保留 SHA256 与展示标题，复核实际七表删除范围，含 Thing 等待子项，不持久保存完整内容快照。配置身份仅覆盖 serverAddress、useFcmChannel、notificationKeyUpdatedAt、keyEncoding；read、previews、列表派生字段及图片缓存 key 不参与。同内容 ABA 不视为新的物理 incarnation；当前内容、关联范围或上述配置有实质变化时拒绝旧确认。
 
 同一 Room 事务验证、删除并写 v35 最小系统通知 cleanup receipt；恢复只清通知，不重删数据库或排队普通删除操作。每次子通知发布使用 UUID 系统 tag，最小 submitted 元数据覆盖 notify 已提交而 activeNotifications 尚不可见的窗口；按准确 tag/id/generation 合并 receipt，重开精确取消并保护新 replacement。发布前 Room 校验及同步 notify 位于同一事务，阻止删除提交后的迟到发布。仅启动时按 canonical 是否存在清通知不足：Event 删除可能应清关联 Thing 通知，而 Thing head 仍存在，legacy ID 也不足以准确匹配。用户已选定：没有准确自身 ID 元数据的旧 Message 通知及仅 group 身份的 legacy 通知保守保留，不哈希推断；这是准确性边界。
