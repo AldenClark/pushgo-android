@@ -59,6 +59,15 @@ def normalized_profile_rules(rules: set[str]) -> set[str]:
     return {rule.lstrip("HSP") for rule in rules}
 
 
+def verify_release_control_manifest(root: ElementTree.Element) -> None:
+    for tag, control_class in (
+        ("provider", "io.ethan.pushgo.testing.BenchmarkFixtureProvider"),
+        ("activity", "io.ethan.pushgo.testing.BenchmarkUnstopActivity"),
+    ):
+        if any(node.get(ANDROID + "name") == control_class for node in root.iter(tag)):
+            raise ContractError(f"quality-control declaration entered Release manifest: {control_class}")
+
+
 def verify(repo: Path) -> dict[str, int]:
     profile_root = repo / "app/src/release/generated/baselineProfiles"
     baseline_rules = read_profile(profile_root / "baseline-prof.txt")
@@ -96,27 +105,7 @@ def verify(repo: Path) -> dict[str, int]:
         "packaged universal Release manifest",
     )
     root = ElementTree.parse(manifest).getroot()
-    providers = [
-        node for node in root.iter("provider")
-        if node.get(ANDROID + "name") == "io.ethan.pushgo.testing.BenchmarkFixtureProvider"
-    ]
-    if len(providers) != 1:
-        raise ContractError("Release manifest fixture-provider declaration is ambiguous")
-    provider = providers[0]
-    if provider.get(ANDROID + "enabled") != "false" or provider.get(ANDROID + "exported") != "false":
-        raise ContractError("Release fixture provider is reachable")
-    activities = [
-        node for node in root.iter("activity")
-        if node.get(ANDROID + "name") == "io.ethan.pushgo.testing.BenchmarkUnstopActivity"
-    ]
-    if len(activities) != 1:
-        raise ContractError("Release unstop-control declaration is ambiguous")
-    unstop_activity = activities[0]
-    if (
-        unstop_activity.get(ANDROID + "enabled") != "false"
-        or unstop_activity.get(ANDROID + "exported") != "false"
-    ):
-        raise ContractError("Release unstop control is reachable")
+    verify_release_control_manifest(root)
 
     build_config = repo / "app/build/generated/source/buildConfig/release/io/ethan/pushgo/BuildConfig.java"
     config_text = build_config.read_text(encoding="utf-8")
