@@ -83,6 +83,21 @@ class QualityPreparationContractTest(unittest.TestCase):
         self.assertIn("rollbackFailedPreparation(app, session, error)", provider)
         self.assertIn("QualityRuntime.persistAppOwnedSession(app, null)", provider)
 
+    def test_provider_publishes_session_before_releasing_cached_storage(self):
+        provider = (
+            ROOT
+            / "app/src/benchmark/java/io/ethan/pushgo/testing/BenchmarkFixtureProvider.kt"
+        ).read_text(encoding="utf-8")
+        prepare = provider.split("private fun prepare(encodedSession: String): Bundle {", 1)[1]
+        prepare = prepare.split("private fun awaitApplicationStartup()", 1)[0]
+        persist = prepare.index("QualityRuntime.persistAppOwnedSession(app, encodedSession)")
+        configure = prepare.index("QualityRuntime.configure(encodedSession)")
+        release = prepare.index("app.releaseStorageForQualityControl()")
+        open_storage = prepare.index("app.containerOrNull()")
+        self.assertLess(persist, configure)
+        self.assertLess(configure, release)
+        self.assertLess(release, open_storage)
+
     def test_host_contract_has_a_10_second_negative_control_and_positive_oracle(self):
         runner = (ROOT / "scripts/run_android_preparation_contract.sh").read_text(
             encoding="utf-8"

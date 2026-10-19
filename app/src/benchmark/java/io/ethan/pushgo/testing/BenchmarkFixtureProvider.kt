@@ -59,6 +59,14 @@ class BenchmarkFixtureProvider : ContentProvider() {
             }
             val sessionRoot = QualityRuntime.sessionRoot(app, session)
 
+            // Publish the new profile before releasing cached storage. Any access
+            // that recreates the container after release must see this session,
+            // including its storage-initialization fault, rather than cache the
+            // previous profile while fixture storage is being reset.
+            preparationPhase("session.persist") {
+                QualityRuntime.persistAppOwnedSession(app, encodedSession)
+                QualityRuntime.configure(encodedSession)
+            }
             preparationPhase("storage.reset") {
                 app.releaseStorageForQualityControl()
                 check(app.deleteDatabase(session.databaseName) || !app.getDatabasePath(session.databaseName).exists()) {
@@ -71,14 +79,6 @@ class BenchmarkFixtureProvider : ContentProvider() {
                     "quality session directory could not be reset"
                 }
             }
-            // Persist before updating the in-process profile. A fresh app process can
-            // still be completing Application.onCreate while the provider receives
-            // its first shell call; either ordering must resolve to this same session.
-            preparationPhase("session.persist") {
-                QualityRuntime.persistAppOwnedSession(app, encodedSession)
-                QualityRuntime.configure(encodedSession)
-            }
-
             val container = preparationPhase("storage.open") {
                 checkNotNull(app.containerOrNull()) {
                     "quality AppContainer could not be created"
