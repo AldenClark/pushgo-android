@@ -243,6 +243,14 @@ android {
     }
 }
 
+androidComponents.finalizeDsl { extension ->
+    // Baseline Profile copies the Release manifest into its derived build type
+    // during DSL finalization. Keep this variant's existing quality controls.
+    extension.sourceSets.getByName("nonMinifiedRelease").manifest.srcFile(
+        "src/nonMinifiedRelease/AndroidManifest.xml"
+    )
+}
+
 kotlin {
     compilerOptions {
         jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_21)
