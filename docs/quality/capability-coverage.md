@@ -1,6 +1,6 @@
 # Android 能力覆盖索引
 
-2026-10-19 上游依赖升级：Android 工具链采用 AGP 9.4.1 / Kotlin 2.4.21 / Gradle 9.8.1，Compose BOM 2026.09.00、Room 2.8.5、Paging 3.5.3、Work 2.12.0、Firebase BOM 35.0.2 与其余直接依赖对齐官方稳定版。Rust JNI 直接依赖与锁图同步刷新；SDK 37、权限、Room schema、ACK 与生产信任合同保持原有语义。当前只有 JNI/工具链静态合同、Gradle Wrapper 版本检查与 Python 251 项选择器测试通过；影响计划为 READY/release，产品编译、JVM、设备、Release 签名/安装与物理性能验收仍为 NOT RUN，旧依赖的结果不覆盖本次升级。
+2026-10-19 上游依赖升级：Android 工具链采用 AGP 9.4.1 / Kotlin 2.4.21 / Gradle 9.8.1，Compose BOM 2026.09.00、Room 2.8.5、Paging 3.5.3、Work 2.12.0、Firebase BOM 35.0.2 与其余直接依赖对齐官方稳定版。Rust JNI 直接依赖与锁图同步刷新；SDK 37、权限、Room schema、ACK 与生产信任合同保持原有语义。新依赖本地验证：Rust JNI host 5/5、标准 PR JVM 303/303（零 skip）、normal 三 ABI JNI 编译/导出/arm64 16 KiB 对齐、androidTest 编译与 Debug APK、最终 lintRelease 与正常 unsigned Release 四 APK 验证均通过。首次 lint 两个 MissingClass 与失败 overlay 尝试的四个 MissingClass 收据保留；最终将 QA 声明归属 debug/benchmark/nonMinifiedRelease，并通过官方 finalizeDsl 接缝保留插件派生变体的独立 manifest。实际三 QA 变体各有一个原属性 Provider/Activity，Release 无两个 QA 节点、BuildConfig 两个控制开关为 false；静态隔离与 profile 包装合同通过。JNI/JVM 绑定 a3fa69b，后续仅声明归属、静态 oracle 和 QA sourceSet 接缝变更，复用已通过的 native/JVM 证据并重验实际合并、lint 与包装，未机械重跑。新依赖设备流程、实际 TCP/Private transport runtime、真实 FCM、签名/安装与物理性能仍为 NOT RUN，旧 QA 运行成功不覆盖本次升级。
 
 2026-10-14 当前复核纠正：此前 Android「冻结 canonical 行及 config」表述超过当时实现。旧分段通过证据保留原范围；本轮仅修普通删除确认身份与提交后通知清理恢复。临时确认保留 SHA256 与展示标题，复核实际七表删除范围，含 Thing 等待子项，不持久保存完整内容快照。配置身份仅覆盖 serverAddress、useFcmChannel、notificationKeyUpdatedAt、keyEncoding；read、previews、列表派生字段及图片缓存 key 不参与。同内容 ABA 不视为新的物理 incarnation；当前内容、关联范围或上述配置有实质变化时拒绝旧确认。
 

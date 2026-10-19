@@ -24,7 +24,7 @@
 
 Macrobenchmark 不直接读取测试进程外的数据库，也不复制共享 DB 文件：
 
-1. `BenchmarkUnstopActivity` 仅在 benchmark/profile 变体存在，用于解除 Android stopped-state，不进入产品 UI。
+1. `BenchmarkUnstopActivity` 与 Fixture Provider 仅声明在 debug/benchmark/nonMinifiedRelease 质量变体，用于解除 Android stopped-state，不进入产品 UI。
 2. 性能 `.benchmark` applicationId 在一次性准备前执行精确包级 `pm clear`；不会清生产 App。
 3. Baseline Profile 使用 production applicationId，但代码和脚本双重要求 `ro.kernel.qemu=1`，禁止在物理设备清生产数据。
 4. `BenchmarkFixtureProvider` 在 App 沙箱内配置唯一 session、建立真实 `AppContainer`/Room、显式初始化 fixture，并核验总数、标题、正文。
@@ -110,3 +110,5 @@ ANDROID_BASELINE_PROFILE_DEVICE_SERIAL='<controlled-emulator-serial>' \
 - [Benchmark release notes](https://developer.android.com/jetpack/androidx/releases/benchmark)
 
 当前使用稳定版 Benchmark/Baseline Profile `1.5.0`，与 AGP `9.4.1`、Kotlin `2.4.21`、Gradle `9.8.1` 一起升级。旧版本的 Profile、构建与设备结果不覆盖新依赖；升级或回退必须重新生成 Profile、构建 Release、运行隔离契约和代表性设备流程。2026-10-19 本轮尚未执行 Profile 生成或真机性能验收。
+
+Release manifest 不声明 `BenchmarkFixtureProvider` / `BenchmarkUnstopActivity`，两类实现不进入 Release dex。质量变体保留原 DUMP 权限、enabled/exported placeholder 和 Provider 启动行为。Baseline Profile 1.5.0 会在 DSL finalization 中复制 Release manifest 到 nonMinifiedRelease，因此项目通过随后注册的 `androidComponents.finalizeDsl` 恢复该变体自己的标准 manifest；实际合并必须核对三个质量变体各一个 Provider/Activity、正常 Release 零节点。静态合同同时检查源声明归属与原属性，不能用未启用的不存在类声明代替生产隔离。
