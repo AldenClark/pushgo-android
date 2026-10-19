@@ -24,6 +24,24 @@ REQUIRED_SYMBOLS = (
     "Lio/ethan/pushgo/ui/screens/MessageListScreen",
     "Lio/ethan/pushgo/ui/screens/MessageDetailScreen",
 )
+CONTROL_COMPONENTS = {
+    "provider": {
+        "name": "io.ethan.pushgo.testing.BenchmarkFixtureProvider",
+        "authorities": "${applicationId}.quality-fixture",
+        "enabled": "${qualityFixtureProviderEnabled}",
+        "exported": "${qualityFixtureProviderEnabled}",
+        "permission": "android.permission.DUMP",
+    },
+    "activity": {
+        "name": "io.ethan.pushgo.testing.BenchmarkUnstopActivity",
+        "enabled": "${qualityFixtureProviderEnabled}",
+        "excludeFromRecents": "true",
+        "exported": "${qualityFixtureProviderEnabled}",
+        "noHistory": "true",
+        "permission": "android.permission.DUMP",
+        "theme": "@android:style/Theme.NoDisplay",
+    },
+}
 
 
 class ContractError(RuntimeError):
@@ -60,15 +78,28 @@ def normalized_profile_rules(rules: set[str]) -> set[str]:
 
 
 def verify_release_control_manifest(root: ElementTree.Element) -> None:
-    for tag, control_class in (
-        ("provider", "io.ethan.pushgo.testing.BenchmarkFixtureProvider"),
-        ("activity", "io.ethan.pushgo.testing.BenchmarkUnstopActivity"),
-    ):
+    for tag, attributes in CONTROL_COMPONENTS.items():
+        control_class = attributes["name"]
         if any(node.get(ANDROID + "name") == control_class for node in root.iter(tag)):
             raise ContractError(f"quality-control declaration entered Release manifest: {control_class}")
 
 
+def verify_control_source_sets(repo: Path) -> None:
+    for variant in ("main", "release"):
+        path = repo / f"app/src/{variant}/AndroidManifest.xml"
+        if path.exists():
+            verify_release_control_manifest(ElementTree.parse(path).getroot())
+    for variant in ("debug", "benchmark", "nonMinifiedRelease"):
+        root = ElementTree.parse(repo / f"app/src/{variant}/AndroidManifest.xml").getroot()
+        for tag, attributes in CONTROL_COMPONENTS.items():
+            nodes = [node for node in root.iter(tag) if node.get(ANDROID + "name") == attributes["name"]]
+            expected = {ANDROID + key: value for key, value in attributes.items()}
+            if len(nodes) != 1 or nodes[0].attrib != expected:
+                raise ContractError(f"{variant} {tag} quality-control declaration or attributes changed")
+
+
 def verify(repo: Path) -> dict[str, int]:
+    verify_control_source_sets(repo)
     profile_root = repo / "app/src/release/generated/baselineProfiles"
     baseline_rules = read_profile(profile_root / "baseline-prof.txt")
     startup_rules = read_profile(profile_root / "startup-prof.txt")
