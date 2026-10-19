@@ -671,7 +671,7 @@ adb_with_timeout() {
         host_journey = (REPO / "scripts/run_android_notification_permission_positive.sh").read_text()
         identity_verifier = (REPO / "scripts/verify_android_instrumentation_identity.py").read_text()
         build = (REPO / "app/build.gradle.kts").read_text()
-        manifest = (REPO / "app/src/main/AndroidManifest.xml").read_text()
+        manifest = (REPO / "app/src/debug/AndroidManifest.xml").read_text()
 
         self.assertEqual(1, runner.count('run_android_notification_permission_positive.sh'))
         self.assertIn('run_system_notification_journeys', runner)
