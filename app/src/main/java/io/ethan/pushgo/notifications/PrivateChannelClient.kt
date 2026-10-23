@@ -137,7 +137,9 @@ internal object PrivateStreamAckPolicy {
     ): Int {
         val wasDurablyPersisted = isDurableAckState(ackStateBefore)
         val isDurablyPersisted = isDurableAckState(ackStateAfter)
-        return if (isDurablyPersisted && (handledResult.getOrDefault(false) || wasDurablyPersisted)) {
+        return if (handledResult.isSuccess && isDurablyPersisted &&
+            (handledResult.getOrDefault(false) || wasDurablyPersisted)
+        ) {
             PRIVATE_STREAM_ACK_STATUS_OK
         } else {
             PRIVATE_STREAM_ACK_STATUS_IGNORE
@@ -964,7 +966,7 @@ class PrivateChannelClient(
             io.ethan.pushgo.util.SilentSink.w(TAG, "ignore unparseable private payload deliveryId=$deliveryId")
             return false
         }
-        return InboundPersistenceCoordinator.persistAndNotify(
+        val outcome = InboundPersistenceCoordinator.persistAndNotify(
             context = appContext,
             messageRepository = messageRepository,
             entityRepository = entityRepository,
@@ -978,7 +980,11 @@ class PrivateChannelClient(
                 messageId = message.id,
                 imageUrl = imageUrl,
             )
-        }.shouldAck
+        }
+        if (outcome.status == InboundPersistenceStatus.FAILED) {
+            throw InboundMessageProcessor.InboundRetryableException("private canonical persistence incomplete")
+        }
+        return outcome.shouldAck
     }
 
     private fun payloadStringMap(payload: JSONObject): Map<String, String> {

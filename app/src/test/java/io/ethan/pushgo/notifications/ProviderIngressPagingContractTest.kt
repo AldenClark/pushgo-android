@@ -166,6 +166,14 @@ class ProviderIngressPagingContractTest {
     }
 
     @Test
+    fun failedThingLifecycleIsNotCompletedOrConsumedByProviderRecovery() {
+        val failed = InboundPersistenceOutcome(InboundPersistenceStatus.FAILED, notified = false, shouldAck = false)
+        assertFalse(failed.isCanonicalPersistenceComplete())
+        assertFalse(failed.shouldAck)
+        assertFalse(shouldCompleteLegacyPull(messageRequest(InboundSecurityDisposition.ACCEPTED), failed))
+    }
+
+    @Test
     fun rejectedEncryptedEntity_isNotCountedAsCanonicalProviderPersistence() {
         assertFalse(
             InboundPersistenceOutcome(

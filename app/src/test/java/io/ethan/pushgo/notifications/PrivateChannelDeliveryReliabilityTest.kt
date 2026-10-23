@@ -91,6 +91,29 @@ class PrivateChannelDeliveryReliabilityTest {
     }
 
     @Test
+    fun failedPersistenceDoesNotUseAnOldDurableIdentityAsProofOfCompletedReplay() {
+        for (state in listOf(INBOUND_DELIVERY_ACK_STATE_PENDING, INBOUND_DELIVERY_ACK_STATE_ACKED)) {
+            assertEquals(
+                PRIVATE_STREAM_ACK_STATUS_IGNORE,
+                PrivateStreamAckPolicy.statusForDelivery(
+                    handledResult = Result.failure(InboundMessageProcessor.InboundRetryableException("Thing write invalidated")),
+                    ackStateBefore = state,
+                    ackStateAfter = state,
+                ),
+            )
+            // A successfully processed duplicate still repairs an ambiguous prior wire ACK.
+            assertEquals(
+                PRIVATE_STREAM_ACK_STATUS_OK,
+                PrivateStreamAckPolicy.statusForDelivery(
+                    handledResult = Result.success(false),
+                    ackStateBefore = state,
+                    ackStateAfter = state,
+                ),
+            )
+        }
+    }
+
+    @Test
     fun firstPrivatePersistenceResolvesAckOkInTheSameDeliveryAttempt() {
         assertEquals(
             PRIVATE_STREAM_ACK_STATUS_OK,

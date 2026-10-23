@@ -118,6 +118,7 @@ class ThingMessageDeletionDeviceTest {
                 assertFalse(outcome.notified)
             }
             for (id in listOf("late-parent", "late-event", "late-message")) assertFalse(ledger.shouldAck(id, identity))
+            assertTrue(ledger.loadPendingAcks().isEmpty())
             reopen()
             assertNull(db.thingHeadDao().getByThingId("thing"))
             assertTrue(db.thingSubMessageDao().getByThingId("thing").isEmpty())
