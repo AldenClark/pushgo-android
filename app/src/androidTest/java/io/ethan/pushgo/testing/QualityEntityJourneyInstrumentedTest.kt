@@ -261,13 +261,15 @@ class QualityEntityJourneyInstrumentedTest : QualityAppJourneyTestCase() {
         composeRule.onNodeWithTag("sheet.thing.detail").assertIsDisplayed()
         composeRule.onNodeWithTag("action.thing.delete").assertIsDisplayed().performClick()
         composeRule.onNodeWithTag("action.delete.confirm").assertIsDisplayed().performClick()
-        composeRule.onNodeWithTag("thing.row.quality-thing-distractor").assertDoesNotExist()
-        composeRule.onNodeWithTag("thing.row.quality-thing").assertIsDisplayed()
-        composeRule.onNodeWithTag("thing.search.input").assertIsDisplayed().performTextInput("Reactor Alpha")
+        // Confirmation launches the Room deletion asynchronously. Wait for the deleted
+        // row before filtering, so search cannot make an unfinished deletion look complete.
         composeRule.waitUntil(timeoutMillis = 5_000) {
             composeRule.onAllNodes(hasTestTag("thing.row.quality-thing-distractor"))
                 .fetchSemanticsNodes().isEmpty()
         }
+        composeRule.onNodeWithTag("thing.row.quality-thing-distractor").assertDoesNotExist()
+        composeRule.onNodeWithTag("thing.row.quality-thing").assertIsDisplayed()
+        composeRule.onNodeWithTag("thing.search.input").assertIsDisplayed().performTextInput("Reactor Alpha")
         composeRule.onNodeWithTag("thing.row.quality-thing").assertIsDisplayed()
         composeRule.onNodeWithTag("thing.row.quality-thing-distractor").assertDoesNotExist()
         composeRule.onNodeWithTag("thing.row.quality-thing", useUnmergedTree = true)

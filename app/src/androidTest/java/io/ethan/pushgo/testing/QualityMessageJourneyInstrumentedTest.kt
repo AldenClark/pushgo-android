@@ -484,15 +484,14 @@ class QualityMessageJourneyInstrumentedTest : QualityAppJourneyTestCase() {
         composeRule.onNodeWithTag("field.message.search")
             .assertIsDisplayed()
             .performTextInput("P2 Split")
+        // The injected search delay is transient. Observe the accurate visible feedback
+        // in its loading panel together, rather than requiring it to survive two idle snapshots.
         composeRule.waitUntil(timeoutMillis = 4_000) {
-            composeRule.onAllNodes(hasTestTag("state.messages.search.loading.slow"))
-                .fetchSemanticsNodes()
-                .isNotEmpty()
+            composeRule.onNode(
+                hasText(app.getString(R.string.message_loading_slow)) and
+                    hasAnyAncestor(hasTestTag("state.messages.search.loading.slow")),
+            ).isDisplayed()
         }
-        composeRule.onNodeWithTag("state.messages.search.loading.slow")
-            .assertIsDisplayed()
-        composeRule.onNodeWithText(app.getString(R.string.message_loading_slow))
-            .assertIsDisplayed()
         composeRule.waitUntil(timeoutMillis = 8_000) {
             composeRule.onAllNodes(hasText("P2 Split Seed Message"))
                 .fetchSemanticsNodes().isNotEmpty()
