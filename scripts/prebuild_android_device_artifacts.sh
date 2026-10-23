@@ -18,7 +18,7 @@ record_prebuild_failure() {
 }
 trap record_prebuild_failure EXIT
 case "$lane" in
-  pr-ui|planned-device|focused|process-restart|device|nightly|release-smoke|accessibility|performance|release) ;;
+  pr-ui|planned-device|focused|process-restart|device|nightly|release-smoke|accessibility|performance|release|update-install) ;;
   *)
     echo "status=BLOCKED"
     echo "reason=unsupported_device_prebuild_lane:${lane:-missing}"
@@ -29,7 +29,12 @@ esac
 tasks=(
   :app:assembleDebug
 )
-if [[ "$lane" != "process-restart" ]]; then
+gradle_options=(--console=plain)
+if [[ "$lane" == "update-install" ]]; then
+  # The host update journey uses this package, not the debug app or test APK.
+  tasks=(:app:assembleBenchmark)
+  gradle_options+=(-Ppushgo.enableAbiSplits=false)
+elif [[ "$lane" != "process-restart" ]]; then
   tasks+=(:app:assembleDebugAndroidTest)
 fi
 if [[ "$lane" == "performance" || "$lane" == "release" ]]; then
@@ -41,4 +46,4 @@ fi
 
 echo "device_prebuild_lane=$lane"
 printf 'device_prebuild_task=%s\n' "${tasks[@]}"
-"$repo_root/gradlew" "${tasks[@]}" --console=plain
+"$repo_root/gradlew" "${tasks[@]}" "${gradle_options[@]}"

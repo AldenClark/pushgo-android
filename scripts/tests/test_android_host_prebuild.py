@@ -44,6 +44,24 @@ class HostPrebuildTests(unittest.TestCase):
         self.assertEqual(receipt["product_capability_status"], "NOT_RUN")
         self.assertEqual(receipt["test_system_status"], "BLOCKED")
 
+    def test_update_install_prebuilds_only_its_real_universal_benchmark_package(self):
+        root, result = self.run_prebuild("update-install")
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+        self.assertEqual(
+            [":app:assembleBenchmark", "--console=plain", "-Ppushgo.enableAbiSplits=false"],
+            (root / "tasks.txt").read_text().splitlines(),
+        )
+
+    def test_reused_focused_and_release_profile_prebuild_tasks_are_unchanged(self):
+        for lane in ("focused", "performance", "release"):
+            with self.subTest(lane=lane):
+                root, result = self.run_prebuild(lane)
+                self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+                expected = [":app:assembleDebug", ":app:assembleDebugAndroidTest"]
+                if lane != "focused":
+                    expected += [":app:assembleBenchmark", ":macrobenchmark:assembleBenchmarkBenchmark"]
+                self.assertEqual(expected + ["--console=plain"], (root / "tasks.txt").read_text().splitlines())
+
 
 if __name__ == "__main__":
     unittest.main()
