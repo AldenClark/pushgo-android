@@ -160,6 +160,25 @@ android_test_selectors_for_scopes() {
     --scopes "$scopes" "$@"
 }
 
+android_instrumentation_scope_argument() {
+  local instrumentation_scope="$1"
+  [[ -n "$instrumentation_scope" ]] || {
+    echo "Empty Android instrumentation scope" >&2
+    return 2
+  }
+  # AGP 9.4's test engine transports runner arguments as comma-separated
+  # key=value entries. A class CSV otherwise loses every scope after the first.
+  # The androidTest runner restores the original standard class argument before
+  # AndroidJUnitRunner discovery; single selectors retain their standard path.
+  if [[ "$instrumentation_scope" == *,* ]]; then
+    local encoded_scope
+    encoded_scope="$(printf '%s' "$instrumentation_scope" | base64 | tr -d '\n')"
+    printf '%s\n' "-Pandroid.testInstrumentationRunnerArguments.pushgo.test.classSelectorsBase64=$encoded_scope"
+  else
+    printf '%s\n' "-Pandroid.testInstrumentationRunnerArguments.class=$instrumentation_scope"
+  fi
+}
+
 expected_selector_count() {
   local selectors="$1"
   awk -F',' '{ print NF }' <<< "$selectors"
@@ -508,7 +527,7 @@ run_device_classes() {
   QUALITY_EXPECTED_ANDROID_TEST_SELECTORS="$expected_selectors"
   QUALITY_EXPECTED_ANDROID_TEST_COUNT="$expected_count"
   ANDROID_SERIAL="$device_serial" "$repo_root/gradlew" connectedDebugAndroidTest \
-    "-Pandroid.testInstrumentationRunnerArguments.class=$instrumentation_scope"
+    "$(android_instrumentation_scope_argument "$instrumentation_scope")"
   verify_device_tests_executed "$device_test_started_at" "$repo_root/app/build/outputs/androidTest-results/connected"
   release_android_device_lock
   claims+=("$claim")
@@ -544,7 +563,7 @@ run_quality_device_classes() {
   QUALITY_EXPECTED_ANDROID_TEST_SELECTORS="$expected_selectors"
   QUALITY_EXPECTED_ANDROID_TEST_COUNT="$expected_count"
   ANDROID_SERIAL="$device_serial" "$repo_root/gradlew" connectedDebugAndroidTest \
-    "-Pandroid.testInstrumentationRunnerArguments.class=$classes" \
+    "$(android_instrumentation_scope_argument "$classes")" \
     "-Pandroid.testInstrumentationRunnerArguments.pushgoQualitySessionBase64=$payload"
   verify_device_tests_executed "$device_test_started_at" "$repo_root/app/build/outputs/androidTest-results/connected"
   if [[ "$lane" == "release-smoke" || "$lane" == "focused" ]]; then
@@ -665,7 +684,7 @@ run_system_notification_journeys() {
   QUALITY_EXPECTED_ANDROID_TEST_COUNT="$expected_count"
   ANDROID_SERIAL="$device_serial" "$repo_root/gradlew" connectedDebugAndroidTest \
     --rerun \
-    "-Pandroid.testInstrumentationRunnerArguments.class=$system_notification_classes"
+    "$(android_instrumentation_scope_argument "$system_notification_classes")"
   verify_device_tests_executed "$device_test_started_at" "$repo_root/app/build/outputs/androidTest-results/connected"
   release_android_device_lock
   claims+=("Android critical audio, exact Message/Event/Thing cold-warm notification routes and Private foreground Service lifecycle")
@@ -962,7 +981,7 @@ case "$lane" in
       QUALITY_EXPECTED_ANDROID_TEST_COUNT="$expected_count"
       ANDROID_SERIAL="$device_serial" "$repo_root/gradlew" connectedDebugAndroidTest \
         --rerun \
-        "-Pandroid.testInstrumentationRunnerArguments.class=$ANDROID_TEST_CLASS"
+        "$(android_instrumentation_scope_argument "$ANDROID_TEST_CLASS")"
       verify_device_tests_executed "$device_test_started_at" "$repo_root/app/build/outputs/androidTest-results/connected"
       record_controlled_system_method_coverage "$ANDROID_TEST_CLASS"
       release_android_device_lock
