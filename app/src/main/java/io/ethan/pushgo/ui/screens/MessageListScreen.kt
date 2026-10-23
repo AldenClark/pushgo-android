@@ -727,8 +727,8 @@ fun MessageListScreen(
                                 message != null &&
                                 true
                             ) {
-                                val listImageModels = remember(message.listPayloadJson) {
-                                    container.messageImageStore.resolveListImageModels(message.listPayloadJson, MessageListImagePreviewMaxItems)
+                                val listImageModels = remember(message.id, message.serverId, message.receivedAt, message.listPayloadJson) {
+                                    container.messageImageStore.resolveListImageModels(message, MessageListImagePreviewMaxItems)
                                 }
                                 MessageRow(
                                     rowTag = messageRowTag(message),
@@ -814,8 +814,8 @@ fun MessageListScreen(
                             items(count = searchResults.itemCount, key = searchResults.itemKey { it.id }) { index ->
                                 val message = searchResults[index]
                                 if (message != null) {
-                                    val listImageModels = remember(message.listPayloadJson) {
-                                        container.messageImageStore.resolveListImageModels(message.listPayloadJson, MessageListImagePreviewMaxItems)
+                                    val listImageModels = remember(message.id, message.serverId, message.receivedAt, message.listPayloadJson) {
+                                        container.messageImageStore.resolveListImageModels(message, MessageListImagePreviewMaxItems)
                                     }
                                     MessageRow(
                                         modifier = Modifier.animateItem(),

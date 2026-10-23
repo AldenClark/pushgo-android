@@ -94,6 +94,29 @@ class ImageAssetMetadataStore private constructor(context: Context) {
         }
     }
 
+    internal data class Representation(val key: String, val hash: String, val headersJson: String, val requestAt: Long, val responseAt: Long)
+
+    internal fun representation(key: String): Representation? = helper.readableDatabase.rawQuery(
+        "SELECT content_hash, headers_json, request_at, response_at FROM image_http_representations WHERE request_key=?", arrayOf(key)
+    ).use { cursor -> if (!cursor.moveToFirst()) null else Representation(key, cursor.getString(0), cursor.getString(1), cursor.getLong(2), cursor.getLong(3)) }
+
+    internal fun putRepresentation(value: Representation) {
+        helper.writableDatabase.insertWithOnConflict("image_http_representations", null, ContentValues().apply {
+            put("request_key", value.key); put("content_hash", value.hash); put("headers_json", value.headersJson)
+            put("request_at", value.requestAt); put("response_at", value.responseAt)
+        }, SQLiteDatabase.CONFLICT_REPLACE)
+    }
+
+    internal fun forgetRepresentation(key: String) { helper.writableDatabase.delete("image_http_representations", "request_key=?", arrayOf(key)) }
+    internal fun forgetHash(hash: String) { helper.writableDatabase.delete("image_http_representations", "content_hash=?", arrayOf(hash)) }
+
+    internal fun touchThumbnail(hash: String, bytes: Long, at: Long) {
+        helper.writableDatabase.insertWithOnConflict("image_thumbnails", null, ContentValues().apply { put("content_hash", hash); put("byte_size", bytes); put("accessed_at", at) }, SQLiteDatabase.CONFLICT_REPLACE)
+    }
+    internal fun thumbnailBytes(): Long = helper.readableDatabase.rawQuery("SELECT COALESCE(SUM(byte_size),0) FROM image_thumbnails", emptyArray()).use { it.moveToFirst(); it.getLong(0) }
+    internal fun oldestThumbnails(limit: Int): List<String> = helper.readableDatabase.rawQuery("SELECT content_hash FROM image_thumbnails ORDER BY accessed_at LIMIT ?", arrayOf(limit.coerceIn(1,64).toString())).use { cursor -> buildList { while (cursor.moveToNext()) add(cursor.getString(0)) } }
+    internal fun forgetThumbnail(hash: String) { helper.writableDatabase.delete("image_thumbnails", "content_hash=?", arrayOf(hash)) }
+
     private fun urlHash(url: String): String {
         val digest = MessageDigest.getInstance("SHA-256").digest(url.toByteArray())
         return digest.joinToString("") { "%02x".format(it) }
@@ -101,11 +124,19 @@ class ImageAssetMetadataStore private constructor(context: Context) {
 
     private class Helper(context: Context) : SQLiteOpenHelper(
         context,
-        DATABASE_NAME,
+        context.getDatabasePath(DATABASE_NAME).absolutePath,
         null,
         DATABASE_VERSION,
     ) {
+        private fun createRepresentations(db: SQLiteDatabase) {
+            db.execSQL("CREATE TABLE IF NOT EXISTS image_http_representations (request_key TEXT PRIMARY KEY NOT NULL, content_hash TEXT NOT NULL, headers_json TEXT NOT NULL, request_at INTEGER NOT NULL, response_at INTEGER NOT NULL)")
+            db.execSQL("CREATE INDEX IF NOT EXISTS image_http_representations_hash ON image_http_representations(content_hash)")
+            db.execSQL("CREATE TABLE IF NOT EXISTS image_thumbnails (content_hash TEXT PRIMARY KEY NOT NULL, byte_size INTEGER NOT NULL, accessed_at INTEGER NOT NULL)")
+            db.execSQL("CREATE INDEX IF NOT EXISTS image_thumbnails_accessed ON image_thumbnails(accessed_at)")
+        }
+
         override fun onCreate(db: SQLiteDatabase) {
+            createRepresentations(db)
             db.execSQL(
                 """
                 CREATE TABLE IF NOT EXISTS $TABLE_NAME (
@@ -133,6 +164,7 @@ class ImageAssetMetadataStore private constructor(context: Context) {
         }
 
         override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
+            if (oldVersion < 3) createRepresentations(db)
             if (oldVersion < 2) {
                 db.execSQL("DROP TABLE IF EXISTS $TABLE_NAME")
                 onCreate(db)
@@ -142,7 +174,7 @@ class ImageAssetMetadataStore private constructor(context: Context) {
 
     companion object {
         private const val DATABASE_NAME = "pushgo_image_asset_metadata.db"
-        private const val DATABASE_VERSION = 2
+        private const val DATABASE_VERSION = 3
         private const val TABLE_NAME = "image_asset_metadata"
         private val COLUMNS = arrayOf(
             "url",
@@ -158,13 +190,15 @@ class ImageAssetMetadataStore private constructor(context: Context) {
             "updated_at",
         )
 
-        @Volatile
-        private var instance: ImageAssetMetadataStore? = null
+        private val instances = mutableMapOf<String, ImageAssetMetadataStore>()
 
-        fun get(context: Context): ImageAssetMetadataStore {
-            return instance ?: synchronized(this) {
-                instance ?: ImageAssetMetadataStore(context).also { instance = it }
-            }
+        fun get(context: Context): ImageAssetMetadataStore = synchronized(instances) {
+            val path = context.getDatabasePath(DATABASE_NAME).absolutePath
+            instances.getOrPut(path) { ImageAssetMetadataStore(context) }
+        }
+
+        internal fun closeForTest(context: Context) = synchronized(instances) {
+            instances.remove(context.getDatabasePath(DATABASE_NAME).absolutePath)?.helper?.close()
         }
     }
 }

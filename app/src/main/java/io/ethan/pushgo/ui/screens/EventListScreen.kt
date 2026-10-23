@@ -1,5 +1,7 @@
 package io.ethan.pushgo.ui.screens
 
+import io.ethan.pushgo.data.MessageImageStore
+
 import android.content.Context
 import android.text.format.DateUtils
 import android.widget.Toast
@@ -110,6 +112,9 @@ data class EventTimelineRow(
     val attrsJson: String?,
     @Serializable(with = InstantSerializer::class)
     val happenedAt: Instant,
+    val resourceOwnerVersion: String? = null,
+    val resourceOwnerScope: String = "public",
+    val resourceOwnerSelector: String? = null,
 )
 
 @Serializable
@@ -131,6 +136,10 @@ data class EventCardModel(
     @Serializable(with = InstantSerializer::class)
     val updatedAt: Instant,
     val timeline: List<EventTimelineRow>,
+    val resourceOwnerId: String? = null,
+    val resourceOwnerVersion: String? = null,
+    val resourceOwnerScope: String = "public",
+    val resourceOwnerSelector: String? = null,
 )
 
 enum class EventSeverity(val wireValue: String) {
@@ -898,7 +907,7 @@ fun EventListRowItem(
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     imageAttachments.take(3).forEach { url ->
                         PushGoAsyncImage(
-                            model = url,
+                            model = event.resourceImageModel(url, thumbnail = true),
                             contentDescription = null,
                             contentScale = ContentScale.Crop,
                             modifier = Modifier
@@ -930,7 +939,7 @@ fun EventDetailSheet(
     onDeleteEvent: () -> Unit,
 ) {
     var showCloseConfirmation by remember { mutableStateOf(false) }
-    var previewImageUrl by remember { mutableStateOf<String?>(null) }
+    var previewImageUrl by remember { mutableStateOf<Any?>(null) }
     val uiColors = PushGoThemeExtras.colors
     val imageAttachments = event.attachmentUrls.filter(::isImageAttachmentUrl)
     val timelineDescending = remember(event.timeline) { event.timeline.sortedByDescending { it.happenedAt } }
@@ -1114,10 +1123,10 @@ fun EventDetailSheet(
                     ) {
                         imageAttachments.forEach { url ->
                             PushGoAsyncImage(
-                                model = url,
+                                model = event.resourceImageModel(url, thumbnail = true),
                                 contentDescription = null,
                                 contentScale = ContentScale.Crop,
-                                onClickWhenLoaded = { previewImageUrl = url },
+                                onClickWhenLoaded = { previewImageUrl = event.resourceImageModel(url) },
                                 modifier = Modifier
                                     .size(92.dp)
                                     .clip(RoundedCornerShape(10.dp)),
@@ -1438,6 +1447,9 @@ private fun buildEventCardsInternal(messages: List<PushMessage>): List<EventCard
                     ?.trim()
                     ?.takeIf { it.isNotEmpty() },
                 happenedAt = eventTime,
+                resourceOwnerVersion = MessageImageStore.resourceOwnerVersion(message.serverId, message.receivedAt.toEpochMilli()),
+                resourceOwnerScope = message.serverId ?: "local",
+                resourceOwnerSelector = MessageImageStore.resourceOwnerSelector(message.rawPayloadJson),
             )
         }
         .groupBy(keySelector = { it.first }, valueTransform = { it.second })
@@ -1466,6 +1478,10 @@ private fun buildEventCardsInternal(messages: List<PushMessage>): List<EventCard
                 attrsJson = mergedEventAttrsJson(orderedTimeline),
                 updatedAt = latest.happenedAt,
                 timeline = orderedTimeline,
+                resourceOwnerId = latest.messageId,
+                resourceOwnerVersion = latest.resourceOwnerVersion,
+                resourceOwnerScope = latest.resourceOwnerScope,
+                resourceOwnerSelector = latest.resourceOwnerSelector,
             )
         }
         .sortedWith(compareBy<EventCardModel> { stateSortPriority(it.state) }.thenByDescending { it.updatedAt })
@@ -1529,6 +1545,10 @@ private fun mergeEventCardInternal(current: EventCardModel, incoming: EventCardM
         attrsJson = mergedEventAttrsJson(mergedTimeline),
         updatedAt = latest.happenedAt,
         timeline = mergedTimeline,
+        resourceOwnerId = latest.messageId,
+        resourceOwnerVersion = latest.resourceOwnerVersion,
+        resourceOwnerScope = latest.resourceOwnerScope,
+        resourceOwnerSelector = latest.resourceOwnerSelector,
     )
 }
 
@@ -1699,3 +1719,18 @@ private fun jsonValueToText(value: Any?): String {
 }
 
 private fun normalizedEventStatus(raw: String?): String? = raw?.trim()?.ifEmpty { null }
+
+internal fun EventCardModel.resourceImageModel(url: String, thumbnail: Boolean = false): MessageImageStore.ImageRequestModel {
+    val source = timeline.firstOrNull { url == it.imageUrl || url in it.attachmentUrls }
+    val owner = source?.messageId ?: resourceOwnerId
+    return MessageImageStore.ImageRequestModel(
+        // An old saved UI projection may not yet have canonical attribution.
+        // Display a placeholder until reloaded, never fetch as unrelated public art.
+        url = if (owner == null) "" else url,
+        ownerId = owner,
+        ownerVersion = source?.resourceOwnerVersion ?: resourceOwnerVersion,
+        ownerScope = source?.resourceOwnerScope ?: resourceOwnerScope,
+        thumbnail = thumbnail,
+        ownerSelector = source?.resourceOwnerSelector ?: resourceOwnerSelector,
+    )
+}

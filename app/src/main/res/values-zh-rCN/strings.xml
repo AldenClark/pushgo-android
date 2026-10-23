@@ -323,6 +323,8 @@
     <string name="a11y_action_open_event">打开事件</string>
     <string name="a11y_action_open_thing">打开对象</string>
     <string name="a11y_action_open_image_preview">打开图片预览</string>
+    <string name="image_cached_fallback_retry">暂时显示已保存图片，更新失败。点按重试。</string>
+    <string name="a11y_action_pause_image">暂停动图</string>
     <string name="a11y_action_play_image">播放动图</string>
     <string name="a11y_action_copy_channel_id">复制频道 ID</string>
     <string name="a11y_action_mark_message_read">标记消息为已读</string>

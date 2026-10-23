@@ -52,6 +52,12 @@ internal object MarkdownAnimatedImagePlaybackRegistry {
     }
 
     @Synchronized
+    fun unregister(drawable: MarkdownPlayableDrawable) {
+        registered.removeAll { it.get() == null || it.get() === drawable }
+        if (active?.get() === drawable) active = null
+    }
+
+    @Synchronized
     fun stopAll() {
         pruneLocked()
         registered.mapNotNull { it.get() }.forEach { it.stopAndReset() }
@@ -70,6 +76,7 @@ internal class MarkdownPlayableDrawable private constructor(
 ) : Drawable(), Drawable.Callback {
     private var drawable: Drawable = baseDrawable.mutate()
     private var isPlaying = false
+    private var isReleased = false
     private var hideOverlayUntilPlaybackFinishes = false
     private val density = resources.displayMetrics.density
     private val overlaySizePx = 24f * density
@@ -81,16 +88,8 @@ internal class MarkdownPlayableDrawable private constructor(
         color = 0xFFFFFFFF.toInt()
         style = Paint.Style.FILL
     }
-    private val animationCallback = object : Animatable2.AnimationCallback() {
-        override fun onAnimationEnd(drawable: Drawable?) {
-            handleAnimationFinished()
-        }
-    }
-    private val compatAnimationCallback = object : Animatable2Compat.AnimationCallback() {
-        override fun onAnimationEnd(drawable: Drawable?) {
-            handleAnimationFinished()
-        }
-    }
+    private val animationCallback = PlatformAnimationCallback(this)
+    private val compatAnimationCallback = CompatAnimationCallback(this)
 
     init {
         this.drawable.callback = this
@@ -100,11 +99,12 @@ internal class MarkdownPlayableDrawable private constructor(
     }
 
     val isOverlayVisible: Boolean
-        get() = isAnimationCapable(drawable) &&
+        get() = !isReleased && isAnimationCapable(drawable) &&
             !hideOverlayUntilPlaybackFinishes &&
             !drawable.isActuallyRunning()
 
     fun playOnce(): Boolean {
+        if (isReleased) return false
         val animatable = drawable.asAnimatable() ?: return false
         isPlaying = true
         hideOverlayUntilPlaybackFinishes = true
@@ -115,6 +115,7 @@ internal class MarkdownPlayableDrawable private constructor(
     }
 
     fun stopAndReset() {
+        if (isReleased) return
         drawable.asAnimatable()?.stop()
         isPlaying = false
         hideOverlayUntilPlaybackFinishes = false
@@ -124,6 +125,28 @@ internal class MarkdownPlayableDrawable private constructor(
         }
         drawable.bounds = bounds
         invalidateSelf()
+    }
+
+    /** A detached span must not keep frame callbacks or its display owner alive. */
+    fun release() {
+        if (isReleased) return
+        isReleased = true
+        animationCallback.detach()
+        compatAnimationCallback.detach()
+        drawable.asAnimatable()?.stop()
+        when (val target = drawable) {
+            // API 37's already-posted animation-end Runnable dereferences its
+            // callback list after invoking callbacks. Removing its last entry can
+            // null that list mid-dispatch. Keep only this weak, now-detached hook.
+            is AnimatedImageDrawable -> Unit
+            is Animatable2 -> target.unregisterAnimationCallback(animationCallback)
+            is Animatable2Compat -> target.unregisterAnimationCallback(compatAnimationCallback)
+        }
+        drawable.callback = null
+        callback = null
+        isPlaying = false
+        hideOverlayUntilPlaybackFinishes = false
+        MarkdownAnimatedImagePlaybackRegistry.unregister(this)
     }
 
     fun isPlayButtonHit(localX: Float, localY: Float): Boolean {
@@ -138,7 +161,15 @@ internal class MarkdownPlayableDrawable private constructor(
         return (dx * dx + dy * dy) <= (radius * radius)
     }
 
+    override fun setVisible(visible: Boolean, restart: Boolean): Boolean {
+        val changed = super.setVisible(visible, restart)
+        drawable.setVisible(visible, restart)
+        if (!visible && !isReleased) stopAndReset()
+        return changed
+    }
+
     override fun draw(canvas: Canvas) {
+        if (isReleased) return
         drawable.draw(canvas)
         if (isOverlayVisible) {
             drawPlayOverlay(canvas)
@@ -161,12 +192,6 @@ internal class MarkdownPlayableDrawable private constructor(
     override fun onBoundsChange(bounds: Rect) {
         super.onBoundsChange(bounds)
         drawable.bounds = bounds
-    }
-
-    override fun setVisible(visible: Boolean, restart: Boolean): Boolean {
-        val changed = super.setVisible(visible, restart)
-        drawable.setVisible(visible, restart)
-        return changed
     }
 
     override fun getIntrinsicWidth(): Int = drawable.intrinsicWidth
@@ -218,7 +243,8 @@ internal class MarkdownPlayableDrawable private constructor(
         canvas.drawPath(triangle, overlayForeground)
     }
 
-    private fun handleAnimationFinished() {
+    private fun handleAnimationFinished(source: Drawable?) {
+        if (isReleased || source !== drawable) return
         isPlaying = false
         hideOverlayUntilPlaybackFinishes = false
         drawable = resetDrawableForFirstFrame(drawable).also {
@@ -235,7 +261,8 @@ internal class MarkdownPlayableDrawable private constructor(
             is AnimatedImageDrawable -> {
                 target.repeatCount = 0
                 if (Looper.myLooper() == null) return
-                target.unregisterAnimationCallback(animationCallback)
+                // Registration is idempotent for this callback. Do not empty the
+                // platform callback list while its end notification may be queued.
                 target.registerAnimationCallback(animationCallback)
             }
             is Animatable2 -> {
@@ -252,10 +279,28 @@ internal class MarkdownPlayableDrawable private constructor(
 
     private fun resetDrawableForFirstFrame(target: Drawable): Drawable {
         target.asAnimatable()?.stop()
+        when (target) {
+            is AnimatedImageDrawable -> Unit
+            is Animatable2 -> target.unregisterAnimationCallback(animationCallback)
+            is Animatable2Compat -> target.unregisterAnimationCallback(compatAnimationCallback)
+        }
+        target.callback = null
         val recreated = target.constantState
             ?.newDrawable(resources)
             ?.mutate()
         return recreated ?: target
+    }
+
+    private class PlatformAnimationCallback(owner: MarkdownPlayableDrawable) : Animatable2.AnimationCallback() {
+        private val owner = WeakReference(owner)
+        override fun onAnimationEnd(drawable: Drawable?) { owner.get()?.handleAnimationFinished(drawable) }
+        fun detach() { owner.clear() }
+    }
+
+    private class CompatAnimationCallback(owner: MarkdownPlayableDrawable) : Animatable2Compat.AnimationCallback() {
+        private val owner = WeakReference(owner)
+        override fun onAnimationEnd(drawable: Drawable?) { owner.get()?.handleAnimationFinished(drawable) }
+        fun detach() { owner.clear() }
     }
 
     private fun Drawable.asAnimatable(): Animatable? {

@@ -373,7 +373,7 @@ class EntityRepository(
         val entityType = scopedEntity.entityType.trim().lowercase()
         return database.withTransaction {
             thingWriteTicket?.requireCurrent()
-            when (entityType) {
+            val inserted = when (entityType) {
                 "event", "thing" -> {
                     val deliveryClaimed = io.ethan.pushgo.data.claimInboundDelivery(
                         inboundDeliveryLedgerDao = inboundDeliveryLedgerDao,
@@ -410,6 +410,11 @@ class EntityRepository(
                 }
                 else -> false
             }
+            if (inserted) {
+                val ownerId = scopedEntity.localDeliveryKey ?: scopedEntity.deliveryId ?: "${scopedEntity.entityId}:${scopedEntity.receivedAt.toEpochMilli()}"
+                database.recordResourceOrigin(ownerId, scopedEntity.receivedAt.toEpochMilli(), deliveryScope)
+            }
+            inserted
         }
     }
 

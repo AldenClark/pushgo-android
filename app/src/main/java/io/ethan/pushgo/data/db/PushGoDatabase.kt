@@ -14,6 +14,8 @@ import java.io.File
 @Database(
     entities = [
         MessageEntity::class,
+        MessageResourceBinding::class,
+        MessageResourceOwner::class,
         MessageMetadataIndexEntity::class,
         MessageChannelStatsEntity::class,
         MessageGlobalStatsEntity::class,
@@ -35,13 +37,14 @@ import java.io.File
         PendingLocalDeletionEntity::class,
         DeletionNotificationCleanupEntity::class,
     ],
-    version = 35,
+    version = 36,
     exportSchema = true,
 )
 abstract class PushGoDatabase : RoomDatabase() {
     // Process-local operations only; durable accepted identities remain in the existing ledgers.
     internal val thingWriteTickets = io.ethan.pushgo.data.ThingWriteTickets()
 
+    abstract fun messageResourceDao(): MessageResourceDao
     abstract fun messageDao(): MessageDao
     abstract fun messageChannelStatsDao(): MessageChannelStatsDao
     abstract fun messageMetadataIndexDao(): MessageMetadataIndexDao
@@ -356,6 +359,30 @@ abstract class PushGoDatabase : RoomDatabase() {
             }
         }
 
+        private fun createResourceOwnership(db: SupportSQLiteDatabase, populateExisting: Boolean = false) {
+            db.execSQL("CREATE TABLE IF NOT EXISTS message_resource_owners (source_table TEXT NOT NULL, owner_id TEXT NOT NULL, owner_slot INTEGER NOT NULL, generation TEXT NOT NULL, origin_scope TEXT, PRIMARY KEY(source_table,owner_id,owner_slot))")
+            db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS index_message_resource_owners_generation ON message_resource_owners(generation)")
+            db.execSQL("CREATE INDEX IF NOT EXISTS index_message_resource_owners_owner_id ON message_resource_owners(owner_id)")
+            for (table in listOf("messages", "thing_sub_messages", "event_change_logs", "thing_change_logs", "thing_sub_events")) {
+                val slot = if (table == "thing_sub_events") "activated" else "0"
+                val newSlot = if (table == "thing_sub_events") "NEW.activated" else "0"
+                val oldSlot = if (table == "thing_sub_events") "OLD.activated" else "0"
+                if (populateExisting) db.execSQL("INSERT OR IGNORE INTO message_resource_owners(source_table,owner_id,owner_slot,generation) SELECT '$table',id,$slot,lower(hex(randomblob(16))) FROM $table")
+                db.execSQL("CREATE TRIGGER IF NOT EXISTS resource_owner_${table}_insert AFTER INSERT ON $table BEGIN DELETE FROM message_resource_bindings WHERE owner_id=NEW.id AND owner_version IN (SELECT generation FROM message_resource_owners WHERE source_table='$table' AND owner_id=NEW.id AND owner_slot=$newSlot); INSERT OR REPLACE INTO message_resource_owners(source_table,owner_id,owner_slot,generation) VALUES('$table',NEW.id,$newSlot,lower(hex(randomblob(16)))); END")
+                db.execSQL("CREATE TRIGGER IF NOT EXISTS resource_owner_${table}_delete AFTER DELETE ON $table BEGIN DELETE FROM message_resource_bindings WHERE owner_id=OLD.id AND owner_version IN (SELECT generation FROM message_resource_owners WHERE source_table='$table' AND owner_id=OLD.id AND owner_slot=$oldSlot); DELETE FROM message_resource_owners WHERE source_table='$table' AND owner_id=OLD.id AND owner_slot=$oldSlot; END")
+                if (table == "thing_sub_events") db.execSQL("CREATE TRIGGER IF NOT EXISTS resource_owner_${table}_activate AFTER UPDATE OF activated ON $table WHEN OLD.activated != NEW.activated BEGIN UPDATE message_resource_owners SET owner_slot=NEW.activated WHERE source_table='$table' AND owner_id=OLD.id AND owner_slot=OLD.activated; END")
+                db.execSQL("CREATE TRIGGER IF NOT EXISTS resource_owner_${table}_replace AFTER UPDATE OF received_at,server_id ON $table WHEN OLD.received_at != NEW.received_at OR OLD.server_id IS NOT NEW.server_id BEGIN DELETE FROM message_resource_bindings WHERE owner_id=OLD.id AND owner_version IN (SELECT generation FROM message_resource_owners WHERE source_table='$table' AND owner_id=OLD.id AND owner_slot=$newSlot); UPDATE message_resource_owners SET generation=lower(hex(randomblob(16))),origin_scope=NULL WHERE source_table='$table' AND owner_id=NEW.id AND owner_slot=$newSlot; END")
+            }
+        }
+
+        private val MIGRATION_35_36 = object : Migration(35, 36) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("CREATE TABLE IF NOT EXISTS message_resource_bindings (owner_id TEXT NOT NULL, owner_version TEXT NOT NULL, request_key TEXT NOT NULL, content_hash TEXT NOT NULL, bound_at INTEGER NOT NULL, PRIMARY KEY(owner_id, owner_version, request_key))")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_message_resource_bindings_content_hash ON message_resource_bindings(content_hash)")
+                createResourceOwnership(db, populateExisting = true)
+            }
+        }
+
         private val MIGRATION_34_35 = object : Migration(34, 35) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL(
@@ -493,6 +520,7 @@ abstract class PushGoDatabase : RoomDatabase() {
                     MIGRATION_32_33,
                     MIGRATION_33_34,
                     MIGRATION_34_35,
+                    MIGRATION_35_36,
                 )
                 .setJournalMode(RoomDatabase.JournalMode.WRITE_AHEAD_LOGGING)
                 .addCallback(object : RoomDatabase.Callback() {
@@ -502,6 +530,7 @@ abstract class PushGoDatabase : RoomDatabase() {
                         ensureMessageStatsSeedRows(db)
                         installMessagePerformanceIndexes(db)
                         installMessageStatsTriggers(db)
+                        createResourceOwnership(db)
                         if (!messageStatsAreConsistent(db)) {
                             rebuildMessageStats(db)
                         }

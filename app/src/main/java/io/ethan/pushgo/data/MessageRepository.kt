@@ -537,6 +537,7 @@ class MessageRepository(
                     return@withTransaction false
                 }
                 val inserted = tryInsertThingSubMessage(ThingSubMessageEntity.fromModel(canonicalMessage))
+                if (inserted) database.recordResourceOrigin(canonicalMessage.id, canonicalMessage.receivedAt.toEpochMilli(), deliveryScope)
                 return@withTransaction inserted
             }
 
@@ -558,6 +559,7 @@ class MessageRepository(
             if (!inserted) {
                 return@withTransaction false
             }
+            database.recordResourceOrigin(entity.id, canonicalMessage.receivedAt.toEpochMilli(), deliveryScope)
             committedTopLevel = entity.id to canonicalMessage
             true
         }

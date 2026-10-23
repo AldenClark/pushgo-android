@@ -9,13 +9,24 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.produceState
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.boundsInWindow
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import coil3.request.CachePolicy
+import coil3.gif.AnimatedImageDecoder
+import io.ethan.pushgo.data.MessageImageStore
+import io.ethan.pushgo.data.ImageResourceObservation
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
@@ -33,13 +44,10 @@ import coil3.gif.onAnimationEnd
 import coil3.gif.repeatCount
 import coil3.request.ImageRequest
 import coil3.request.crossfade
-import io.ethan.pushgo.data.ImageAssetMetadataStore
 import io.ethan.pushgo.R
 import io.ethan.pushgo.ui.theme.PushGoThemeExtras
 import java.io.File
 import java.util.Locale
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
 
 @Composable
 fun PushGoPlayableImage(
@@ -54,22 +62,35 @@ fun PushGoPlayableImage(
     showPlayOverlayWhenIdle: Boolean = true,
     enableCrossfade: Boolean = true,
     onPlayClick: (() -> Unit)? = null,
+    onPauseClick: (() -> Unit)? = null,
     onPlaybackFinished: (() -> Unit)? = null,
     onClick: (() -> Unit)? = null,
     onClickLabel: String? = null,
     onImageLoadStateChanged: ((PushGoImageLoadState) -> Unit)? = null,
 ) {
     val context = LocalContext.current
+    var retryVersion by remember(model) { mutableIntStateOf(0) }
+    val retryLabel = stringResource(R.string.action_retry)
+    val lifecycleOwner = LocalLifecycleOwner.current
+    var foreground by remember(lifecycleOwner) { mutableStateOf(lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) }
+    var visible by remember(model) { mutableStateOf(true) }
+    var decodedImage by remember(model) { mutableStateOf<Image?>(null) }
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, _ -> foreground = lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED) }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
     val uiColors = PushGoThemeExtras.colors
-    val metadataAnimatedHint = rememberAnimatedHint(model)
     var detectedAnimated by remember(model) { mutableStateOf<Boolean?>(null) }
     var imageLoadState by remember(model) {
         mutableStateOf(if (model == null) PushGoImageLoadState.Empty else PushGoImageLoadState.Loading)
     }
     var hidePlayOverlayUntilPlaybackEnds by remember(model) { mutableStateOf(false) }
     val playbackFinishedState by rememberUpdatedState(onPlaybackFinished)
-    val resolvedAnimatedHint = knownAnimated ?: metadataAnimatedHint ?: detectedAnimated
-    val shouldAnimate = shouldPlayAnimated && (resolvedAnimatedHint != false)
+    val resolvedAnimatedHint = detectedAnimated ?: knownAnimated ?: if (pushGoIsAnimatedModel(model)) true else null
+    val wantsAnimation = shouldPlayAnimated && foreground && visible
+    val shouldAnimate = wantsAnimation && (resolvedAnimatedHint != false)
+    val resourceObservation = remember(model, retryVersion) { ImageResourceObservation() }
     LaunchedEffect(shouldAnimate) {
         if (!shouldAnimate) {
             hidePlayOverlayUntilPlaybackEnds = false
@@ -78,19 +99,32 @@ fun PushGoPlayableImage(
     LaunchedEffect(imageLoadState) {
         onImageLoadStateChanged?.invoke(imageLoadState)
     }
-    val request = remember(context, model, shouldAnimate, enableCrossfade) {
+    val request = remember(context, model, wantsAnimation, enableCrossfade, retryVersion) {
         val builder = when (model) {
             is ImageRequest -> model.newBuilder(context)
             else -> ImageRequest.Builder(context).data(model)
         }
             .crossfade(enableCrossfade)
-        builder.repeatCount(0)
-        if (shouldAnimate) {
+        builder
+            .memoryCachePolicy(CachePolicy.DISABLED)
+            .diskCachePolicy(CachePolicy.DISABLED)
+            .decoderCoroutineContext(ResourceImageDecodeBudget.dispatcher)
+            .decoderFactory(if (wantsAnimation) AnimatedImageDecoder.Factory() else ResourceImageDecodeBudget.staticDecoder)
+            .size(ResourceImageDecodeBudget.DETAIL_SIDE)
+            .repeatCount(0)
+        builder.extras[ImageResourceObservation.Key] = resourceObservation
+        if (wantsAnimation) {
             builder.onAnimationEnd {
                 playbackFinishedState?.invoke()
             }
         }
         builder.build()
+    }
+
+    DisposableEffect(decodedImage, shouldAnimate) {
+        val image = decodedImage
+        if (shouldAnimate) image?.startAnimationIfPossible() else image?.stopAnimationIfPossible()
+        onDispose { image?.stopAnimationIfPossible() }
     }
 
     val imageClickModifier = if (onClick != null && imageLoadState.isLoaded) {
@@ -103,7 +137,11 @@ fun PushGoPlayableImage(
     }
 
     Box(
-        modifier = modifier.then(imageClickModifier),
+        modifier = modifier.then(imageClickModifier).onGloballyPositioned { coordinates ->
+            val bounds = coordinates.boundsInWindow()
+            val screen = context.resources.displayMetrics
+            visible = bounds.bottom > 0 && bounds.right > 0 && bounds.top < screen.heightPixels && bounds.left < screen.widthPixels
+        },
     ) {
         AsyncImage(
             model = request,
@@ -113,14 +151,15 @@ fun PushGoPlayableImage(
             alignment = alignment,
             clipToBounds = clipToBounds,
             onLoading = {
+                decodedImage?.stopAnimationIfPossible()
+                decodedImage = null
                 imageLoadState = PushGoImageLoadState.Loading
             },
             onSuccess = { success ->
-                imageLoadState = PushGoImageLoadState.Loaded
+                imageLoadState = if (resourceObservation.stale) PushGoImageLoadState.Stale else PushGoImageLoadState.Loaded
+                decodedImage = success.result.image
                 val animatable = success.result.image.isAnimationCapable()
-                if (detectedAnimated != animatable) {
-                    detectedAnimated = animatable
-                }
+                detectedAnimated = if (wantsAnimation) animatable else resourceObservation.animated
                 if (animatable) {
                     if (shouldAnimate) {
                         success.result.image.startAnimationIfPossible()
@@ -130,27 +169,40 @@ fun PushGoPlayableImage(
                 }
             },
             onError = {
+                decodedImage?.stopAnimationIfPossible()
+                decodedImage = null
                 imageLoadState = PushGoImageLoadState.Error
             },
         )
         if (!imageLoadState.isLoaded) {
             PushGoImagePlaceholder(
-                modifier = Modifier.fillMaxSize(),
+                modifier = Modifier.fillMaxSize().then(
+                    if (imageLoadState == PushGoImageLoadState.Error) Modifier.clickable(onClickLabel = retryLabel) { retryVersion++ } else Modifier,
+                ),
                 isError = imageLoadState == PushGoImageLoadState.Error,
             )
         }
 
+        if (imageLoadState == PushGoImageLoadState.Stale) {
+            ResourceImageFallbackBadge(Modifier.align(Alignment.TopEnd)) { retryVersion++ }
+        }
+
         if (
+            imageLoadState.isLoaded &&
             resolvedAnimatedHint == true &&
             showPlayOverlayWhenIdle &&
-            !shouldAnimate &&
-            !hidePlayOverlayUntilPlaybackEnds &&
+            (shouldAnimate || !hidePlayOverlayUntilPlaybackEnds) &&
             onPlayClick != null
         ) {
             IconButton(
                 onClick = {
-                    hidePlayOverlayUntilPlaybackEnds = true
-                    onPlayClick()
+                    if (shouldAnimate) {
+                        hidePlayOverlayUntilPlaybackEnds = false
+                        onPauseClick?.invoke()
+                    } else {
+                        hidePlayOverlayUntilPlaybackEnds = true
+                        onPlayClick()
+                    }
                 },
                 modifier = Modifier
                     .align(Alignment.BottomEnd)
@@ -159,29 +211,13 @@ fun PushGoPlayableImage(
                     .background(uiColors.overlayScrim.copy(alpha = 0.35f)),
             ) {
                 Icon(
-                    imageVector = Icons.Filled.PlayArrow,
-                    contentDescription = stringResource(R.string.a11y_action_play_image),
+                    imageVector = if (shouldAnimate) Icons.Filled.Pause else Icons.Filled.PlayArrow,
+                    contentDescription = stringResource(if (shouldAnimate) R.string.a11y_action_pause_image else R.string.a11y_action_play_image),
                     tint = uiColors.overlayForeground,
                 )
             }
         }
     }
-}
-
-@Composable
-private fun rememberAnimatedHint(model: Any?): Boolean? {
-    val context = LocalContext.current
-    val identity = remember(model) { pushGoImageModelIdentity(model) }
-    val metadataHint by produceState<Boolean?>(initialValue = null, identity) {
-        if (identity.isBlank()) {
-            value = null
-            return@produceState
-        }
-        value = withContext(Dispatchers.IO) {
-            ImageAssetMetadataStore.get(context.applicationContext).findByUrl(identity)?.isAnimated
-        }
-    }
-    return metadataHint ?: if (pushGoIsAnimatedModel(model)) true else null
 }
 
 internal fun pushGoImageModelIdentity(model: Any?): String {
@@ -191,6 +227,7 @@ internal fun pushGoImageModelIdentity(model: Any?): String {
         is File -> model.absolutePath
         is Uri -> model.toString()
         is ImageRequest -> pushGoImageModelIdentity(model.data)
+        is MessageImageStore.ImageRequestModel -> "${model.ownerScope}:${model.ownerId}:${model.ownerVersion}:${model.ownerSelector}:${model.url}"
         else -> model.toString()
     }
     return raw.trim()
@@ -201,7 +238,8 @@ internal fun pushGoIsAnimatedModel(model: Any?): Boolean {
     if (identity.isEmpty()) {
         return false
     }
-    val sanitized = identity.substringBefore('#').substringBefore('?')
+    val rawUrl = (model as? MessageImageStore.ImageRequestModel)?.url ?: identity
+    val sanitized = rawUrl.substringBefore('#').substringBefore('?')
     val name = sanitized.substringAfterLast('/')
     val extension = name.substringAfterLast('.', "").lowercase(Locale.US)
     // WebP can be either static or animated; do not infer animation from extension alone.

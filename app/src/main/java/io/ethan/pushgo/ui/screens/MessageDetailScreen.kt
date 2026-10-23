@@ -174,15 +174,12 @@ fun MessageDetailScreen(
     val timeText = remember(current?.receivedAt, configuration) {
         current?.let { formatDetailTime(context, it.receivedAt, ZoneId.systemDefault()) }.orEmpty()
     }
-    val imageModels = remember(current?.rawPayloadJson) {
-        current?.let { imageStore.resolveDetailImageModels(it.rawPayloadJson) }.orEmpty()
+    val imageModels = remember(current?.id, current?.serverId, current?.receivedAt, current?.rawPayloadJson) {
+        current?.let { imageStore.resolveDetailImageModels(it) }.orEmpty()
     }
-    val primaryRemoteImageUrl = remember(current?.rawPayloadJson) {
-        current?.let { imageStore.resolveRemoteImageUrl(it.rawPayloadJson, preferredUrl = null) }
-    }
-    val primaryImageAspectRatio by produceState<Float?>(initialValue = null, primaryRemoteImageUrl) {
-        value = primaryRemoteImageUrl?.let { url ->
-            imageStore.imageAspectRatioFromMetadata(url)
+    val primaryImageAspectRatio by produceState<Float?>(initialValue = null, imageModels.firstOrNull()) {
+        value = (imageModels.firstOrNull() as? MessageImageStore.ImageRequestModel)?.let { model ->
+            imageStore.metadataFor(model)?.aspectRatio?.toFloat()
         }
     }
     var channelNameMap by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
@@ -377,6 +374,11 @@ internal fun MessageDetailCoreContent(
     onOpenUrl: (String) -> Unit,
 ) {
     val uiColors = PushGoThemeExtras.colors
+    val imageContext = LocalContext.current.applicationContext
+    val controlledImageStore = remember(imageContext) { MessageImageStore.shared(imageContext) }
+    val resourceModelForUrl = remember(message.id, message.serverId, message.receivedAt) {
+        { url: String -> controlledImageStore.imageModel(message, url) }
+    }
     val detailScrollState = rememberScrollState()
     var activeAnimatedImageKey by remember(message.id) { mutableStateOf<String?>(null) }
     val reservedAspectRatio = remember(primaryImageAspectRatio) {
@@ -502,6 +504,7 @@ internal fun MessageDetailCoreContent(
                         MarkdownAnimatedImagePlaybackRegistry.stopAll()
                         activeAnimatedImageKey = playbackKey
                     },
+                    onPauseClick = { activeAnimatedImageKey = null },
                     onPlaybackFinished = {
                         if (activeAnimatedImageKey == playbackKey) {
                             activeAnimatedImageKey = null
@@ -536,6 +539,7 @@ internal fun MessageDetailCoreContent(
                                 MarkdownAnimatedImagePlaybackRegistry.stopAll()
                                 activeAnimatedImageKey = playbackKey
                             },
+                            onPauseClick = { activeAnimatedImageKey = null },
                             onPlaybackFinished = {
                                 if (activeAnimatedImageKey == playbackKey) {
                                     activeAnimatedImageKey = null
@@ -593,10 +597,11 @@ internal fun MessageDetailCoreContent(
                 .testTag("field.message.detail.body")
                 .semantics { this.text = AnnotatedString(resolvedBodyText) },
             onOpenLink = onOpenUrl,
+            resourceModelForUrl = resourceModelForUrl,
             onOpenImage = { imageUrl ->
                 activeAnimatedImageKey = null
                 MarkdownAnimatedImagePlaybackRegistry.stopAll()
-                onOpenImage(imageUrl)
+                onOpenImage(resourceModelForUrl(imageUrl))
             },
             onAnimatedImagePlay = {
                 activeAnimatedImageKey = null
@@ -786,32 +791,32 @@ private suspend fun saveMessageImageToGallery(
     model: Any,
     imageStore: MessageImageStore,
 ): Boolean = withContext(Dispatchers.IO) {
-    val source = resolveImageFileForAction(model, imageStore) ?: return@withContext false
-    val mimeType = inferMimeType(source.name)
-    val fileName = "pushgo-${System.currentTimeMillis()}.${source.extension.ifBlank { "jpg" }}"
+    val source = resolveImageForAction(model, imageStore) ?: return@withContext false
+    source.use {
+        val mimeType = source.mimeType
+        val fileName = "pushgo-${System.currentTimeMillis()}.${source.extension}"
 
-    val resolver = context.contentResolver
-    val contentValues = android.content.ContentValues().apply {
-        put(MediaStore.Images.Media.DISPLAY_NAME, fileName)
-        put(MediaStore.Images.Media.MIME_TYPE, mimeType)
-        put(MediaStore.Images.Media.RELATIVE_PATH, "Pictures/PushGo")
-        put(MediaStore.Images.Media.IS_PENDING, 1)
-    }
-    val targetUri = resolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, contentValues)
-        ?: return@withContext false
-    return@withContext try {
-        resolver.openOutputStream(targetUri)?.use { output ->
-            FileInputStream(source).use { input ->
-                input.copyTo(output)
-            }
-        } ?: return@withContext false
-        contentValues.clear()
-        contentValues.put(MediaStore.Images.Media.IS_PENDING, 0)
-        resolver.update(targetUri, contentValues, null, null)
-        true
-    } catch (_: Exception) {
-        resolver.delete(targetUri, null, null)
-        false
+        val resolver = context.contentResolver
+        val contentValues = android.content.ContentValues().apply {
+            put(MediaStore.Images.Media.DISPLAY_NAME, fileName)
+            put(MediaStore.Images.Media.MIME_TYPE, mimeType)
+            put(MediaStore.Images.Media.RELATIVE_PATH, "Pictures/PushGo")
+            put(MediaStore.Images.Media.IS_PENDING, 1)
+        }
+        val targetUri = resolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, contentValues)
+            ?: return@withContext false
+        return@withContext try {
+            resolver.openOutputStream(targetUri)?.use { output ->
+                source.copyTo(output)
+            } ?: throw java.io.IOException("Image output unavailable")
+            contentValues.clear()
+            contentValues.put(MediaStore.Images.Media.IS_PENDING, 0)
+            resolver.update(targetUri, contentValues, null, null)
+            true
+        } catch (_: Exception) {
+            resolver.delete(targetUri, null, null)
+            false
+        }
     }
 }
 
@@ -820,44 +825,79 @@ private suspend fun shareMessageImage(
     model: Any,
     imageStore: MessageImageStore,
 ): Boolean = withContext(Dispatchers.IO) {
-    val source = resolveImageFileForAction(model, imageStore) ?: return@withContext false
-    val shareDir = File(context.cacheDir, "shared-images").apply { mkdirs() }
-    val extension = source.extension.ifBlank { "jpg" }
-    val copied = File(shareDir, "pushgo-share-${System.currentTimeMillis()}.$extension")
-    return@withContext try {
-        FileInputStream(source).use { input ->
-            FileOutputStream(copied).use { output ->
-                input.copyTo(output)
+    val source = resolveImageForAction(model, imageStore) ?: return@withContext false
+    source.use {
+        val shareDir = File(context.cacheDir, "shared-images").apply { mkdirs() }
+        val extension = source.extension
+        val digest = java.security.MessageDigest.getInstance("SHA-256")
+        source.file?.inputStream()?.use { input ->
+            val chunk = ByteArray(DEFAULT_BUFFER_SIZE)
+            while (true) { val read = input.read(chunk); if (read < 0) break; digest.update(chunk, 0, read) }
+        } ?: digest.update(requireNotNull(source.bytes))
+        val contentHash = digest.digest().joinToString("") { "%02x".format(it) }
+        val copied = File(shareDir, "pushgo-share-$contentHash.$extension")
+        return@withContext try {
+            if (!copied.isFile) {
+                val oldEnough = System.currentTimeMillis() - java.util.concurrent.TimeUnit.DAYS.toMillis(1)
+                var visited = 0
+                var retained = 0
+                java.nio.file.Files.newDirectoryStream(shareDir.toPath()).use { entries ->
+                    for (entry in entries) {
+                        if (++visited > 80) return@withContext false
+                        val item = entry.toFile()
+                        if (!item.isFile) continue
+                        if (item.lastModified() < oldEnough && item.delete()) continue
+                        if (++retained >= 16) return@withContext false
+                    }
+                }
+                val partial = File.createTempFile("publishing-", ".tmp", shareDir)
+                try {
+                    FileOutputStream(partial).use { output -> source.copyTo(output) }
+                    if (!partial.renameTo(copied)) throw java.io.IOException("Image publication failed")
+                } finally { partial.delete() }
             }
+            val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", copied)
+            val intent = Intent(Intent.ACTION_SEND).apply {
+                type = source.mimeType
+                putExtra(Intent.EXTRA_STREAM, uri)
+                clipData = ClipData.newUri(context.contentResolver, copied.name, uri)
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            context.startActivity(Intent.createChooser(intent, null).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+            true
+        } catch (_: Exception) {
+            false
         }
-        val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", copied)
-        val intent = Intent(Intent.ACTION_SEND).apply {
-            type = inferMimeType(copied.name)
-            putExtra(Intent.EXTRA_STREAM, uri)
-            clipData = ClipData.newUri(context.contentResolver, copied.name, uri)
-            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        }
-        context.startActivity(Intent.createChooser(intent, null).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
-        true
-    } catch (_: Exception) {
-        copied.delete()
-        false
     }
 }
 
-private suspend fun resolveImageFileForAction(
-    model: Any,
-    imageStore: MessageImageStore,
-): File? = withContext(Dispatchers.IO) {
-    when (model) {
-        is File -> if (model.exists() && model.isFile) model else null
-        is String -> {
-            val normalized = normalizeExternalImageUrl(model) ?: return@withContext null
-            val cached = imageStore.ensureCached(normalized) ?: return@withContext null
-            val file = File(cached.originalPath)
-            if (file.exists() && file.isFile) file else null
+/** Export the exact original, including multi-frame bytes; never export a display thumbnail. */
+private data class ImageActionSource(val file: File?, val bytes: ByteArray?, val mimeType: String, val lease: java.io.Closeable? = null) : java.io.Closeable {
+    override fun close() { lease?.close() }
+    val extension: String get() = when (mimeType.substringBefore(';')) {
+        "image/png", "image/apng" -> "png"
+        "image/gif" -> "gif"
+        "image/webp" -> "webp"
+        "image/avif" -> "avif"
+        "image/heic", "image/heif" -> "heic"
+        "image/bmp" -> "bmp"
+        else -> "jpg"
+    }
+    fun copyTo(output: java.io.OutputStream) {
+        if (file != null) file.inputStream().use { it.copyTo(output) }
+        else output.write(requireNotNull(bytes))
+    }
+}
+
+private suspend fun resolveImageForAction(model: Any, imageStore: MessageImageStore): ImageActionSource? {
+    return when (model) {
+        is MessageImageStore.ImageRequestModel -> {
+            val original = imageStore.acquire(model.copy(thumbnail = false)) ?: return null
+            ImageActionSource(original.file, original.bytes, original.mimeType ?: "application/octet-stream", original)
         }
+        is File -> if (model.isFile) ImageActionSource(model, null, inferMimeType(model.name)) else null
+        // Raw remote display destinations must first acquire message ownership.
         else -> null
     }
 }

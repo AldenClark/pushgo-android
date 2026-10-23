@@ -12,12 +12,14 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Image
 import androidx.compose.material.icons.outlined.WarningAmber
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -30,6 +32,11 @@ import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
 import coil3.request.ImageRequest
 import coil3.request.crossfade
+import coil3.decode.BitmapFactoryDecoder
+import coil3.request.CachePolicy
+import io.ethan.pushgo.data.ControlledImageDecoding
+import io.ethan.pushgo.data.ImageResourceObservation
+import kotlinx.coroutines.sync.Semaphore
 import io.ethan.pushgo.R
 import io.ethan.pushgo.ui.theme.PushGoThemeExtras
 
@@ -37,11 +44,12 @@ enum class PushGoImageLoadState {
     Empty,
     Loading,
     Loaded,
+    Stale,
     Error,
     ;
 
     val isLoaded: Boolean
-        get() = this == Loaded
+        get() = this == Loaded || this == Stale
 }
 
 @Composable
@@ -58,13 +66,20 @@ fun PushGoAsyncImage(
     onImageLoadStateChanged: ((PushGoImageLoadState) -> Unit)? = null,
 ) {
     val context = LocalContext.current
-    val request = remember(context, model, crossfade) {
+    var retryVersion by remember(model) { mutableIntStateOf(0) }
+    val resourceObservation = remember(model, retryVersion) { ImageResourceObservation() }
+    val retryLabel = stringResource(R.string.action_retry)
+    val request = remember(context, model, crossfade, retryVersion) {
         when (model) {
             null -> null
-            is ImageRequest -> model
-            else -> ImageRequest.Builder(context)
-                .data(model)
+            else -> (if (model is ImageRequest) model.newBuilder(context) else ImageRequest.Builder(context).data(model))
                 .crossfade(crossfade)
+                .decoderFactory(ResourceImageDecodeBudget.staticDecoder)
+                .decoderCoroutineContext(ResourceImageDecodeBudget.dispatcher)
+                .size(256)
+                .memoryCachePolicy(CachePolicy.DISABLED)
+                .diskCachePolicy(CachePolicy.DISABLED)
+                .apply { extras[ImageResourceObservation.Key] = resourceObservation }
                 .build()
         }
     }
@@ -95,19 +110,32 @@ fun PushGoAsyncImage(
                 loadState = PushGoImageLoadState.Loading
             },
             onSuccess = {
-                loadState = PushGoImageLoadState.Loaded
+                loadState = if (resourceObservation.stale) PushGoImageLoadState.Stale else PushGoImageLoadState.Loaded
             },
             onError = {
                 loadState = PushGoImageLoadState.Error
             },
         )
 
+        if (loadState == PushGoImageLoadState.Stale) {
+            ResourceImageFallbackBadge(Modifier.align(Alignment.TopEnd)) { retryVersion++ }
+        }
+
         if (showPlaceholderWhenNotLoaded && !loadState.isLoaded) {
             PushGoImagePlaceholder(
-                modifier = Modifier.fillMaxSize(),
+                modifier = Modifier.fillMaxSize().then(
+                    if (loadState == PushGoImageLoadState.Error) Modifier.clickable(onClickLabel = retryLabel) { retryVersion++ } else Modifier,
+                ),
                 isError = loadState == PushGoImageLoadState.Error,
             )
         }
+    }
+}
+
+@Composable
+internal fun ResourceImageFallbackBadge(modifier: Modifier = Modifier, retry: () -> Unit) {
+    IconButton(onClick = retry, modifier = modifier) {
+        Icon(Icons.Outlined.WarningAmber, stringResource(R.string.image_cached_fallback_retry), tint = MaterialTheme.colorScheme.error)
     }
 }
 
@@ -142,4 +170,11 @@ internal fun PushGoImagePlaceholder(
             }
         }
     }
+}
+
+/** Shared decode admission only: no queue of URLs or second resource/cache owner. */
+internal object ResourceImageDecodeBudget {
+    val dispatcher = ControlledImageDecoding.dispatcher
+    val staticDecoder = BitmapFactoryDecoder.Factory(Semaphore(2))
+    const val DETAIL_SIDE = ControlledImageDecoding.DETAIL_SIDE // at most 16 MiB RGBA for one decoded full-size frame
 }

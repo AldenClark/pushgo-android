@@ -5,7 +5,6 @@ import android.os.Bundle
 import android.os.Build
 import coil3.ImageLoader
 import coil3.SingletonImageLoader
-import coil3.disk.DiskCache
 import coil3.gif.AnimatedImageDecoder
 import coil3.gif.GifDecoder
 import coil3.memory.MemoryCache
@@ -41,7 +40,6 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.suspendCancellableCoroutine
 import java.util.concurrent.atomic.AtomicLong
-import okio.Path.Companion.toOkioPath
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 
@@ -143,7 +141,7 @@ class PushGoApp : Application(), SingletonImageLoader.Factory {
     }
 
     private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-    private val imageStoreForCoil by lazy { MessageImageStore(this) }
+    private fun imageStoreForCoil() = MessageImageStore.shared(this)
     private var startedActivities: Int = 0
 
     override fun onCreate() {
@@ -471,20 +469,20 @@ class PushGoApp : Application(), SingletonImageLoader.Factory {
     override fun newImageLoader(context: coil3.PlatformContext): ImageLoader {
         return ImageLoader.Builder(context)
             .components {
-                add(MessageImageStoreFetcher.Factory(imageStoreForCoil))
+                add(MessageImageStoreFetcher.OwnedFactory(::imageStoreForCoil))
+                add(MessageImageStoreFetcher.Factory(::imageStoreForCoil))
                 add(AnimatedImageDecoder.Factory())
             }
             .memoryCache {
                 MemoryCache.Builder()
-                    .maxSizePercent(context, 0.25)
+                    // Controlled remote requests disable this cache. Keep a small
+                    // ceiling for packaged/local images rather than 25% of app RAM.
+                    .maxSizeBytes(16L * 1024 * 1024)
                     .build()
             }
-            .diskCache {
-                DiskCache.Builder()
-                    .directory(cacheDir.resolve("image_cache").toOkioPath())
-                    .maxSizeBytes(512L * 1024 * 1024)
-                    .build()
-            }
+            // The content-addressed store owns original bytes and HTTP policy. Do not
+            // create a second URL-keyed disk cache that could bypass no-store or bindings.
+            .diskCache(null)
             .crossfade(true)
             .build()
     }

@@ -47,6 +47,7 @@ fun ZoomableImagePreviewDialog(
     autoPlayAnimated: Boolean = true,
 ) {
     if (model == null) return
+    val originalModel = if (model is io.ethan.pushgo.data.MessageImageStore.ImageRequestModel) model.copy(thumbnail = false) else model
     val uiColors = PushGoThemeExtras.colors
     var scale by remember(model) { mutableFloatStateOf(1f) }
     var offset by remember(model) { mutableStateOf(Offset.Zero) }
@@ -67,12 +68,13 @@ fun ZoomableImagePreviewDialog(
                 .testTag("dialog.image.preview")
         ) {
             PushGoPlayableImage(
-                model = model,
+                model = originalModel,
                 contentDescription = stringResource(R.string.label_image_attachment),
                 contentScale = ContentScale.Fit,
                 shouldPlayAnimated = isPlaying,
                 enableCrossfade = false,
                 onPlayClick = { isPlaying = true },
+                onPauseClick = { isPlaying = false },
                 onPlaybackFinished = { isPlaying = false },
                 onClickLabel = stringResource(R.string.a11y_action_open_image_preview),
                 modifier = Modifier

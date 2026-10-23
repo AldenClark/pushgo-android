@@ -54,7 +54,7 @@ object ImageCacheCleanupScheduler {
             if (PushGoAutomation.isSessionConfigured()) {
                 return Result.success()
             }
-            MessageImageStore(applicationContext).purgeExpired()
+            MessageImageStore.shared(applicationContext).purgeExpired()
             return Result.success()
         }
     }

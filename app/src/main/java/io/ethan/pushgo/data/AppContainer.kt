@@ -85,7 +85,7 @@ class AppContainer(
             ?: AndroidKeystoreSecretStore.PRODUCTION_PREFERENCE_FILE,
     )
 
-    val messageImageStore = MessageImageStore(appContext)
+    val messageImageStore = MessageImageStore(appContext, database)
     val settingsRepository = SettingsRepository(
         appSettingsDao = database.appSettingsDao(),
         secretStore = secureSecretStore,
@@ -764,7 +764,11 @@ class AppContainer(
             .apply {
                 if (includesMedia) {
                     put("severity", "high")
-                    val image = qualityStandardMessageImage()
+                    val originalFixture = qualityStandardMessageImage()
+                    val image = File(appContext.cacheDir, "message_images/original/quality-standard-message.png").apply {
+                        parentFile?.mkdirs()
+                        if (!exists() || length() != originalFixture.length()) originalFixture.copyTo(this, overwrite = true)
+                    }
                     put("images", JSONArray(listOf(QUALITY_STANDARD_MESSAGE_IMAGE_URL)).toString())
                     put(MessageImageStore.KEY_IMAGE_LOCAL_PATH, image.absolutePath)
                     put(MessageImageStore.KEY_IMAGE_THUMBNAIL_LOCAL_PATH, image.absolutePath)

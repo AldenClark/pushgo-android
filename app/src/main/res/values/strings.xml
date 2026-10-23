@@ -330,6 +330,8 @@
     <string name="a11y_action_open_event">Open event</string>
     <string name="a11y_action_open_thing">Open object</string>
     <string name="a11y_action_open_image_preview">Open image preview</string>
+    <string name="image_cached_fallback_retry">Saved image shown; refresh failed. Tap to retry.</string>
+    <string name="a11y_action_pause_image">Pause animated image</string>
     <string name="a11y_action_play_image">Play animated image</string>
     <string name="a11y_action_copy_channel_id">Copy channel ID</string>
     <string name="a11y_action_mark_message_read">Mark message as read</string>

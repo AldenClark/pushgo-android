@@ -325,6 +325,8 @@
     <string name="a11y_action_open_event">開啟事件</string>
     <string name="a11y_action_open_thing">開啟物件</string>
     <string name="a11y_action_open_image_preview">開啟圖片預覽</string>
+    <string name="image_cached_fallback_retry">暫時顯示已儲存圖片，更新失敗。點按重試。</string>
+    <string name="a11y_action_pause_image">暫停動態圖片</string>
     <string name="a11y_action_play_image">播放動態圖片</string>
     <string name="a11y_action_copy_channel_id">複製頻道 ID</string>
     <string name="a11y_action_mark_message_read">將訊息標記為已讀</string>

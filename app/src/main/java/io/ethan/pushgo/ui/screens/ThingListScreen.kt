@@ -1,5 +1,7 @@
 package io.ethan.pushgo.ui.screens
 
+import io.ethan.pushgo.data.MessageImageStore
+
 import android.widget.Toast
 import android.text.format.DateUtils
 import androidx.activity.compose.BackHandler
@@ -133,6 +135,10 @@ data class ThingCardModel(
     val locationType: String? = null,
     val locationValue: String? = null,
     val externalIds: Map<String, String> = emptyMap(),
+    val resourceOwnerId: String? = null,
+    val resourceOwnerVersion: String? = null,
+    val resourceOwnerScope: String = "public",
+    val resourceOwnerSelector: String? = null,
 )
 
 @Serializable
@@ -996,7 +1002,7 @@ internal fun ThingRow(
                 verticalAlignment = Alignment.Top,
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
             ) {
-                ThingImageThumb(url = thing.imageUrl)
+                ThingImageThumb(url = thing.imageUrl, resourceModel = thing.imageUrl?.let { thing.resourceImageModel(it, thumbnail = true) })
                 Column(
                     modifier = Modifier.weight(1f),
                     verticalArrangement = Arrangement.spacedBy(5.dp),
@@ -1047,7 +1053,7 @@ internal fun ThingRow(
             if (attachmentPreviewUrls.isNotEmpty()) {
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     attachmentPreviewUrls.take(4).forEach { url ->
-                        ThingImageThumb(url = url, size = 42.dp)
+                        ThingImageThumb(url = url, size = 42.dp, resourceModel = thing.resourceImageModel(url, thumbnail = true))
                     }
                     val overflow = attachmentPreviewUrls.size - 4
                     if (overflow > 0) {
@@ -1073,6 +1079,7 @@ private fun ThingImageThumb(
     url: String?,
     size: androidx.compose.ui.unit.Dp = 44.dp,
     onClick: ((String) -> Unit)? = null,
+    resourceModel: Any? = null,
 ) {
     val uiColors = PushGoThemeExtras.colors
     val normalized = url?.trim().takeUnless { it.isNullOrEmpty() }?.takeIf(::isThingImageAttachmentUrl)
@@ -1096,7 +1103,7 @@ private fun ThingImageThumb(
         return
     }
     PushGoAsyncImage(
-        model = normalized,
+        model = resourceModel ?: MessageImageStore.ImageRequestModel(normalized, thumbnail = true),
         contentDescription = null,
         contentScale = ContentScale.Crop,
         onClickWhenLoaded = if (onClick != null) {
@@ -1204,6 +1211,10 @@ internal fun buildThingCardsInternal(
 
         ThingCardModel(
             thingId = thingId,
+            resourceOwnerId = latestThingMessage.id,
+            resourceOwnerVersion = MessageImageStore.resourceOwnerVersion(latestThingMessage.serverId, latestThingMessage.receivedAt.toEpochMilli()),
+            resourceOwnerScope = latestThingMessage.serverId ?: "local",
+            resourceOwnerSelector = MessageImageStore.resourceOwnerSelector(latestThingMessage.rawPayloadJson),
             title = title,
             summary = summary,
             state = state,
@@ -1367,7 +1378,7 @@ private fun ThingDetailSheet(
     onOpenRelatedUpdate: (ThingRelatedUpdate) -> Unit,
     onDelete: () -> Unit,
 ) {
-    var previewImageUrl by remember { mutableStateOf<String?>(null) }
+    var previewImageUrl by remember { mutableStateOf<Any?>(null) }
     var showMetadataSheet by remember { mutableStateOf(false) }
     var selectedTab by remember(thing.thingId, initialTab) { mutableStateOf(initialTab ?: ThingDetailTab.Events) }
     LaunchedEffect(selectedTab) { onSelectedTabChange(selectedTab) }
@@ -1404,7 +1415,8 @@ private fun ThingDetailSheet(
                     ThingImageThumb(
                         url = thing.imageUrl,
                         size = 84.dp,
-                        onClick = { url -> previewImageUrl = url },
+                        resourceModel = thing.imageUrl?.let { thing.resourceImageModel(it, thumbnail = true) },
+                        onClick = { url -> previewImageUrl = thing.resourceImageModel(url) },
                     )
                     IconButton(
                         modifier = Modifier
@@ -1521,7 +1533,7 @@ private fun ThingDetailSheet(
                 modifier = Modifier.horizontalScroll(rememberScrollState()),
             ) {
                 thing.imageUrls.drop(1).forEach { url ->
-                    ThingImageThumb(url = url, size = 88.dp, onClick = { previewImageUrl = it })
+                    ThingImageThumb(url = url, size = 88.dp, resourceModel = thing.resourceImageModel(url, thumbnail = true), onClick = { previewImageUrl = thing.resourceImageModel(it) })
                 }
             }
         }
@@ -1618,7 +1630,9 @@ private fun ThingDetailSheet(
                                     ) {
                                         MessageRowContent(
                                             message = rowMessage.asListItem(),
-                                            imageModels = rowMessage.imageUrls.take(3).map { it as Any },
+                                            imageModels = rowMessage.imageUrls.take(3).map { url ->
+                                                MessageImageStore.ImageRequestModel(url, rowMessage.id, MessageImageStore.resourceOwnerVersion(rowMessage.serverId, rowMessage.receivedAt.toEpochMilli()), rowMessage.serverId ?: "local", thumbnail = true, ownerSelector = MessageImageStore.resourceOwnerSelector(rowMessage.rawPayloadJson))
+                                            },
                                             appName = stringResource(R.string.app_name),
                                             timeText = formatMessageTime(
                                                 context = LocalContext.current,
@@ -1738,6 +1752,7 @@ private fun ThingDetailSheet(
 private fun ThingRelatedMessageDetailSheet(message: ThingRelatedMessage) {
     val current = message.message
     val context = LocalContext.current
+    val controlledImageStore = remember(context.applicationContext) { MessageImageStore.shared(context.applicationContext) }
     val copiedMessage = stringResource(R.string.message_text_copied)
     val bottomGestureInset = rememberBottomGestureInset()
     val timeText = remember(current.receivedAt) {
@@ -1746,11 +1761,11 @@ private fun ThingRelatedMessageDetailSheet(message: ThingRelatedMessage) {
     val resolvedBody = remember(current.rawPayloadJson, current.body) {
         io.ethan.pushgo.markdown.MessageBodyResolver.resolve(current.rawPayloadJson, current.body)
     }
-    var previewImageUrl by remember { mutableStateOf<String?>(null) }
+    var previewImageUrl by remember { mutableStateOf<Any?>(null) }
     MessageDetailCoreContent(
         message = current,
         timeText = timeText,
-        imageModels = current.imageUrls.map { it as Any },
+        imageModels = controlledImageStore.resolveDetailImageModels(current),
         primaryImageAspectRatio = null,
         channelDisplayName = current.channel?.trim()?.takeIf { it.isNotEmpty() },
         resolvedBodyText = resolvedBody.rawText,
@@ -1762,9 +1777,7 @@ private fun ThingRelatedMessageDetailSheet(message: ThingRelatedMessage) {
             Toast.makeText(context, copiedMessage, Toast.LENGTH_SHORT).show()
         },
         onOpenImage = { model ->
-            val raw = model as? String ?: return@MessageDetailCoreContent
-            val safeImage = normalizeExternalImageUrl(raw) ?: return@MessageDetailCoreContent
-            previewImageUrl = safeImage
+            previewImageUrl = model
         },
         onOpenUrl = { url -> context.openExternalUrl(url) },
     )
@@ -1958,6 +1971,10 @@ private fun buildThingRelatedEventCards(
                 attrsJson = payload?.optString("attrs")?.trim()?.takeIf { it.isNotEmpty() },
                 updatedAt = happenedAt,
                 timeline = emptyList(),
+                resourceOwnerId = message.id,
+                resourceOwnerVersion = MessageImageStore.resourceOwnerVersion(message.serverId, message.receivedAt.toEpochMilli()),
+                resourceOwnerScope = message.serverId ?: "local",
+                resourceOwnerSelector = MessageImageStore.resourceOwnerSelector(message.rawPayloadJson),
             )
         }
         .groupBy { it.eventId }
@@ -2018,3 +2035,6 @@ private fun happenedAtFromPayload(payload: JSONObject?, fallback: Instant): Inst
     val epochMillis = PayloadTimeNormalizer.epochMillisFromJson(payload, "observed_at")
     return epochMillis?.let { Instant.ofEpochMilli(it) } ?: fallback
 }
+
+private fun ThingCardModel.resourceImageModel(url: String, thumbnail: Boolean = false) =
+    MessageImageStore.ImageRequestModel(if (resourceOwnerId == null) "" else url, resourceOwnerId, resourceOwnerVersion, resourceOwnerScope, thumbnail, resourceOwnerSelector)

@@ -1,15 +1,12 @@
 package io.ethan.pushgo.notifications
 
 import android.content.Context
-import android.util.Log
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
 import io.ethan.pushgo.PushGoApp
-import io.ethan.pushgo.data.MessageImageStore
 import io.ethan.pushgo.testing.QualityRuntime
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import org.json.JSONObject
 
 class MessagePostProcessWorker(
     appContext: Context,
@@ -35,21 +32,18 @@ class MessagePostProcessWorker(
         val imageStore = container.messageImageStore
 
         val message = repository.getById(messageId) ?: return@withContext Result.success()
-        val rawPayload = runCatching { JSONObject(message.rawPayloadJson) }.getOrNull()
-            ?: return@withContext Result.success()
-
         val resolvedImageUrl = imageStore.resolveRemoteImageUrl(message.rawPayloadJson, imageUrlHint)
             ?: return@withContext Result.success()
-        val cached = imageStore.ensureCached(resolvedImageUrl) ?: return@withContext if (runAttemptCount < 8) {
+        val acquired = imageStore.acquire(imageStore.imageModel(message, resolvedImageUrl, thumbnail = true)) ?: return@withContext if (runAttemptCount < 8) {
             Result.retry()
         } else {
             Result.success()
         }
 
-        rawPayload.put(MessageImageStore.KEY_IMAGE_LOCAL_PATH, cached.originalPath)
-        rawPayload.put(MessageImageStore.KEY_IMAGE_THUMBNAIL_LOCAL_PATH, cached.thumbnailPath)
-        repository.updateRawPayload(messageId, rawPayload.toString())
-
+        // Acquisition publishes and binds under Room's current-owner transaction. Do not
+        // write an old payload snapshot back after delete/recreate or decryption recovery.
+        // no-store is a successful transient response, not eight failed precache retries.
+        acquired.close()
         Result.success()
     }
 }

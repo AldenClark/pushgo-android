@@ -6,7 +6,6 @@ import android.os.SystemClock
 import io.ethan.pushgo.data.MessageImageStore
 import io.ethan.pushgo.data.MessageRepository
 import io.ethan.pushgo.data.model.PushMessage
-import io.ethan.pushgo.markdown.MessageBodyResolver
 import io.ethan.pushgo.notifications.MessageStateCoordinator
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Job
@@ -14,7 +13,6 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 
 class MessageDetailViewModel(
@@ -151,10 +149,8 @@ class MessageDetailViewModel(
                 _message.value = resolved
                 storeCachedMessage(messageId, resolved)
                 _isLoading.value = false
-                viewModelScope.launch(Dispatchers.IO) {
-                    val resolvedBodyText = MessageBodyResolver.resolve(loaded.rawPayloadJson, loaded.body).rawText
-                    imageStore.preheatDetailAssets(loaded.rawPayloadJson, resolvedBodyText)
-                }
+                // The visible main/Markdown requests acquire their own message-bound
+                // original. An unobserved preheat would redownload no-store responses.
                 stateCoordinator.markRead(messageId)
             } else {
                 _message.value = null

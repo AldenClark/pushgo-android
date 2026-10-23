@@ -15,6 +15,12 @@ import android.view.MotionEvent
 import android.widget.TextView
 import androidx.appcompat.widget.AppCompatTextView
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import io.noties.markwon.image.AsyncDrawableScheduler
+import io.ethan.pushgo.data.MessageImageStore
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -106,7 +112,19 @@ fun FullMarkdownRenderer(
     onOpenLink: ((String) -> Unit)? = null,
     onOpenImage: ((String) -> Unit)? = null,
     onAnimatedImagePlay: (() -> Unit)? = null,
+    resourceModelForUrl: (String) -> Any = { MessageImageStore.ImageRequestModel(it) },
 ) {
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_STOP) MarkdownAnimatedImagePlaybackRegistry.stopAll()
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+            MarkdownAnimatedImagePlaybackRegistry.stopAll()
+        }
+    }
     val recordsRenderEvidence = BuildConfig.DEBUG && QualityRuntime.currentSession() != null
     var renderEvidence by remember(text) { mutableStateOf(MarkdownRenderEvidence()) }
     val context = LocalContext.current
@@ -159,6 +177,7 @@ fun FullMarkdownRenderer(
         blockQuoteWidthPx,
         bulletWidthPx,
         bodyTypeface,
+        resourceModelForUrl,
     ) {
         Markwon.builder(context)
             .usePlugin(SoftBreakAddsNewLinePlugin.create())
@@ -175,7 +194,7 @@ fun FullMarkdownRenderer(
             .usePlugin(TaskListPlugin.create(context))
             .usePlugin(HtmlPlugin.create())
             .usePlugin(LinkifyPlugin.create())
-            .usePlugin(Coil3ImagesPlugin.create(context, context.imageLoader))
+            .usePlugin(Coil3ImagesPlugin.create(context, context.imageLoader, resourceModelForUrl))
             .usePlugin(object : AbstractMarkwonPlugin() {
                 private val fallbackResolver = LinkResolverDef()
 
@@ -250,6 +269,13 @@ fun FullMarkdownRenderer(
                     justificationMode = LineBreaker.JUSTIFICATION_MODE_NONE
                 }
             }
+        },
+        onReset = null,
+        onRelease = { textView ->
+            AsyncDrawableScheduler.unschedule(textView)
+            (textView.text as? Spanned)?.getSpans(0, textView.text.length, AsyncDrawableSpan::class.java)
+                ?.forEach { (it.drawable.result as? MarkdownPlayableDrawable)?.release() }
+            textView.text = ""
         },
         update = { textView ->
             textView.typeface = bodyTypeface

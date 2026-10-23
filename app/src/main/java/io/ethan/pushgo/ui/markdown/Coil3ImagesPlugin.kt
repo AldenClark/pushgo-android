@@ -11,6 +11,9 @@ import coil3.asDrawable
 import coil3.gif.repeatCount
 import coil3.request.Disposable
 import coil3.request.ImageRequest
+import coil3.request.CachePolicy
+import io.ethan.pushgo.data.MessageImageStore
+import io.ethan.pushgo.ui.screens.ResourceImageDecodeBudget
 import coil3.target.Target
 import io.ethan.pushgo.R
 import io.ethan.pushgo.data.ImageAssetMetadataStore
@@ -47,6 +50,8 @@ class Coil3ImagesPlugin private constructor(
     }
 
     override fun beforeSetText(textView: TextView, markdown: Spanned) {
+        (textView.text as? Spanned)?.getSpans(0, textView.text.length, io.noties.markwon.image.AsyncDrawableSpan::class.java)
+            ?.forEach { (it.drawable.result as? MarkdownPlayableDrawable)?.release() }
         AsyncDrawableScheduler.unschedule(textView)
     }
 
@@ -63,11 +68,21 @@ class Coil3ImagesPlugin private constructor(
         private val cache = ConcurrentHashMap<AsyncDrawable, Disposable>(2)
 
         override fun load(drawable: AsyncDrawable) {
+            // A Markdown document may contain many image spans. Do not create a
+            // coroutine/request for every span while the bounded store is busy.
+            if (cache.size >= 16) {
+                drawable.setResult(ErrorPlaceholderDrawable(resources, resources.getString(R.string.error_image_load_failed)))
+                return
+            }
             val loaded = AtomicBoolean(false)
             val request = coilStore
                 .load(drawable)
                 .newBuilder()
                 .repeatCount(0)
+                .size(1536)
+                .memoryCachePolicy(CachePolicy.DISABLED)
+                .diskCachePolicy(CachePolicy.DISABLED)
+                .decoderCoroutineContext(ResourceImageDecodeBudget.dispatcher)
                 .target(AsyncDrawableTarget(drawable, loaded, resources, cache))
                 .build()
             val disposable = imageLoader.enqueue(request)
@@ -83,10 +98,9 @@ class Coil3ImagesPlugin private constructor(
         }
 
         override fun placeholder(drawable: AsyncDrawable): Drawable? {
-            val metadata = metadataStore.findByUrl(drawable.destination) ?: return null
-            val width = metadata.pixelWidth.coerceAtLeast(1)
-            val height = metadata.pixelHeight.coerceAtLeast(1)
-            return MetadataPlaceholderDrawable(width, height)
+            // URL metadata can belong to a newer representation than this message.
+            // The message-bound decode supplies authoritative dimensions on completion.
+            return null
         }
     }
 
@@ -134,7 +148,7 @@ class Coil3ImagesPlugin private constructor(
                 coilStore = object : CoilStore {
                     override fun load(drawable: AsyncDrawable): ImageRequest {
                         return ImageRequest.Builder(appContext)
-                            .data(drawable.destination)
+                            .data(MessageImageStore.ImageRequestModel(drawable.destination))
                             .build()
                     }
 
@@ -148,14 +162,14 @@ class Coil3ImagesPlugin private constructor(
             )
         }
 
-        fun create(context: Context, imageLoader: ImageLoader): Coil3ImagesPlugin {
+        fun create(context: Context, imageLoader: ImageLoader, resourceModelForUrl: (String) -> Any = { MessageImageStore.ImageRequestModel(it) }): Coil3ImagesPlugin {
             val appContext = context.applicationContext
             val metadataStore = ImageAssetMetadataStore.get(appContext)
             return create(
                 coilStore = object : CoilStore {
                     override fun load(drawable: AsyncDrawable): ImageRequest {
                         return ImageRequest.Builder(appContext)
-                            .data(drawable.destination)
+                            .data(resourceModelForUrl(drawable.destination))
                             .build()
                     }
 
@@ -178,26 +192,6 @@ class Coil3ImagesPlugin private constructor(
             return Coil3ImagesPlugin(coilStore, imageLoader, resources, metadataStore)
         }
     }
-}
-
-private class MetadataPlaceholderDrawable(
-    private val intrinsicWidthPx: Int,
-    private val intrinsicHeightPx: Int,
-) : Drawable() {
-    override fun draw(canvas: android.graphics.Canvas) {
-        // Keep placeholder transparent while still reserving layout size.
-    }
-
-    override fun setAlpha(alpha: Int) {}
-
-    override fun setColorFilter(colorFilter: android.graphics.ColorFilter?) {}
-
-    @Suppress("DEPRECATION", "OVERRIDE_DEPRECATION")
-    override fun getOpacity(): Int = android.graphics.PixelFormat.TRANSLUCENT
-
-    override fun getIntrinsicWidth(): Int = intrinsicWidthPx
-
-    override fun getIntrinsicHeight(): Int = intrinsicHeightPx
 }
 
 private class ErrorPlaceholderDrawable(

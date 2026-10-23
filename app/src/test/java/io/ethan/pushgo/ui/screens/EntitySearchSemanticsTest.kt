@@ -8,11 +8,44 @@ import io.ethan.pushgo.data.model.PushMessage
 import java.time.Instant
 import org.json.JSONObject
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class EntitySearchSemanticsTest {
+    @Test
+    fun eventAttachmentKeepsItsOriginalCanonicalOwnerInsteadOfLatestEventOwner() {
+        val oldUrl = "https://example.invalid/old.png?version=1"
+        val newUrl = "https://example.invalid/new.png?version=2"
+        fun eventMessage(id: String, image: String, time: Instant) = thingMessage(
+            id,
+            JSONObject().put("entity_type", "event").put("event_id", "event-media")
+                .put("images", org.json.JSONArray(listOf(image)).toString()),
+            time,
+        ).copy(serverId = "gateway-media")
+        val old = eventMessage("old-media", oldUrl, NOW.minusSeconds(10))
+        val newest = eventMessage("new-media", newUrl, NOW)
+        val card = buildEventCardFromProjectionDetailInternal(
+            EntityProjectionDetail(head = newest, history = listOf(old)), "event-media",
+        )!!
+
+        val oldResource = card.resourceImageModel(oldUrl)
+        val newResource = card.resourceImageModel(newUrl)
+        assertEquals(old.id, oldResource.ownerId)
+        assertEquals(newest.id, newResource.ownerId)
+        assertEquals(oldUrl, oldResource.url)
+        assertFalse(oldResource.thumbnail)
+        assertTrue(card.resourceImageModel(oldUrl, thumbnail = true).thumbnail)
+    }
+
+    @Test
+    fun unattributedSavedEventProjectionDoesNotFallBackToPublicNetworkImage() {
+        val resource = event().resourceImageModel("https://example.invalid/private.png?signature=opaque")
+        assertEquals("", resource.url)
+        assertNull(resource.ownerId)
+    }
+
     @Test
     fun eventLifecycleNormalizesRealIngressSynonymsByBusinessMeaning() {
         listOf("ongoing", "active", "open", "ack", "acknowledged", "muted", "triggered")
