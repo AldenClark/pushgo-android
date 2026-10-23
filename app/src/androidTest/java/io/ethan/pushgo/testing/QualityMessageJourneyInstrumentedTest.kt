@@ -1179,8 +1179,9 @@ class QualityMessageJourneyInstrumentedTest : QualityAppJourneyTestCase() {
             windows.checkpoint("after Cancel")
             composeRule.onNodeWithTag("field.message.detail.body")
                 .assertTextEquals("Seeded from fixture.seed_messages for UI validation.")
-            windows.checkpoint("before Back")
-            windows.logState(device, "before Back")
+            // Keep this marker off the main queue and leave OS/hierarchy snapshots
+            // until after Back or its failure. In-process logging still has overhead.
+            QualityUiFailureDiagnostics.logWindowRoots("$selector before Back")
             try {
                 pressBack()
             } catch (failure: Throwable) {
