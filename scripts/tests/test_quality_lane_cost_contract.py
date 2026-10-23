@@ -368,6 +368,20 @@ adb_with_timeout() {
         self.assertIn("QualityPrivateForegroundServiceJourneyInstrumentedTest#", coverage_marker)
         self.assertIn('not_run+=("$controlled_doze_not_run")', coverage_marker)
 
+    def test_device_evidence_upload_retains_native_additional_outputs(self) -> None:
+        workflow = (REPO / ".github/workflows/android-quality.yml").read_text()
+        upload = re.search(
+            r"- name: Upload device evidence(?P<body>.*?)(?=\n      - name:|\Z)",
+            workflow,
+            re.DOTALL,
+        )
+        self.assertIsNotNone(upload)
+        self.assertIn("if: always()", upload.group("body"))
+        self.assertIn(
+            "app/build/outputs/connected_android_test_additional_output/",
+            upload.group("body"),
+        )
+
     def test_device_scope_resolution_is_safe_for_empty_optional_exclusions(self) -> None:
         # The runner is re-executed from stdin with nounset enabled.  An empty
         # local array cannot be expanded directly in that mode, so the generic

@@ -37,10 +37,27 @@ internal object QualityUiFailureDiagnostics {
         private val roots = mutableListOf<ObservedRoot>()
         private var closed = false
         private val hierarchyDirectory by lazy {
-            File(
-                InstrumentationRegistry.getInstrumentation().targetContext.cacheDir,
-                "quality-back-window-${SystemClock.elapsedRealtime()}",
-            )
+            // AGP pulls additional test output before uninstalling the target APK.
+            // App-private cache is unavailable to a host-side run-as after that task ends.
+            val configured = InstrumentationRegistry.getArguments()
+                .getString("additionalTestOutputDir")?.takeIf { it.isNotBlank() }
+            val output = if (configured != null) {
+                File(configured)
+            } else {
+                val context = InstrumentationRegistry.getInstrumentation().targetContext
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    val media = checkNotNull(context.externalMediaDirs.firstOrNull()) {
+                        "Target external media directory is unavailable"
+                    }
+                    File(media, "additional_test_output")
+                } else {
+                    val files = checkNotNull(context.getExternalFilesDir(null)) {
+                        "Target external files directory is unavailable"
+                    }
+                    File(files, "test_data")
+                }
+            }
+            File(output, "quality-back-window-${SystemClock.elapsedRealtime()}")
         }
         private val exportedCheckpoints = mutableSetOf<String>()
 
@@ -52,7 +69,12 @@ internal object QualityUiFailureDiagnostics {
                 else -> error("Unsupported diagnostic checkpoint: $stage")
             }
             // Preserve the first snapshot in each of three bounded slots.
-            val file = if (exportedCheckpoints.add(slot)) File(hierarchyDirectory, "$slot.xml") else null
+            val file = if (exportedCheckpoints.add(slot)) {
+                runCatching { File(hierarchyDirectory, "$slot.xml") }
+                    .onFailure {
+                        logText("$selector $stage export unavailable", "${it.javaClass.simpleName}: ${it.message}")
+                    }.getOrNull()
+            } else null
             logWindowState(device, "$selector $stage", file)
         }
 
