@@ -483,6 +483,7 @@ class MessageRepository(
         providerAckIdentity: ProviderAckIdentity? = null,
         deliveryScope: InboundDeliveryScope? = providerAckIdentity.inboundDeliveryScope(),
         claimIngressIdentity: Boolean = true,
+        thingWriteTicket: ThingWriteTicket? = null,
     ): Boolean {
         if (!isMessageEntity(message)) {
             return false
@@ -494,6 +495,7 @@ class MessageRepository(
         // a successfully accepted notification.
         var committedTopLevel: Pair<String, PushMessage>? = null
         val accepted = database.withTransaction {
+            thingWriteTicket?.requireCurrent()
             val deliveryClaimed = claimInboundDelivery(
                 inboundDeliveryLedgerDao = inboundDeliveryLedgerDao,
                 channelId = canonicalMessage.channel,
@@ -1422,9 +1424,10 @@ class MessageRepository(
         return thingHeadDao.existsByThingId(normalizedThingId)
     }
 
-    suspend fun replayPendingForThing(thingId: String) {
+    suspend fun replayPendingForThing(thingId: String, thingWriteTicket: ThingWriteTicket? = null) {
         val normalizedThingId = thingId.trim().takeIf { it.isNotEmpty() } ?: return
         database.withTransaction {
+            thingWriteTicket?.requireCurrent()
             val pending = pendingThingMessageDao.loadByThingId(normalizedThingId)
             if (pending.isEmpty()) return@withTransaction
             val consumedIds = mutableListOf<String>()

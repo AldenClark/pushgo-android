@@ -17,6 +17,8 @@ import io.ethan.pushgo.data.IncomingEntityRecord
 import io.ethan.pushgo.data.MessageRepository
 import io.ethan.pushgo.data.ProviderAckIdentity
 import io.ethan.pushgo.data.SettingsRepository
+import io.ethan.pushgo.data.ThingWriteTicket
+import io.ethan.pushgo.data.ThingWriteInvalidatedException
 import io.ethan.pushgo.data.hasSameEncryptedRecoveryProvenance
 import io.ethan.pushgo.data.inboundDeliveryScope
 import io.ethan.pushgo.data.model.DecryptionState
@@ -128,6 +130,40 @@ object InboundPersistenceCoordinator {
         deliveryScope: InboundDeliveryScope? = null,
         beforeMessageNotify: suspend (PushMessage, String?) -> Unit = { _, _ -> },
     ): InboundPersistenceOutcome {
+        // Synchronously determine the target before registration; all production ingress paths
+        // (Direct, Pull and Private) converge here before asynchronous repository lookups.
+        val thingId = when (inbound) {
+            is InboundPersistenceRequest.Message -> inbound.message.thingId
+            is InboundPersistenceRequest.Entity -> inbound.record.thingId?.trim()?.takeIf { it.isNotEmpty() }
+                ?: inbound.record.entityId.takeIf { inbound.record.entityType.trim().lowercase() == "thing" }
+        }
+        val channel = when (inbound) {
+            is InboundPersistenceRequest.Message -> inbound.message.channel
+            is InboundPersistenceRequest.Entity -> inbound.record.channel
+        }
+        val thingWriteTicket = entityRepository.beginThingWrite(thingId, channel)
+        return try {
+            persistRegisteredAndNotify(
+                context, messageRepository, entityRepository, inboundDeliveryLedgerRepository,
+                settingsRepository, inbound, deliveryScope, thingWriteTicket, beforeMessageNotify,
+            )
+        } finally {
+            thingWriteTicket?.close()
+        }
+    }
+
+    /** Continue the same operation after its short registration transaction, without registering anew. */
+    internal suspend fun persistRegisteredAndNotify(
+        context: Context,
+        messageRepository: MessageRepository,
+        entityRepository: EntityRepository,
+        inboundDeliveryLedgerRepository: InboundDeliveryLedgerRepository,
+        settingsRepository: SettingsRepository,
+        inbound: InboundPersistenceRequest,
+        deliveryScope: InboundDeliveryScope?,
+        thingWriteTicket: ThingWriteTicket?,
+        beforeMessageNotify: suspend (PushMessage, String?) -> Unit = { _, _ -> },
+    ): InboundPersistenceOutcome {
         return when (inbound) {
             is InboundPersistenceRequest.Message -> persistMessage(
                 context = context,
@@ -137,6 +173,7 @@ object InboundPersistenceCoordinator {
                 inbound = inbound,
                 deliveryScope = deliveryScope ?: inbound.providerAckIdentity.inboundDeliveryScope(),
                 beforeMessageNotify = beforeMessageNotify,
+                thingWriteTicket = thingWriteTicket,
             )
 
             is InboundPersistenceRequest.Entity -> persistEntity(
@@ -147,6 +184,7 @@ object InboundPersistenceCoordinator {
                 settingsRepository = settingsRepository,
                 inbound = inbound,
                 deliveryScope = deliveryScope ?: inbound.providerAckIdentity.inboundDeliveryScope(),
+                thingWriteTicket = thingWriteTicket,
             )
         }
     }
@@ -159,6 +197,7 @@ object InboundPersistenceCoordinator {
         inbound: InboundPersistenceRequest.Message,
         deliveryScope: InboundDeliveryScope?,
         beforeMessageNotify: suspend (PushMessage, String?) -> Unit,
+        thingWriteTicket: ThingWriteTicket?,
     ): InboundPersistenceOutcome {
         val allowsSuccessfulAck = inbound.securityDisposition.allowsSuccessfulAck
         val providerAckIdentity = inbound.providerAckIdentity.takeIf { allowsSuccessfulAck }
@@ -186,9 +225,14 @@ object InboundPersistenceCoordinator {
                 providerAckIdentity = providerAckIdentity,
                 deliveryScope = effectiveDeliveryScope,
                 claimIngressIdentity = allowsSuccessfulAck,
+                thingWriteTicket = thingWriteTicket,
             )
         }
             .onFailure { error ->
+                if (error is ThingWriteInvalidatedException) {
+                    io.ethan.pushgo.util.SilentSink.i(TAG, "Thing deletion cancelled old message persistence; no ACK")
+                    return@onFailure
+                }
                 io.ethan.pushgo.util.SilentSink.e(TAG, "message persist failed", error)
                 PushGoAutomation.recordRuntimeError(
                     source = "inbound.persist.message",
@@ -326,6 +370,7 @@ object InboundPersistenceCoordinator {
         settingsRepository: SettingsRepository,
         inbound: InboundPersistenceRequest.Entity,
         deliveryScope: InboundDeliveryScope?,
+        thingWriteTicket: ThingWriteTicket?,
     ): InboundPersistenceOutcome {
         if (!shouldPersistEntityProjection(inbound)) {
             return InboundPersistenceOutcome(
@@ -371,9 +416,14 @@ object InboundPersistenceCoordinator {
                 resolvedInbound.record,
                 providerAckIdentity,
                 effectiveDeliveryScope,
+                thingWriteTicket,
             )
         }
             .onFailure { error ->
+                if (error is ThingWriteInvalidatedException) {
+                    io.ethan.pushgo.util.SilentSink.i(TAG, "Thing deletion cancelled old entity persistence; no ACK")
+                    return@onFailure
+                }
                 io.ethan.pushgo.util.SilentSink.e(
                     TAG,
                     "entity persist failed type=${resolvedInbound.record.entityType} id=${resolvedInbound.record.entityId}",
@@ -421,11 +471,12 @@ object InboundPersistenceCoordinator {
                 }
             }
             if (shouldAck && !pending && displayInbound.record.entityType == "thing") {
-                replayPendingThingChildren(
-                    messageRepository = messageRepository,
-                    entityRepository = entityRepository,
-                    inbound = displayInbound,
-                )
+                if (!replayPendingThingChildren(
+                        messageRepository = messageRepository,
+                        entityRepository = entityRepository,
+                        inbound = displayInbound,
+                        thingWriteTicket = thingWriteTicket,
+                    )) return lifecycleChangedOutcome()
             }
             return InboundPersistenceOutcome(
                 status = if (pending) {
@@ -439,7 +490,9 @@ object InboundPersistenceCoordinator {
         }
         if (!displayInbound.shouldNotify || !displayInbound.securityDisposition.allowsNotification) {
             if (displayInbound.record.entityType == "thing") {
-                replayPendingThingChildren(messageRepository, entityRepository, displayInbound)
+                if (!replayPendingThingChildren(messageRepository, entityRepository, displayInbound, thingWriteTicket)) {
+                    return lifecycleChangedOutcome()
+                }
             }
             return InboundPersistenceOutcome(
                 status = InboundPersistenceStatus.PERSISTED_MAIN,
@@ -463,7 +516,9 @@ object InboundPersistenceCoordinator {
             )
         }
         if (displayInbound.record.entityType == "thing") {
-            replayPendingThingChildren(messageRepository, entityRepository, displayInbound)
+            if (!replayPendingThingChildren(messageRepository, entityRepository, displayInbound, thingWriteTicket)) {
+                return lifecycleChangedOutcome()
+            }
         }
         return InboundPersistenceOutcome(
             status = InboundPersistenceStatus.PERSISTED_MAIN,
@@ -506,16 +561,31 @@ object InboundPersistenceCoordinator {
         level = inbound.level,
     )
 
-    private suspend fun replayPendingThingChildren(
+    internal suspend fun replayPendingThingChildren(
         messageRepository: MessageRepository,
         entityRepository: EntityRepository,
         inbound: InboundPersistenceRequest.Entity,
-    ) {
+        thingWriteTicket: ThingWriteTicket?,
+    ): Boolean {
         val thingId = inbound.record.thingId?.trim()?.takeIf { it.isNotEmpty() }
             ?: inbound.record.entityId
-        messageRepository.replayPendingForThing(thingId)
-        entityRepository.activateStoredEventsForThing(thingId)
+        return try {
+            messageRepository.replayPendingForThing(thingId, thingWriteTicket)
+            entityRepository.activateStoredEventsForThing(thingId, thingWriteTicket)
+            true
+        } catch (_: ThingWriteInvalidatedException) {
+            // Invalidation is deliberately conservative even if an outer deletion rolls back.
+            // Do not ACK this interrupted invocation: the existing durable parent/ledger lets a
+            // later normal retry finish surviving pending work, without a permanent tombstone.
+            false
+        }
     }
+
+    private fun lifecycleChangedOutcome() = InboundPersistenceOutcome(
+        status = InboundPersistenceStatus.FAILED,
+        notified = false,
+        shouldAck = false,
+    )
 
     private suspend fun resolveEntityNotificationDisplayAfterPersist(
         entityRepository: EntityRepository,

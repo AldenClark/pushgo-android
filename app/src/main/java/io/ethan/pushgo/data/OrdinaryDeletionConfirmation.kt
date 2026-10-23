@@ -55,7 +55,8 @@ class OrdinaryDeletionConfirmation(private val database: PushGoDatabase) {
                 val head = database.thingHeadDao().getByThingId(target)
                 val children = database.thingSubEventDao().getByThingIdIncludingWaiting(target)
                 val messages = database.thingSubMessageDao().getByThingId(target)
-                if (head == null && logs.isEmpty() && children.isEmpty() && messages.isEmpty()) {
+                val pendingMessages = database.pendingThingMessageDao().loadByThingId(target)
+                if (head == null && logs.isEmpty() && children.isEmpty() && messages.isEmpty() && pendingMessages.isEmpty()) {
                     throw OrdinaryDeletionTargetChangedException()
                 }
                 logs.sortedBy { it.id }.forEach(digest::thingLog)
@@ -64,6 +65,7 @@ class OrdinaryDeletionConfirmation(private val database: PushGoDatabase) {
                     .sortedWith(compareBy<ThingSubEventEntity> { it.id }.thenBy { it.activated })
                     .forEach(digest::subEvent)
                 messages.sortedBy { it.id }.forEach(digest::subMessage)
+                pendingMessages.sortedBy { it.id }.forEach(digest::pendingMessage)
                 head?.title ?: logs.maxWithOrNull(
                     compareBy<ThingChangeLogEntity> { it.receivedAt }.thenBy { it.id },
                 )?.title
@@ -127,6 +129,13 @@ private class FootprintDigest {
 
     fun subMessage(row: ThingSubMessageEntity) = appendRow(
         "thing_sub_messages", row.id, row.messageId, row.title, row.body, row.channel, row.url,
+        row.receivedAt, materialPayload(row.rawPayloadJson), row.status, row.decryptionState,
+        row.notificationId, row.serverId, row.entityType, row.entityId, row.eventId,
+        row.thingId, row.eventState, row.eventTimeEpoch, row.occurredAtEpoch,
+    )
+
+    fun pendingMessage(row: PendingThingMessageEntity) = appendRow(
+        "pending_thing_messages", row.id, row.messageId, row.title, row.body, row.channel, row.url,
         row.receivedAt, materialPayload(row.rawPayloadJson), row.status, row.decryptionState,
         row.notificationId, row.serverId, row.entityType, row.entityId, row.eventId,
         row.thingId, row.eventState, row.eventTimeEpoch, row.occurredAtEpoch,

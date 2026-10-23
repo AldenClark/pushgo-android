@@ -106,6 +106,20 @@ class EntityRepository(
     private val thingHeadDao: ThingHeadDao,
     private val thingSubMessageDao: ThingSubMessageDao,
 ) {
+    /** Registration is a short transaction, never held over network, parsing or notification work. */
+    suspend fun beginThingWrite(thingId: String?, channel: String?): ThingWriteTicket? {
+        val normalized = thingId?.trim()?.takeIf { it.isNotEmpty() } ?: return null
+        var registered: ThingWriteTicket? = null
+        return try {
+            database.withTransaction {
+                database.thingWriteTickets.register(normalized, channel).also { registered = it }
+            }
+        } catch (error: Throwable) {
+            registered?.close()
+            throw error
+        }
+    }
+
     suspend fun wouldPersistAsPending(entity: IncomingEntityRecord): Boolean {
         val entityType = entity.entityType.trim().lowercase()
         if (entityType != "event") return false
@@ -348,6 +362,7 @@ class EntityRepository(
         entity: IncomingEntityRecord,
         providerAckIdentity: ProviderAckIdentity? = null,
         deliveryScope: InboundDeliveryScope? = providerAckIdentity.inboundDeliveryScope(),
+        thingWriteTicket: ThingWriteTicket? = null,
     ): Boolean {
         val scopedEntity = entity.copy(
             localDeliveryKey = entity.deliveryId
@@ -357,6 +372,7 @@ class EntityRepository(
         )
         val entityType = scopedEntity.entityType.trim().lowercase()
         return database.withTransaction {
+            thingWriteTicket?.requireCurrent()
             when (entityType) {
                 "event", "thing" -> {
                     val deliveryClaimed = io.ethan.pushgo.data.claimInboundDelivery(
@@ -405,6 +421,8 @@ class EntityRepository(
             thingHeadDao.deleteAll()
             thingSubEventDao.deleteAllActivated()
             thingSubMessageDao.deleteAll()
+            database.pendingThingMessageDao().deleteAll()
+            database.thingWriteTickets.invalidateChannel(null)
         }
     }
 
@@ -497,6 +515,8 @@ class EntityRepository(
             deleted += thingHeadDao.deleteByThingId(normalized)
             deleted += thingSubEventDao.deleteByThingId(normalized)
             deleted += thingSubMessageDao.deleteByThingId(normalized)
+            deleted += database.pendingThingMessageDao().deleteByThingId(normalized)
+            database.thingWriteTickets.invalidateThings(listOf(normalized))
             deleted
         }
     }
@@ -510,6 +530,8 @@ class EntityRepository(
             deleted += thingHeadDao.deleteByThingIds(normalizedIds)
             deleted += thingSubEventDao.deleteByThingIds(normalizedIds)
             deleted += thingSubMessageDao.deleteByThingIds(normalizedIds)
+            deleted += database.pendingThingMessageDao().deleteByThingIds(normalizedIds)
+            database.thingWriteTickets.invalidateThings(normalizedIds)
             deleted
         }
     }
@@ -526,12 +548,15 @@ class EntityRepository(
                 thingHeadDao.deleteAll()
                 deleted += thingSubEventDao.deleteAll()
                 thingSubMessageDao.deleteAll()
+                deleted += database.pendingThingMessageDao().deleteAll()
             } else {
                 deleted += thingChangeLogDao.deleteByChannel(normalizedChannel)
                 deleted += thingHeadDao.deleteByChannel(normalizedChannel)
                 deleted += thingSubEventDao.deleteByChannel(normalizedChannel)
                 deleted += thingSubMessageDao.deleteByChannel(normalizedChannel)
+                deleted += database.pendingThingMessageDao().deleteByChannel(normalizedChannel)
             }
+            database.thingWriteTickets.invalidateChannel(normalizedChannel)
             deleted
         }
     }
@@ -633,9 +658,10 @@ class EntityRepository(
         return true
     }
 
-    suspend fun activateStoredEventsForThing(thingId: String) {
+    suspend fun activateStoredEventsForThing(thingId: String, thingWriteTicket: ThingWriteTicket? = null) {
         val normalizedThingId = thingId.trim().takeIf { it.isNotEmpty() } ?: return
         database.withTransaction {
+            thingWriteTicket?.requireCurrent()
             // Keep the old order and Kotlin normalization: historical raw IDs can alias
             // after trim. Payload, title and body stay in their existing database row.
             thingSubEventDao.getWaitingActivationFields(normalizedThingId).forEach { row ->

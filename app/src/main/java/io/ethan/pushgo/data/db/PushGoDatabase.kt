@@ -39,6 +39,9 @@ import java.io.File
     exportSchema = true,
 )
 abstract class PushGoDatabase : RoomDatabase() {
+    // Process-local operations only; durable accepted identities remain in the existing ledgers.
+    internal val thingWriteTickets = io.ethan.pushgo.data.ThingWriteTickets()
+
     abstract fun messageDao(): MessageDao
     abstract fun messageChannelStatsDao(): MessageChannelStatsDao
     abstract fun messageMetadataIndexDao(): MessageMetadataIndexDao

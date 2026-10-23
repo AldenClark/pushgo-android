@@ -103,6 +103,15 @@ interface PendingThingMessageDao {
     @Query("DELETE FROM pending_thing_messages WHERE id IN (:ids)")
     suspend fun deleteByIds(ids: List<String>): Int
 
+    @Query("DELETE FROM pending_thing_messages WHERE thing_id = :thingId")
+    suspend fun deleteByThingId(thingId: String): Int
+
+    @Query("DELETE FROM pending_thing_messages WHERE thing_id IN (:thingIds)")
+    suspend fun deleteByThingIds(thingIds: List<String>): Int
+
     @Query("DELETE FROM pending_thing_messages WHERE channel = :channelId")
     suspend fun deleteByChannel(channelId: String): Int
+
+    @Query("DELETE FROM pending_thing_messages")
+    suspend fun deleteAll(): Int
 }
