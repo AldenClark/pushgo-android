@@ -416,7 +416,6 @@ class RuntimeChannelSwitchInstrumentedTest {
             topLevelEventHeadDao = openedDb.topLevelEventHeadDao(),
             thingHeadDao = openedDb.thingHeadDao(),
             thingSubMessageDao = openedDb.thingSubMessageDao(),
-            pendingThingEventDao = openedDb.pendingThingEventDao(),
         )
         channelRepository = ChannelSubscriptionRepository(
             store = ChannelSubscriptionStore(openedDb.channelSubscriptionDao(), secretStore),

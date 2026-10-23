@@ -13,6 +13,7 @@ internal data class ProviderAckDrainResult(
     val failed: List<InboundDeliveryAckOutboxEntity>,
     val uncertainFailures: List<InboundDeliveryAckOutboxEntity>,
     val definitiveFailures: List<InboundDeliveryAckOutboxEntity>,
+    val failureCause: Throwable? = null,
 ) {
     val attemptedIds: List<String>
         get() = attempted.map { it.deliveryId }
@@ -56,6 +57,7 @@ internal object ProviderAckDrainCoordinator {
         val failed = mutableListOf<InboundDeliveryAckOutboxEntity>()
         val uncertainFailures = mutableListOf<InboundDeliveryAckOutboxEntity>()
         val definitiveFailures = mutableListOf<InboundDeliveryAckOutboxEntity>()
+        var failureCause: Throwable? = null
         pending.groupBy { Triple(it.gatewayUrl, it.deviceKey, it.ackContract) }
             .values
             .forEach destinationLoop@ { records ->
@@ -93,6 +95,7 @@ internal object ProviderAckDrainCoordinator {
                         }
                         val result = attempt.getOrNull()
                         if (attempt.isFailure) {
+                            if (failureCause == null) failureCause = attempt.exceptionOrNull()
                             failed += claimed
                             uncertainFailures += claimed
                             return@destinationLoop
@@ -142,6 +145,7 @@ internal object ProviderAckDrainCoordinator {
             failed = failed,
             uncertainFailures = uncertainFailures,
             definitiveFailures = definitiveFailures,
+            failureCause = failureCause,
         )
     }
 

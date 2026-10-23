@@ -24,6 +24,24 @@ REQUIRED_SYMBOLS = (
     "Lio/ethan/pushgo/ui/screens/MessageListScreen",
     "Lio/ethan/pushgo/ui/screens/MessageDetailScreen",
 )
+CONTROL_COMPONENTS = {
+    "provider": {
+        "name": "io.ethan.pushgo.testing.BenchmarkFixtureProvider",
+        "authorities": "${applicationId}.quality-fixture",
+        "enabled": "${qualityFixtureProviderEnabled}",
+        "exported": "${qualityFixtureProviderEnabled}",
+        "permission": "android.permission.DUMP",
+    },
+    "activity": {
+        "name": "io.ethan.pushgo.testing.BenchmarkUnstopActivity",
+        "enabled": "${qualityFixtureProviderEnabled}",
+        "excludeFromRecents": "true",
+        "exported": "${qualityFixtureProviderEnabled}",
+        "noHistory": "true",
+        "permission": "android.permission.DUMP",
+        "theme": "@android:style/Theme.NoDisplay",
+    },
+}
 
 
 class ContractError(RuntimeError):
@@ -59,7 +77,29 @@ def normalized_profile_rules(rules: set[str]) -> set[str]:
     return {rule.lstrip("HSP") for rule in rules}
 
 
+def verify_release_control_manifest(root: ElementTree.Element) -> None:
+    for tag, attributes in CONTROL_COMPONENTS.items():
+        control_class = attributes["name"]
+        if any(node.get(ANDROID + "name") == control_class for node in root.iter(tag)):
+            raise ContractError(f"quality-control declaration entered Release manifest: {control_class}")
+
+
+def verify_control_source_sets(repo: Path) -> None:
+    for variant in ("main", "release"):
+        path = repo / f"app/src/{variant}/AndroidManifest.xml"
+        if path.exists():
+            verify_release_control_manifest(ElementTree.parse(path).getroot())
+    for variant in ("debug", "benchmark", "nonMinifiedRelease"):
+        root = ElementTree.parse(repo / f"app/src/{variant}/AndroidManifest.xml").getroot()
+        for tag, attributes in CONTROL_COMPONENTS.items():
+            nodes = [node for node in root.iter(tag) if node.get(ANDROID + "name") == attributes["name"]]
+            expected = {ANDROID + key: value for key, value in attributes.items()}
+            if len(nodes) != 1 or nodes[0].attrib != expected:
+                raise ContractError(f"{variant} {tag} quality-control declaration or attributes changed")
+
+
 def verify(repo: Path) -> dict[str, int]:
+    verify_control_source_sets(repo)
     profile_root = repo / "app/src/release/generated/baselineProfiles"
     baseline_rules = read_profile(profile_root / "baseline-prof.txt")
     startup_rules = read_profile(profile_root / "startup-prof.txt")
@@ -96,27 +136,7 @@ def verify(repo: Path) -> dict[str, int]:
         "packaged universal Release manifest",
     )
     root = ElementTree.parse(manifest).getroot()
-    providers = [
-        node for node in root.iter("provider")
-        if node.get(ANDROID + "name") == "io.ethan.pushgo.testing.BenchmarkFixtureProvider"
-    ]
-    if len(providers) != 1:
-        raise ContractError("Release manifest fixture-provider declaration is ambiguous")
-    provider = providers[0]
-    if provider.get(ANDROID + "enabled") != "false" or provider.get(ANDROID + "exported") != "false":
-        raise ContractError("Release fixture provider is reachable")
-    activities = [
-        node for node in root.iter("activity")
-        if node.get(ANDROID + "name") == "io.ethan.pushgo.testing.BenchmarkUnstopActivity"
-    ]
-    if len(activities) != 1:
-        raise ContractError("Release unstop-control declaration is ambiguous")
-    unstop_activity = activities[0]
-    if (
-        unstop_activity.get(ANDROID + "enabled") != "false"
-        or unstop_activity.get(ANDROID + "exported") != "false"
-    ):
-        raise ContractError("Release unstop control is reachable")
+    verify_release_control_manifest(root)
 
     build_config = repo / "app/build/generated/source/buildConfig/release/io/ethan/pushgo/BuildConfig.java"
     config_text = build_config.read_text(encoding="utf-8")

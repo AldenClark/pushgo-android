@@ -7,6 +7,15 @@ import kotlinx.coroutines.flow.Flow
 
 @Dao
 interface PendingLocalDeletionDao {
+    @Query("SELECT * FROM pending_local_deletions WHERE state = 'FAILED' ORDER BY id ASC")
+    fun observeFailures(): Flow<List<PendingLocalDeletionEntity>>
+
+    @Query("SELECT * FROM pending_local_deletions WHERE state = 'FAILED' ORDER BY id ASC")
+    suspend fun loadFailures(): List<PendingLocalDeletionEntity>
+
+    @Query("UPDATE pending_local_deletions SET state = 'PENDING', next_attempt_at_epoch_ms = :nowEpochMillis, updated_at_epoch_ms = :nowEpochMillis WHERE id = :id AND state = 'FAILED'")
+    suspend fun retryFailed(id: Long, nowEpochMillis: Long): Int
+
     @Insert
     suspend fun insert(entity: PendingLocalDeletionEntity): Long
 
@@ -30,25 +39,6 @@ interface PendingLocalDeletionDao {
 
     @Query("SELECT * FROM pending_local_deletions WHERE id = :id LIMIT 1")
     suspend fun findById(id: Long): PendingLocalDeletionEntity?
-
-    @Query(
-        """
-        SELECT MAX(undo_deadline_epoch_ms) FROM pending_local_deletions
-        WHERE state IN ('PENDING', 'COMMITTING')
-        """
-    )
-    suspend fun latestUndoDeadline(): Long?
-
-    @Query(
-        """
-        DELETE FROM pending_local_deletions
-        WHERE id = :id
-          AND state = 'PENDING'
-          AND attempt_count = 0
-          AND undo_deadline_epoch_ms > :nowEpochMillis
-        """
-    )
-    suspend fun cancelPending(id: Long, nowEpochMillis: Long): Int
 
     @Query(
         """
@@ -108,20 +98,6 @@ interface PendingLocalDeletionDao {
         nowEpochMillis: Long,
         lastError: String,
     ): Int
-
-    @Query(
-        """
-        DELETE FROM pending_local_deletions
-        WHERE state = 'FAILED'
-          AND id NOT IN (
-              SELECT id FROM pending_local_deletions
-              WHERE state = 'FAILED'
-              ORDER BY updated_at_epoch_ms DESC, id DESC
-              LIMIT :keepCount
-          )
-        """
-    )
-    suspend fun pruneFailedHistory(keepCount: Int): Int
 
     @Query(
         """

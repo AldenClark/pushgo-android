@@ -94,6 +94,23 @@ class SettingsViewModel(
         PENDING,
     }
 
+    var showLocalNetworkPermissionDialog by mutableStateOf(false)
+        private set
+
+    fun dismissLocalNetworkPermissionDialog() {
+        showLocalNetworkPermissionDialog = false
+    }
+
+    fun onLocalNetworkPermissionChanged(granted: Boolean) {
+        showLocalNetworkPermissionDialog = false
+        if (granted) gatewayErrorMessage = null
+        // Cancel any old native session before re-entering the shared permission preflight.
+        privateChannelClient.onGatewayConfigChanged()
+        viewModelScope.launch {
+            gatewayPrivateChannelEnabled = runCatching { gatewayPrivateChannelEnabledFetcher() }.getOrNull()
+        }
+    }
+
     var gatewayAddress by mutableStateOf("")
         private set
     var savedGatewayAddress by mutableStateOf("")
@@ -132,6 +149,8 @@ class SettingsViewModel(
         private set
     var decryptionErrorMessage by mutableStateOf<UiMessage?>(null)
         private set
+    val savingWouldClearDecryptionKey: Boolean
+        get() = isDecryptionConfigured && hasEditedDecryptionKeyInput && decryptionKeyInput.isBlank()
     private var hasEditedDecryptionKeyInput = false
 
     var isMessagePageEnabled by mutableStateOf(true)
@@ -232,7 +251,13 @@ class SettingsViewModel(
             if (!hasEditedKeyEncoding) keyEncoding = storedKeyEncoding
             decryptionUpdatedAt = currentKeyUpdatedAt
             isDecryptionConfigured = currentKey?.isNotEmpty() == true
-            gatewayPrivateChannelEnabled = gatewayPrivateChannelEnabledFetcher()
+            gatewayPrivateChannelEnabled = try {
+                gatewayPrivateChannelEnabledFetcher()
+            } catch (error: ChannelSubscriptionException) {
+                if (!error.matchesCode(io.ethan.pushgo.util.LocalNetworkPermission.ERROR_CODE)) throw error
+                errorMessage = ResMessage(R.string.error_local_network_permission)
+                null
+            }
             updateAutoCheckEnabled = settingsRepository.getUpdateAutoCheckEnabled()
             updateBetaChannelEnabled = settingsRepository.getUpdateBetaChannelEnabled()
             isChannelModeLoaded = true
@@ -449,7 +474,13 @@ class SettingsViewModel(
             if (supported || !useFcmChannel) {
                 return@launch
             }
-            val privateEnabled = gatewayPrivateChannelEnabledFetcher()
+            val privateEnabled = try {
+                gatewayPrivateChannelEnabledFetcher()
+            } catch (error: ChannelSubscriptionException) {
+                if (!error.matchesCode(io.ethan.pushgo.util.LocalNetworkPermission.ERROR_CODE)) throw error
+                errorMessage = ResMessage(R.string.error_local_network_permission)
+                return@launch
+            }
             gatewayPrivateChannelEnabled = privateEnabled
             if (privateEnabled == false) {
                 errorMessage = ResMessage(R.string.error_private_disabled_and_fcm_unavailable)
@@ -463,7 +494,10 @@ class SettingsViewModel(
                         "automatic private transport transition failed: ${error.message}",
                         error,
                     )
-                    errorMessage = ResMessage(R.string.error_notification_transport_switch_failed)
+                    errorMessage = transportFailureMessage(
+                        failure = error,
+                        fallbackResId = R.string.error_notification_transport_switch_failed,
+                    )
                 }
         }
     }
@@ -488,8 +522,11 @@ class SettingsViewModel(
                                 failure.message,
                             failure,
                         )
-                        transportErrorMessage =
-                            ResMessage(R.string.error_notification_transport_switch_failed)
+                        transportErrorMessage = transportFailureMessage(
+                            failure = failure,
+                            fallbackResId = R.string.error_notification_transport_switch_failed,
+                            requestPermissionRecovery = true,
+                        )
                         return@launch
                     }
                     val privateEnabled = privateEnabledResult.getOrNull()
@@ -524,6 +561,7 @@ class SettingsViewModel(
                                 failure,
                             )
                             transportErrorMessage = transportFailureMessage(
+                                failure = failure,
                                 fallbackResId = R.string.error_notification_transport_fcm_switch_failed,
                             )
                         }
@@ -542,7 +580,9 @@ class SettingsViewModel(
                             failure,
                         )
                         transportErrorMessage = transportFailureMessage(
+                            failure = failure,
                             fallbackResId = R.string.error_notification_transport_switch_failed,
+                            requestPermissionRecovery = true,
                         )
                         if (transportErrorMessage != null) return@launch
                     }
@@ -557,7 +597,18 @@ class SettingsViewModel(
         }
     }
 
-    private fun transportFailureMessage(fallbackResId: Int): UiMessage = ResMessage(fallbackResId)
+    private fun transportFailureMessage(
+        failure: Throwable,
+        fallbackResId: Int,
+        requestPermissionRecovery: Boolean = false,
+    ): UiMessage {
+        if (failure is ChannelSubscriptionException &&
+            failure.matchesCode(io.ethan.pushgo.util.LocalNetworkPermission.ERROR_CODE)) {
+            if (requestPermissionRecovery) showLocalNetworkPermissionDialog = true
+            return ResMessage(R.string.error_local_network_permission)
+        }
+        return ResMessage(fallbackResId)
+    }
 
     private suspend fun requireFcmToken(
         context: Context,
@@ -777,6 +828,9 @@ class SettingsViewModel(
                     gatewayErrorMessage = ResMessage(R.string.error_invalid_server_address)
                     return@launch
                 }
+                withContext(Dispatchers.IO) {
+                    io.ethan.pushgo.util.LocalNetworkPermission.requireAccess(context, normalizedAddress)
+                }
                 val token = gatewayToken.trim().ifBlank { null }
                 val oldIdentity = "${previousAddress}|${previousToken.orEmpty()}"
                 val newIdentity = "${normalizedAddress}|${token.orEmpty()}"
@@ -877,6 +931,10 @@ class SettingsViewModel(
                     successMessage = ResMessage(R.string.message_gateway_saved_recovery_pending)
                 } else {
                     gatewayErrorMessage = ex.toUiErrorMessage(R.string.error_request_failed)
+                    if (ex is ChannelSubscriptionException &&
+                        ex.matchesCode(io.ethan.pushgo.util.LocalNetworkPermission.ERROR_CODE)) {
+                        showLocalNetworkPermissionDialog = true
+                    }
                 }
             } finally {
                 isSavingGateway = false
@@ -1208,24 +1266,22 @@ class SettingsViewModel(
         channelRenameErrorMessage = null
     }
 
-    suspend fun unsubscribeChannel(context: Context, channelId: String): Boolean {
+    suspend fun unsubscribeChannel(context: Context, operation: io.ethan.pushgo.data.PendingLocalDeletionOperation): Boolean {
         if (isRemovingChannel) return false
         isRemovingChannel = true
         try {
-            if (shouldUseFcm(context)) {
-                val token = settingsRepository.getFcmToken()?.trim().takeUnless { it.isNullOrEmpty() }
-                    ?: requireFcmToken(context)
-                    ?: return false
-                channelRepository.syncProviderDeviceToken(token)
-                channelRepository.unsubscribeChannel(channelId, token)
-            } else {
-                val normalizedChannelId = ChannelIdValidator.normalize(channelId)
-                val unsubscribed = privateChannelClient.privateUnsubscribeChannel(normalizedChannelId)
-                if (!unsubscribed) {
-                    errorMessage = ResMessage(R.string.error_private_channel_unsubscribe_failed)
-                    return false
-                }
-                channelRepository.softDeleteLocalSubscription(rawChannelId = normalizedChannelId)
+            check(shouldUseFcm(context) == operation.expectedUseProvider) {
+                "Channel delivery mode changed before confirmation was applied"
+            }
+            val token = if (operation.expectedUseProvider == true) {
+                settingsRepository.getFcmToken()?.trim().takeUnless { it.isNullOrEmpty() }
+                    ?: requireFcmToken(context) ?: return false
+            } else null
+            check(shouldUseFcm(context) == operation.expectedUseProvider) {
+                "Channel delivery mode changed before confirmation was applied"
+            }
+            channelRepository.unsubscribeConfirmedKeepingHistory(operation, token) {
+                privateChannelClient.privateUnsubscribeChannel(operation.targetIds.single(), operation.expectedGatewayUrl)
             }
             refreshChannelSubscriptions()
             successMessage = ResMessage(R.string.message_channel_unsubscribed)
@@ -1407,6 +1463,33 @@ class SettingsViewModel(
             category = io.ethan.pushgo.data.GatewayErrorCategory.VALIDATION,
         )
 
+    /** Clearing is a separate confirmed action; untouched/edited save behavior is unchanged. */
+    fun clearDecryptionConfig(expectedUpdatedAt: Instant?, onSuccess: () -> Unit = {}) {
+        if (isSavingDecryption) return
+        isSavingDecryption = true
+        viewModelScope.launch {
+            decryptionErrorMessage = null
+            try {
+                check(settingsRepository.getNotificationKeyUpdatedAt() == expectedUpdatedAt) {
+                    "Decryption key changed before confirmation was applied"
+                }
+                settingsRepository.setNotificationKeyBytes(null)
+                decryptionUpdatedAt = null
+                isDecryptionConfigured = false
+                decryptionKeyInput = ""
+                hasEditedDecryptionKeyInput = false
+                successMessage = ResMessage(R.string.message_decryption_saved)
+                onSuccess()
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                decryptionErrorMessage = error.toUiErrorMessage(R.string.error_request_failed)
+            } finally {
+                isSavingDecryption = false
+            }
+        }
+    }
+
     fun saveDecryptionConfig(onSuccess: () -> Unit = {}) {
         viewModelScope.launch {
             isSavingDecryption = true
@@ -1414,6 +1497,9 @@ class SettingsViewModel(
             try {
                 val trimmed = decryptionKeyInput.trim()
                 if (trimmed.isEmpty()) {
+                    check(!hasEditedDecryptionKeyInput || settingsRepository.getNotificationKeyBytes()?.isNotEmpty() != true) {
+                        "Confirm decryption key removal before saving an empty key"
+                    }
                     // Initialization is asynchronous; its initial UI value cannot
                     // authorize erasing an untouched Key that already exists in storage.
                     val retainStoredKey = !hasEditedDecryptionKeyInput &&

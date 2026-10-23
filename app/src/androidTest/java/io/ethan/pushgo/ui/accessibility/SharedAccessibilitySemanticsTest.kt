@@ -10,8 +10,7 @@ import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import io.ethan.pushgo.R
-import io.ethan.pushgo.ui.PendingLocalDeletionBar
-import io.ethan.pushgo.ui.PendingLocalDeletionCoordinator
+import io.ethan.pushgo.ui.DeleteConfirmationDialog
 import io.ethan.pushgo.ui.screens.PushGoCircularActionIconButton
 import io.ethan.pushgo.ui.screens.PushGoModalBottomSheet
 import io.ethan.pushgo.ui.screens.PushGoSearchBar
@@ -86,26 +85,16 @@ class SharedAccessibilitySemanticsTest {
     }
 
     @Test
-    fun pendingDeletionBar_announcesUndoWindowAsLiveRegion() {
-        val pendingDeletion = PendingLocalDeletionCoordinator.PendingDeletion(
-            id = 1L,
-            summary = "Delete message",
-            scope = PendingLocalDeletionCoordinator.Scope(messageIds = setOf("message-1")),
-            deadlineElapsedRealtimeMillis = android.os.SystemClock.elapsedRealtime() + 3_000L,
-        )
-
+    fun deleteConfirmationExposesExactTargetAndBothActions() {
+        var cancelled = false
         composeRule.setContent {
             PushGoTheme {
-                PendingLocalDeletionBar(
-                    pendingDeletion = pendingDeletion,
-                    onUndo = {},
-                )
+                DeleteConfirmationDialog("Exact target", onConfirm = {}, onCancel = { cancelled = true })
             }
         }
-
-        composeRule
-            .onNode(hasContentDescriptionContaining("Undo available"))
-            .assert(hasLiveRegion(LiveRegionMode.Polite))
-        composeRule.onNodeWithText(composeRule.activity.getString(R.string.label_undo)).assertExists()
+        composeRule.onNodeWithText(composeRule.activity.getString(R.string.delete_confirmation_body, "Exact target")).assertIsDisplayed()
+        composeRule.onNodeWithTag("action.delete.confirm").assertIsDisplayed()
+        composeRule.onNodeWithTag("action.delete.cancel").assertIsDisplayed().performClick()
+        org.junit.Assert.assertTrue(cancelled)
     }
 }

@@ -218,7 +218,6 @@ fun ThingListScreen(
     
     val context = LocalContext.current
     val appContext = context.applicationContext
-    val effectivePendingScope by container.pendingLocalDeletionCoordinator.effectiveScope.collectAsStateWithLifecycle()
     val thingsLabel = stringResource(R.string.label_send_type_thing)
     val eventsLabel = stringResource(R.string.label_send_type_event)
     val closeEventStatusDefault = stringResource(R.string.event_status_closed_default)
@@ -237,12 +236,7 @@ fun ThingListScreen(
     
     var channelNameMap by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
 
-    fun isPendingThingDeletion(thing: ThingCardModel): Boolean {
-        return effectivePendingScope.suppressesThing(
-            id = thing.thingId,
-            channelId = thing.channelId,
-        )
-    }
+
 
     fun showToast(message: String) {
         Toast.makeText(appContext, message, Toast.LENGTH_SHORT).show()
@@ -374,6 +368,7 @@ fun ThingListScreen(
                 )
                 reloadThingsInternal()
             }.onFailure { error ->
+                showToast(error.toUserFacingText(context, R.string.error_request_failed))
                 io.ethan.pushgo.util.SilentSink.w(
                     "ThingListScreen",
                     "provider ingress refresh failed",
@@ -439,7 +434,7 @@ fun ThingListScreen(
             "${uniqueThings.size} × $thingsLabel"
         }
 
-        container.pendingLocalDeletionCoordinator.schedule(
+        val deleted = container.pendingLocalDeletionCoordinator.confirmAndDelete(
             summary = summary,
             operation = PendingLocalDeletionOperation.things(thingIds),
             onCompletion = { result ->
@@ -450,14 +445,14 @@ fun ThingListScreen(
             },
         )
 
-        if (selectedThing?.thingId in thingIds) {
+        if (deleted && selectedThing?.thingId in thingIds) {
             selectedThing = null
             onThingDetailClosed()
         }
     }
 
     suspend fun scheduleRelatedEventDeletion(event: EventCardModel) {
-        container.pendingLocalDeletionCoordinator.schedule(
+        val deleted = container.pendingLocalDeletionCoordinator.confirmAndDelete(
             summary = event.title.trim().ifEmpty { eventsLabel },
             operation = PendingLocalDeletionOperation.events(setOf(event.eventId)),
             onCompletion = { result ->
@@ -467,6 +462,7 @@ fun ThingListScreen(
                 }
             },
         )
+        if (deleted && selectedRelatedEvent?.eventId == event.eventId) selectedRelatedEvent = null
     }
 
     LaunchedEffect(refreshToken) { reloadThings() }
@@ -477,13 +473,12 @@ fun ThingListScreen(
         listState.animateScrollToItem(0)
     }
 
-    val filteredThings = remember(allThings, searchQuery, relatedMessageSearchThingIds, selectedChannelFilters, selectedTagFilters, showOnlyActive, effectivePendingScope) {
+    val filteredThings = remember(allThings, searchQuery, relatedMessageSearchThingIds, selectedChannelFilters, selectedTagFilters, showOnlyActive) {
         allThings.filter { thing ->
             (thingMatchesSearch(thing, searchQuery) || relatedMessageSearchThingIds.contains(thing.thingId)) &&
             (selectedChannelFilters.isEmpty() || selectedChannelFilters.contains(thing.channelId.orEmpty().trim())) &&
             (selectedTagFilters.isEmpty() || thing.tags.any { tag -> selectedTagFilters.contains(tag.trim().lowercase()) }) &&
-            (!showOnlyActive || (thing.state != "archived" && thing.state != "deleted")) &&
-            !isPendingThingDeletion(thing)
+            (!showOnlyActive || (thing.state != "archived" && thing.state != "deleted"))
         }
     }
     val hasActiveThingSearch = searchQuery.isNotBlank() ||
@@ -523,23 +518,17 @@ fun ThingListScreen(
             loadRelatedMessageSearchPage(reset = true)
         }
     }
-    val channelOptions = remember(allThings, effectivePendingScope) {
+    val channelOptions = remember(allThings) {
         allThings
             .asSequence()
-            .filter { thing ->
-                !isPendingThingDeletion(thing)
-            }
             .mapNotNull { it.channelId?.trim()?.takeIf { value -> value.isNotEmpty() } }
             .distinct()
             .sorted()
             .toList()
     }
-    val tagOptions = remember(allThings, effectivePendingScope) {
+    val tagOptions = remember(allThings) {
         allThings
             .asSequence()
-            .filter { thing ->
-                !isPendingThingDeletion(thing)
-            }
             .flatMap { it.tags.asSequence() }
             .map { it.trim().lowercase() }
             .filter { it.isNotEmpty() }
@@ -565,11 +554,7 @@ fun ThingListScreen(
 
     LaunchedEffect(openThingId, allThings, hasMoreThings, isLoadingMoreThings) {
         val target = openThingId?.trim()?.takeIf { it.isNotEmpty() } ?: return@LaunchedEffect
-        if (effectivePendingScope.suppressesThing(target, null)) {
-            targetUnavailableFeedback = targetUnavailableMessage
-            onOpenThingHandled()
-            return@LaunchedEffect
-        }
+
         val matched = allThings.firstOrNull { it.thingId == target }
         if (matched != null) {
             targetUnavailableFeedback = null
@@ -596,18 +581,7 @@ fun ThingListScreen(
         }
     }
 
-    LaunchedEffect(effectivePendingScope) {
-        val currentThing = selectedThing
-        if (currentThing != null && effectivePendingScope.suppressesThing(currentThing.thingId, currentThing.channelId)) {
-            selectedThing = null
-            selectedThingInitialTab = null
-            onThingDetailClosed()
-        }
-        val currentRelatedEvent = selectedRelatedEvent
-        if (currentRelatedEvent != null && effectivePendingScope.suppressesEvent(currentRelatedEvent.eventId, currentRelatedEvent.channelId)) {
-            selectedRelatedEvent = null
-        }
-    }
+
 
     if (
         selectedThing != null &&
@@ -1010,7 +984,6 @@ internal fun ThingRow(
                 .pushGoMergedActionSemantics(
                     summary = rowSummary,
                     stateDescription = null,
-                    selectedState = null,
                     onClickLabel = stringResource(R.string.a11y_action_open_thing),
                     onClickAction = onClick,
                     onLongClickLabel = null,

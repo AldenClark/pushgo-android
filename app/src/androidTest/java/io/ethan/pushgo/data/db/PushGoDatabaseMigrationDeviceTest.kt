@@ -27,6 +27,8 @@ import io.ethan.pushgo.MainActivity
 import io.ethan.pushgo.PushGoApp
 import io.ethan.pushgo.data.AppContainer
 import io.ethan.pushgo.data.model.KeyEncoding
+import io.ethan.pushgo.data.model.MessageStatus
+import io.ethan.pushgo.data.model.PushMessage
 import io.ethan.pushgo.testing.QualityRuntime
 import io.ethan.pushgo.testing.QualityUiFailureDiagnostics
 import kotlinx.coroutines.CoroutineScope
@@ -41,6 +43,7 @@ import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
+import java.time.Instant
 
 @RunWith(AndroidJUnit4::class)
 class PushGoDatabaseMigrationDeviceTest {
@@ -105,7 +108,7 @@ class PushGoDatabaseMigrationDeviceTest {
         assertEquals(CHANNEL_ID, subscriptions.single().channelId)
         assertEquals(1, messages.size)
         assertEquals(MESSAGE_ID, messages.single().messageId)
-        assertEquals(32, readUserVersion(context.getDatabasePath("pushgo.db")))
+        assertEquals(35, readUserVersion(context.getDatabasePath("pushgo.db")))
         assertEquals(1, container.messageRepository.totalCount())
         assertEquals(1, container.messageRepository.unreadCount())
         assertTrue(context.getDatabasePath("pushgo.db").exists())
@@ -154,7 +157,7 @@ class PushGoDatabaseMigrationDeviceTest {
         assertEquals(MESSAGE_ID, messages.single().messageId)
         assertEquals(1, container.messageRepository.totalCount())
         assertEquals(1, container.messageRepository.unreadCount())
-        assertEquals(32, readUserVersion(context.getDatabasePath("pushgo.db")))
+        assertEquals(35, readUserVersion(context.getDatabasePath("pushgo.db")))
         val sqlite = container.database.openHelper.writableDatabase
         val revision = sqlite.query(
             "SELECT revision FROM message_store_revision WHERE id = 1"
@@ -249,7 +252,7 @@ class PushGoDatabaseMigrationDeviceTest {
             cursor.getString(0) to cursor.getString(1)
         }
 
-        assertEquals(32, readUserVersion(context.getDatabasePath("pushgo.db")))
+        assertEquals(35, readUserVersion(context.getDatabasePath("pushgo.db")))
         assertEquals(0, pendingOutbox)
         assertEquals(1, retainedLedger)
         assertEquals("" to "", retainedLedgerScope)
@@ -317,19 +320,9 @@ class PushGoDatabaseMigrationDeviceTest {
             assertTrue(cursor.moveToFirst())
             listOf(cursor.getString(0), cursor.getString(1), cursor.getString(2), cursor.getInt(3))
         }
-        val pendingDeliveryIndexUnique = migrated.query(
-            "PRAGMA index_list(pending_thing_events)"
-        ).use { cursor ->
-            var unique: Int? = null
-            while (cursor.moveToNext()) {
-                if (cursor.getString(cursor.getColumnIndexOrThrow("name")) ==
-                    "index_pending_thing_events_delivery_id"
-                ) {
-                    unique = cursor.getInt(cursor.getColumnIndexOrThrow("unique"))
-                }
-            }
-            unique
-        }
+        val pendingEventTableRetired = migrated.query(
+            "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'pending_thing_events'"
+        ).use { cursor -> !cursor.moveToFirst() }
         val ackTombstoneIndexExists = migrated.query(
             "PRAGMA index_list(inbound_delivery_ledger)"
         ).use { cursor ->
@@ -344,13 +337,13 @@ class PushGoDatabaseMigrationDeviceTest {
             found
         }
 
-        assertEquals(32, readUserVersion(context.getDatabasePath("pushgo.db")))
+        assertEquals(35, readUserVersion(context.getDatabasePath("pushgo.db")))
         assertEquals(Triple("", "", "pending"), legacyLedger)
         assertEquals(
             listOf("https://gateway-a.example", "device-a", "legacy_single", 0),
             scopedOutbox,
         )
-        assertEquals(0, pendingDeliveryIndexUnique)
+        assertTrue(pendingEventTableRetired)
         assertTrue(ackTombstoneIndexExists)
         database.close()
     }
@@ -382,7 +375,7 @@ class PushGoDatabaseMigrationDeviceTest {
         val migrated = PushGoDatabase.build(context)
         try {
             assertLegacyIngressBusinessState(migrated)
-            assertEquals(32, readUserVersion(context.getDatabasePath("pushgo.db")))
+            assertEquals(35, readUserVersion(context.getDatabasePath("pushgo.db")))
         } finally {
             migrated.close()
         }
@@ -397,6 +390,454 @@ class PushGoDatabaseMigrationDeviceTest {
     @Test
     fun productionDatabase_migratesV31ToV32DropsOnlyTransportJournalAndReopens() {
         assertRouteJournalRemovalPreservesBusinessData(version = 31)
+    }
+
+    @Test
+    fun productionDatabase_migratesV32AndRetiresLegacyFtsWithoutLosingSearchableMessages() = runBlocking {
+        // User purpose: keep saved messages and metadata searchable after the v32 FTS retirement.
+        // This detects native Room/SQLite virtual-table, trigger, and migration behavior that a JVM
+        // fixture cannot reproduce. Expected cost is one short database upgrade/reopen (<5 seconds).
+        seedDatabaseFromExportedSchema(32)
+        SQLiteDatabase.openDatabase(
+            context.getDatabasePath("pushgo.db").path,
+            null,
+            SQLiteDatabase.OPEN_READWRITE,
+        ).use { database ->
+            database.execSQL(
+                """
+                INSERT INTO app_settings(
+                    id, server_address, key_encoding, use_fcm_channel,
+                    is_message_page_enabled, is_event_page_enabled, is_thing_page_enabled,
+                    update_auto_check_enabled, update_beta_channel_enabled, update_prompt_dismiss_count
+                ) VALUES(1, ?, 'BASE64', 1, 1, 1, 1, 1, 0, 0)
+                """.trimIndent(),
+                arrayOf<Any>(GATEWAY_URL),
+            )
+            database.execSQL(
+                """
+                INSERT INTO channel_subscriptions(
+                    gateway_url, channel_id, display_name, updated_at, last_synced_at, is_deleted
+                ) VALUES(?, ?, 'FTS retained channel', 1710000000000, 1710000100000, 0)
+                """.trimIndent(),
+                arrayOf<Any>(GATEWAY_URL, CHANNEL_ID),
+            )
+            database.execSQL(
+                """
+                INSERT INTO messages(
+                    id, message_id, title, body, channel, url, is_read, received_at,
+                    raw_payload_json, status, decryption_state, notification_id, server_id,
+                    body_preview, entity_type, entity_id, event_id, thing_id, event_state,
+                    event_time_epoch, occurred_at_epoch, list_payload_json
+                ) VALUES('retained-v32-message', 'retained-v32-message', 'Migration keeps title',
+                    'retained searchable body', ?, NULL, 1, 1710000200000,
+                    '{"tags":["retained-tag"],"metadata":{"migration-key":"retained-value"}}',
+                    'NORMAL', NULL, NULL, NULL, 'retained searchable body', 'message', NULL,
+                    NULL, NULL, NULL, NULL, NULL, '{}')
+                """.trimIndent(),
+                arrayOf<Any>(CHANNEL_ID),
+            )
+            database.execSQL(
+                """
+                INSERT INTO message_metadata_index(message_id, key_name, value_norm, label, received_at)
+                VALUES('retained-v32-message', 'tag', 'retained-tag', 'retained-tag', 1710000200000)
+                """.trimIndent(),
+            )
+            database.execSQL(
+                """
+                INSERT INTO message_metadata_index(message_id, key_name, value_norm, label, received_at)
+                VALUES('retained-v32-message', 'search_text', 'normalization_v1',
+                    'migration keeps title retained searchable body migration-key retained-value retained-tag',
+                    1710000200000)
+                """.trimIndent(),
+            )
+
+            val existingFtsTriggers = database.rawQuery(
+                "SELECT name FROM sqlite_master WHERE type = 'trigger' " +
+                    "AND name LIKE 'room_fts_content_sync_message_fts_%' ORDER BY name",
+                null,
+            ).use { cursor -> buildList { while (cursor.moveToNext()) add(cursor.getString(0)) } }
+            assertEquals(
+                listOf(
+                    "room_fts_content_sync_message_fts_AFTER_INSERT",
+                    "room_fts_content_sync_message_fts_AFTER_UPDATE",
+                    "room_fts_content_sync_message_fts_BEFORE_DELETE",
+                    "room_fts_content_sync_message_fts_BEFORE_UPDATE",
+                ),
+                existingFtsTriggers,
+            )
+            val ftsMatchCount = database.rawQuery(
+                "SELECT COUNT(*) FROM message_fts WHERE message_fts MATCH 'searchable'",
+                null,
+            ).use { cursor -> cursor.moveToFirst(); cursor.getInt(0) }
+            assertEquals("The v32 FTS fixture is populated before migration", 1, ftsMatchCount)
+        }
+
+        val container = AppContainer(context, appScope)
+        val sqlite = container.database.openHelper.writableDatabase
+        try {
+            assertEquals(35, readUserVersion(context.getDatabasePath("pushgo.db")))
+            val migratedMessage = sqlite.query(
+                "SELECT message_id, title, body, channel, is_read, raw_payload_json " +
+                    "FROM messages WHERE id = 'retained-v32-message'",
+            ).use { cursor ->
+                assertTrue(cursor.moveToFirst())
+                listOf(cursor.getString(0), cursor.getString(1), cursor.getString(2),
+                    cursor.getString(3), cursor.getInt(4).toString(), cursor.getString(5))
+            }
+            assertEquals(
+                listOf(
+                    "retained-v32-message", "Migration keeps title", "retained searchable body",
+                    CHANNEL_ID, "1",
+                    "{\"tags\":[\"retained-tag\"],\"metadata\":{\"migration-key\":\"retained-value\"}}",
+                ),
+                migratedMessage,
+            )
+            val retainedMetadata = sqlite.query(
+                "SELECT key_name, value_norm, label, received_at FROM message_metadata_index " +
+                    "WHERE message_id = 'retained-v32-message' ORDER BY key_name",
+            ).use { cursor ->
+                buildList {
+                    while (cursor.moveToNext()) {
+                        add(listOf(cursor.getString(0), cursor.getString(1), cursor.getString(2), cursor.getLong(3)))
+                    }
+                }
+            }
+            assertEquals(
+                listOf(
+                    listOf("search_text", "normalization_v1",
+                        "migration keeps title retained searchable body migration-key retained-value retained-tag",
+                        1710000200000L),
+                    listOf("tag", "retained-tag", "retained-tag", 1710000200000L),
+                ),
+                retainedMetadata,
+            )
+            assertEquals(GATEWAY_URL, container.settingsRepository.getServerAddress())
+            assertEquals(true, container.settingsRepository.getUpdateAutoCheckEnabled())
+            assertEquals(false, container.settingsRepository.getUpdateBetaChannelEnabled())
+            val retainedSubscription = container.channelStore.loadSubscriptions(GATEWAY_URL).single()
+            assertEquals(CHANNEL_ID, retainedSubscription.channelId)
+            assertEquals("FTS retained channel", retainedSubscription.displayName)
+            assertEquals(
+                listOf("retained-v32-message"),
+                container.messageRepository.searchMessagesSnapshot(
+                    "tag:retained-tag", unreadOnly = false, limit = 10,
+                ).map { it.id },
+            )
+            assertEquals(
+                listOf("retained-v32-message"),
+                container.messageRepository.searchMessagesSnapshot(
+                    "retained searchable", unreadOnly = false, limit = 10,
+                ).map { it.id },
+            )
+            assertNoLegacyMessageFts(sqlite)
+        } finally {
+            container.database.close()
+        }
+
+        val reopened = AppContainer(context, appScope)
+        try {
+            val reopenedOriginal = reopened.database.openHelper.writableDatabase.query(
+                "SELECT title, body, is_read FROM messages WHERE id = 'retained-v32-message'",
+            ).use { cursor ->
+                assertTrue(cursor.moveToFirst())
+                listOf(cursor.getString(0), cursor.getString(1), cursor.getInt(2))
+            }
+            assertEquals(
+                listOf("Migration keeps title", "retained searchable body", 1),
+                reopenedOriginal,
+            )
+            assertEquals(
+                listOf("retained-v32-message"),
+                reopened.messageRepository.searchMessagesSnapshot(
+                    "tag:retained-tag", unreadOnly = false, limit = 10,
+                ).map { it.id },
+            )
+            val added = PushMessage(
+                id = "repository-added-after-fts-retirement",
+                messageId = "repository-added-after-fts-retirement",
+                title = "Repository added title",
+                body = "repository-added-token",
+                channel = CHANNEL_ID,
+                url = null,
+                isRead = false,
+                receivedAt = Instant.ofEpochMilli(1710000300000),
+                rawPayloadJson = "{\"entity_type\":\"message\",\"tags\":[\"added-tag\"]}",
+                status = MessageStatus.NORMAL,
+                decryptionState = null,
+                notificationId = null,
+                serverId = null,
+            )
+            reopened.messageRepository.insert(added)
+            val initialBodySearch = reopened.messageRepository.searchMessagesSnapshot(
+                "repository-added-token", unreadOnly = false, limit = 10,
+            )
+            assertEquals(
+                listOf(added.id),
+                initialBodySearch.map { it.id },
+            )
+            assertEquals("Repository added title", initialBodySearch.single().title)
+            reopened.messageRepository.insertAll(
+                listOf(
+                    added.copy(
+                        title = "Repository updated title",
+                        body = "repository-updated-token",
+                        bodyPreview = "repository-updated-token",
+                        receivedAt = added.receivedAt.plusMillis(1_000),
+                    ),
+                ),
+            )
+            val updatedBodySearch = reopened.messageRepository.searchMessagesSnapshot(
+                "repository-updated-token", unreadOnly = false, limit = 10,
+            )
+            assertEquals(listOf(added.id), updatedBodySearch.map { it.id })
+            assertEquals("Repository updated title", updatedBodySearch.single().title)
+            assertEquals("repository-updated-token", updatedBodySearch.single().bodyPreview)
+            assertEquals(
+                listOf(added.id),
+                reopened.messageRepository.searchMessagesSnapshot(
+                    "Repository updated title", unreadOnly = false, limit = 10,
+                ).map { it.id },
+            )
+            assertTrue(
+                reopened.messageRepository.searchMessagesSnapshot(
+                    "repository-added-token", unreadOnly = false, limit = 10,
+                ).isEmpty(),
+            )
+            assertTrue(
+                reopened.messageRepository.searchMessagesSnapshot(
+                    "Repository added title", unreadOnly = false, limit = 10,
+                ).isEmpty(),
+            )
+            reopened.messageRepository.markRead(added.id)
+            val updatedSearch = reopened.messageRepository.searchMessagesSnapshot(
+                "tag:added-tag", unreadOnly = false, limit = 10,
+            )
+            assertEquals(listOf(added.id), updatedSearch.map { it.id })
+            assertTrue("The repository update persists the read state", updatedSearch.single().isRead)
+            assertTrue(
+                reopened.messageRepository.searchMessagesSnapshot(
+                    "tag:added-tag", unreadOnly = true, limit = 10,
+                ).isEmpty(),
+            )
+            reopened.messageRepository.deleteById(added.id)
+            assertTrue(
+                reopened.messageRepository.searchMessagesSnapshot(
+                    "repository-updated-token", unreadOnly = false, limit = 10,
+                ).isEmpty(),
+            )
+            val deletedTargetCount = reopened.database.openHelper.writableDatabase.query(
+                "SELECT COUNT(*) FROM messages WHERE id = ?",
+                arrayOf(added.id),
+            ).use { cursor -> cursor.moveToFirst(); cursor.getInt(0) }
+            assertEquals(0, deletedTargetCount)
+            val retainedAfterDelete = reopened.database.openHelper.writableDatabase.query(
+                "SELECT title, body, is_read FROM messages WHERE id = 'retained-v32-message'",
+            ).use { cursor ->
+                assertTrue(cursor.moveToFirst())
+                listOf(cursor.getString(0), cursor.getString(1), cursor.getInt(2))
+            }
+            assertEquals(
+                listOf("Migration keeps title", "retained searchable body", 1),
+                retainedAfterDelete,
+            )
+            assertNoLegacyMessageFts(reopened.database.openHelper.writableDatabase)
+        } finally {
+            reopened.database.close()
+        }
+    }
+
+    @Test
+    fun productionDatabase_freshCreateSearchesThroughRepositoryWithoutLegacyFts() = runBlocking {
+        val container = AppContainer(context, appScope)
+        try {
+            val sqlite = container.database.openHelper.writableDatabase
+            assertEquals(35, readUserVersion(context.getDatabasePath("pushgo.db")))
+            assertTrue(
+                container.messageRepository.searchMessagesSnapshot(
+                    "fresh-database-query", unreadOnly = false, limit = 10,
+                ).isEmpty(),
+            )
+            val fresh = PushMessage(
+                id = "fresh-repository-search-message",
+                messageId = "fresh-repository-search-message",
+                title = "Fresh create search title",
+                body = "fresh-create-search-body",
+                channel = CHANNEL_ID,
+                url = null,
+                isRead = false,
+                receivedAt = Instant.ofEpochMilli(1710000400000),
+                rawPayloadJson = "{\"entity_type\":\"message\",\"tags\":[\"fresh-create-tag\"]}",
+                status = MessageStatus.NORMAL,
+                decryptionState = null,
+                notificationId = null,
+                serverId = null,
+                bodyPreview = "fresh-create-search-body",
+            )
+            container.messageRepository.insert(fresh)
+            val bodyMatches = container.messageRepository.searchMessagesSnapshot(
+                "fresh-create-search-body", unreadOnly = false, limit = 10,
+            )
+            assertEquals(listOf(fresh.id), bodyMatches.map { it.id })
+            assertEquals("Fresh create search title", bodyMatches.single().title)
+            assertEquals("fresh-create-search-body", bodyMatches.single().bodyPreview)
+            val tagMatches = container.messageRepository.searchMessagesSnapshot(
+                "tag:fresh-create-tag", unreadOnly = false, limit = 10,
+            )
+            assertEquals(listOf(fresh.id), tagMatches.map { it.id })
+            assertEquals("Fresh create search title", tagMatches.single().title)
+            assertEquals("fresh-create-search-body", tagMatches.single().bodyPreview)
+            assertNoLegacyMessageFts(sqlite)
+        } finally {
+            container.database.close()
+        }
+    }
+
+    private fun assertNoLegacyMessageFts(database: androidx.sqlite.db.SupportSQLiteDatabase) {
+        val leftovers = database.query(
+            "SELECT name FROM sqlite_master WHERE name LIKE 'message_fts%' " +
+                "OR name LIKE 'room_fts_content_sync_message_fts_%' ORDER BY name",
+        ).use { cursor -> buildList { while (cursor.moveToNext()) add(cursor.getString(0)) } }
+        assertTrue("Legacy FTS table, shadows, and sync triggers are removed: $leftovers", leftovers.isEmpty())
+    }
+
+    @Test
+    fun productionDatabase_migratesV33ChildEventDomainsWithoutLosingOverlappingContentAndReopens() {
+        // One native upgrade/reopen proves saved fields, original domain membership and ACK
+        // identity. Same-ID rows in the two old tables must survive independently.
+        seedDatabaseFromExportedSchema(33)
+        val expected = openLegacyDatabase().use { database ->
+            seedLegacyChildEvent(database, "thing_sub_events", "different-content", "former-parent")
+            seedLegacyChildEvent(database, "pending_thing_events", "different-content", "present-parent")
+            database.execSQL(
+                "UPDATE pending_thing_events SET title = 'Waiting title', body = 'Waiting body', " +
+                    "channel = 'waiting-channel', raw_payload_json = '{\"original\":\"等待原文\"}'"
+            )
+            seedLegacyChildEvent(database, "thing_sub_events", "identical-content", "shared-thing")
+            seedLegacyChildEvent(database, "pending_thing_events", "identical-content", "shared-thing")
+            seedLegacyChildEvent(database, "pending_thing_events", "waiting-no-parent", "absent-parent")
+            database.execSQL(
+                """
+                INSERT INTO thing_heads(thing_id, source_id, entity_id, title, body,
+                    raw_payload_json, received_at, updated_at)
+                VALUES('present-parent', 'parent-source', 'present-parent', 'Parent', 'Parent body',
+                    '{"entity_type":"thing","thing_id":"present-parent"}', 1710000000123, 1710000000456)
+                """.trimIndent()
+            )
+            database.execSQL(
+                """
+                INSERT INTO inbound_delivery_ledger(gateway_url, device_key, delivery_id, channel_id,
+                    entity_type, entity_id, op_id, applied_at, ack_state, acked_at)
+                VALUES('https://old-gateway.example', 'original-device', 'child-delivery',
+                    'child-channel', 'event', 'child-event', 'original-op', 1710000000123, 'acked', 1710000000999)
+                """.trimIndent()
+            )
+            database.execSQL(
+                """
+                INSERT INTO inbound_delivery_ack_outbox(gateway_url, device_key, delivery_id,
+                    ack_contract, source, enqueued_at, updated_at, attempt_count, last_attempt_uncertain)
+                VALUES('https://other-gateway.example', 'other-device', 'child-delivery',
+                    'v2_batch', 'provider_pull', 1710000000111, 1710000000222, 3, 1)
+                """.trimIndent()
+            )
+            buildMap<String, List<List<String?>>> {
+                put("events", database.rawQuery(
+                    "SELECT $childEventContentColumns, 1 AS activated FROM thing_sub_events UNION ALL " +
+                        "SELECT $childEventContentColumns, 0 AS activated FROM pending_thing_events " +
+                        "ORDER BY id, activated", null
+                ).use(::readBusinessRows))
+                childMigrationBusinessTables.forEach { table ->
+                    put(table, database.rawQuery("SELECT * FROM $table", null).use(::readBusinessRows))
+                }
+            }
+        }
+
+        repeat(2) {
+            val database = PushGoDatabase.build(context)
+            try {
+                val sqlite = database.openHelper.writableDatabase
+                assertEquals(35, readUserVersion(context.getDatabasePath("pushgo.db")))
+                assertEquals(expected.getValue("events"), sqlite.query(
+                    "SELECT $childEventContentColumns, activated FROM thing_sub_events ORDER BY id, activated"
+                ).use(::readBusinessRows))
+                childMigrationBusinessTables.forEach { table ->
+                    assertEquals("Retain $table", expected.getValue(table),
+                        sqlite.query("SELECT * FROM $table").use(::readBusinessRows))
+                }
+                val visibleIds = sqlite.query(
+                    "SELECT id FROM thing_sub_events WHERE activated = 1 ORDER BY id"
+                ).use { cursor -> buildList { while (cursor.moveToNext()) add(cursor.getString(0)) } }
+                assertEquals(listOf("different-content", "identical-content"), visibleIds)
+                assertTrue(sqlite.query(
+                    "SELECT 1 FROM sqlite_master WHERE name = 'pending_thing_events' " +
+                        "OR tbl_name = 'pending_thing_events'"
+                ).use { cursor -> !cursor.moveToFirst() })
+            } finally {
+                database.close()
+            }
+        }
+    }
+
+    @Test
+    fun productionDatabase_v33ChildEventMigrationRollsBackCopiedDroppedAndRenamedTablesOnIndexFailure() {
+        // This fixture reserves a new index name on another table. The ordinary migration
+        // reaches copy/drop/rename before CREATE INDEX fails; no production test switch is used.
+        seedDatabaseFromExportedSchema(33)
+        val indexName = "index_thing_sub_events_channel_activated"
+        val expected = openLegacyDatabase().use { database ->
+            seedLegacyChildEvent(database, "thing_sub_events", "overlapping-child", "active-thing")
+            seedLegacyChildEvent(database, "pending_thing_events", "overlapping-child", "waiting-thing")
+            database.execSQL("CREATE TABLE migration_index_fault_fixture(value TEXT)")
+            database.execSQL("CREATE INDEX $indexName ON migration_index_fault_fixture(value)")
+            buildMap<String, List<List<String?>>> {
+                listOf("thing_sub_events", "pending_thing_events").forEach { table ->
+                    put(table, database.rawQuery("SELECT * FROM $table", null).use(::readBusinessRows))
+                }
+                put("schema", database.rawQuery(
+                    "SELECT type, name, tbl_name, sql FROM sqlite_master ORDER BY type, name", null
+                ).use(::readBusinessRows))
+            }
+        }
+        val database = PushGoDatabase.build(context)
+        val failure = try {
+            runCatching { database.openHelper.writableDatabase }.exceptionOrNull()
+        } finally {
+            database.close()
+        }
+        assertTrue("Injected index creation failure must block upgrade", failure != null)
+        assertTrue("Failure must reach the post-copy index creation", generateSequence(failure) { it.cause }
+            .any { it.message?.contains(indexName) == true })
+        openLegacyDatabase().use { original ->
+            assertEquals(33, original.version)
+            listOf("thing_sub_events", "pending_thing_events").forEach { table ->
+                assertEquals("Restore original $table", expected.getValue(table),
+                    original.rawQuery("SELECT * FROM $table", null).use(::readBusinessRows))
+            }
+            assertEquals("Restore original tables, indexes and Room identity schema", expected.getValue("schema"),
+                original.rawQuery("SELECT type, name, tbl_name, sql FROM sqlite_master ORDER BY type, name", null)
+                    .use(::readBusinessRows))
+        }
+    }
+
+    private val childMigrationBusinessTables =
+        listOf("thing_heads", "inbound_delivery_ledger", "inbound_delivery_ack_outbox")
+
+    private val childEventContentColumns =
+        "id, entity_id, channel, title, body, raw_payload_json, received_at, op_id, " +
+            "delivery_id, server_id, event_id, thing_id, event_state, event_time_epoch"
+
+    private fun openLegacyDatabase(): SQLiteDatabase = SQLiteDatabase.openDatabase(
+        context.getDatabasePath("pushgo.db").path, null, SQLiteDatabase.OPEN_READWRITE
+    )
+
+    private fun seedLegacyChildEvent(database: SQLiteDatabase, table: String, id: String, thingId: String) {
+        check(table == "thing_sub_events" || table == "pending_thing_events")
+        database.execSQL(
+            "INSERT INTO $table($childEventContentColumns) " +
+                "VALUES(?, ?, 'child-channel', 'Original child title', 'Original child body', " +
+                "?, 1710000000123, 'original-op', 'child-delivery', 'original-server', " +
+                "'child-event', ?, 'active', 1709999999876)",
+            arrayOf<Any>(id, "entity-$id", "{\"event_id\":\"child-event\",\"thing_id\":\"$thingId\",\"original\":\"保留\"}", thingId),
+        )
     }
 
     @Test
@@ -479,7 +920,7 @@ class PushGoDatabaseMigrationDeviceTest {
 
         fun assertBusinessState(database: PushGoDatabase) {
             val sqlite = database.openHelper.writableDatabase
-            assertEquals(32, readUserVersion(context.getDatabasePath("pushgo.db")))
+            assertEquals(35, readUserVersion(context.getDatabasePath("pushgo.db")))
             retainedRouteCleanupTables.forEach { table ->
                 val actual = sqlite.query("SELECT * FROM $table").use(::readBusinessRows)
                 assertEquals("Preserve $table", expected[table], actual)
@@ -557,7 +998,7 @@ class PushGoDatabaseMigrationDeviceTest {
         val migrated = PushGoDatabase.build(context)
         try {
             assertPendingDeletionBusinessState(migrated)
-            assertEquals(32, readUserVersion(context.getDatabasePath("pushgo.db")))
+            assertEquals(35, readUserVersion(context.getDatabasePath("pushgo.db")))
         } finally {
             migrated.close()
         }
@@ -672,11 +1113,19 @@ class PushGoDatabaseMigrationDeviceTest {
                     val entity = entities.getJSONObject(entityIndex)
                     val tableName = entity.getString("tableName")
                     database.execSQL(resolveSchemaTable(entity.getString("createSql"), tableName))
-                    val indices = entity.optJSONArray("indices") ?: continue
-                    for (index in 0 until indices.length()) {
-                        database.execSQL(
-                            resolveSchemaTable(indices.getJSONObject(index).getString("createSql"), tableName)
-                        )
+                    val indices = entity.optJSONArray("indices")
+                    if (indices != null) {
+                        for (index in 0 until indices.length()) {
+                            database.execSQL(
+                                resolveSchemaTable(indices.getJSONObject(index).getString("createSql"), tableName)
+                            )
+                        }
+                    }
+                    val contentSyncTriggers = entity.optJSONArray("contentSyncTriggers")
+                    if (contentSyncTriggers != null) {
+                        for (triggerIndex in 0 until contentSyncTriggers.length()) {
+                            database.execSQL(contentSyncTriggers.getString(triggerIndex))
+                        }
                     }
                 }
                 val setupQueries = schema.getJSONArray("setupQueries")
@@ -870,6 +1319,87 @@ data class LegacyMessageFtsV21(
     val channel: String?,
 )
 
+@Fts4(contentEntity = MessageEntity::class)
+@Entity(tableName = "message_fts")
+data class LegacyMessageFtsV24(
+    val title: String,
+    val body: String,
+    val channel: String?,
+)
+
+@Entity(
+    tableName = "pending_thing_events",
+    indices = [
+        Index(value = ["thing_id", "event_time_epoch", "received_at"]),
+        Index(value = ["delivery_id"]),
+    ],
+)
+data class LegacyPendingThingEventV33Entity(
+    @PrimaryKey
+    @ColumnInfo(name = "id")
+    val id: String,
+    @ColumnInfo(name = "entity_id")
+    val entityId: String,
+    val channel: String?,
+    val title: String,
+    val body: String,
+    @ColumnInfo(name = "raw_payload_json")
+    val rawPayloadJson: String,
+    @ColumnInfo(name = "received_at")
+    val receivedAt: Long,
+    @ColumnInfo(name = "op_id")
+    val opId: String?,
+    @ColumnInfo(name = "delivery_id")
+    val deliveryId: String?,
+    @ColumnInfo(name = "server_id")
+    val serverId: String?,
+    @ColumnInfo(name = "event_id")
+    val eventId: String,
+    @ColumnInfo(name = "thing_id")
+    val thingId: String,
+    @ColumnInfo(name = "event_state")
+    val eventState: String?,
+    @ColumnInfo(name = "event_time_epoch")
+    val eventTimeEpoch: Long?,
+)
+
+@Entity(
+    tableName = "thing_sub_events",
+    indices = [
+        Index(value = ["delivery_id"]),
+        Index(value = ["thing_id", "event_time_epoch"]),
+        Index(value = ["event_id", "event_time_epoch"]),
+        Index(value = ["channel"]),
+        Index(value = ["received_at"]),
+    ],
+)
+data class LegacyThingSubEventV33Entity(
+    @PrimaryKey val id: String,
+    @ColumnInfo(name = "entity_id")
+    val entityId: String,
+    val channel: String?,
+    val title: String,
+    val body: String,
+    @ColumnInfo(name = "raw_payload_json")
+    val rawPayloadJson: String,
+    @ColumnInfo(name = "received_at")
+    val receivedAt: Long,
+    @ColumnInfo(name = "op_id")
+    val opId: String?,
+    @ColumnInfo(name = "delivery_id")
+    val deliveryId: String?,
+    @ColumnInfo(name = "server_id")
+    val serverId: String?,
+    @ColumnInfo(name = "event_id")
+    val eventId: String,
+    @ColumnInfo(name = "thing_id")
+    val thingId: String,
+    @ColumnInfo(name = "event_state")
+    val eventState: String?,
+    @ColumnInfo(name = "event_time_epoch")
+    val eventTimeEpoch: Long?,
+)
+
 @Database(
     entities = [
         LegacyMessageV21Entity::class,
@@ -881,12 +1411,12 @@ data class LegacyMessageFtsV21(
         OperationLedgerEntity::class,
         EventChangeLogEntity::class,
         ThingChangeLogEntity::class,
-        ThingSubEventEntity::class,
+        LegacyThingSubEventV33Entity::class,
         TopLevelEventHeadEntity::class,
         ThingHeadEntity::class,
         ThingSubMessageEntity::class,
         PendingThingMessageEntity::class,
-        PendingThingEventEntity::class,
+        LegacyPendingThingEventV33Entity::class,
         ChannelSubscriptionEntity::class,
         LegacyAppSettingsEntity::class,
     ],
@@ -906,12 +1436,12 @@ abstract class LegacyPushGoV21Database : RoomDatabase()
         OperationLedgerEntity::class,
         EventChangeLogEntity::class,
         ThingChangeLogEntity::class,
-        ThingSubEventEntity::class,
+        LegacyThingSubEventV33Entity::class,
         TopLevelEventHeadEntity::class,
         ThingHeadEntity::class,
         ThingSubMessageEntity::class,
         PendingThingMessageEntity::class,
-        PendingThingEventEntity::class,
+        LegacyPendingThingEventV33Entity::class,
         ChannelSubscriptionEntity::class,
         AppSettingsEntity::class,
     ],
@@ -955,7 +1485,7 @@ data class LegacyInboundDeliveryAckOutboxV24Entity(
     entities = [
         MessageEntity::class,
         MessageMetadataIndexEntity::class,
-        MessageFts::class,
+        LegacyMessageFtsV24::class,
         MessageChannelStatsEntity::class,
         MessageGlobalStatsEntity::class,
         MessageStoreRevisionEntity::class,
@@ -965,12 +1495,12 @@ data class LegacyInboundDeliveryAckOutboxV24Entity(
         OperationLedgerEntity::class,
         EventChangeLogEntity::class,
         ThingChangeLogEntity::class,
-        ThingSubEventEntity::class,
+        LegacyThingSubEventV33Entity::class,
         TopLevelEventHeadEntity::class,
         ThingHeadEntity::class,
         ThingSubMessageEntity::class,
         PendingThingMessageEntity::class,
-        PendingThingEventEntity::class,
+        LegacyPendingThingEventV33Entity::class,
         ChannelSubscriptionEntity::class,
         AppSettingsEntity::class,
     ],
@@ -1021,7 +1551,7 @@ data class LegacyPendingThingEventV25Entity(
     entities = [
         MessageEntity::class,
         MessageMetadataIndexEntity::class,
-        MessageFts::class,
+        LegacyMessageFtsV24::class,
         MessageChannelStatsEntity::class,
         MessageGlobalStatsEntity::class,
         MessageStoreRevisionEntity::class,
@@ -1031,7 +1561,7 @@ data class LegacyPendingThingEventV25Entity(
         OperationLedgerEntity::class,
         EventChangeLogEntity::class,
         ThingChangeLogEntity::class,
-        ThingSubEventEntity::class,
+        LegacyThingSubEventV33Entity::class,
         TopLevelEventHeadEntity::class,
         ThingHeadEntity::class,
         ThingSubMessageEntity::class,

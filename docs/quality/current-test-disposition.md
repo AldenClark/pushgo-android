@@ -1,5 +1,9 @@
 # Android 当前 device 测试处置清单
 
+本批本地提交收口：五项受测输入与 `candidate-source-manifest.json` 一致，九份历史 schema 与原哈希一致，工作区没有混入无关修改。提交仅包含本批产品/测试、新增 `33.json` 和必要已跟踪记录；被忽略的文档及本地原始证据不强制加入。收口只核对身份与范围，不重跑测试，不改变下述迁移与未验证边界。
+
+2026-10-13 Android 闲置 FTS4 退役：基线 `1761b968` 的干净工作区开始，Room 32→33 前向迁移删除四个旧同步触发器及 FTS 虚拟表；新 schema 不含 FTS，九份历史 schema 字节不变。v24/v25 夹具仅将生产实体依赖换成同结构测试专属旧实体，导出 schema seeder 现在按原 schema 安装真实 FTS 触发器。升级用例先验证旧 FTS MATCH 命中，再核对业务/metadata 行、设置、订阅、重开后的内容/读态，以及仓库新增、更新字段、搜索、标记已读和删除；新装用例写入后搜索准确字段。API 37 受控 emulator 的 11 个迁移/新装方法和 2 个既有搜索方法共 13/13，既有搜索 UI 主链 1/1；全部无 failure/error/skip、零重试。PR 的本地化合同、312 项 JVM 与 androidTest 编译/Debug 组装通过，246 项影响脚本合同通过。三份执行收据均为 `PASSED/PASSED`、无 incomplete claim/issue，见 `build/quality-results/android-fts-retirement-20261013/`。影响计划推荐通用 `device`；本批按用户明确范围执行迁移/搜索选择集，没有执行整个通用 device、Nightly/Release、100k 性能或 Macrobenchmark，不把通过外推为完整车道或性能收益。无 v33→v32 降级迁移；旧 App 直接重开升级库不受支持。完整本地日志与 native XML 索引为 `build/quality-results/android-fts-retirement-20261013/verification-summary.md`。
+
 2026-09-03 首屏加载失败稳定业务行 Oracle 干净回归：提交 `8e635e1` 将 `QualityMessageJourneyInstrumentedTest#failedLoadShowsUsableRetryAndRecoversToTheCanonicalMessageDetail` 从标题文本命中收紧为唯一 canonical 行 tag `message.row.quality-standard-message`，保留页面错误→真实 Retry→准确 `P2 Split Seed Message` 标题/正文→详情终点。专用 `Medium_Phone / emulator-5554`（API 37）在源码提交 `a60492a`、`source_dirty=false` 下精确执行 1/1，Gradle `BUILD SUCCESSFUL in 36s`，收据 `build/quality-results/android-load-retry-stable-id-clean-20260903/android-focused-summary.json` 为 `product_capability_status=PASSED`、`test_system_status=PASSED`、选择与执行一致、无 incomplete/issue。稳定 tag 只用于唯一业务行定位，不单独构成通过；该证据限定于受控 emulator，不外推真实 Provider/FCM、进程终止、真机/OEM、Release 或整体覆盖。
 
 2026-09-03 Android pending-deletion 真实进程边界当前字节：源码加入质量会话专用的有界 Undo 窗口，并在质量进程启动时只启动持久化 `PendingLocalDeletionCoordinator`；不复用生产 Activity 生命周期桥，避免 `am force-stop` 与后台提交竞态。提交 `98ef1b1` 后的干净宿主脚本 `scripts/run_android_pending_deletion_process_restart_positive.sh` 在专用 `Medium_Phone / emulator-5554` 串行执行两个独立新会话：`undo` 窗口 60s，旧 PID `3363` 被强制终止后新 PID `3742` 先观察 pending bar、目标行隐藏，再点击真实 Undo，核对目标标题/正文恢复且控制消息仍准确；`deadline` 窗口 8s，旧 PID `4169` 在截止前终止，跨过窗口后新 PID `4525` 启动，核对 pending bar 消失、目标永久不见、控制消息仍可进入准确详情。两条均零重试通过，收据 `build/quality-results/android-pending-deletion-process-restart-clean-20260903/android-pending-deletion-process-summary.json` 的 `source_dirty=false`、`source_revision=98ef1b1`、两 case `PASSED`。准备/清理均由 App-owned control 完成，messages.cleanup 两条独立 sentinel 严格验证。该结果只关闭受控 emulator 的显式进程终止+Room/UI 恢复目的，不外推低内存回收、reboot/package replace、Worker 在进程停止期间执行、真实 Provider/FCM、真机/OEM、并发或 COMMITTING 中点。
@@ -362,3 +366,16 @@ Gateway 的正向终点不再停在地址持久化或旧行消失：现有 `serv
 最终路由候选 `e9f4659` 的累计 PR [run 38212761936](https://github.com/AldenClark/pushgo-android/actions/runs/38212761936) 首次结果保留：host 的 310 个 JVM、246 个脚本合同及编译/静态检查通过；API35 设备第一批 34 个 UI 方法中 33 通过，`thingFixtureShowsAccurateOverviewAndAllThreeRealRelationTabs` 在重启到已删除 Thing 后的目标不可用提示断言失败，原收据仍为 product `FAILED` / test-system `PASSED`。后续 data/system/accessibility/performance/upgrade 阶段未执行，不能将该批次称为 Release 通过。
 
 该测试原先只等待 Activity `RESUMED`，随后立即断言；Intent 导航及 Room 目标查询异步完成。只在这一重启 checkpoint 沿用同类目标不可用流程的 8 秒预算等待真实反馈可见，保留准确文案、删除目标不出现、控制对象及后续关系页断言，超时输出语义树。产品逻辑、阈值、选择器和跳过规则未改。专用 API37 / 1080×1920 模拟器复用已有 App APK，原方法及仅修改断言同步后的方法分别实际执行 1/1 通过（12.926 秒、13.184 秒）；这不复现或清除 API35 首败，也不是累计通过。新的最终 head 仍由 PR 既有累计 CI 验证，不新增或手工重复全量车道。
+
+
+## 2026-10-13 Android Thing 子 Event 生命周期域有限收敛
+
+仅按用户批准的“生命周期域＋原存储 ID”方案实现 Android Thing 子 Event。Room 34 使用 `(id, activated)` 联合键，active/waiting 各保留一份同 ID 内容；33→34 逐列复制两域，包括相同 ID 的不同内容，迁移期间不激活、不消费冲突行。历史 schema 保留。
+
+删除生产 pending 子 Event 模型、DAO、表注册/访问器、Incoming 往返转换、跨表搬运与 consumed ID 收集，以及对应构造依赖。父到仍在旧触发点按旧顺序处理：读取七个键/标量字段，沿用 Kotlin trim 和 fallback 做全局 active 查重；命中只消费 waiting，未命中就地更新激活。新增责任限于联合键/activated 字段、active 查询过滤、轻量字段投影、顺序激活事务及一次数据库迁移；正文/raw payload 不读回应用层、不另建队列、账本或协调框架。Event 删除仍只清 active，Thing 删除仍处理两域，既有跨频道、无 head、重复和迟到行为保持；子 Message 与其他平台属于原条目未完成范围。
+
+最终生产字节沿用本轮 host PR 311 项 JVM、本地化、Debug/androidTest 编译构建通过；测试脚本 246 项通过，AI history 检查通过。最终设备 APK 重新编译后，在专用 `pushgo_release_20260929 / emulator-5554 / API37` 精确执行数据选集 22/22（6 项生命周期、13 项迁移、2 项既有投影、1 项既有 ACK 作用域），以及唯一代表性 UI 1/1，均无 failure/error/skip，两个最终收据 product/test-system=PASSED/PASSED、无 incomplete claim。断言实际两域内容、父到冲突/删除顺序、跨 Thing 全局冲突、非规范 ID/Unicode 规范化/有序别名、重开、迁移事务回滚和 ACK 目的地/完成状态；UI 从正式 Worker 写入，验证子先到隐藏、父到后 Thing 详情准确标题/正文、父通知恰好一个且没有子通知。
+
+首轮 Python3.9/测试类归属清单失败和设备选择器因注解同行而在执行前 BLOCKED 均保留；修正运行环境、既有清单计数及注解格式后形成上述新证据，没有业务断言失败或业务重试。影响计划 READY/release 仅为计划；用户明确限定必要检查及不测性能，未执行累计 Release/nightly、性能、真机/OEM、真实 Provider/FCM/Private 网络、签名安装/降级或发布。旧 baseline/startup profile 只删除失效 DAO/构造引用，未重新采样或宣称性能结果。
+
+证据 `build/quality-results/thing-event-lifecycle-20261013/{pr,data-final,ui}/`（最终两批 native-results 独立保存），`source-identity.json` 绑定未提交 HEAD 2cd780b 的最终源码哈希；验证后源码哈希未漂移。任务 AVD 已关闭，实体 Redmi 未操作。改动保留本地未提交、未推送、未发布，完成后停止。

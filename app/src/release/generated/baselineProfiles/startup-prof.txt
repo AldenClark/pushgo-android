@@ -295,7 +295,7 @@ SPLio/ethan/pushgo/data/DurablePendingChannelDeletionExecutor$Companion;-><init>
 SPLio/ethan/pushgo/data/DurablePendingChannelDeletionExecutor$Companion;-><init>(Lkotlin/jvm/internal/DefaultConstructorMarker;)V
 Lio/ethan/pushgo/data/EntityRepository;
 SPLio/ethan/pushgo/data/EntityRepository;-><clinit>()V
-SPLio/ethan/pushgo/data/EntityRepository;-><init>(Lio/ethan/pushgo/data/db/PushGoDatabase;Lio/ethan/pushgo/data/db/InboundDeliveryLedgerDao;Lio/ethan/pushgo/data/db/OperationLedgerDao;Lio/ethan/pushgo/data/db/EventChangeLogDao;Lio/ethan/pushgo/data/db/ThingChangeLogDao;Lio/ethan/pushgo/data/db/ThingSubEventDao;Lio/ethan/pushgo/data/db/TopLevelEventHeadDao;Lio/ethan/pushgo/data/db/ThingHeadDao;Lio/ethan/pushgo/data/db/ThingSubMessageDao;Lio/ethan/pushgo/data/db/PendingThingEventDao;)V
+SPLio/ethan/pushgo/data/EntityRepository;-><init>(Lio/ethan/pushgo/data/db/PushGoDatabase;Lio/ethan/pushgo/data/db/InboundDeliveryLedgerDao;Lio/ethan/pushgo/data/db/OperationLedgerDao;Lio/ethan/pushgo/data/db/EventChangeLogDao;Lio/ethan/pushgo/data/db/ThingChangeLogDao;Lio/ethan/pushgo/data/db/ThingSubEventDao;Lio/ethan/pushgo/data/db/TopLevelEventHeadDao;Lio/ethan/pushgo/data/db/ThingHeadDao;Lio/ethan/pushgo/data/db/ThingSubMessageDao;)V
 PLio/ethan/pushgo/data/EntityRepository;->eventCount(Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 SPLio/ethan/pushgo/data/EntityRepository;->observeEventCount()Lkotlinx/coroutines/flow/Flow;
 SPLio/ethan/pushgo/data/EntityRepository;->observeEventRefreshToken()Lkotlinx/coroutines/flow/Flow;
@@ -1012,16 +1012,6 @@ Lio/ethan/pushgo/data/db/PendingLocalDeletionDao_Impl$Companion;
 SPLio/ethan/pushgo/data/db/PendingLocalDeletionDao_Impl$Companion;-><init>()V
 SPLio/ethan/pushgo/data/db/PendingLocalDeletionDao_Impl$Companion;-><init>(Lkotlin/jvm/internal/DefaultConstructorMarker;)V
 SPLio/ethan/pushgo/data/db/PendingLocalDeletionDao_Impl$Companion;->getRequiredConverters()Ljava/util/List;
-Lio/ethan/pushgo/data/db/PendingThingEventDao;
-Lio/ethan/pushgo/data/db/PendingThingEventDao_Impl;
-SPLio/ethan/pushgo/data/db/PendingThingEventDao_Impl;-><clinit>()V
-SPLio/ethan/pushgo/data/db/PendingThingEventDao_Impl;-><init>(Landroidx/room/RoomDatabase;)V
-Lio/ethan/pushgo/data/db/PendingThingEventDao_Impl$1;
-SPLio/ethan/pushgo/data/db/PendingThingEventDao_Impl$1;-><init>()V
-Lio/ethan/pushgo/data/db/PendingThingEventDao_Impl$Companion;
-SPLio/ethan/pushgo/data/db/PendingThingEventDao_Impl$Companion;-><init>()V
-SPLio/ethan/pushgo/data/db/PendingThingEventDao_Impl$Companion;-><init>(Lkotlin/jvm/internal/DefaultConstructorMarker;)V
-SPLio/ethan/pushgo/data/db/PendingThingEventDao_Impl$Companion;->getRequiredConverters()Ljava/util/List;
 Lio/ethan/pushgo/data/db/PendingThingMessageDao;
 Lio/ethan/pushgo/data/db/PendingThingMessageDao_Impl;
 SPLio/ethan/pushgo/data/db/PendingThingMessageDao_Impl;-><clinit>()V
@@ -1096,7 +1086,6 @@ SPLio/ethan/pushgo/data/db/PushGoDatabase_Impl;->_messageDao$lambda$0(Lio/ethan/
 SPLio/ethan/pushgo/data/db/PushGoDatabase_Impl;->_messageMetadataIndexDao$lambda$0(Lio/ethan/pushgo/data/db/PushGoDatabase_Impl;)Lio/ethan/pushgo/data/db/MessageMetadataIndexDao_Impl;
 SPLio/ethan/pushgo/data/db/PushGoDatabase_Impl;->_operationLedgerDao$lambda$0(Lio/ethan/pushgo/data/db/PushGoDatabase_Impl;)Lio/ethan/pushgo/data/db/OperationLedgerDao_Impl;
 SPLio/ethan/pushgo/data/db/PushGoDatabase_Impl;->_pendingLocalDeletionDao$lambda$0(Lio/ethan/pushgo/data/db/PushGoDatabase_Impl;)Lio/ethan/pushgo/data/db/PendingLocalDeletionDao_Impl;
-SPLio/ethan/pushgo/data/db/PushGoDatabase_Impl;->_pendingThingEventDao$lambda$0(Lio/ethan/pushgo/data/db/PushGoDatabase_Impl;)Lio/ethan/pushgo/data/db/PendingThingEventDao_Impl;
 SPLio/ethan/pushgo/data/db/PushGoDatabase_Impl;->_pendingThingMessageDao$lambda$0(Lio/ethan/pushgo/data/db/PushGoDatabase_Impl;)Lio/ethan/pushgo/data/db/PendingThingMessageDao_Impl;
 SPLio/ethan/pushgo/data/db/PushGoDatabase_Impl;->_thingChangeLogDao$lambda$0(Lio/ethan/pushgo/data/db/PushGoDatabase_Impl;)Lio/ethan/pushgo/data/db/ThingChangeLogDao_Impl;
 SPLio/ethan/pushgo/data/db/PushGoDatabase_Impl;->_thingHeadDao$lambda$0(Lio/ethan/pushgo/data/db/PushGoDatabase_Impl;)Lio/ethan/pushgo/data/db/ThingHeadDao_Impl;
@@ -1121,7 +1110,6 @@ SPLio/ethan/pushgo/data/db/PushGoDatabase_Impl;->messageDao()Lio/ethan/pushgo/da
 SPLio/ethan/pushgo/data/db/PushGoDatabase_Impl;->messageMetadataIndexDao()Lio/ethan/pushgo/data/db/MessageMetadataIndexDao;
 SPLio/ethan/pushgo/data/db/PushGoDatabase_Impl;->operationLedgerDao()Lio/ethan/pushgo/data/db/OperationLedgerDao;
 SPLio/ethan/pushgo/data/db/PushGoDatabase_Impl;->pendingLocalDeletionDao()Lio/ethan/pushgo/data/db/PendingLocalDeletionDao;
-SPLio/ethan/pushgo/data/db/PushGoDatabase_Impl;->pendingThingEventDao()Lio/ethan/pushgo/data/db/PendingThingEventDao;
 SPLio/ethan/pushgo/data/db/PushGoDatabase_Impl;->pendingThingMessageDao()Lio/ethan/pushgo/data/db/PendingThingMessageDao;
 SPLio/ethan/pushgo/data/db/PushGoDatabase_Impl;->thingChangeLogDao()Lio/ethan/pushgo/data/db/ThingChangeLogDao;
 SPLio/ethan/pushgo/data/db/PushGoDatabase_Impl;->thingHeadDao()Lio/ethan/pushgo/data/db/ThingHeadDao;

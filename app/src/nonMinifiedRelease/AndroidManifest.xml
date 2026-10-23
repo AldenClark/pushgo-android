@@ -1,0 +1,18 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application>
+        <provider
+            android:name="io.ethan.pushgo.testing.BenchmarkFixtureProvider"
+            android:authorities="${applicationId}.quality-fixture"
+            android:enabled="${qualityFixtureProviderEnabled}"
+            android:exported="${qualityFixtureProviderEnabled}"
+            android:permission="android.permission.DUMP" />
+        <activity
+            android:name="io.ethan.pushgo.testing.BenchmarkUnstopActivity"
+            android:enabled="${qualityFixtureProviderEnabled}"
+            android:excludeFromRecents="true"
+            android:exported="${qualityFixtureProviderEnabled}"
+            android:noHistory="true"
+            android:permission="android.permission.DUMP"
+            android:theme="@android:style/Theme.NoDisplay" />
+    </application>
+</manifest>

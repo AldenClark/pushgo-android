@@ -1,6 +1,5 @@
 package io.ethan.pushgo.notifications
 
-import io.ethan.pushgo.data.ProviderPullContract
 import io.ethan.pushgo.data.ProviderPullPage
 import io.ethan.pushgo.data.PullItem
 import io.ethan.pushgo.data.ProviderAckContract
@@ -212,6 +211,5 @@ class ProviderIngressPagingContractTest {
     private fun page(ids: List<String>, hasMore: Boolean) = ProviderPullPage(
         items = ids.map { PullItem(deliveryId = it, payload = emptyMap()) },
         hasMore = hasMore,
-        contract = ProviderPullContract.V2,
     )
 }

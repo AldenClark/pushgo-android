@@ -10,6 +10,7 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.graphics.Color
+import android.net.Uri
 import android.media.AudioAttributes
 import android.os.Build
 import android.os.Bundle
@@ -21,8 +22,14 @@ import io.ethan.pushgo.MainActivity
 import io.ethan.pushgo.PushGoApp
 import io.ethan.pushgo.R
 import io.ethan.pushgo.data.AppConstants
+import io.ethan.pushgo.data.PendingLocalDeletionKind
+import io.ethan.pushgo.data.PendingLocalDeletionOperation
+import io.ethan.pushgo.data.db.DeletionNotificationCleanupEntity
+import io.ethan.pushgo.data.db.MessageEntity
 import io.ethan.pushgo.data.model.PushMessage
 import io.ethan.pushgo.markdown.MessagePreviewExtractor
+import io.ethan.pushgo.testing.InstrumentationRuntime
+import java.util.UUID
 
 object NotificationHelper {
     private const val TAG = "NotificationHelper"
@@ -30,6 +37,86 @@ object NotificationHelper {
     private const val NOTIFICATION_GROUP_PREFIX = "io.ethan.pushgo.notifications.groups."
     private const val NOTIFICATION_METADATA_EVENT_ID = "io.ethan.pushgo.notification.event_id"
     private const val NOTIFICATION_METADATA_THING_ID = "io.ethan.pushgo.notification.thing_id"
+    private const val NOTIFICATION_METADATA_OWN_KIND = "io.ethan.pushgo.notification.own_kind"
+    private const val NOTIFICATION_METADATA_OWN_ID = "io.ethan.pushgo.notification.own_id"
+    private const val NOTIFICATION_METADATA_GENERATION = "io.ethan.pushgo.notification.generation"
+    private val notificationInstanceLock = Any()
+    private const val CHILD_INSTANCE_TAG_PREFIX = "io.ethan.pushgo.notification.instance."
+    private data class NotificationInstance(
+        val tag: String?, val id: Int, val postTime: Long,
+        val ownKind: String?, val ownId: String?, val eventId: String?, val thingId: String?,
+        val group: String?, val generation: String?, val summary: Boolean = false, val channelId: String? = null,
+    )
+    // Only submissions not yet observed in the OS snapshot. No Notification or deletion jobs.
+    private val submitted = linkedMapOf<Pair<String, String>, NotificationInstance>()
+    private var notificationObservationHiddenForTest = false
+
+    fun installNotificationObservationHiddenForTest(hidden: Boolean) = synchronized(notificationInstanceLock) {
+        check(InstrumentationRuntime.isUnderInstrumentationTest())
+        notificationObservationHiddenForTest = hidden
+    }
+
+    private fun activeNotifications(context: Context) =
+        if (notificationObservationHiddenForTest) emptyArray<android.service.notification.StatusBarNotification>()
+        else (context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager).activeNotifications
+
+    private fun notificationInstances(context: Context): List<NotificationInstance> {
+        val active = activeNotifications(context).map { status ->
+            val extras = status.notification.extras
+            NotificationInstance(status.tag, status.id, status.postTime,
+                extras.getString(NOTIFICATION_METADATA_OWN_KIND), extras.getString(NOTIFICATION_METADATA_OWN_ID),
+                extras.getString(NOTIFICATION_METADATA_EVENT_ID), extras.getString(NOTIFICATION_METADATA_THING_ID),
+                status.notification.group, extras.getString(NOTIFICATION_METADATA_GENERATION),
+                status.notification.isGroupSummary(), status.notification.channelId)
+        }
+        val activeKeys = active.mapTo(hashSetOf()) { it.tag to it.id }
+        submitted.entries.removeAll { (it.value.tag to it.value.id) in activeKeys }
+        return (submitted.values + active).associateBy { it.tag to it.id }.values.toList()
+    }
+
+    @SuppressLint("MissingPermission")
+    private fun postChild(context: Context, id: Int, notification: Notification) {
+        val extras = notification.extras
+        val kind = checkNotNull(extras.getString(NOTIFICATION_METADATA_OWN_KIND))
+        val ownId = checkNotNull(extras.getString(NOTIFICATION_METADATA_OWN_ID))
+        cancelMatching(context) { it.ownKind == kind && it.ownId == ownId }
+        val generation = checkNotNull(extras.getString(NOTIFICATION_METADATA_GENERATION))
+        val tag = CHILD_INSTANCE_TAG_PREFIX + generation
+        val instance = NotificationInstance(tag, id, 0L, kind, ownId,
+            extras.getString(NOTIFICATION_METADATA_EVENT_ID), extras.getString(NOTIFICATION_METADATA_THING_ID),
+            notification.group, generation, channelId = notification.channelId)
+        submitted[kind to ownId] = instance
+        try {
+            NotificationManagerCompat.from(context).notify(tag, id, notification)
+        } catch (error: Throwable) {
+            submitted.remove(kind to ownId)
+            throw error
+        }
+    }
+
+    private fun cancelMatching(context: Context, predicate: (NotificationInstance) -> Boolean) {
+        val instances = notificationInstances(context)
+        val targets = instances.filter(predicate)
+        val targetKeys = targets.mapTo(hashSetOf()) { it.tag to it.id }
+        val manager = NotificationManagerCompat.from(context)
+        targets.forEach { instance ->
+            manager.cancel(instance.tag, instance.id)
+            submitted.entries.removeAll { it.value.tag == instance.tag && it.value.id == instance.id }
+            if (instances.none { it.id == instance.id && (it.tag to it.id) !in targetKeys }) {
+                AlertPlaybackController.stopForNotification(context, instance.id)
+            }
+        }
+    }
+
+    private fun cancelLegacyId(context: Context, id: Int) {
+        NotificationManagerCompat.from(context).cancel(id)
+        if (notificationInstances(context).none { it.id == id && it.tag != null }) {
+            AlertPlaybackController.stopForNotification(context, id)
+        }
+    }
+
+    private fun launchIdentity(kind: String, id: String): Uri = Uri.Builder()
+        .scheme("pushgo-notification").authority("identity").appendPath(kind).appendPath(id).build()
     private const val MESSAGE_CHANNEL_GROUP_ID = "io.ethan.pushgo.notification_channels.messages"
     private val managedLevels = listOf("critical", "high", "normal", "low")
 
@@ -191,7 +278,9 @@ object NotificationHelper {
         val channelId = ensureChannel(context, level)
         val profile = resolveLevelProfile(level)
         val route = routeForMessage(message)
+        val messageProjection = MessageEntity.fromModel(message)
         val launchIntent = Intent(context, MainActivity::class.java).apply {
+            data = launchIdentity("message", message.id)
             putExtra(EXTRA_MESSAGE_ID, message.id)
             addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
         }
@@ -218,6 +307,8 @@ object NotificationHelper {
             .setGroupAlertBehavior(NotificationCompat.GROUP_ALERT_CHILDREN)
             .setLights(profile.lightColor, 1_500, 1_000)
             .setDeleteIntent(alertStopDeleteIntent(context, route.notificationId))
+            .addExtras(notificationInstanceMetadata("message", message.id))
+            .addExtras(entityNotificationMetadata(messageProjection.eventId, messageProjection.thingId))
 
         if (postBehavior.silenceSystemAlert) {
             builder.setSilent(true)
@@ -225,12 +316,14 @@ object NotificationHelper {
             builder.setVibrate(profile.vibrationPattern)
         }
         return runCatching {
-            NotificationManagerCompat.from(context).notify(route.notificationId, builder.build())
-            if (postBehavior.startCustomAlert) {
-                AlertPlaybackController.startOrUpdate(context, route.notificationId, level, channelId)
+            synchronized(notificationInstanceLock) {
+                postChild(context, route.notificationId, builder.build())
+                if (postBehavior.startCustomAlert) {
+                    AlertPlaybackController.startOrUpdate(context, route.notificationId, level, channelId)
+                }
+                reconcileActiveNotificationGroups(context)
+                true
             }
-            reconcileActiveNotificationGroups(context)
-            true
         }.getOrElse { error ->
             io.ethan.pushgo.util.SilentSink.w(TAG, "message notification display failed", error)
             false
@@ -311,6 +404,7 @@ object NotificationHelper {
             thingId = thingId,
         )
         val launchIntent = Intent(context, MainActivity::class.java).apply {
+            data = launchIdentity(entityType, entityId)
             putExtra(EXTRA_ENTITY_TYPE, entityType)
             putExtra(EXTRA_ENTITY_ID, entityId)
             addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
@@ -339,6 +433,7 @@ object NotificationHelper {
             .setLights(profile.lightColor, 1_500, 1_000)
             .setDeleteIntent(alertStopDeleteIntent(context, route.notificationId))
             .addExtras(entityNotificationMetadata(eventId, thingId))
+            .addExtras(notificationInstanceMetadata(entityType, entityId))
 
         if (postBehavior.silenceSystemAlert) {
             builder.setSilent(true)
@@ -347,12 +442,14 @@ object NotificationHelper {
         }
 
         return runCatching {
-            NotificationManagerCompat.from(context).notify(route.notificationId, builder.build())
-            if (postBehavior.startCustomAlert) {
-                AlertPlaybackController.startOrUpdate(context, route.notificationId, level, channelId)
+            synchronized(notificationInstanceLock) {
+                postChild(context, route.notificationId, builder.build())
+                if (postBehavior.startCustomAlert) {
+                    AlertPlaybackController.startOrUpdate(context, route.notificationId, level, channelId)
+                }
+                reconcileActiveNotificationGroups(context)
+                true
             }
-            reconcileActiveNotificationGroups(context)
-            true
         }.getOrElse { error ->
             io.ethan.pushgo.util.SilentSink.w(TAG, "entity notification display failed", error)
             false
@@ -360,75 +457,145 @@ object NotificationHelper {
     }
 
     @SuppressLint("MissingPermission")
-    fun reconcileActiveNotificationGroups(context: Context) {
-        if (!canPostNotifications(context)) return
-        val managerCompat = NotificationManagerCompat.from(context)
-        val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        val activeSummaries = manager.activeNotifications.filter { status ->
-            status.notification.isGroupSummary() && status.notification.group?.startsWith(NOTIFICATION_GROUP_PREFIX) == true
-        }
-        val activeChildren = manager.activeNotifications.filter { status ->
-            status.id != PrivateChannelForegroundService.NOTIFICATION_ID &&
-                !status.notification.isGroupSummary() &&
-                status.notification.group?.startsWith(NOTIFICATION_GROUP_PREFIX) == true
-        }
+    fun reconcileActiveNotificationGroups(context: Context) = reconcileActiveNotificationGroups(context, emptySet())
 
-        val childrenByGroup = activeChildren.groupBy { it.notification.group.orEmpty() }
+    private fun reconcileActiveNotificationGroups(
+        context: Context,
+        excludedKeys: Set<Pair<String?, Int>>,
+    ) = synchronized(notificationInstanceLock) {
+        if (!canPostNotifications(context)) return@synchronized
+        val managerCompat = NotificationManagerCompat.from(context)
+        // A submitted child may still be queued in system_server. Canceling its summary
+        // would cascade to that child when the cancellation runnable reaches the group.
+        val instances = notificationInstances(context).filter { (it.tag to it.id) !in excludedKeys }
+        val activeSummaries = instances.filter {
+            it.summary && it.group?.startsWith(NOTIFICATION_GROUP_PREFIX) == true
+        }
+        val childrenByGroup = instances.filter {
+            it.id != PrivateChannelForegroundService.NOTIFICATION_ID && !it.summary &&
+                it.group?.startsWith(NOTIFICATION_GROUP_PREFIX) == true
+        }.groupBy { it.group.orEmpty() }
         activeSummaries.forEach { summary ->
-            val groupKey = summary.notification.group.orEmpty()
-            val childCount = childrenByGroup[groupKey]?.size ?: 0
-            if (childCount < 2) {
+            if (childrenByGroup[summary.group].isNullOrEmpty()) {
                 managerCompat.cancel(summary.tag, summary.id)
             }
         }
+        val existingSummaryGroups = activeSummaries.mapTo(hashSetOf()) { it.group }
         childrenByGroup.forEach { (groupKey, children) ->
             updateGroupSummary(
                 context = context,
                 groupKey = groupKey,
-                channelId = children.first().notification.channelId,
+                channelId = children.first().channelId,
                 childCount = children.size,
+                hasExistingSummary = groupKey in existingSummaryGroups,
             )
         }
     }
 
-    fun cancelMessageNotification(context: Context, messageId: String) {
-        if (messageId.isBlank()) return
-        val route = routeForMessageId(messageId)
-        NotificationManagerCompat.from(context).cancel(route.notificationId)
-        AlertPlaybackController.stopForNotification(context, route.notificationId)
-        reconcileActiveNotificationGroups(context)
+    internal fun captureDeletionNotifications(
+        context: Context,
+        operation: PendingLocalDeletionOperation,
+        entityKeys: Set<Pair<String, String>> = emptySet(),
+        associatedMessageIds: Set<String> = emptySet(),
+    ): List<DeletionNotificationCleanupEntity> = synchronized(notificationInstanceLock) {
+        notificationInstances(context).asSequence()
+            .filter { instance ->
+                instance.id != PrivateChannelForegroundService.NOTIFICATION_ID && !instance.summary &&
+                    matchesDeletion(instance.ownKind, instance.ownId, instance.eventId, instance.thingId,
+                        operation, entityKeys, associatedMessageIds)
+            }.map { instance ->
+                DeletionNotificationCleanupEntity(tag = instance.tag, notificationId = instance.id,
+                    postTime = instance.postTime, generation = instance.generation)
+            }.toList()
     }
 
-    fun cancelMessageNotifications(context: Context, messageIds: List<String>) {
-        if (messageIds.isEmpty()) return
-        val manager = NotificationManagerCompat.from(context)
-        messageIds.forEach { id ->
-            if (id.isNotBlank()) {
-                val route = routeForMessageId(id)
-                manager.cancel(route.notificationId)
-                AlertPlaybackController.stopForNotification(context, route.notificationId)
+    /** Own identity is exact; associated IDs intentionally also cover entity deletion consumers. */
+    internal fun notificationMatchesDeletionCapture(
+        notification: Notification,
+        operation: PendingLocalDeletionOperation,
+        entityKeys: Set<Pair<String, String>> = emptySet(),
+        associatedMessageIds: Set<String> = emptySet(),
+    ): Boolean {
+        val extras = notification.extras
+        return matchesDeletion(extras.getString(NOTIFICATION_METADATA_OWN_KIND),
+            extras.getString(NOTIFICATION_METADATA_OWN_ID), extras.getString(NOTIFICATION_METADATA_EVENT_ID),
+            extras.getString(NOTIFICATION_METADATA_THING_ID), operation, entityKeys, associatedMessageIds)
+    }
+
+    private fun matchesDeletion(
+        ownKind: String?, ownId: String?, eventId: String?, thingId: String?,
+        operation: PendingLocalDeletionOperation, entityKeys: Set<Pair<String, String>>,
+        associatedMessageIds: Set<String>,
+    ): Boolean {
+        val matchesOwnEntity = ownKind != null && ownId != null && (ownKind to ownId) in entityKeys
+        // Never infer legacy message identity from a hash or opaque PendingIntent.
+        return when (operation.kind) {
+            PendingLocalDeletionKind.MESSAGES -> ownKind == "message" && ownId in operation.targetIds
+            PendingLocalDeletionKind.EVENTS -> ownKind != "message" &&
+                (matchesOwnEntity || eventId in operation.targetIds)
+            PendingLocalDeletionKind.THINGS -> if (ownKind == "message") ownId in associatedMessageIds
+                else matchesOwnEntity || thingId in operation.targetIds
+            else -> false
+        }
+    }
+
+    internal fun reconcileDeletionNotifications(
+        context: Context,
+        receipts: List<DeletionNotificationCleanupEntity>,
+    ) = synchronized(notificationInstanceLock) {
+        val managerCompat = NotificationManagerCompat.from(context)
+        val active = activeNotifications(context)
+        val currentByKey = active.associateBy { it.tag to it.id }
+        val canceledKeys = linkedSetOf<Pair<String?, Int>>()
+        receipts.forEach { receipt ->
+            val current = currentByKey[receipt.tag to receipt.notificationId]
+            val exactGenerationTag = receipt.generation != null &&
+                receipt.tag == CHILD_INSTANCE_TAG_PREFIX + receipt.generation
+            val currentGeneration = current?.notification?.extras?.getString(NOTIFICATION_METADATA_GENERATION)
+            val matchingLegacy = current != null && current.postTime == receipt.postTime &&
+                currentGeneration == receipt.generation
+            if (exactGenerationTag || matchingLegacy) {
+                val exactSubmitted = submitted.values.any {
+                    it.tag == receipt.tag && it.id == receipt.notificationId &&
+                        it.generation == receipt.generation
+                }
+                // Exact UUID keys also cancel submissions still queued in system_server.
+                managerCompat.cancel(receipt.tag, receipt.notificationId)
+                canceledKeys += receipt.tag to receipt.notificationId
+                submitted.entries.removeAll {
+                    it.value.tag == receipt.tag && it.value.id == receipt.notificationId
+                }
+                if ((current != null || exactSubmitted) && active.none {
+                        it.id == receipt.notificationId && it.tag != receipt.tag
+                    } && submitted.values.none {
+                        it.id == receipt.notificationId && it.tag != receipt.tag
+                    }) {
+                    AlertPlaybackController.stopForNotification(context, receipt.notificationId)
+                }
             }
         }
+        reconcileActiveNotificationGroups(context, canceledKeys)
+    }
+
+    fun cancelMessageNotification(context: Context, messageId: String) =
+        cancelMessageNotifications(context, listOf(messageId))
+
+    fun cancelMessageNotifications(context: Context, messageIds: List<String>) = synchronized(notificationInstanceLock) {
+        val ids = messageIds.filter(String::isNotBlank).toSet()
+        if (ids.isEmpty()) return@synchronized
+        cancelMatching(context) { it.ownKind == "message" && it.ownId in ids }
+        ids.forEach { cancelLegacyId(context, routeForMessageId(it).notificationId) }
         reconcileActiveNotificationGroups(context)
     }
 
-    fun cancelEntityNotifications(
-        context: Context,
-        entityKeys: Collection<Pair<String, String>>,
-    ) {
-        if (entityKeys.isEmpty()) return
-        val manager = NotificationManagerCompat.from(context)
-        entityKeys.asSequence()
-            .map { (entityType, entityId) -> entityType.trim() to entityId.trim() }
-            .filter { (entityType, entityId) -> entityType.isNotEmpty() && entityId.isNotEmpty() }
-            .distinct()
-            .forEach { (entityType, entityId) ->
-                val notificationId = "$entityType:$entityId".hashCode()
-                manager.cancel(notificationId)
-                AlertPlaybackController.stopForNotification(context, notificationId)
-            }
-        reconcileActiveNotificationGroups(context)
-    }
+    fun cancelEntityNotifications(context: Context, entityKeys: Collection<Pair<String, String>>) =
+        synchronized(notificationInstanceLock) {
+            val keys = entityKeys.map { it.first.trim() to it.second.trim() }
+                .filter { it.first.isNotEmpty() && it.second.isNotEmpty() }.toSet()
+            cancelMatching(context) { it.ownKind != null && it.ownId != null && (it.ownKind to it.ownId) in keys }
+            keys.forEach { cancelLegacyId(context, "${it.first}:${it.second}".hashCode()) }
+            reconcileActiveNotificationGroups(context)
+        }
 
     /** Cancels the event and any thing/event notification whose persisted metadata references it. */
     fun cancelEventNotifications(context: Context, eventIds: Collection<String>) {
@@ -449,38 +616,19 @@ object NotificationHelper {
     }
 
     private fun cancelEntityDeletionNotifications(
-        context: Context,
-        eventIds: Collection<String>,
-        thingIds: Collection<String>,
-    ) {
-        val normalizedEventIds = eventIds.normalizeNotificationIds()
-        val normalizedThingIds = thingIds.normalizeNotificationIds()
-        if (normalizedEventIds.isEmpty() && normalizedThingIds.isEmpty()) return
-        val platformManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        val manager = NotificationManagerCompat.from(context)
-        platformManager.activeNotifications
-            .asSequence()
-            .filter { status ->
-                notificationMatchesEntityDeletion(
-                    notification = status.notification,
-                    eventIds = normalizedEventIds,
-                    thingIds = normalizedThingIds,
-                )
-            }
-            .forEach { status ->
-                manager.cancel(status.tag, status.id)
-                AlertPlaybackController.stopForNotification(context, status.id)
-            }
-        normalizedEventIds.forEach { id ->
-            val notificationId = "event:$id".hashCode()
-            manager.cancel(notificationId)
-            AlertPlaybackController.stopForNotification(context, notificationId)
+        context: Context, eventIds: Collection<String>, thingIds: Collection<String>,
+    ) = synchronized(notificationInstanceLock) {
+        val events = eventIds.normalizeNotificationIds()
+        val things = thingIds.normalizeNotificationIds()
+        if (events.isEmpty() && things.isEmpty()) return@synchronized
+        cancelMatching(context) {
+            (it.ownKind != "message" && it.eventId in events) || it.thingId in things ||
+                (it.ownKind == "event" && it.ownId in events) ||
+                (it.ownKind == "thing" && it.ownId in things) ||
+                (it.ownKind != "message" && notificationGroupMatchesEntityDeletion(it.group, events, things))
         }
-        normalizedThingIds.forEach { id ->
-            val notificationId = "thing:$id".hashCode()
-            manager.cancel(notificationId)
-            AlertPlaybackController.stopForNotification(context, notificationId)
-        }
+        events.forEach { cancelLegacyId(context, "event:$it".hashCode()) }
+        things.forEach { cancelLegacyId(context, "thing:$it".hashCode()) }
         reconcileActiveNotificationGroups(context)
     }
 
@@ -511,18 +659,10 @@ object NotificationHelper {
      * Notification groups persist outside the app process and encode the normalized channel ID,
      * so this does not depend on querying deleted message/entity rows.
      */
-    fun cancelChannelNotifications(context: Context, channelId: String) {
-        val normalizedChannelId = channelId.trim()
-        if (normalizedChannelId.isEmpty()) return
-        val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        val managerCompat = NotificationManagerCompat.from(context)
-        manager.activeNotifications
-            .asSequence()
-            .filter { status -> notificationGroupBelongsToChannel(status.notification.group, normalizedChannelId) }
-            .forEach { status ->
-                managerCompat.cancel(status.tag, status.id)
-                AlertPlaybackController.stopForNotification(context, status.id)
-            }
+    fun cancelChannelNotifications(context: Context, channelId: String) = synchronized(notificationInstanceLock) {
+        val normalized = channelId.trim()
+        if (normalized.isEmpty()) return@synchronized
+        cancelMatching(context) { notificationGroupBelongsToChannel(it.group, normalized) }
         reconcileActiveNotificationGroups(context)
     }
 
@@ -558,13 +698,17 @@ object NotificationHelper {
         groupKey: String,
         channelId: String?,
         childCount: Int,
+        hasExistingSummary: Boolean,
     ) {
         val resolvedChannelId = channelId?.takeIf { it.isNotBlank() } ?: return
         val managerCompat = NotificationManagerCompat.from(context)
-        if (childCount < 2) {
+        if (childCount == 0) {
             managerCompat.cancel(summaryNotificationId(groupKey))
             return
         }
+        // Removing a summary cancels its remaining child on Android. Retain/update an
+        // existing summary for one child; a new one is needed only for two or more.
+        if (childCount == 1 && !hasExistingSummary) return
         val summaryText = summaryTextForGroup(
             context = context,
             groupKey = groupKey,
@@ -593,6 +737,7 @@ object NotificationHelper {
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .setCategory(NotificationCompat.CATEGORY_STATUS)
             .setNumber(childCount)
+            .addExtras(notificationInstanceMetadata("summary", groupKey))
             .build()
         managerCompat.notify(summaryNotificationId(groupKey), summaryNotification)
     }
@@ -670,6 +815,12 @@ object NotificationHelper {
         thingId?.trim()?.takeIf { it.isNotEmpty() }?.let {
             putString(NOTIFICATION_METADATA_THING_ID, it)
         }
+    }
+
+    private fun notificationInstanceMetadata(kind: String, id: String): Bundle = Bundle().apply {
+        putString(NOTIFICATION_METADATA_OWN_KIND, kind)
+        putString(NOTIFICATION_METADATA_OWN_ID, id)
+        putString(NOTIFICATION_METADATA_GENERATION, UUID.randomUUID().toString())
     }
 
     private fun Collection<String>.normalizeNotificationIds(): Set<String> = asSequence()

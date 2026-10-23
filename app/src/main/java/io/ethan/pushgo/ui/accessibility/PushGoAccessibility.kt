@@ -15,7 +15,6 @@ import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.semantics.onLongClick
 import androidx.compose.ui.semantics.paneTitle
 import androidx.compose.ui.semantics.role
-import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.semantics.testTag
@@ -57,7 +56,6 @@ fun Modifier.pushGoMergedActionSemantics(
     onClickAction: () -> Unit,
     modifierRole: Role = Role.Button,
     stateDescription: String? = null,
-    selectedState: Boolean? = null,
     onLongClickLabel: String? = null,
     onLongClickAction: (() -> Unit)? = null,
     customActions: List<CustomAccessibilityAction> = emptyList(),
@@ -68,7 +66,6 @@ fun Modifier.pushGoMergedActionSemantics(
         contentDescription = summary
         role = modifierRole
         stateDescription?.let { this.stateDescription = it }
-        selectedState?.let { this.selected = it }
         onClick(label = onClickLabel) {
             onClickAction()
             true

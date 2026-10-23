@@ -1,15 +1,10 @@
 package io.ethan.pushgo.data.db
 
 import androidx.room.Dao
-import androidx.room.Insert
-import androidx.room.OnConflictStrategy
 import androidx.room.Query
 
 @Dao
 interface LegacyProviderIngressDao {
-    @Insert(onConflict = OnConflictStrategy.IGNORE)
-    suspend fun insertAll(records: Collection<LegacyProviderIngressEntity>)
-
     @Query(
         """
         SELECT * FROM legacy_provider_ingress

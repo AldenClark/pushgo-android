@@ -39,7 +39,6 @@ class ProviderAckScopeDeviceTest {
             topLevelEventHeadDao = database.topLevelEventHeadDao(),
             thingHeadDao = database.thingHeadDao(),
             thingSubMessageDao = database.thingSubMessageDao(),
-            pendingThingEventDao = database.pendingThingEventDao(),
         )
         ledgerRepository = InboundDeliveryLedgerRepository(
             database = database,
@@ -152,15 +151,7 @@ class ProviderAckScopeDeviceTest {
     @Test
     fun legacyDestructivePullIsDurableBeforeCanonicalPersistence() = runBlocking {
         val destination = ProviderAckDestination("https://gateway-a.example", "device-a")
-        ledgerRepository.stageLegacyPull(
-            destination = destination,
-            items = listOf(
-                PullItem(
-                    deliveryId = "legacy-delivery",
-                    payload = mapOf("title" to "durable", "body" to "payload"),
-                )
-            ),
-        )
+        seedAcceptedLegacyPull(destination, "legacy-delivery")
 
         database.close()
         database = PushGoDatabase.buildForTest(context, DATABASE_NAME)
@@ -189,15 +180,7 @@ class ProviderAckScopeDeviceTest {
             source = "legacy_provider_staging",
         )!!
         val deliveryId = "legacy-complete"
-        ledgerRepository.stageLegacyPull(
-            destination = destination,
-            items = listOf(
-                PullItem(
-                    deliveryId = deliveryId,
-                    payload = mapOf("title" to "durable", "body" to "payload"),
-                )
-            ),
-        )
+        seedAcceptedLegacyPull(destination, deliveryId)
         assertTrue(entityRepository.insertIncoming(event(deliveryId, "legacy-event"), identity))
         assertTrue(ledgerRepository.shouldAck(deliveryId, identity))
 
@@ -295,6 +278,16 @@ class ProviderAckScopeDeviceTest {
         assertEquals(201, selected.size)
         assertTrue(selected.any { it.gatewayUrl == identityB.gatewayUrl })
         assertEquals(200, selected.count { it.gatewayUrl == identityA.gatewayUrl })
+    }
+
+    // Upgrade fixtures model receipts accepted by an old app. New apps have no
+    // producer for this queue; seed the original SQLite boundary directly.
+    private fun seedAcceptedLegacyPull(destination: ProviderAckDestination, deliveryId: String) {
+        database.openHelper.writableDatabase.execSQL(
+            "INSERT INTO legacy_provider_ingress(gateway_url, device_key, delivery_id, payload_json, enqueued_at) VALUES(?, ?, ?, ?, ?)",
+            arrayOf<Any>(destination.baseUrl, destination.deviceKey, deliveryId,
+                "{\"title\":\"durable\",\"body\":\"payload\"}", 1_710_000_000_000L),
+        )
     }
 
     private fun insertLedgerRow(

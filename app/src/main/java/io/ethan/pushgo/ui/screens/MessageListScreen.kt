@@ -145,7 +145,6 @@ fun MessageListScreen(
     val facetTagCounts by viewModel.facetTagCounts.collectAsStateWithLifecycle()
     val query by searchViewModel.queryState.collectAsStateWithLifecycle()
     val searchResults = searchViewModel.results.collectAsLazyPagingItems()
-    val effectivePendingScope by container.pendingLocalDeletionCoordinator.effectiveScope.collectAsStateWithLifecycle()
     
     val context = LocalContext.current
     val resources = LocalResources.current
@@ -160,7 +159,8 @@ fun MessageListScreen(
     var channelNameMap by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
     var isPullRefreshing by remember { mutableStateOf(false) }
     var isPullRefreshSlow by remember { mutableStateOf(false) }
-    var didPullRefreshFail by remember { mutableStateOf(false) }
+    var pullRefreshFailureMessage by remember { mutableStateOf<String?>(null) }
+    val didPullRefreshFail = pullRefreshFailureMessage != null
     var isHistoryCleanupSheetVisible by rememberSaveable { mutableStateOf(false) }
     val messagesTabLabel = stringResource(R.string.tab_messages)
 
@@ -206,15 +206,10 @@ fun MessageListScreen(
         }
     }
 
-    fun isPendingLocalDeletion(message: MessageListItem): Boolean {
-        return effectivePendingScope.suppressesMessage(
-            id = message.id,
-            channelId = message.channel,
-        )
-    }
 
-    val visibleSearchResults = remember(searchResults.itemSnapshotList.items, effectivePendingScope) {
-        searchResults.itemSnapshotList.items.filterNot(::isPendingLocalDeletion)
+
+    val visibleSearchResults = remember(searchResults.itemSnapshotList.items) {
+        searchResults.itemSnapshotList.items
     }
 
     suspend fun scheduleDeletion(targetMessages: List<MessageListItem>) {
@@ -231,7 +226,7 @@ fun MessageListScreen(
         }
         val messageIds = uniqueMessages.map { it.id }.toSet()
 
-        container.pendingLocalDeletionCoordinator.schedule(
+        container.pendingLocalDeletionCoordinator.confirmAndDelete(
             summary = summary,
             operation = PendingLocalDeletionOperation.messages(messageIds),
             onCompletion = { result ->
@@ -307,12 +302,12 @@ fun MessageListScreen(
                     presentationAdvance = nextPagingPresentation,
                     timeoutMillis = 8_000L,
                 )
-                didPullRefreshFail = false
+                pullRefreshFailureMessage = null
                 refreshCompleted = true
             } catch (error: CancellationException) {
                 throw error
             } catch (error: Throwable) {
-                didPullRefreshFail = true
+                pullRefreshFailureMessage = error.toUserFacingText(context, R.string.message_refresh_failed)
                 io.ethan.pushgo.util.SilentSink.w(
                     "MessageListScreen",
                     "provider ingress refresh failed",
@@ -397,12 +392,7 @@ fun MessageListScreen(
         listState.animateScrollToItem(0)
     }
 
-    LaunchedEffect(effectivePendingScope) {
-        val suppressedIds = effectivePendingScope.messageIds
-        viewModel.setLocallySuppressedMessageIds(suppressedIds)
-        searchViewModel.setLocallySuppressedMessageIds(suppressedIds)
-        if (suppressedIds.isEmpty()) return@LaunchedEffect
-    }
+
 
     LaunchedEffect(filterState) {
         searchViewModel.setFilter(filterState)
@@ -410,8 +400,8 @@ fun MessageListScreen(
 
     val selectedChannels = filterState.channels
     val selectedTags = filterState.tags
-    val visiblePagedItems = remember(messages.itemSnapshotList.items, effectivePendingScope) {
-        messages.itemSnapshotList.items.filterNot(::isPendingLocalDeletion)
+    val visiblePagedItems = remember(messages.itemSnapshotList.items) {
+        messages.itemSnapshotList.items
     }
     val filteredPagedItems = visiblePagedItems
     val filteredSearchResults = visibleSearchResults
@@ -654,7 +644,7 @@ fun MessageListScreen(
                             ) {
                                 Icon(Icons.Outlined.Warning, contentDescription = null)
                                 Text(
-                                    text = stringResource(R.string.message_refresh_failed),
+                                    text = pullRefreshFailureMessage.orEmpty(),
                                     style = MaterialTheme.typography.bodyMedium,
                                     color = uiColors.textSecondary,
                                     modifier = Modifier.weight(1f),
@@ -735,7 +725,7 @@ fun MessageListScreen(
                             val message = messages[index]
                             if (
                                 message != null &&
-                                !isPendingLocalDeletion(message)
+                                true
                             ) {
                                 val listImageModels = remember(message.listPayloadJson) {
                                     container.messageImageStore.resolveListImageModels(message.listPayloadJson, MessageListImagePreviewMaxItems)
@@ -823,7 +813,7 @@ fun MessageListScreen(
                         } else {
                             items(count = searchResults.itemCount, key = searchResults.itemKey { it.id }) { index ->
                                 val message = searchResults[index]
-                                if (message != null && !isPendingLocalDeletion(message)) {
+                                if (message != null) {
                                     val listImageModels = remember(message.listPayloadJson) {
                                         container.messageImageStore.resolveListImageModels(message.listPayloadJson, MessageListImagePreviewMaxItems)
                                     }
@@ -1032,7 +1022,6 @@ internal fun MessageRow(
                 .pushGoMergedActionSemantics(
                     summary = rowSummary,
                     stateDescription = rowStateDescription,
-                    selectedState = null,
                     onClickLabel = stringResource(R.string.a11y_action_open_message),
                     onClickAction = onClick,
                     onLongClickLabel = null,

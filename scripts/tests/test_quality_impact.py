@@ -31,6 +31,34 @@ class QualityImpactPlanTests(unittest.TestCase):
     def plan(self, *paths):
         return QUALITY_IMPACT.build_plan(list(paths), self.manifest, "unit-test")
 
+    def test_ordinary_deletion_owners_require_real_room_consistency_scope(self):
+        methods = (
+            "cancellingConfirmationPreservesMessageNotificationAndCreatesNoDurableIntent",
+            "sameIdAndReceivedAtMessageReplacementRejectsOldConfirmation",
+            "canonicalTitleIsShownAndReadCacheAndJsonOrderingChangesStillAllowDeletion",
+            "sameEventIdentityAndTimestampContentReplacementRejectsOldConfirmation",
+            "newThingChildMessageAndWaitingSubeventEachInvalidateTheirOwnConfirmation",
+            "eachRelevantConfigurationChangeRejectsOldConfirmationAndAllowsFreshConfirmation",
+            "committedMessageDeletionRecoversExactNotificationCleanupOnStartupAndIsIdempotent",
+            "committedThingDeletionRecoversChildMessageAndRelatedEntityNotifications",
+            "eventCleanupRemovesAssociatedThingNotificationWhileThingStillExists",
+            "startupCleanupPreservesNewGenerationAtTheSameNumericNotificationId",
+            "startupCleanupCancelsSubmittedNotificationWhenHelperObservationIsHidden",
+            "actualInboundPublishesCurrentMessageEventAndThingButRejectsAMissingDeliveryRow",
+            "messageDeletedAfterPersistenceCannotPublishItsDelayedInboundNotification",
+            "room34To35MigrationPreservesExistingMessagesAndAddsEmptyCleanupReceipts",
+        )
+        expected_scopes = [
+            f"io.ethan.pushgo.data.OrdinaryDeletionConsistencyDeviceTest#{method}"
+            for method in methods
+        ]
+        for filename in ("OrdinaryDeletionConfirmation.kt", "DeletionNotificationCleanup.kt"):
+            plan = self.plan("app/src/main/java/io/ethan/pushgo/data/" + filename)
+            self.assertEqual(plan["unmapped_product_paths"], [])
+            self.assertIn("delete-confirmation", plan["impacted_capabilities"])
+            self.assertCountEqual(expected_scopes, plan["required_device_scopes"])
+            self.assertEqual(plan["recommended_lane"], "device")
+
     @staticmethod
     def kotlin_test_source(changed_value: str = "extended") -> str:
         return f"""package io.ethan.pushgo.testing
@@ -201,6 +229,23 @@ class RuntimeExtendedJourneyInstrumentedTest {{
         self.assertEqual("blocked", deleted["selection"])
         self.assertIn("was deleted", deleted["blocker"])
 
+    def test_undo_retirement_selects_real_replacement_but_missing_replacement_blocks(self):
+        path = "app/src/androidTest/java/io/ethan/pushgo/testing/QualityMessageJourneyInstrumentedTest.kt"
+        old = "package io.ethan.pushgo.testing\nclass QualityMessageJourneyInstrumentedTest {\n    @Test\n    fun deleteUndoRestoresTheSameObjectAcrossActivityRelaunch() {\n        check(true)\n    }\n}\n"
+        new = old.replace("deleteUndoRestoresTheSameObjectAcrossActivityRelaunch", "deleteCancelPreservesTheSameObjectAcrossActivityRelaunch")
+        import difflib
+        patch = "\n".join(difflib.unified_diff(old.splitlines(), new.splitlines(), n=0))
+        impact = QUALITY_IMPACT.resolve_kotlin_instrumented_test_change(path, old, new, patch)
+        self.assertEqual("exact-method", impact["selection"])
+        self.assertEqual(["io.ethan.pushgo.testing.QualityMessageJourneyInstrumentedTest#deleteCancelPreservesTheSameObjectAcrossActivityRelaunch"], impact["scopes"])
+        helper_old = old[:-2] + "    fun helper() { check(true) }\n}\n"
+        helper_new = helper_old.replace("deleteUndoRestoresTheSameObjectAcrossActivityRelaunch", "deleteCancelPreservesTheSameObjectAcrossActivityRelaunch").replace("fun helper() { check(true) }", "fun helper() { check(false) }")
+        helper_patch = "\n".join(difflib.unified_diff(helper_old.splitlines(), helper_new.splitlines(), n=0))
+        self.assertEqual("changed-class", QUALITY_IMPACT.resolve_kotlin_instrumented_test_change(path, helper_old, helper_new, helper_patch)["selection"])
+        wrong = new.replace("deleteCancelPreservesTheSameObjectAcrossActivityRelaunch", "unrelatedTest")
+        wrong_patch = "\n".join(difflib.unified_diff(old.splitlines(), wrong.splitlines(), n=0))
+        self.assertEqual("blocked", QUALITY_IMPACT.resolve_kotlin_instrumented_test_change(path, old, wrong, wrong_patch)["selection"])
+
     def test_instrumented_test_file_rename_is_explicitly_blocked(self):
         old_path = "app/src/androidTest/java/io/ethan/pushgo/testing/RuntimeExtendedJourneyInstrumentedTest.kt"
         new_path = "app/src/androidTest/java/io/ethan/pushgo/testing/RenamedJourneyInstrumentedTest.kt"
@@ -237,10 +282,10 @@ class RuntimeExtendedJourneyInstrumentedTest {{
             for run in plan["required_device_runs"]
         }
         self.assertEqual(
-            {"accessibility": 1, "app-owned": 35, "system-notification": 3},
+            {"accessibility": 1, "app-owned": 37, "system-notification": 3},
             profiles,
         )
-        self.assertEqual(39, len(plan["required_device_scopes"]))
+        self.assertEqual(41, len(plan["required_device_scopes"]))
 
     def test_unknown_changed_instrumented_class_forces_full_lane(self):
         path = "app/src/androidTest/java/io/ethan/pushgo/testing/Unknown.kt"
@@ -329,7 +374,7 @@ class RuntimeExtendedJourneyInstrumentedTest {{
         self.assertTrue(any("workflowFixture" in scope for scope in plan["required_device_scopes"]))
         self.assertTrue(
             any(
-                "deleteWithoutUndoPermanentlyRemovesOnlyTargetAcrossStorageRecreation" in scope
+                "confirmedDeletePermanentlyRemovesOnlyTargetAcrossStorageRecreation" in scope
                 for scope in plan["required_device_scopes"]
             )
         )

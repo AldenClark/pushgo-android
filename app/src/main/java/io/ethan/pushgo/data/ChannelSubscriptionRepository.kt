@@ -191,6 +191,9 @@ class ChannelSubscriptionRepository(
         if (normalizedDeliveryIds.isEmpty()) {
             return ProviderAckAttemptResult(requestedCount = 0, removedCount = 0)
         }
+        QualityRuntime.takeMessageRefreshAckOverride(destination, contract, normalizedDeliveryIds)?.let {
+            return it
+        }
         val currentConfig = resolveServerConfig()
         val normalizedDestinationUrl = destination.baseUrl.trim().removeSuffix("/")
         val token = if (currentConfig.address.trim().removeSuffix("/") == normalizedDestinationUrl) {
@@ -334,6 +337,32 @@ class ChannelSubscriptionRepository(
                 )
             store.updateDisplayName(config.address, result.channelId, result.channelName)
             result
+        }
+    }
+
+    /** The confirmation snapshot and channel lock protect keep-history unsubscribe too. */
+    suspend fun unsubscribeConfirmedKeepingHistory(
+        operation: PendingLocalDeletionOperation,
+        providerToken: String?,
+        unsubscribePrivate: suspend () -> Boolean,
+    ) {
+        val channelId = operation.targetIds.single()
+        val gateway = requireNotNull(operation.expectedGatewayUrl)
+        store.withChannelMutation(gateway, channelId) {
+            val config = resolveServerConfig()
+            requireExpectedGateway(config, gateway)
+            when (store.pendingDeletionTargetState(gateway, channelId, requireNotNull(operation.expectedUpdatedAt))) {
+                PendingChannelDeletionTargetState.ALREADY_DELETED -> return@withChannelMutation
+                PendingChannelDeletionTargetState.CONFLICTING_VERSION -> throw PermanentPendingLocalDeletionException("Channel subscription changed before confirmation was applied")
+                PendingChannelDeletionTargetState.ACTIVE_EXPECTED_VERSION -> Unit
+            }
+            if (operation.expectedUseProvider == true) {
+                syncProviderDeviceToken(requireNotNull(providerToken), gateway)
+                unsubscribeProviderRemote(channelId, providerToken, config)
+            } else {
+                check(unsubscribePrivate()) { "Private channel unsubscribe failed" }
+            }
+            store.softDeleteSubscription(gateway, channelId)
         }
     }
 

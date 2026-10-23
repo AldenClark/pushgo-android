@@ -9,7 +9,6 @@ import io.ethan.pushgo.data.ProviderAckContract
 import io.ethan.pushgo.data.ProviderAckDestination
 import io.ethan.pushgo.data.ProviderAckIdentity
 import io.ethan.pushgo.data.ProviderPullPage
-import io.ethan.pushgo.data.ProviderPullContract
 import io.ethan.pushgo.data.PullItem
 import io.ethan.pushgo.data.SettingsRepository
 import io.ethan.pushgo.data.model.PushMessage
@@ -105,27 +104,9 @@ object ProviderIngressCoordinator {
         ) { page ->
             val destination = page.destination
                 ?: error("provider pull page missing ACK destination")
-            if (page.contract == ProviderPullContract.LEGACY) {
-                inboundDeliveryLedgerRepository.stageLegacyPull(destination, page.items)
-                return@consumeProviderPullPages ProviderPullPageProcessResult(
-                    persistedCount = processPendingLegacyPull(
-                        context = context,
-                        messageRepository = messageRepository,
-                        entityRepository = entityRepository,
-                        inboundDeliveryLedgerRepository = inboundDeliveryLedgerRepository,
-                        settingsRepository = settingsRepository,
-                        keyBytes = keyBytes,
-                        beforeMessageNotify = beforeMessageNotify,
-                    ),
-                    hadPersistenceFailure = false,
-                )
-            }
             val pageIdentity = ProviderAckIdentity.create(
                 destination = destination,
-                contract = when (page.contract) {
-                    ProviderPullContract.V2 -> ProviderAckContract.V2_BATCH
-                    ProviderPullContract.LEGACY -> ProviderAckContract.LEGACY_SINGLE
-                },
+                contract = ProviderAckContract.V2_BATCH,
                 source = "provider_pull",
             ) ?: error("provider pull page has invalid ACK destination")
             var pageHadPersistenceFailure = false
@@ -139,17 +120,15 @@ object ProviderIngressCoordinator {
                     textLocalizer = NotificationIngressParser.NotificationTextLocalizer.fromContext(context),
                 )?.withProviderAckIdentity(pageIdentity)
                 if (parsed == null) {
-                    if (page.contract == ProviderPullContract.V2) {
-                        val discardedIdentity = ProviderAckIdentity.create(
-                            destination = destination,
-                            contract = ProviderAckContract.V2_BATCH,
-                            source = "provider_pull_discarded",
-                        ) ?: error("provider pull page has invalid discarded ACK destination")
-                        inboundDeliveryLedgerRepository.enqueueAcks(
-                            deliveryIds = listOf(item.deliveryId),
-                            identity = discardedIdentity,
-                        )
-                    }
+                    val discardedIdentity = ProviderAckIdentity.create(
+                        destination = destination,
+                        contract = ProviderAckContract.V2_BATCH,
+                        source = "provider_pull_discarded",
+                    ) ?: error("provider pull page has invalid discarded ACK destination")
+                    inboundDeliveryLedgerRepository.enqueueAcks(
+                        deliveryIds = listOf(item.deliveryId),
+                        identity = discardedIdentity,
+                    )
                     continue
                 }
                 val outcome = InboundPersistenceCoordinator.persistAndNotify(
@@ -166,7 +145,7 @@ object ProviderIngressCoordinator {
                 } else {
                     pageHadPersistenceFailure = true
                 }
-                if (outcome.shouldAck && page.contract == ProviderPullContract.V2) {
+                if (outcome.shouldAck) {
                     inboundDeliveryLedgerRepository.enqueueAcks(
                         deliveryIds = listOf(item.deliveryId),
                         identity = pageIdentity,
@@ -174,13 +153,11 @@ object ProviderIngressCoordinator {
                 }
             }
 
-            if (page.contract == ProviderPullContract.V2) {
-                drainPendingAcksNow(
-                    channelRepository = channelRepository,
-                    inboundDeliveryLedgerRepository = inboundDeliveryLedgerRepository,
-                    destination = destination,
-                )
-            }
+            drainPendingAcksNow(
+                channelRepository = channelRepository,
+                inboundDeliveryLedgerRepository = inboundDeliveryLedgerRepository,
+                destination = destination,
+            )
             ProviderPullPageProcessResult(
                 persistedCount = pagePersisted,
                 hadPersistenceFailure = pageHadPersistenceFailure,
@@ -336,6 +313,7 @@ object ProviderIngressCoordinator {
                     result.definitiveFailures,
                     lastAttemptUncertain = false,
                 )
+                result.failureCause?.let { throw it }
                 error("provider ACK failed for ${result.failedIds.size} deliveries")
             }
             if (result.attempted.isEmpty()) return
@@ -404,8 +382,7 @@ internal suspend fun consumeProviderPullPages(
         val page = pullPage()
         val result = processPage(page)
         totalPersisted += result.persistedCount
-        nextPage = page.contract == ProviderPullContract.V2 &&
-            page.hasMore &&
+        nextPage = page.hasMore &&
             requestedDeliveryId.isNullOrBlank() &&
             !result.hadPersistenceFailure
     }

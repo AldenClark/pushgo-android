@@ -91,100 +91,44 @@ class PendingLocalDeletionRoomDeviceTest {
     }
 
     @Test
-    fun cancelIsDurableAcrossCloseAndReopen() = runBlocking {
+    fun failedAcceptedIntentSurvivesReopenAndExplicitRetryKeepsExactTarget() = runBlocking {
         var database = openDatabase()
-        var repository = RoomPendingLocalDeletionRepository(
-            database = database,
-            dao = database.pendingLocalDeletionDao(),
-        )
-        val record = repository.enqueue(
-            summary = "event",
-            operation = PendingLocalDeletionOperation.events(setOf("e1")),
-            requestedAtEpochMillis = 1_000L,
-            undoWindowMillis = 5_000L,
-        )
-        assertTrue(repository.cancelPending(record.id, nowEpochMillis = 5_000L))
+        var repository = RoomPendingLocalDeletionRepository(database, database.pendingLocalDeletionDao())
+        val operation = PendingLocalDeletionOperation.events(setOf("event-1"))
+        val record = repository.enqueue("event", operation, 1_000L, 5_000L)
+        repository.claim(record.id, 1_500L, true)
+        assertTrue(repository.failClaimed(record.id, 2_000L, "storage unavailable"))
         database.close()
-
         database = openDatabase()
-        repository = RoomPendingLocalDeletionRepository(
-            database = database,
-            dao = database.pendingLocalDeletionDao(),
-        )
+        repository = RoomPendingLocalDeletionRepository(database, database.pendingLocalDeletionDao())
         assertTrue(repository.loadActive().isEmpty())
+        assertEquals(operation, repository.loadFailures().single().operation)
+        assertEquals("storage unavailable", repository.loadFailures().single().lastError)
+        assertTrue(repository.retryFailed(record.id, 3_000L))
+        assertFalse(repository.retryFailed(record.id, 3_000L))
+        assertEquals(operation, repository.claim(record.id, 3_000L, true)!!.operation)
+        assertTrue(repository.completeClaimed(record.id))
+        database.close()
+        database = openDatabase()
+        repository = RoomPendingLocalDeletionRepository(database, database.pendingLocalDeletionDao())
+        assertTrue(repository.loadActive().isEmpty())
+        assertTrue(repository.loadFailures().isEmpty())
         database.close()
     }
 
     @Test
-    fun cancelRequiresTimeBeforeDeadlineAndClaimIsAtomicWithIt() = runBlocking {
+    fun concurrentLegacyClaimsHaveOneOwner() = runBlocking {
         val database = openDatabase()
-        val repository = RoomPendingLocalDeletionRepository(
-            database = database,
-            dao = database.pendingLocalDeletionDao(),
-        )
-        try {
-            for (tapAt in listOf(6_000L, 6_001L)) {
-                val record = repository.enqueue(
-                    summary = "event",
-                    operation = PendingLocalDeletionOperation.events(setOf("e$tapAt")),
-                    requestedAtEpochMillis = 1_000L,
-                    undoWindowMillis = 5_000L,
-                )
-                assertFalse(repository.cancelPending(record.id, nowEpochMillis = tapAt))
-                assertEquals(record.id, repository.loadActive().single().id)
-                assertTrue(repository.claim(record.id, nowEpochMillis = tapAt, force = false) != null)
-                assertTrue(repository.completeClaimed(record.id))
-            }
-
-            val raced = repository.enqueue(
-                summary = "event",
-                operation = PendingLocalDeletionOperation.events(setOf("race")),
-                requestedAtEpochMillis = 1_000L,
-                undoWindowMillis = 5_000L,
-            )
-            coroutineScope {
-                val start = CompletableDeferred<Unit>()
-                val undo = async(Dispatchers.Default) {
-                    start.await()
-                    repository.cancelPending(raced.id, nowEpochMillis = 1_001L)
-                }
-                val claim = async(Dispatchers.Default) {
-                    start.await()
-                    repository.claim(raced.id, nowEpochMillis = 1_001L, force = true)
-                }
-                start.complete(Unit)
-                val cancelled = undo.await()
-                val claimed = claim.await()
-                assertTrue(cancelled xor (claimed != null))
-                if (cancelled) {
-                    assertTrue(repository.loadActive().isEmpty())
-                } else {
-                    assertEquals(PendingLocalDeletionState.COMMITTING, repository.loadActive().single().state)
-                }
-            }
-        } finally {
-            database.close()
+        val repository = RoomPendingLocalDeletionRepository(database, database.pendingLocalDeletionDao())
+        val record = repository.enqueue("event", PendingLocalDeletionOperation.events(setOf("event-1")), 1_000L, 5_000L)
+        coroutineScope {
+            val claims = listOf(
+                async(Dispatchers.Default) { repository.claim(record.id, 1_001L, true) },
+                async(Dispatchers.Default) { repository.claim(record.id, 1_001L, true) },
+            ).map { it.await() }
+            assertEquals(1, claims.count { it != null })
         }
-    }
-
-    @Test
-    fun retryPendingCannotBeCancelledAfterFirstClaim() = runBlocking {
-        val database = openDatabase()
-        val repository = RoomPendingLocalDeletionRepository(
-            database = database,
-            dao = database.pendingLocalDeletionDao(),
-        )
-        val record = repository.enqueue(
-            summary = "event",
-            operation = PendingLocalDeletionOperation.events(setOf("event-1")),
-            requestedAtEpochMillis = 1_000L,
-            undoWindowMillis = 5_000L,
-        )
-        repository.claim(record.id, nowEpochMillis = 1_500L, force = true)
-        assertTrue(repository.retryClaimed(record.id, 2_000L, 10_000L, "offline"))
-
-        assertFalse(repository.cancelPending(record.id, nowEpochMillis = 2_000L))
-        assertEquals(1, repository.loadActive().single().attemptCount)
+        assertTrue(repository.completeClaimed(record.id))
         database.close()
     }
 
@@ -275,10 +219,9 @@ class PendingLocalDeletionRoomDeviceTest {
                     DurablePendingChannelDeletionExecutor(restartedBackend).execute(persistedOperation)
                 },
                 wallClockEpochMillis = { 6_000L },
-                elapsedRealtimeMillis = { 6_000L },
                 completionDispatcher = Dispatchers.Unconfined,
             )
-            assertFalse(restartedCoordinator.drainRecoverable(force = true))
+            assertFalse(restartedCoordinator.drainRecoverable())
         } finally {
             restartedJob.cancelAndJoin()
         }

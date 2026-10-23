@@ -90,6 +90,7 @@ failed_test_system() {
 [[ "$(adb_with_timeout -s "$device_serial" shell getprop ro.kernel.qemu | tr -d '\r')" == "1" ]] || \
   blocked "slow-load negative control requires a qemu target"
 
+negative_test_started_at="$(python3 -c 'import time; print(time.time())')"
 set +e
 ANDROID_SERIAL="$device_serial" "$repo_root/gradlew" \
   :macrobenchmark:connectedBenchmarkBenchmarkAndroidTest \
@@ -104,6 +105,9 @@ ANDROID_SERIAL="$device_serial" "$repo_root/gradlew" \
 gradle_status=$?
 set -e
 
+mkdir -p "$results_root"
+cp "$gradle_log" "$results_root/android-performance-slow-load-negative-gradle.log"
+
 if (( gradle_status == 0 )); then
   failed_test_system "Macrobenchmark accepted a deliberately over-budget 1k message load"
 fi
@@ -112,25 +116,46 @@ if rg -q 'ERRORS \(not suppressed\)|UiAutomation not connected|Observed no .* sl
   blocked "Macrobenchmark infrastructure failed before the slow-load product interval could be judged"
 fi
 
-failure_line="$(rg -o 'cold startup-to-accurate-content took [0-9]+ms; budget=2000ms' "$gradle_log" | head -n 1 || true)"
-[[ -n "$failure_line" ]] || {
-  tail -n 80 "$gradle_log" >&2
-  failed_test_system "slow-load run failed without the exact startup-to-accurate-content budget oracle"
-}
-
-mkdir -p "$(dirname "$result_file")"
-python3 - "$result_file" "$device_serial" "$injected_load_delay_ms" "$startup_budget_ms" "$failure_line" <<'PY'
+# AGP can omit the assertion text from its console. Use this invocation's native
+# report, with exact identity/freshness/failure checks, rather than console formatting.
+if ! python3 - "$result_file" "$device_serial" "$injected_load_delay_ms" "$startup_budget_ms" \
+  "$repo_root/macrobenchmark/build/outputs/androidTest-results/connected/benchmarkBenchmark" \
+  "$negative_test_started_at" "$gradle_status" <<'PY'
+import hashlib
 import json
 import re
 import sys
 import tempfile
+import xml.etree.ElementTree as ET
 from datetime import datetime, timezone
 from pathlib import Path
 
-output, serial, delay, budget, failure = sys.argv[1:]
-match = re.fullmatch(r"cold startup-to-accurate-content took (\d+)ms; budget=(\d+)ms", failure)
-if match is None:
-    raise SystemExit("unexpected slow-load failure format")
+output, serial, delay, budget, report_root, started_at, gradle_status = sys.argv[1:]
+reports = sorted(path for path in Path(report_root).rglob("TEST-*.xml")
+                 if path.is_file() and path.stat().st_mtime >= float(started_at))
+if not reports:
+    raise SystemExit("no fresh native slow-load report")
+roots = [ET.parse(path).getroot() for path in reports]
+cases = [case for root in roots for case in root.iter("testcase")]
+selector = "io.ethan.pushgo.macrobenchmark.PushGoMacrobenchmark#coldStartupReachesAccurateLargeStoreContent"
+if len(reports) != 1 or len(cases) != 1:
+    raise SystemExit("slow-load control must execute exactly one native test")
+case = cases[0]
+if case.get("classname", "") + "#" + case.get("name", "") != selector:
+    raise SystemExit("slow-load native test identity mismatch")
+if (len(case.findall("failure")) != 1 or case.find("error") is not None
+        or case.find("skipped") is not None):
+    raise SystemExit("slow-load control requires one failure and no error or skip")
+if any(roots[0].get(key) != value for key, value in
+       {"tests": "1", "failures": "1", "errors": "0", "skipped": "0"}.items()):
+    raise SystemExit("slow-load native suite counts are inconsistent")
+failure = (case.find("failure").text or "").strip()
+match = re.match(r"^java\.lang\.IllegalStateException: "
+                 r"(cold startup-to-accurate-content took (\d+)ms; budget=(\d+)ms)(?:\n|$)", failure)
+if match is None or int(match.group(3)) != int(budget) or int(match.group(2)) <= int(budget):
+    raise SystemExit("native failure is not the exact over-budget startup oracle")
+if int(gradle_status) == 0 or int(delay) <= int(budget):
+    raise SystemExit("slow-load control did not deliberately exceed the failed budget")
 payload = {
     "schema_version": 1,
     "recorded_at": datetime.now(timezone.utc).isoformat(),
@@ -140,7 +165,13 @@ payload = {
     "interval": "cold process start -> exact canonical title visible",
     "injected_message_load_delay_ms": int(delay),
     "budget_ms": int(budget),
-    "observed_ms": int(match.group(1)),
+    "observed_ms": int(match.group(2)),
+    "expected_selector": selector,
+    "gradle_exit_code": int(gradle_status),
+    "native_report": {"path": str(reports[0]),
+                      "sha256": hashlib.sha256(reports[0].read_bytes()).hexdigest(),
+                      "started_at_epoch": float(started_at)},
+    "native_failure_line": match.group(1),
     "product_status": "NOT_RUN",
     "test_system_status": "PASSED",
     "status_reason": "the deliberately over-budget load was rejected only after exact content became visible",
@@ -152,6 +183,10 @@ with tempfile.NamedTemporaryFile("w", dir=target.parent, delete=False, encoding=
     temporary = Path(handle.name)
 temporary.replace(target)
 PY
+then
+  tail -n 80 "$gradle_log" >&2
+  failed_test_system "slow-load run failed without the exact fresh native startup-to-accurate-content budget oracle"
+fi
 
 printf 'status=PASSED\n'
 printf 'claim=slow 1k canonical load trips startup-to-accurate-content budget\n'

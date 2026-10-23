@@ -5,8 +5,6 @@ import io.ethan.pushgo.data.db.EventChangeLogDao
 import io.ethan.pushgo.data.db.EventChangeLogEntity
 import io.ethan.pushgo.data.db.InboundDeliveryLedgerDao
 import io.ethan.pushgo.data.db.OperationLedgerDao
-import io.ethan.pushgo.data.db.PendingThingEventDao
-import io.ethan.pushgo.data.db.PendingThingEventEntity
 import io.ethan.pushgo.data.db.PushGoDatabase
 import io.ethan.pushgo.data.db.ThingChangeLogDao
 import io.ethan.pushgo.data.db.ThingChangeLogEntity
@@ -107,7 +105,6 @@ class EntityRepository(
     private val topLevelEventHeadDao: TopLevelEventHeadDao,
     private val thingHeadDao: ThingHeadDao,
     private val thingSubMessageDao: ThingSubMessageDao,
-    private val pendingThingEventDao: PendingThingEventDao,
 ) {
     suspend fun wouldPersistAsPending(entity: IncomingEntityRecord): Boolean {
         val entityType = entity.entityType.trim().lowercase()
@@ -406,9 +403,46 @@ class EntityRepository(
             topLevelEventHeadDao.deleteAll()
             thingChangeLogDao.deleteAll()
             thingHeadDao.deleteAll()
-            thingSubEventDao.deleteAll()
+            thingSubEventDao.deleteAllActivated()
             thingSubMessageDao.deleteAll()
         }
+    }
+
+    /** Verify the concrete delivery record, never just its mutable semantic head. */
+    suspend fun publishNotificationIfCurrent(
+        entity: IncomingEntityRecord,
+        deliveryScope: InboundDeliveryScope?,
+        replay: Boolean,
+        publish: () -> Boolean,
+    ): Boolean? = database.withTransaction {
+        val scoped = entity.copy(
+            localDeliveryKey = entity.deliveryId?.trim()?.takeIf { it.isNotEmpty() }
+                ?.let { deliveryScope.scopedDeliveryStorageKey(it) },
+        )
+        when (scoped.entityType.trim().lowercase()) {
+            "event" -> if (scoped.thingId.isNullOrBlank()) {
+                val expected = EventChangeLogEntity.fromIncoming(scoped)
+                val current = eventChangeLogDao.getById(expected.id) ?: return@withTransaction null
+                if (current != expected.copy(receivedAt = if (replay) current.receivedAt else expected.receivedAt)) {
+                    return@withTransaction null
+                }
+            } else {
+                val expected = ThingSubEventEntity.fromIncoming(scoped)
+                val current = thingSubEventDao.getById(expected.id) ?: return@withTransaction null
+                if (current != expected.copy(receivedAt = if (replay) current.receivedAt else expected.receivedAt)) {
+                    return@withTransaction null
+                }
+            }
+            "thing" -> {
+                val expected = ThingChangeLogEntity.fromIncoming(scoped)
+                val current = thingChangeLogDao.getById(expected.id) ?: return@withTransaction null
+                if (current != expected.copy(receivedAt = if (replay) current.receivedAt else expected.receivedAt)) {
+                    return@withTransaction null
+                }
+            }
+            else -> return@withTransaction null
+        }
+        publish()
     }
 
     suspend fun deleteEvent(eventId: String): Int {
@@ -442,14 +476,13 @@ class EntityRepository(
             if (normalizedChannel == null) {
                 deleted += eventChangeLogDao.countAll()
                 deleted += topLevelEventHeadDao.countAll()
-                deleted += thingSubEventDao.countAll()
                 eventChangeLogDao.deleteAll()
                 topLevelEventHeadDao.deleteAll()
-                thingSubEventDao.deleteAll()
+                deleted += thingSubEventDao.deleteAllActivated()
             } else {
                 deleted += eventChangeLogDao.deleteByChannel(normalizedChannel)
                 deleted += topLevelEventHeadDao.deleteByChannel(normalizedChannel)
-                deleted += thingSubEventDao.deleteByChannel(normalizedChannel)
+                deleted += thingSubEventDao.deleteActivatedByChannel(normalizedChannel)
             }
             deleted
         }
@@ -464,7 +497,6 @@ class EntityRepository(
             deleted += thingHeadDao.deleteByThingId(normalized)
             deleted += thingSubEventDao.deleteByThingId(normalized)
             deleted += thingSubMessageDao.deleteByThingId(normalized)
-            deleted += pendingThingEventDao.deleteByThingId(normalized)
             deleted
         }
     }
@@ -478,7 +510,6 @@ class EntityRepository(
             deleted += thingHeadDao.deleteByThingIds(normalizedIds)
             deleted += thingSubEventDao.deleteByThingIds(normalizedIds)
             deleted += thingSubMessageDao.deleteByThingIds(normalizedIds)
-            deleted += pendingThingEventDao.deleteByThingIds(normalizedIds)
             deleted
         }
     }
@@ -490,19 +521,16 @@ class EntityRepository(
             if (normalizedChannel == null) {
                 deleted += thingChangeLogDao.countAll()
                 deleted += thingHeadDao.countAll()
-                deleted += thingSubEventDao.countAll()
                 deleted += thingSubMessageDao.countAll()
                 thingChangeLogDao.deleteAll()
                 thingHeadDao.deleteAll()
-                thingSubEventDao.deleteAll()
+                deleted += thingSubEventDao.deleteAll()
                 thingSubMessageDao.deleteAll()
-                deleted += pendingThingEventDao.deleteAll()
             } else {
                 deleted += thingChangeLogDao.deleteByChannel(normalizedChannel)
                 deleted += thingHeadDao.deleteByChannel(normalizedChannel)
                 deleted += thingSubEventDao.deleteByChannel(normalizedChannel)
                 deleted += thingSubMessageDao.deleteByChannel(normalizedChannel)
-                deleted += pendingThingEventDao.deleteByChannel(normalizedChannel)
             }
             deleted
         }
@@ -541,7 +569,7 @@ class EntityRepository(
             }
         } else {
             if (!thingHeadDao.existsByThingId(thingId)) {
-                pendingThingEventDao.insert(PendingThingEventEntity.fromIncoming(entity))
+                thingSubEventDao.insertWaiting(ThingSubEventEntity.fromIncoming(entity, activated = false))
                 false
             } else if (localDeliveryKey != null && thingSubEventDao.getById(localDeliveryKey) != null) {
                 false
@@ -601,28 +629,29 @@ class EntityRepository(
                 )
             )
         }
-        replayPendingForThing(thingId)
+        activateStoredEventsForThing(thingId)
         return true
     }
 
-    suspend fun replayPendingForThing(thingId: String) {
+    suspend fun activateStoredEventsForThing(thingId: String) {
         val normalizedThingId = thingId.trim().takeIf { it.isNotEmpty() } ?: return
         database.withTransaction {
-            val pending = pendingThingEventDao.loadByThingId(normalizedThingId)
-            if (pending.isEmpty()) return@withTransaction
-            val consumedIds = mutableListOf<String>()
-            pending.forEach { row ->
-                val incoming = row.toIncomingEntityRecord()
-                val localDeliveryKey = incoming.localDeliveryKey?.trim()?.takeIf { it.isNotEmpty() }
-                if (localDeliveryKey != null && thingSubEventDao.getById(localDeliveryKey) != null) {
-                    consumedIds += row.id
+            // Keep the old order and Kotlin normalization: historical raw IDs can alias
+            // after trim. Payload, title and body stay in their existing database row.
+            thingSubEventDao.getWaitingActivationFields(normalizedThingId).forEach { row ->
+                val localDeliveryKey = row.id.trim().takeIf { it.isNotEmpty() }
+                if (localDeliveryKey != null && thingSubEventDao.existsActivatedById(localDeliveryKey)) {
+                    thingSubEventDao.deleteWaitingById(row.id)
                     return@forEach
                 }
-                thingSubEventDao.insert(ThingSubEventEntity.fromIncoming(incoming))
-                consumedIds += row.id
-            }
-            if (consumedIds.isNotEmpty()) {
-                pendingThingEventDao.deleteByIds(consumedIds)
+                thingSubEventDao.activateWaiting(
+                    id = row.id,
+                    thingId = row.thingId.trim().takeIf { it.isNotEmpty() } ?: row.entityId,
+                    eventId = row.eventId.trim().takeIf { it.isNotEmpty() } ?: row.entityId,
+                    opId = row.opId?.trim()?.takeIf { it.isNotEmpty() },
+                    deliveryId = row.deliveryId?.trim()?.takeIf { it.isNotEmpty() },
+                    eventState = row.eventState?.trim()?.takeIf { it.isNotEmpty() },
+                )
             }
         }
     }

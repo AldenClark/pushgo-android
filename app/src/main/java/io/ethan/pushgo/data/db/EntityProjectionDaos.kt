@@ -123,18 +123,65 @@ interface ThingChangeLogDao {
     suspend fun findLatestTitleByThingId(thingId: String): String?
 }
 
+/** Only the keys and scalar fields whose old activation path normalized in Kotlin. */
+data class ThingSubEventActivationFields(
+    val id: String,
+    @ColumnInfo(name = "entity_id") val entityId: String,
+    @ColumnInfo(name = "thing_id") val thingId: String,
+    @ColumnInfo(name = "event_id") val eventId: String,
+    @ColumnInfo(name = "op_id") val opId: String?,
+    @ColumnInfo(name = "delivery_id") val deliveryId: String?,
+    @ColumnInfo(name = "event_state") val eventState: String?,
+)
+
 @Dao
 interface ThingSubEventDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insert(record: ThingSubEventEntity)
 
-    @Query("SELECT * FROM thing_sub_events WHERE id = :id LIMIT 1")
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    suspend fun insertWaiting(record: ThingSubEventEntity)
+
+    @Query("SELECT * FROM thing_sub_events WHERE id = :id AND activated = 1 LIMIT 1")
     suspend fun getById(id: String): ThingSubEventEntity?
+
+    @Query("SELECT EXISTS(SELECT 1 FROM thing_sub_events WHERE id = :id AND activated = 1)")
+    suspend fun existsActivatedById(id: String): Boolean
+
+    @Query(
+        """
+        SELECT id, entity_id, thing_id, event_id, op_id, delivery_id, event_state
+        FROM thing_sub_events WHERE thing_id = :thingId AND activated = 0
+        ORDER BY COALESCE(event_time_epoch, received_at) ASC, received_at ASC, id ASC
+        """
+    )
+    suspend fun getWaitingActivationFields(thingId: String): List<ThingSubEventActivationFields>
+
+    @Query("DELETE FROM thing_sub_events WHERE id = :id AND activated = 0")
+    suspend fun deleteWaitingById(id: String)
+
+    // REPLACE preserves the old raw-ID insert after its separate trimmed-ID lookup.
+    @Query(
+        """
+        UPDATE OR REPLACE thing_sub_events
+        SET activated = 1, thing_id = :thingId, event_id = :eventId,
+            op_id = :opId, delivery_id = :deliveryId, event_state = :eventState
+        WHERE id = :id AND activated = 0
+        """
+    )
+    suspend fun activateWaiting(
+        id: String,
+        thingId: String,
+        eventId: String,
+        opId: String?,
+        deliveryId: String?,
+        eventState: String?,
+    )
 
     @Query(
         """
         SELECT * FROM thing_sub_events
-        WHERE event_id = :eventId
+        WHERE event_id = :eventId AND activated = 1
         ORDER BY COALESCE(event_time_epoch, received_at) DESC, received_at DESC, id DESC
         """
     )
@@ -143,28 +190,35 @@ interface ThingSubEventDao {
     @Query(
         """
         SELECT * FROM thing_sub_events
-        WHERE thing_id = :thingId
+        WHERE thing_id = :thingId AND activated = 1
         ORDER BY COALESCE(event_time_epoch, received_at) DESC, received_at DESC, id DESC
         """
     )
     suspend fun getByThingId(thingId: String): List<ThingSubEventEntity>
 
-    @Query("DELETE FROM thing_sub_events")
-    suspend fun deleteAll()
+    // Ordinary Thing deletion removes both lifecycle slots, including waiting rows.
+    @Query("SELECT * FROM thing_sub_events WHERE thing_id = :thingId")
+    suspend fun getByThingIdIncludingWaiting(thingId: String): List<ThingSubEventEntity>
 
-    @Query("SELECT COUNT(*) FROM thing_sub_events")
+    @Query("DELETE FROM thing_sub_events")
+    suspend fun deleteAll(): Int
+
+    @Query("DELETE FROM thing_sub_events WHERE activated = 1")
+    suspend fun deleteAllActivated(): Int
+
+    @Query("SELECT COUNT(*) FROM thing_sub_events WHERE activated = 1")
     suspend fun countAll(): Int
 
-    @Query("SELECT COUNT(*) FROM thing_sub_events")
+    @Query("SELECT COUNT(*) FROM thing_sub_events WHERE activated = 1")
     fun observeCount(): Flow<Int>
 
-    @Query("SELECT COALESCE(MAX(received_at), 0) FROM thing_sub_events")
+    @Query("SELECT COALESCE(MAX(received_at), 0) FROM thing_sub_events WHERE activated = 1")
     fun observeLatestReceivedAt(): Flow<Long>
 
-    @Query("DELETE FROM thing_sub_events WHERE event_id = :eventId")
+    @Query("DELETE FROM thing_sub_events WHERE event_id = :eventId AND activated = 1")
     suspend fun deleteByEventId(eventId: String): Int
 
-    @Query("DELETE FROM thing_sub_events WHERE event_id IN (:eventIds)")
+    @Query("DELETE FROM thing_sub_events WHERE event_id IN (:eventIds) AND activated = 1")
     suspend fun deleteByEventIds(eventIds: List<String>): Int
 
     @Query("DELETE FROM thing_sub_events WHERE thing_id = :thingId")
@@ -176,13 +230,16 @@ interface ThingSubEventDao {
     @Query("DELETE FROM thing_sub_events WHERE channel = :channelId")
     suspend fun deleteByChannel(channelId: String): Int
 
-    @Query("SELECT entity_id FROM thing_sub_events WHERE channel = :channelId")
+    @Query("DELETE FROM thing_sub_events WHERE channel = :channelId AND activated = 1")
+    suspend fun deleteActivatedByChannel(channelId: String): Int
+
+    @Query("SELECT entity_id FROM thing_sub_events WHERE channel = :channelId AND activated = 1")
     suspend fun getEntityIdsByChannel(channelId: String): List<String>
 
     @Query(
         """
         SELECT title FROM thing_sub_events
-        WHERE event_id = :eventId
+        WHERE event_id = :eventId AND activated = 1
           AND TRIM(title) <> ''
         ORDER BY COALESCE(event_time_epoch, received_at) DESC, received_at DESC
         LIMIT 1

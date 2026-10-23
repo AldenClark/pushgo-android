@@ -160,6 +160,25 @@ android_test_selectors_for_scopes() {
     --scopes "$scopes" "$@"
 }
 
+android_instrumentation_scope_argument() {
+  local instrumentation_scope="$1"
+  [[ -n "$instrumentation_scope" ]] || {
+    echo "Empty Android instrumentation scope" >&2
+    return 2
+  }
+  # AGP 9.4's test engine transports runner arguments as comma-separated
+  # key=value entries. A class CSV otherwise loses every scope after the first.
+  # The androidTest runner restores the original standard class argument before
+  # AndroidJUnitRunner discovery; single selectors retain their standard path.
+  if [[ "$instrumentation_scope" == *,* ]]; then
+    local encoded_scope
+    encoded_scope="$(printf '%s' "$instrumentation_scope" | base64 | tr -d '\n')"
+    printf '%s\n' "-Pandroid.testInstrumentationRunnerArguments.pushgo.test.classSelectorsBase64=$encoded_scope"
+  else
+    printf '%s\n' "-Pandroid.testInstrumentationRunnerArguments.class=$instrumentation_scope"
+  fi
+}
+
 expected_selector_count() {
   local selectors="$1"
   awk -F',' '{ print NF }' <<< "$selectors"
@@ -447,7 +466,7 @@ positive_device_scopes="io.ethan.pushgo.testing.QualityMessageJourneyInstrumente
 # The bounded release smoke covers user journeys plus representative receive,
 # transport-recovery, and system-notification paths with local controlled inputs.
 # Exact method selectors prevent opt-in tests from turning into skipped green runs.
-release_smoke_device_scopes="io.ethan.pushgo.testing.QualityMessageJourneyInstrumentedTest#standardFixtureShowsAccurateContentAndSurvivesActivityRelaunch,io.ethan.pushgo.testing.QualityMessageJourneyInstrumentedTest#workflowFixtureLoadsSecondPageAndPersistsReadActions,io.ethan.pushgo.testing.QualityMessageJourneyInstrumentedTest#deleteUndoRestoresTheSameObjectAcrossActivityRelaunch,io.ethan.pushgo.testing.QualityMessageJourneyInstrumentedTest#deleteWithoutUndoPermanentlyRemovesOnlyTargetAcrossStorageRecreation,io.ethan.pushgo.testing.QualityMessageJourneyInstrumentedTest#searchReturnsOnlyTheTargetAndOpensItsRealDetail,io.ethan.pushgo.testing.QualityMessageJourneyInstrumentedTest#primaryNavigationUsesRealControlsAndReachesEveryProductScreen,io.ethan.pushgo.testing.QualityEntityJourneyInstrumentedTest#eventClosePersistsAndOngoingFilterReflectsTheRealProjection,io.ethan.pushgo.testing.QualityEntityJourneyInstrumentedTest#thingFixtureShowsAccurateOverviewAndAllThreeRealRelationTabs,io.ethan.pushgo.testing.QualityChannelJourneyInstrumentedTest#createRenameAndBothUnsubscribeOutcomesReachAccuratePersistentUserResults,io.ethan.pushgo.testing.QualitySettingsJourneyInstrumentedTest#encryptedMessageRecoversThroughRealSettingsEntryAndSurvivesRelaunch,io.ethan.pushgo.testing.QualitySettingsJourneyInstrumentedTest#serverConfigurationRejectsInvalidInputAndScopesDataAfterRelaunch,io.ethan.pushgo.testing.QualitySettingsJourneyInstrumentedTest#savingGatewayKeepsEditorOpenUntilPreparedSwitchCommitsAndPersists,io.ethan.pushgo.testing.QualitySystemNotificationJourneyInstrumentedTest#duplicateInboundDeliveryPostsOneSystemNotificationAndOpensAccurateReadDetail,io.ethan.pushgo.testing.QualityPrivateForegroundServiceJourneyInstrumentedTest#privateSelectionStartsDurableSystemServiceAndFcmSelectionStopsIt,io.ethan.pushgo.testing.RuntimeChannelSwitchInstrumentedTest#inboundAcrossSwitch_keepsCanonicalSingleMessage_andLateOldDoesNotOverride,io.ethan.pushgo.testing.RuntimePrivateChannelStateFlowInstrumentedTest#privateChannelClient_stateFlow_covers_session_ack_reconnect_and_fcm_switch"
+release_smoke_device_scopes="io.ethan.pushgo.testing.QualityMessageJourneyInstrumentedTest#standardFixtureShowsAccurateContentAndSurvivesActivityRelaunch,io.ethan.pushgo.testing.QualityMessageJourneyInstrumentedTest#workflowFixtureLoadsSecondPageAndPersistsReadActions,io.ethan.pushgo.testing.QualityMessageJourneyInstrumentedTest#deleteCancelPreservesTheSameObjectAcrossActivityRelaunch,io.ethan.pushgo.testing.QualityMessageJourneyInstrumentedTest#confirmedDeletePermanentlyRemovesOnlyTargetAcrossStorageRecreation,io.ethan.pushgo.testing.QualityMessageJourneyInstrumentedTest#searchReturnsOnlyTheTargetAndOpensItsRealDetail,io.ethan.pushgo.testing.QualityMessageJourneyInstrumentedTest#primaryNavigationUsesRealControlsAndReachesEveryProductScreen,io.ethan.pushgo.testing.QualityEntityJourneyInstrumentedTest#eventClosePersistsAndOngoingFilterReflectsTheRealProjection,io.ethan.pushgo.testing.QualityEntityJourneyInstrumentedTest#thingFixtureShowsAccurateOverviewAndAllThreeRealRelationTabs,io.ethan.pushgo.testing.QualityChannelJourneyInstrumentedTest#createRenameAndBothUnsubscribeOutcomesReachAccuratePersistentUserResults,io.ethan.pushgo.testing.QualitySettingsJourneyInstrumentedTest#encryptedMessageRecoversThroughRealSettingsEntryAndSurvivesRelaunch,io.ethan.pushgo.testing.QualitySettingsJourneyInstrumentedTest#serverConfigurationRejectsInvalidInputAndScopesDataAfterRelaunch,io.ethan.pushgo.testing.QualitySettingsJourneyInstrumentedTest#savingGatewayKeepsEditorOpenUntilPreparedSwitchCommitsAndPersists,io.ethan.pushgo.testing.QualitySystemNotificationJourneyInstrumentedTest#duplicateInboundDeliveryPostsOneSystemNotificationAndOpensAccurateReadDetail,io.ethan.pushgo.testing.QualityPrivateForegroundServiceJourneyInstrumentedTest#privateSelectionStartsDurableSystemServiceAndFcmSelectionStopsIt,io.ethan.pushgo.testing.RuntimeChannelSwitchInstrumentedTest#inboundAcrossSwitch_keepsCanonicalSingleMessage_andLateOldDoesNotOverride,io.ethan.pushgo.testing.RuntimePrivateChannelStateFlowInstrumentedTest#privateChannelClient_stateFlow_covers_session_ack_reconnect_and_fcm_switch"
 core_data_classes="io.ethan.pushgo.data.db.PushGoDatabaseMigrationDeviceTest,io.ethan.pushgo.data.PendingLocalDeletionRoomDeviceTest,io.ethan.pushgo.data.ProviderAckScopeDeviceTest"
 nightly_data_classes="$core_data_classes,io.ethan.pushgo.testing.RuntimeDataLayerInstrumentedTest,io.ethan.pushgo.testing.RuntimeChannelSwitchInstrumentedTest,io.ethan.pushgo.testing.RuntimePrivateChannelStateFlowInstrumentedTest,io.ethan.pushgo.ui.PendingLocalDeletionWorkBoundaryDeviceTest"
 system_notification_classes="io.ethan.pushgo.testing.QualitySystemNotificationJourneyInstrumentedTest,io.ethan.pushgo.testing.QualityPrivateForegroundServiceJourneyInstrumentedTest"
@@ -508,7 +527,7 @@ run_device_classes() {
   QUALITY_EXPECTED_ANDROID_TEST_SELECTORS="$expected_selectors"
   QUALITY_EXPECTED_ANDROID_TEST_COUNT="$expected_count"
   ANDROID_SERIAL="$device_serial" "$repo_root/gradlew" connectedDebugAndroidTest \
-    "-Pandroid.testInstrumentationRunnerArguments.class=$instrumentation_scope"
+    "$(android_instrumentation_scope_argument "$instrumentation_scope")"
   verify_device_tests_executed "$device_test_started_at" "$repo_root/app/build/outputs/androidTest-results/connected"
   release_android_device_lock
   claims+=("$claim")
@@ -544,7 +563,7 @@ run_quality_device_classes() {
   QUALITY_EXPECTED_ANDROID_TEST_SELECTORS="$expected_selectors"
   QUALITY_EXPECTED_ANDROID_TEST_COUNT="$expected_count"
   ANDROID_SERIAL="$device_serial" "$repo_root/gradlew" connectedDebugAndroidTest \
-    "-Pandroid.testInstrumentationRunnerArguments.class=$classes" \
+    "$(android_instrumentation_scope_argument "$classes")" \
     "-Pandroid.testInstrumentationRunnerArguments.pushgoQualitySessionBase64=$payload"
   verify_device_tests_executed "$device_test_started_at" "$repo_root/app/build/outputs/androidTest-results/connected"
   if [[ "$lane" == "release-smoke" || "$lane" == "focused" ]]; then
@@ -632,7 +651,7 @@ run_system_notification_journeys() {
   local expected_selectors
   local expected_count
   local permission_selector="io.ethan.pushgo.testing.QualityNotificationPermissionJourneyInstrumentedTest#enabledSystemDecisionRefreshesTheRealAppAndRemovesDisabledDeliveryState"
-  selected_claims+=("Android notification permission deny/settings/grant/return" "Android Doze recovery and session snooze isolation" "Android real process restart, exact persisted content/read state, message and documentation HTTPS handoff/return" "Android pending-deletion new-PID Undo and deadline with exact control preservation" "Android critical audio, exact Message/Event/Thing cold-warm notification routes and Private foreground Service lifecycle")
+  selected_claims+=("Android notification permission deny/settings/grant/return" "Android Doze recovery and session snooze isolation" "Android real process restart, exact persisted content/read state, message and documentation HTTPS handoff/return" "Android delete confirmation new-PID cancel preservation and direct delete with exact control preservation" "Android critical audio, exact Message/Event/Thing cold-warm notification routes and Private foreground Service lifecycle")
   doctor_output="$("$repo_root/scripts/quality_doctor.sh")"
   printf '%s\n' "$doctor_output"
   device_serial="$(printf '%s\n' "$doctor_output" | awk -F= '$1 == "device_serial" { print $2; exit }')"
@@ -651,7 +670,7 @@ run_system_notification_journeys() {
   claims+=("Android real process restart, exact persisted content/read state, message and documentation HTTPS handoff/return")
   QUALITY_ANDROID_SKIP_INSTALL=1 ANDROID_SERIAL="$device_serial" \
     "$repo_root/scripts/run_android_pending_deletion_process_restart_positive.sh"
-  claims+=("Android pending-deletion new-PID Undo and deadline with exact control preservation")
+  claims+=("Android delete confirmation new-PID cancel preservation and direct delete with exact control preservation")
   local device_test_started_at
   device_test_started_at="$(python3 -c 'import time; print(time.time())')"
   acquire_android_device_lock "$device_serial"
@@ -665,7 +684,7 @@ run_system_notification_journeys() {
   QUALITY_EXPECTED_ANDROID_TEST_COUNT="$expected_count"
   ANDROID_SERIAL="$device_serial" "$repo_root/gradlew" connectedDebugAndroidTest \
     --rerun \
-    "-Pandroid.testInstrumentationRunnerArguments.class=$system_notification_classes"
+    "$(android_instrumentation_scope_argument "$system_notification_classes")"
   verify_device_tests_executed "$device_test_started_at" "$repo_root/app/build/outputs/androidTest-results/connected"
   release_android_device_lock
   claims+=("Android critical audio, exact Message/Event/Thing cold-warm notification routes and Private foreground Service lifecycle")
@@ -962,7 +981,7 @@ case "$lane" in
       QUALITY_EXPECTED_ANDROID_TEST_COUNT="$expected_count"
       ANDROID_SERIAL="$device_serial" "$repo_root/gradlew" connectedDebugAndroidTest \
         --rerun \
-        "-Pandroid.testInstrumentationRunnerArguments.class=$ANDROID_TEST_CLASS"
+        "$(android_instrumentation_scope_argument "$ANDROID_TEST_CLASS")"
       verify_device_tests_executed "$device_test_started_at" "$repo_root/app/build/outputs/androidTest-results/connected"
       record_controlled_system_method_coverage "$ANDROID_TEST_CLASS"
       release_android_device_lock

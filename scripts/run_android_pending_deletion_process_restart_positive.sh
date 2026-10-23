@@ -304,10 +304,9 @@ start_app_and_ready() {
 
 prepare_case() {
   current_case="$1"
-  local window_ms="$2"
   current_session_id="android-pending-delete-$current_case-$(date +%s)-$$"
   local payload
-  payload="$(python3 - "$current_session_id" "$window_ms" <<'PY'
+  payload="$(python3 - "$current_session_id" <<'PY'
 import base64
 import json
 import sys
@@ -316,7 +315,6 @@ payload = {
     "schema_version": 1,
     "session_id": sys.argv[1],
     "fixture": "messages.cleanup",
-    "pending_deletion_undo_window_ms": int(sys.argv[2]),
     "faults": {},
 }
 print(base64.b64encode(json.dumps(payload, separators=(",", ":")).encode()).decode())
@@ -365,7 +363,6 @@ path.parent.mkdir(parents=True, exist_ok=True)
 record = {
     "case": sys.argv[2],
     "session_id": sys.argv[3],
-    "undo_window_ms": int(sys.argv[4]),
     "first_pid": int(sys.argv[5]),
     "second_pid": int(sys.argv[6]),
     "status": "PASSED",
@@ -376,97 +373,51 @@ PY
   echo "case=$case_name status=PASSED session_id=$session_id first_pid=$first_pid second_pid=$second_pid"
 }
 
-run_undo_case() {
-  local window_ms=60000
-  prepare_case undo "$window_ms"
+run_confirmation_case() {
+  local outcome="$1"
+  prepare_case "$outcome"
   start_app_and_ready
-  wait_for_node resource "$target_row" 15 || failed "undo case target message was not shown"
-  wait_for_node resource "$control_row" 15 || failed "undo case control message was not shown"
+  wait_for_node resource "$target_row" 15 || failed "$outcome case target was not shown"
+  wait_for_node resource "$control_row" 15 || failed "$outcome case control was not shown"
   local first_pid
   first_pid="$(app_pid)"
-  [[ "$first_pid" =~ ^[0-9]+$ ]] || failed "undo case first process PID was unavailable"
-
+  [[ "$first_pid" =~ ^[0-9]+$ ]] || failed "$outcome case first PID unavailable"
   tap_node resource "$target_row"
-  wait_for_node text "$target_title" 10 || failed "undo case target title was not shown in detail"
-  wait_for_node text "$canonical_body" 10 || failed "undo case target body was not shown in detail"
+  wait_for_node text "$canonical_body" 10 || failed "$outcome case original detail body inaccurate"
   tap_node resource "action.message.delete"
-  wait_for_node resource "state.pending_deletion" 10 || failed "undo case pending bar was not shown"
-  wait_for_node_absent resource "$target_row" 5 || failed "undo case target remained visible after delete"
-  wait_for_node resource "$control_row" 5 || failed "undo case control disappeared after delete"
-
+  wait_for_node resource "action.delete.cancel" 10 || failed "$outcome case confirmation absent"
+  if [[ "$outcome" == "cancel" ]]; then
+    tap_node resource "action.delete.cancel"
+    wait_for_node text "$canonical_body" 10 || failed "cancel case changed original detail"
+  else
+    tap_node resource "action.delete.confirm"
+    wait_for_node_absent resource "$target_row" 10 || failed "confirm case target remained visible"
+    wait_for_node resource "$control_row" 10 || failed "confirm case control disappeared"
+  fi
   force_stop_app
-  adb_with_timeout -s "$device_serial" shell am start -W -n "$package_name/.MainActivity" \
-    >/dev/null || failed "undo case restarted MainActivity could not start"
-  wait_for_node resource "quality-runtime.ready" 20 || failed "undo case restarted process was not ready"
+  adb_with_timeout -s "$device_serial" shell am start -W -n "$package_name/.MainActivity" >/dev/null || failed "$outcome case restart failed"
+  wait_for_node resource "quality-runtime.ready" 20 || failed "$outcome case restarted process not ready"
   local second_pid
   second_pid="$(app_pid)"
-  [[ "$second_pid" =~ ^[0-9]+$ ]] || failed "undo case restarted process PID was unavailable"
-  [[ "$second_pid" != "$first_pid" ]] || failed "undo case reused the original process PID"
-  wait_for_node resource "$control_row" 15 || failed "undo case restarted process lost control message"
-  wait_for_node resource "state.pending_deletion" 15 || failed "undo case pending deletion was not visible in the new process"
-  wait_for_node_absent resource "$target_row" 5 || failed "undo case target reappeared before Undo"
-  tap_node resource "action.pending_deletion.undo"
-  wait_for_node_absent resource "state.pending_deletion" 10 || failed "undo case pending bar remained after Undo"
-  wait_for_node resource "$target_row" 15 || failed "undo case target was not restored after Undo"
-
-  tap_node resource "$target_row"
-  wait_for_node text "$target_title" 10 || failed "undo case restored target title was inaccurate"
-  wait_for_node text "$canonical_body" 10 || failed "undo case restored target body was inaccurate"
-  adb_with_timeout -s "$device_serial" shell input keyevent KEYCODE_BACK
-  wait_for_node_absent resource "sheet.message.detail" 8 || failed "undo case target detail did not close"
+  [[ "$second_pid" =~ ^[0-9]+$ && "$second_pid" != "$first_pid" ]] || failed "$outcome case no new PID"
+  wait_for_node resource "$control_row" 15 || failed "$outcome case restarted control absent"
+  if [[ "$outcome" == "cancel" ]]; then
+    wait_for_node resource "$target_row" 15 || failed "cancel case persisted target absent"
+    tap_node resource "$target_row"
+    wait_for_node text "$target_title" 10 || failed "cancel case target title inaccurate"
+    wait_for_node text "$canonical_body" 10 || failed "cancel case target body inaccurate"
+    adb_with_timeout -s "$device_serial" shell input keyevent KEYCODE_BACK
+    wait_for_node_absent resource "sheet.message.detail" 8 || failed "cancel detail did not close"
+  else
+    wait_for_node_absent resource "$target_row" 10 || failed "confirm case resurrected target"
+  fi
   tap_node resource "$control_row"
-  wait_for_node text "$control_title" 10 || failed "undo case control title was inaccurate"
-  wait_for_node text "$canonical_body" 10 || failed "undo case control body was inaccurate"
-  record_case undo "$current_session_id" "$window_ms" "$first_pid" "$second_pid"
+  wait_for_node text "$control_title" 10 || failed "$outcome case control title inaccurate"
+  wait_for_node text "$canonical_body" 10 || failed "$outcome case control body inaccurate"
+  record_case "$outcome" "$current_session_id" 0 "$first_pid" "$second_pid"
   clear_current_session
 }
 
-run_deadline_case() {
-  local window_ms=8000
-  prepare_case deadline "$window_ms"
-  start_app_and_ready
-  wait_for_node resource "$target_row" 15 || failed "deadline case target message was not shown"
-  wait_for_node resource "$control_row" 15 || failed "deadline case control message was not shown"
-  local first_pid
-  first_pid="$(app_pid)"
-  [[ "$first_pid" =~ ^[0-9]+$ ]] || failed "deadline case first process PID was unavailable"
-
-  tap_node resource "$target_row"
-  wait_for_node text "$target_title" 10 || failed "deadline case target title was not shown in detail"
-  wait_for_node text "$canonical_body" 10 || failed "deadline case target body was not shown in detail"
-  tap_node resource "action.message.delete"
-  wait_for_node resource "state.pending_deletion" 10 || failed "deadline case pending bar was not shown"
-  local pending_seen_at force_stop_at
-  pending_seen_at="$(now_ms)"
-  wait_for_node_absent resource "$target_row" 5 || failed "deadline case target remained visible after delete"
-  wait_for_node resource "$control_row" 5 || failed "deadline case control disappeared after delete"
-  force_stop_app
-  force_stop_at="$(now_ms)"
-  local time_before_deadline=$((force_stop_at - pending_seen_at))
-  (( time_before_deadline < window_ms )) ||
-    blocked "deadline case could not terminate before its quality undo window"
-  local terminal_at=$((pending_seen_at + window_ms + 1500))
-  while (( $(now_ms) < terminal_at )); do
-    sleep 0.25
-  done
-  [[ -z "$(app_pid)" ]] || failed "deadline case App process returned before restart"
-
-  adb_with_timeout -s "$device_serial" shell am start -W -n "$package_name/.MainActivity" \
-    >/dev/null || failed "deadline case restarted MainActivity could not start"
-  wait_for_node resource "quality-runtime.ready" 20 || failed "deadline case restarted process was not ready"
-  local second_pid
-  second_pid="$(app_pid)"
-  [[ "$second_pid" =~ ^[0-9]+$ ]] || failed "deadline case restarted process PID was unavailable"
-  [[ "$second_pid" != "$first_pid" ]] || failed "deadline case reused the original process PID"
-  wait_for_node resource "$control_row" 15 || failed "deadline case restarted process lost control message"
-  wait_for_node_absent resource "state.pending_deletion" 15 || failed "deadline case pending bar remained after deadline"
-  wait_for_node_absent resource "$target_row" 10 || failed "deadline case target returned after deadline commit"
-  tap_node resource "$control_row"
-  wait_for_node text "$control_title" 10 || failed "deadline case control title was inaccurate"
-  wait_for_node text "$canonical_body" 10 || failed "deadline case control body was inaccurate"
-  record_case deadline "$current_session_id" "$window_ms" "$first_pid" "$second_pid"
-  clear_current_session
-}
 
 cleanup() {
   local status=$?
@@ -504,8 +455,8 @@ else
     blocked "QUALITY_ANDROID_SKIP_INSTALL=1 requires an installed debug App"
 fi
 
-run_undo_case
-run_deadline_case
+run_confirmation_case cancel
+run_confirmation_case confirm
 
 python3 - "$summary_file" "$cases_file" "$device_serial" "$run_id" "$repo_root" <<'PY'
 import json
@@ -544,13 +495,13 @@ summary = {
     "source_dirty": dirty,
     "cases": cases,
     "oracle": {
-        "undo": "new PID observes pending bar and hidden target; Undo restores exact target while control remains readable",
-        "deadline": "new PID observes no pending bar and permanently absent target while control remains readable",
+        "cancel": "cancel before any deletion preserves exact target in new PID while control remains readable",
+        "confirm": "confirmed direct deletion stays absent in new PID while control remains readable",
     },
 }
 summary_path.write_text(json.dumps(summary, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 PY
 
 echo "status=PASSED"
-echo "claim=two independent App-owned pending-deletion process boundaries: new-PID Undo restoration and new-PID post-deadline commit with exact control-message preservation"
+echo "claim=two independent App-owned pending-deletion process boundaries: new-PID cancellation preservation and confirmed direct deletion with exact control-message preservation"
 echo "summary=$summary_file"

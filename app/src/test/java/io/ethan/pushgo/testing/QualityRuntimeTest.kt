@@ -11,6 +11,9 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.async
+import org.junit.Assert.assertFalse
 
 class QualityRuntimeTest {
     @get:Rule
@@ -399,6 +402,46 @@ class QualityRuntimeTest {
     }
 
     @Test
+    fun searchDelaySuspendsTheFirstPagingLoadOnly() = runBlocking {
+        QualityRuntime.configure(QualityRuntime.encode(QualitySessionDescriptor(
+            schemaVersion = 1,
+            sessionId = "search-loading-boundary",
+            fixture = QualityFixture.MESSAGES_STANDARD,
+            faults = QualityFaults(messageSearchDelayMs = 2_000),
+        )))
+
+        val firstLoad = async(start = CoroutineStart.UNDISPATCHED) {
+            QualityRuntime.beforeMessageSearchLoad()
+        }
+        assertFalse("The injected delay must keep the actual Paging load in flight", firstLoad.isCompleted)
+        firstLoad.await()
+        val nextLoad = async(start = CoroutineStart.UNDISPATCHED) {
+            QualityRuntime.beforeMessageSearchLoad()
+        }
+        assertTrue("A later Paging load must not repeat the one-shot delay", nextLoad.isCompleted)
+        nextLoad.await()
+    }
+
+    @Test
+    fun searchLoadFailureStillFailsOnceAndAllowsRetry() = runBlocking {
+        QualityRuntime.configure(QualityRuntime.encode(QualitySessionDescriptor(
+            schemaVersion = 1,
+            sessionId = "search-loading-retry",
+            fixture = QualityFixture.MESSAGES_STANDARD,
+            faults = QualityFaults(failMessageSearchOnce = true),
+        )))
+
+        var failed = false
+        try {
+            QualityRuntime.beforeMessageSearchLoad()
+        } catch (_: QualityMessageSearchException) {
+            failed = true
+        }
+        assertTrue("The first search load must preserve its injected failure", failed)
+        QualityRuntime.beforeMessageSearchLoad()
+    }
+
+    @Test
     fun messageLoadFaultFailsOnceThenAllowsARealRetry() = runBlocking {
         val session = QualitySessionDescriptor(
             schemaVersion = 1,
@@ -469,6 +512,29 @@ class QualityRuntimeTest {
         val page = checkNotNull(QualityRuntime.takeMessageRefreshPullOverride()).getOrThrow()
         assertEquals("quality-refresh-result", page.items.single().payload["message_id"])
         assertTrue(checkNotNull(QualityRuntime.takeMessageRefreshPullOverride()).getOrThrow().items.isEmpty())
+    }
+
+    @Test
+    fun refreshAckOverrideIsLimitedToAnIssuedFixtureInTheActiveSession() {
+        val destination = io.ethan.pushgo.data.ProviderAckDestination("https://quality.invalid", "quality-device")
+        val contract = io.ethan.pushgo.data.ProviderAckContract.V2_BATCH
+        val ids = listOf("quality-delivery-refresh-result")
+        QualityRuntime.configure(null)
+        assertEquals(null, QualityRuntime.takeMessageRefreshAckOverride(destination, contract, ids))
+        val session = QualitySessionDescriptor(
+            schemaVersion = 1, sessionId = "refresh-ack-contract",
+            fixture = QualityFixture.MESSAGES_STANDARD, faults = QualityFaults(),
+            messageRefreshScenario = QualityMessageRefreshScenario.NEW_MESSAGE,
+        )
+        QualityRuntime.configure(QualityRuntime.encode(session))
+        assertEquals(null, QualityRuntime.takeMessageRefreshAckOverride(destination, contract, ids))
+        checkNotNull(QualityRuntime.takeMessageRefreshPullOverride()).getOrThrow()
+        assertEquals(1, QualityRuntime.takeMessageRefreshAckOverride(destination, contract, ids)?.removedCount)
+        assertEquals(null, QualityRuntime.takeMessageRefreshAckOverride(destination.copy(deviceKey = "real-device"), contract, ids))
+        assertEquals(null, QualityRuntime.takeMessageRefreshAckOverride(destination, io.ethan.pushgo.data.ProviderAckContract.LEGACY_SINGLE, ids))
+        assertEquals(null, QualityRuntime.takeMessageRefreshAckOverride(destination, contract, ids + "real-delivery"))
+        QualityRuntime.configure(null)
+        assertEquals(null, QualityRuntime.takeMessageRefreshAckOverride(destination, contract, ids))
     }
 
     private fun encodeJson(json: JSONObject): String {

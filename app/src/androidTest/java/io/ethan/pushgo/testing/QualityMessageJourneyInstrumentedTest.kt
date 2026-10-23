@@ -35,6 +35,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.json.JSONObject
+import androidx.room.withTransaction
 import kotlinx.coroutines.runBlocking
 
 @RunWith(AndroidJUnit4::class)
@@ -483,15 +484,14 @@ class QualityMessageJourneyInstrumentedTest : QualityAppJourneyTestCase() {
         composeRule.onNodeWithTag("field.message.search")
             .assertIsDisplayed()
             .performTextInput("P2 Split")
+        // The injected search delay is transient. Observe the accurate visible feedback
+        // in its loading panel together, rather than requiring it to survive two idle snapshots.
         composeRule.waitUntil(timeoutMillis = 4_000) {
-            composeRule.onAllNodes(hasTestTag("state.messages.search.loading.slow"))
-                .fetchSemanticsNodes()
-                .isNotEmpty()
+            composeRule.onNode(
+                hasText(app.getString(R.string.message_loading_slow)) and
+                    hasAnyAncestor(hasTestTag("state.messages.search.loading.slow")),
+            ).isDisplayed()
         }
-        composeRule.onNodeWithTag("state.messages.search.loading.slow")
-            .assertIsDisplayed()
-        composeRule.onNodeWithText(app.getString(R.string.message_loading_slow))
-            .assertIsDisplayed()
         composeRule.waitUntil(timeoutMillis = 8_000) {
             composeRule.onAllNodes(hasText("P2 Split Seed Message"))
                 .fetchSemanticsNodes().isNotEmpty()
@@ -1132,33 +1132,85 @@ class QualityMessageJourneyInstrumentedTest : QualityAppJourneyTestCase() {
     }
 
     @Test
-    fun deleteUndoRestoresTheSameObjectAcrossActivityRelaunch() {
-        configureAndLaunch(fixture = QualityFixture.MESSAGES_STANDARD)
-
-        composeRule.onNodeWithText("P2 Split Seed Message").assertIsDisplayed().performClick()
-        composeRule.onNodeWithTag("action.message.delete").assertIsDisplayed().performClick()
+    fun legacyFailedDeleteCanRetryItsOriginalTargetWithoutDiscardAcrossReopen() {
+        configureAndLaunch(fixture = QualityFixture.CHANNELS_STANDARD)
+        val repository = io.ethan.pushgo.data.RoomPendingLocalDeletionRepository(app.container.database, app.container.database.pendingLocalDeletionDao())
+        runBlocking { app.container.database.withTransaction {
+            val row = repository.enqueue("Quality Delete History Message", io.ethan.pushgo.data.PendingLocalDeletionOperation.messages(setOf("quality-channel-delete-message")), System.currentTimeMillis(), 0L)
+            repository.claim(row.id, System.currentTimeMillis(), true)
+            repository.failClaimed(row.id, System.currentTimeMillis(), "Legacy local storage unavailable")
+        } }
         composeRule.waitUntil(timeoutMillis = 5_000) {
-            composeRule.onAllNodes(hasTestTag("state.pending_deletion"))
-                .fetchSemanticsNodes().isNotEmpty()
+            composeRule.onAllNodes(hasTestTag("action.delete.recovery.retry")).fetchSemanticsNodes().isNotEmpty()
         }
-        composeRule.onNodeWithTag("message.row.quality-standard-message").assertDoesNotExist()
-        composeRule.onNodeWithTag("action.pending_deletion.undo").assertIsDisplayed().performClick()
-        composeRule.waitUntil(timeoutMillis = 8_000) {
-            composeRule.onAllNodes(hasText("P2 Split Seed Message"))
-                .fetchSemanticsNodes().isNotEmpty()
-        }
-
+        composeRule.onNodeWithText("Quality Delete History Message\nLegacy local storage unavailable").assertIsDisplayed()
         scenario?.close()
+        app.releaseStorageForInstrumentationTest()
         scenario = launchMainActivity()
         composeRule.waitUntil(timeoutMillis = 8_000) {
-            composeRule.onAllNodes(hasText("P2 Split Seed Message"))
-                .fetchSemanticsNodes().isNotEmpty()
+            composeRule.onAllNodes(hasTestTag("action.delete.recovery.retry")).fetchSemanticsNodes().isNotEmpty()
         }
-        composeRule.onNodeWithText("P2 Split Seed Message").assertExists()
+        composeRule.onNodeWithTag("action.delete.recovery.retry").assertIsDisplayed().performClick()
+        composeRule.waitUntil(timeoutMillis = 8_000) {
+            composeRule.onAllNodes(hasTestTag("message.row.quality-channel-delete-message")).fetchSemanticsNodes().isEmpty()
+        }
+        val reopenedRepository = io.ethan.pushgo.data.RoomPendingLocalDeletionRepository(app.container.database, app.container.database.pendingLocalDeletionDao())
+        assertTrue(runBlocking { reopenedRepository.loadFailures().isEmpty() })
+        composeRule.onNodeWithText("Quality Keep History Message").assertIsDisplayed().performClick()
+        composeRule.onNodeWithTag("field.message.detail.body")
+            .assertTextContains("Deterministic history owned by 01H00000000000000000000001.")
     }
 
     @Test
-    fun deleteWithoutUndoPermanentlyRemovesOnlyTargetAcrossStorageRecreation() {
+    fun deleteCancelPreservesTheSameObjectAcrossActivityRelaunch() {
+        configureAndLaunch(fixture = QualityFixture.MESSAGES_STANDARD)
+        val device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
+        val selector = "io.ethan.pushgo.testing.QualityMessageJourneyInstrumentedTest#" +
+            "deleteCancelPreservesTheSameObjectAcrossActivityRelaunch"
+        val windows = QualityUiFailureDiagnostics.observeWindowLifecycle(selector)
+        try {
+            windows.checkpoint("baseline")
+            composeRule.onNodeWithText("P2 Split Seed Message").assertIsDisplayed().performClick()
+            windows.checkpoint("detail")
+            composeRule.onNodeWithTag("action.message.delete").assertIsDisplayed().performClick()
+            val cancel = composeRule.onNodeWithTag("action.delete.cancel").assertIsDisplayed()
+            windows.checkpoint("before Cancel")
+            cancel.performClick()
+            windows.checkpoint("after Cancel")
+            composeRule.onNodeWithTag("field.message.detail.body")
+                .assertTextEquals("Seeded from fixture.seed_messages for UI validation.")
+            // Keep this marker off the main queue and leave OS/hierarchy snapshots
+            // until after Back or its failure. In-process logging still has overhead.
+            QualityUiFailureDiagnostics.logWindowRoots("$selector before Back")
+            try {
+                pressBack()
+            } catch (failure: Throwable) {
+                runCatching {
+                    windows.checkpoint("original Back failure")
+                    windows.logState(device, "original Back failure")
+                }
+                throw failure
+            }
+            windows.checkpoint("after Back")
+            windows.logState(device, "after Back")
+            composeRule.waitUntil(timeoutMillis = 8_000) {
+                composeRule.onAllNodes(hasText("P2 Split Seed Message")).fetchSemanticsNodes().isNotEmpty()
+            }
+
+            scenario?.close()
+            scenario = launchMainActivity()
+            composeRule.waitUntil(timeoutMillis = 8_000) {
+                composeRule.onAllNodes(hasText("P2 Split Seed Message"))
+                    .fetchSemanticsNodes().isNotEmpty()
+            }
+            composeRule.onNodeWithText("P2 Split Seed Message").assertExists()
+        } finally {
+            windows.close()
+        }
+    }
+
+    @Test
+    fun confirmedDeletePermanentlyRemovesOnlyTargetAcrossStorageRecreation() {
         configureAndLaunch(fixture = QualityFixture.CHANNELS_STANDARD)
 
         composeRule.onNodeWithText("Quality Delete History Message")
@@ -1168,15 +1220,9 @@ class QualityMessageJourneyInstrumentedTest : QualityAppJourneyTestCase() {
         composeRule.onNodeWithTag("field.message.detail.body")
             .assertTextContains("Deterministic history owned by 01H00000000000000000000002.")
         composeRule.onNodeWithTag("action.message.delete").assertIsDisplayed().performClick()
-        composeRule.waitUntil(timeoutMillis = 5_000) {
-            composeRule.onAllNodes(hasTestTag("state.pending_deletion"))
-                .fetchSemanticsNodes().isNotEmpty()
-        }
-        composeRule.onNodeWithTag("message.row.quality-channel-delete-message")
-            .assertDoesNotExist()
-        composeRule.onNodeWithTag("action.pending_deletion.undo").assertIsDisplayed()
-        composeRule.waitUntil(timeoutMillis = 15_000) {
-            composeRule.onAllNodes(hasTestTag("state.pending_deletion"))
+        composeRule.onNodeWithTag("action.delete.confirm").assertIsDisplayed().performClick()
+        composeRule.waitUntil(timeoutMillis = 8_000) {
+            composeRule.onAllNodes(hasTestTag("message.row.quality-channel-delete-message"))
                 .fetchSemanticsNodes().isEmpty()
         }
 

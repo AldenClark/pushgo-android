@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import argparse
 import re
+import sys
 from pathlib import Path
 
 
@@ -25,22 +26,28 @@ def test_methods(source: str) -> list[str]:
     methods: list[str] = []
     index = 0
     while index < len(lines):
-        if not TEST_RE.match(lines[index]):
+        annotation = TEST_RE.match(lines[index])
+        if not annotation:
             index += 1
             continue
-        function_index = index + 1
-        while function_index < len(lines) and (
-            not lines[function_index].strip()
-            or lines[function_index].lstrip().startswith("@")
-        ):
+        function_index = index
+        declaration = lines[index][annotation.end():]
+        match = FUNCTION_RE.match(declaration)
+        if match is None:
             function_index += 1
-        if function_index >= len(lines):
-            raise ValueError("@Test annotation is not followed by a function")
-        match = FUNCTION_RE.match(lines[function_index])
+            while function_index < len(lines) and (
+                not lines[function_index].strip()
+                or lines[function_index].lstrip().startswith("@")
+            ):
+                function_index += 1
+            if function_index >= len(lines):
+                raise ValueError("@Test annotation is not followed by a function")
+            declaration = lines[function_index]
+            match = FUNCTION_RE.match(declaration)
         if not match:
             raise ValueError(
                 "@Test annotation is not followed by a Kotlin function: "
-                + lines[function_index].strip()
+                + declaration.strip()
             )
         name = match.group(1)
         if name in methods:
@@ -139,8 +146,8 @@ def main() -> int:
             {item.strip() for item in args.exclude_selector if item.strip()},
         )
     except (OSError, ValueError) as error:
-        print(f"status=BLOCKED")
-        print(f"reason=android_expected_selector_resolution:{error}")
+        print("status=BLOCKED", file=sys.stderr)
+        print(f"reason=android_expected_selector_resolution:{error}", file=sys.stderr)
         return 2
     print(",".join(selectors))
     return 0

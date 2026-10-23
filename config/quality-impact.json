@@ -87,10 +87,10 @@
     {
       "id": "quality-system-process-restart-journey",
       "paths": ["app/src/benchmark/java/io/ethan/pushgo/testing/BenchmarkFixtureProvider.kt", "app/src/benchmark/java/io/ethan/pushgo/testing/BenchmarkUnstopActivity.kt", "app/src/main/java/io/ethan/pushgo/PushGoApp.kt", "app/src/main/java/io/ethan/pushgo/data/AppContainer.kt", "app/src/main/java/io/ethan/pushgo/testing/QualityRuntime.kt", "app/src/main/java/io/ethan/pushgo/ui/PendingLocalDeletionCoordinator.kt", "scripts/run_android_pending_deletion_process_restart_positive.sh"],
-      "capabilities": ["app-launch", "messages", "message-detail", "pending-deletion", "external-navigation", "quality-system-trustworthiness"],
-      "minimum_evidence": ["host-driven canonical unread message to exact detail/read mutation to verified no-PID to new-PID restart to exact persisted detail/read state", "production Open URL action to unique HTTPS handler, exact user-visible canonical browser URL, and return to the same accurate detail", "two independent App-owned pending-deletion sessions: new-PID pending-bar plus exact Undo restoration, and new-PID post-deadline target commit with exact control-message preservation", "App-owned session preparation and teardown completion", "one-time wrong-body and wrong-url sensitivity controls"],
+      "capabilities": ["app-launch", "messages", "message-detail", "legacy-deletion-recovery", "external-navigation", "quality-system-trustworthiness"],
+      "minimum_evidence": ["host-driven canonical unread message to exact detail/read mutation to verified no-PID to new-PID restart to exact persisted detail/read state", "production Open URL action to unique HTTPS handler, exact user-visible canonical browser URL, and return to the same accurate detail", "two independent App-owned deletion-confirmation sessions: cancel preserves exact target across new PID, and confirmed direct deletion remains absent with exact control-message preservation", "App-owned session preparation and teardown completion", "one-time wrong-body and wrong-url sensitivity controls"],
       "lane": "nightly",
-      "known_evidence_gaps": ["Controlled-emulator force-stop proves a real Linux process boundary and durable App-owned Room/UI state, but does not prove low-memory OS eviction, reboot, OEM task policy, physical-device startup timing, or production-data migration.", "Quality pending-deletion recovery intentionally excludes the production Activity lifecycle bridge and WorkManager while the App-owned session is active; background force-stop execution, low-memory kill, reboot, Worker scheduling, and physical/OEM behavior remain NOT RUN."],
+      "known_evidence_gaps": ["Controlled-emulator force-stop proves a real Linux process boundary and durable App-owned Room/UI state, but does not prove low-memory OS eviction, reboot, OEM task policy, physical-device startup timing, or production-data migration.", "Quality deletion-confirmation sessions prove cancellation and direct transaction across process restart; accepted legacy rows and durable remote channel recovery have independent Room and Worker oracles. Low-memory kill, reboot, and physical/OEM behavior remain NOT RUN."],
       "escalation_reasons": ["Process lifecycle tests must prove both process identity change and a durable user outcome; Activity recreation or a PID check alone is insufficient."]
     },
     {
@@ -133,16 +133,40 @@
     {
       "id": "room-schema-shared-store",
       "paths": ["app/src/main/java/io/ethan/pushgo/data/db/**", "app/schemas/**"],
-      "capabilities": ["app-launch", "messages", "events", "things", "channels", "ingress-ack", "delete-undo"],
+      "capabilities": ["app-launch", "messages", "events", "things", "channels", "ingress-ack", "delete-confirmation"],
       "minimum_evidence": ["DAO/query correctness", "old-version migration and reopen device tests", "representative UI content/relaunch journeys"],
       "lane": "device",
       "known_evidence_gaps": ["Controlled-emulator App-owned startup reliability is proven 50/50; one v21-to-current migration representative now reaches accurate real list/detail UI after Container reopen, while other source versions and physical-device startup remain NOT RUN."],
       "escalation_reasons": ["Room schema/query changes affect all canonical and derived consumers."]
     },
     {
+      "id": "ordinary-deletion-consistency",
+      "paths": ["app/src/main/java/io/ethan/pushgo/data/OrdinaryDeletionConfirmation.kt", "app/src/main/java/io/ethan/pushgo/data/DeletionNotificationCleanup.kt", "app/src/main/java/io/ethan/pushgo/data/RepositoryPendingLocalDeletionExecutor.kt", "app/src/main/java/io/ethan/pushgo/data/db/DeletionNotificationCleanup*.kt"],
+      "capabilities": ["delete-confirmation", "messages", "events", "things", "notification-system-route"],
+      "minimum_evidence": ["Real Room production confirmation rejects replaced content, expanded Thing associations and relevant configuration changes", "Committed delete interrupted before OS cleanup reopens through the production container, clears exact target notification instances and preserves controls and replacements", "Cancel has no durable side effects; v34-to-current migration preserves existing data"],
+      "required_device_scopes": [
+        "io.ethan.pushgo.data.OrdinaryDeletionConsistencyDeviceTest#cancellingConfirmationPreservesMessageNotificationAndCreatesNoDurableIntent",
+        "io.ethan.pushgo.data.OrdinaryDeletionConsistencyDeviceTest#sameIdAndReceivedAtMessageReplacementRejectsOldConfirmation",
+        "io.ethan.pushgo.data.OrdinaryDeletionConsistencyDeviceTest#canonicalTitleIsShownAndReadCacheAndJsonOrderingChangesStillAllowDeletion",
+        "io.ethan.pushgo.data.OrdinaryDeletionConsistencyDeviceTest#sameEventIdentityAndTimestampContentReplacementRejectsOldConfirmation",
+        "io.ethan.pushgo.data.OrdinaryDeletionConsistencyDeviceTest#newThingChildMessageAndWaitingSubeventEachInvalidateTheirOwnConfirmation",
+        "io.ethan.pushgo.data.OrdinaryDeletionConsistencyDeviceTest#eachRelevantConfigurationChangeRejectsOldConfirmationAndAllowsFreshConfirmation",
+        "io.ethan.pushgo.data.OrdinaryDeletionConsistencyDeviceTest#committedMessageDeletionRecoversExactNotificationCleanupOnStartupAndIsIdempotent",
+        "io.ethan.pushgo.data.OrdinaryDeletionConsistencyDeviceTest#committedThingDeletionRecoversChildMessageAndRelatedEntityNotifications",
+        "io.ethan.pushgo.data.OrdinaryDeletionConsistencyDeviceTest#eventCleanupRemovesAssociatedThingNotificationWhileThingStillExists",
+        "io.ethan.pushgo.data.OrdinaryDeletionConsistencyDeviceTest#startupCleanupPreservesNewGenerationAtTheSameNumericNotificationId",
+        "io.ethan.pushgo.data.OrdinaryDeletionConsistencyDeviceTest#startupCleanupCancelsSubmittedNotificationWhenHelperObservationIsHidden",
+        "io.ethan.pushgo.data.OrdinaryDeletionConsistencyDeviceTest#actualInboundPublishesCurrentMessageEventAndThingButRejectsAMissingDeliveryRow",
+        "io.ethan.pushgo.data.OrdinaryDeletionConsistencyDeviceTest#messageDeletedAfterPersistenceCannotPublishItsDelayedInboundNotification",
+        "io.ethan.pushgo.data.OrdinaryDeletionConsistencyDeviceTest#room34To35MigrationPreservesExistingMessagesAndAddsEmptyCleanupReceipts"
+      ],
+      "lane": "device",
+      "known_evidence_gaps": ["Controlled Room interruption and container reopen do not prove OS low-memory eviction, reboot or physical/OEM notification behavior."]
+    },
+    {
       "id": "messages-search-delete",
-      "paths": ["app/src/main/java/io/ethan/pushgo/data/Message*.kt", "app/src/main/java/io/ethan/pushgo/data/QualityFaultPagingSource.kt", "app/src/main/java/io/ethan/pushgo/data/PendingLocalDeletion*.kt", "app/src/main/java/io/ethan/pushgo/data/RepositoryPendingLocalDeletionExecutor.kt", "app/src/main/java/io/ethan/pushgo/data/model/Message*.kt", "app/src/main/java/io/ethan/pushgo/ui/Message*.kt", "app/src/main/java/io/ethan/pushgo/ui/PendingLocalDeletion*.kt", "app/src/main/java/io/ethan/pushgo/ui/viewmodel/Message*.kt", "app/src/main/java/io/ethan/pushgo/ui/screens/Message*.kt", "app/src/main/java/io/ethan/pushgo/ui/screens/PushGoSearchBar.kt", "app/src/main/java/io/ethan/pushgo/util/SearchTextNormalizer.kt"],
-      "capabilities": ["messages", "message-detail", "search-filter", "delete-undo"],
+      "paths": ["app/src/main/java/io/ethan/pushgo/data/Message*.kt", "app/src/main/java/io/ethan/pushgo/data/QualityFaultPagingSource.kt", "app/src/main/java/io/ethan/pushgo/data/PendingLocalDeletion*.kt", "app/src/main/java/io/ethan/pushgo/data/RepositoryPendingLocalDeletionExecutor.kt", "app/src/main/java/io/ethan/pushgo/data/model/Message*.kt", "app/src/main/java/io/ethan/pushgo/ui/Message*.kt", "app/src/main/java/io/ethan/pushgo/ui/PendingLocalDeletion*.kt", "app/src/main/java/io/ethan/pushgo/ui/DeleteConfirmationDialog.kt", "app/src/main/java/io/ethan/pushgo/ui/viewmodel/Message*.kt", "app/src/main/java/io/ethan/pushgo/ui/screens/Message*.kt", "app/src/main/java/io/ethan/pushgo/ui/screens/PushGoSearchBar.kt", "app/src/main/java/io/ethan/pushgo/util/SearchTextNormalizer.kt"],
+      "capabilities": ["messages", "message-detail", "search-filter", "delete-confirmation"],
       "minimum_evidence": ["JVM/Room message/search/deletion tests", "Android accurate content/search/delete/relaunch UI journeys", "Android provider refresh new-result/failure-recovery UI journeys"],
       "required_device_scopes": [
         "io.ethan.pushgo.testing.QualityMessageJourneyInstrumentedTest#workflowFixtureLoadsSecondPageAndPersistsReadActions"
@@ -211,7 +235,7 @@
     },
     {
       "id": "channels-settings-transport",
-      "paths": ["app/src/main/java/io/ethan/pushgo/data/Channel*.kt", "app/src/main/java/io/ethan/pushgo/data/SettingsRepository.kt", "app/src/main/java/io/ethan/pushgo/data/SecureSecretStore.kt", "app/src/main/java/io/ethan/pushgo/data/AndroidKeystoreSecretStore.kt", "app/src/main/java/io/ethan/pushgo/data/NotificationKeyValidator.kt", "app/src/main/java/io/ethan/pushgo/data/RepositoryPendingChannelDeletionBackend.kt", "app/src/main/java/io/ethan/pushgo/data/DurablePendingChannelDeletionExecutor.kt", "app/src/main/java/io/ethan/pushgo/data/model/ChannelSubscription.kt", "app/src/main/java/io/ethan/pushgo/data/model/KeyEncoding.kt", "app/src/main/java/io/ethan/pushgo/data/model/ServerConfig.kt", "app/src/main/java/io/ethan/pushgo/ui/screens/Channel*.kt", "app/src/main/java/io/ethan/pushgo/ui/screens/Settings*.kt", "app/src/main/java/io/ethan/pushgo/ui/screens/ConnectionDiagnosis*.kt", "app/src/main/java/io/ethan/pushgo/ui/screens/MessageDecryptionScreen.kt", "app/src/main/java/io/ethan/pushgo/ui/viewmodel/Settings*.kt", "app/src/main/java/io/ethan/pushgo/ui/viewmodel/ConnectionDiagnosis*.kt", "app/src/main/java/io/ethan/pushgo/ui/viewmodel/GatewayErrorUi.kt", "app/src/main/java/io/ethan/pushgo/util/SystemSettingsNavigator.kt", "app/src/main/java/io/ethan/pushgo/util/UrlValidators.kt"],
+      "paths": ["app/src/main/java/io/ethan/pushgo/data/Channel*.kt", "app/src/main/java/io/ethan/pushgo/data/SettingsRepository.kt", "app/src/main/java/io/ethan/pushgo/data/SecureSecretStore.kt", "app/src/main/java/io/ethan/pushgo/data/AndroidKeystoreSecretStore.kt", "app/src/main/java/io/ethan/pushgo/data/NotificationKeyValidator.kt", "app/src/main/java/io/ethan/pushgo/data/RepositoryPendingChannelDeletionBackend.kt", "app/src/main/java/io/ethan/pushgo/data/DurablePendingChannelDeletionExecutor.kt", "app/src/main/java/io/ethan/pushgo/data/model/ChannelSubscription.kt", "app/src/main/java/io/ethan/pushgo/data/model/KeyEncoding.kt", "app/src/main/java/io/ethan/pushgo/data/model/ServerConfig.kt", "app/src/main/java/io/ethan/pushgo/ui/screens/Channel*.kt", "app/src/main/java/io/ethan/pushgo/ui/screens/Settings*.kt", "app/src/main/java/io/ethan/pushgo/ui/screens/ConnectionDiagnosis*.kt", "app/src/main/java/io/ethan/pushgo/ui/screens/MessageDecryptionScreen.kt", "app/src/main/java/io/ethan/pushgo/ui/viewmodel/Settings*.kt", "app/src/main/java/io/ethan/pushgo/ui/viewmodel/ConnectionDiagnosis*.kt", "app/src/main/java/io/ethan/pushgo/ui/viewmodel/GatewayErrorUi.kt", "app/src/main/java/io/ethan/pushgo/util/SystemSettingsNavigator.kt", "app/src/main/java/io/ethan/pushgo/util/UrlValidators.kt", "app/src/main/java/io/ethan/pushgo/util/LocalNetworkPermission.kt"],
       "capabilities": ["channels", "gateway-settings", "decryption-settings", "page-visibility", "transport-selector"],
       "minimum_evidence": ["validation/service/transport integration tests", "real Channel local-validation/remote-rejection/sheet-error ownership/create-compensation/reload/retry/rename/keep-history/delete-history/relaunch journey", "real Settings page-visibility action/destination and relaunch journey", "real server invalid/candidate-registration-failure/no-commit/retry/normalize/data-scope/relaunch journey", "real server post-commit sync failure/pending-recovery/relaunch journey", "real server saving-in-progress Back/swipe remains in the editor until the verified candidate commit reaches a real terminal result", "real decryption invalid/status/no-echo/clear/relaunch journey", "real FCM/private selector rejection-preserves-active-route/local-commit-rollback/retry/commit/relaunch journey"],
       "required_device_scopes": [
@@ -285,7 +309,7 @@
       "capabilities": ["messages", "message-detail", "notification-system-route"],
       "minimum_evidence": ["a deleted message opened from a stale App notification returns to the usable Messages list with a clear unavailable-item explanation", "the deleted message must not revive or produce an empty detail, while a surviving message remains openable with its exact content"],
       "required_device_scopes": [
-        "io.ethan.pushgo.testing.QualityMessageJourneyInstrumentedTest#deleteWithoutUndoPermanentlyRemovesOnlyTargetAcrossStorageRecreation"
+        "io.ethan.pushgo.testing.QualityMessageJourneyInstrumentedTest#confirmedDeletePermanentlyRemovesOnlyTargetAcrossStorageRecreation"
       ],
       "lane": "pr-ui",
       "known_evidence_gaps": ["This controlled App-owned Intent journey proves stale-target handling after local deletion. Delivery, system notification posting, physical-device notification permissions, and OEM process behavior remain separate evidence boundaries."],

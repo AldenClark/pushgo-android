@@ -243,6 +243,14 @@ android {
     }
 }
 
+androidComponents.finalizeDsl { extension ->
+    // Baseline Profile copies the Release manifest into its derived build type
+    // during DSL finalization. Keep this variant's existing quality controls.
+    extension.sourceSets.getByName("nonMinifiedRelease").manifest.srcFile(
+        "src/nonMinifiedRelease/AndroidManifest.xml"
+    )
+}
+
 kotlin {
     compilerOptions {
         jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_21)
@@ -260,7 +268,7 @@ baselineProfile {
 configurations.configureEach {
     if (name == "kotlinAbiValidationCompatClasspath") {
         // Keep KGP's open compatibility range on the declared Kotlin toolchain instead of a newer prerelease.
-        resolutionStrategy.force("org.jetbrains.kotlin:kotlin-build-tools-impl:2.4.0")
+        resolutionStrategy.force("org.jetbrains.kotlin:kotlin-build-tools-impl:2.4.21")
     }
 }
 
@@ -317,39 +325,39 @@ if (hasGoogleServices) {
 }
 
 dependencies {
-    implementation(platform("androidx.compose:compose-bom:2026.06.01"))
+    implementation(platform("androidx.compose:compose-bom:2026.09.00"))
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.ui:ui-tooling-preview")
     implementation("androidx.compose.material3:material3")
     implementation("androidx.compose.material:material-icons-extended")
 
-    implementation("androidx.core:core-ktx:1.19.0")
+    implementation("androidx.core:core-ktx:1.19.1")
     implementation("androidx.activity:activity-compose:1.13.0")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.11.0")
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.11.0")
     implementation("androidx.lifecycle:lifecycle-viewmodel-ktx:2.11.0")
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.11.0")
-    implementation("androidx.navigation:navigation-compose:2.9.8")
-    implementation("androidx.appcompat:appcompat:1.7.1")
+    implementation("androidx.navigation:navigation-compose:2.10.2")
+    implementation("androidx.appcompat:appcompat:1.8.0")
     implementation("com.google.android.material:material:1.14.0")
 
     implementation("androidx.datastore:datastore-preferences:1.2.1")
     implementation("androidx.security:security-crypto:1.1.0")
 
-    implementation("androidx.room:room-runtime:2.8.4")
-    implementation("androidx.room:room-ktx:2.8.4")
-    implementation("androidx.room:room-paging:2.8.4")
-    ksp("androidx.room:room-compiler:2.8.4")
+    implementation("androidx.room:room-runtime:2.8.5")
+    implementation("androidx.room:room-ktx:2.8.5")
+    implementation("androidx.room:room-paging:2.8.5")
+    ksp("androidx.room:room-compiler:2.8.5")
 
-    implementation("androidx.paging:paging-runtime-ktx:3.5.0")
-    implementation("androidx.paging:paging-compose:3.5.0")
+    implementation("androidx.paging:paging-runtime-ktx:3.5.3")
+    implementation("androidx.paging:paging-compose:3.5.3")
 
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.11.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.11.0")
-    implementation("androidx.work:work-runtime-ktx:2.11.2")
+    implementation("androidx.work:work-runtime-ktx:2.12.0")
     implementation("androidx.profileinstaller:profileinstaller:1.4.1")
-    implementation("io.coil-kt.coil3:coil-compose:3.5.0")
-    implementation("io.coil-kt.coil3:coil-gif:3.5.0")
+    implementation("io.coil-kt.coil3:coil-compose:3.6.3")
+    implementation("io.coil-kt.coil3:coil-gif:3.6.3")
     implementation("io.noties.markwon:core:4.6.2")
     implementation("io.noties.markwon:ext-strikethrough:4.6.2")
     implementation("io.noties.markwon:ext-tables:4.6.2")
@@ -357,21 +365,47 @@ dependencies {
     implementation("io.noties.markwon:html:4.6.2")
     implementation("io.noties.markwon:linkify:4.6.2")
     implementation("io.noties.markwon:image:4.6.2")
-    implementation(platform("com.google.firebase:firebase-bom:34.17.0"))
+    implementation(platform("com.google.firebase:firebase-bom:35.0.2"))
     implementation("com.google.firebase:firebase-messaging")
-    implementation("com.google.android.gms:play-services-base:18.10.0")
+    implementation("com.google.android.gms:play-services-base:18.11.1")
 
     debugImplementation("androidx.compose.ui:ui-tooling")
     testImplementation("junit:junit:4.13.2")
-    testImplementation("org.json:json:20260719")
-    androidTestImplementation(platform("androidx.compose:compose-bom:2026.06.01"))
+    testImplementation("org.json:json:20260814")
+    androidTestImplementation(platform("androidx.compose:compose-bom:2026.09.00"))
     androidTestImplementation("androidx.test.ext:junit:1.3.0")
     androidTestImplementation("androidx.test:runner:1.7.0")
     androidTestImplementation("androidx.test.uiautomator:uiautomator:2.4.0")
     androidTestImplementation("androidx.test.espresso:espresso-core:3.7.0")
     androidTestImplementation("androidx.compose.ui:ui-test-junit4")
     debugImplementation("androidx.compose.ui:ui-test-manifest")
-    kspAndroidTest("androidx.room:room-compiler:2.8.4")
+    kspAndroidTest("androidx.room:room-compiler:2.8.5")
     baselineProfile(project(":macrobenchmark"))
 
+}
+
+// Isolated local native validation only; normal builds retain their own JNI inputs.
+val isolatedNativeQa = providers.gradleProperty("pushgo.c7IsolatedNativeQa").orNull == "true"
+val qaJniInput = providers.gradleProperty("pushgo.c8QaJniDir").orNull
+require(qaJniInput == null || isolatedNativeQa) { "QA JNI directory requires isolated QA mode" }
+if (isolatedNativeQa) {
+    val qaJniDir = file(requireNotNull(qaJniInput) { "Isolated QA requires its own JNI directory" }).canonicalFile
+    val allowedQaJniDirs = listOf(
+        "../../../c8-private48-20261015/native/qa-jni-libs",
+        "../../../c18-client128-20261018/native/qa-jni-libs",
+        "../../evidence/android/native/qa-jni-libs",
+    ).map { rootProject.file(it).canonicalFile }
+    require(qaJniDir in allowedQaJniDirs && qaJniDir != generatedRustJniDir.canonicalFile) { "Unexpected QA JNI directory" }
+    require(gradle.startParameter.excludedTaskNames.any { it == ":app:buildRustJniLibs" || it == "buildRustJniLibs" }) { "QA must exclude the normal JNI builder" }
+    gradle.taskGraph.whenReady {
+        require(allTasks.none { it.name.contains("release", ignoreCase = true) }) { "QA JNI cannot be packaged as Release" }
+    }
+    // Isolated QA package has no Firebase identity, just like benchmark.
+    tasks.matching { it.name == "processDebugGoogleServices" }.configureEach { enabled = false }
+    android {
+        sourceSets.getByName("main").jniLibs.setSrcDirs(listOf(qaJniDir))
+        buildTypes.getByName("debug") { applicationIdSuffix = ".c7evidence" }
+        defaultConfig { ndk { abiFilters += "arm64-v8a" } }
+        packaging { jniLibs { keepDebugSymbols += "**/libpushgo_quinn_jni.so" } }
+    }
 }

@@ -39,6 +39,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import org.json.JSONObject
+import org.json.JSONArray
 import java.util.Locale
 import java.util.concurrent.atomic.AtomicLong
 
@@ -809,6 +810,53 @@ class MessageRepository(
             }
             dao.markRead(id)
         }
+    }
+
+    /** Serialize the final exact-row check and synchronous OS publication with local deletion. */
+    suspend fun publishNotificationIfCurrent(message: PushMessage, publish: () -> Boolean): Boolean? =
+        database.withTransaction {
+            val canonical = canonicalMessage(message)
+            if (isThingScopedMessage(canonical)) {
+                val current = thingSubMessageDao.getById(canonical.id) ?: return@withTransaction null
+                val expected = ThingSubMessageEntity.fromModel(canonical)
+                if (!notificationPayloadMatches(current.rawPayloadJson, expected.rawPayloadJson) ||
+                    current != expected.copy(bodyPreview = current.bodyPreview, rawPayloadJson = current.rawPayloadJson)
+                ) return@withTransaction null
+            } else {
+                val current = dao.getById(canonical.id) ?: return@withTransaction null
+                val expected = MessageEntity.fromModel(canonical)
+                if (!notificationPayloadMatches(current.rawPayloadJson, expected.rawPayloadJson) ||
+                    current != expected.copy(
+                        isRead = current.isRead,
+                        bodyPreview = current.bodyPreview,
+                        listPayloadJson = current.listPayloadJson,
+                        rawPayloadJson = current.rawPayloadJson,
+                    )
+                ) return@withTransaction null
+            }
+            publish()
+        }
+
+    private fun notificationPayloadMatches(current: String, expected: String): Boolean {
+        if (current == expected) return true
+        fun payload(raw: String): JSONObject? = runCatching { JSONObject(raw) }.getOrNull()?.apply {
+            remove(MessageImageStore.KEY_IMAGE_LOCAL_PATH)
+            remove(MessageImageStore.KEY_IMAGE_THUMBNAIL_LOCAL_PATH)
+        }
+        val currentPayload = payload(current) ?: return false
+        val expectedPayload = payload(expected) ?: return false
+        return notificationJsonMatches(currentPayload, expectedPayload)
+    }
+
+    private fun notificationJsonMatches(current: Any?, expected: Any?): Boolean = when {
+        current is JSONObject && expected is JSONObject -> {
+            val keys = current.keys().asSequence().toSet()
+            keys == expected.keys().asSequence().toSet() &&
+                keys.all { notificationJsonMatches(current.get(it), expected.get(it)) }
+        }
+        current is JSONArray && expected is JSONArray -> current.length() == expected.length() &&
+            (0 until current.length()).all { notificationJsonMatches(current.get(it), expected.get(it)) }
+        else -> current == expected
     }
 
     suspend fun markRead(ids: Collection<String>): Int {

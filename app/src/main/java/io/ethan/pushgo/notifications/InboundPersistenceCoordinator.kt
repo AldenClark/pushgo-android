@@ -254,11 +254,13 @@ object InboundPersistenceCoordinator {
                 beforeMessageNotify(canonicalMessage, null)
                 if (
                     inbound.shouldNotify && inbound.securityDisposition.allowsNotification &&
-                    !NotificationHelper.showMessageReplayNotificationSilently(
-                        context = context,
-                        message = canonicalMessage,
-                        level = canonicalNotificationLevel(canonicalMessage, inbound.level),
-                    )
+                    messageRepository.publishNotificationIfCurrent(canonicalMessage) {
+                        NotificationHelper.showMessageReplayNotificationSilently(
+                            context = context,
+                            message = canonicalMessage,
+                            level = canonicalNotificationLevel(canonicalMessage, inbound.level),
+                        )
+                    } == false
                 ) {
                     return InboundPersistenceOutcome(
                         status = InboundPersistenceStatus.FAILED,
@@ -291,12 +293,14 @@ object InboundPersistenceCoordinator {
             )
         }
 
-        if (!NotificationHelper.showMessageNotification(
+        val published = messageRepository.publishNotificationIfCurrent(inbound.message) {
+            NotificationHelper.showMessageNotification(
                 context = context,
                 message = inbound.message,
                 level = inbound.level,
             )
-        ) {
+        }
+        if (published == false) {
             return InboundPersistenceOutcome(
                 status = InboundPersistenceStatus.FAILED,
                 notified = false,
@@ -305,7 +309,7 @@ object InboundPersistenceCoordinator {
         }
         return InboundPersistenceOutcome(
             status = InboundPersistenceStatus.PERSISTED_MAIN,
-            notified = true,
+            notified = published == true,
             shouldAck = allowsSuccessfulAck &&
                 inboundDeliveryLedgerRepository.shouldAckDelivery(
                     deliveryId = inbound.message.deliveryId,
@@ -405,7 +409,10 @@ object InboundPersistenceCoordinator {
                 shouldAck && !pending && displayInbound.shouldNotify &&
                 displayInbound.securityDisposition.allowsNotification
             ) {
-                if (!showEntityReplayNotificationSilently(context, displayInbound)) {
+                if (entityRepository.publishNotificationIfCurrent(
+                        resolvedInbound.record, effectiveDeliveryScope, replay = true,
+                    ) { showEntityReplayNotificationSilently(context, displayInbound) } == false
+                ) {
                     return InboundPersistenceOutcome(
                         status = InboundPersistenceStatus.FAILED,
                         notified = false,
@@ -445,7 +452,10 @@ object InboundPersistenceCoordinator {
             )
         }
 
-        if (!showEntityNotification(context, displayInbound)) {
+        val published = entityRepository.publishNotificationIfCurrent(
+            resolvedInbound.record, effectiveDeliveryScope, replay = false,
+        ) { showEntityNotification(context, displayInbound) }
+        if (published == false) {
             return InboundPersistenceOutcome(
                 status = InboundPersistenceStatus.FAILED,
                 notified = false,
@@ -457,7 +467,7 @@ object InboundPersistenceCoordinator {
         }
         return InboundPersistenceOutcome(
             status = InboundPersistenceStatus.PERSISTED_MAIN,
-            notified = true,
+            notified = published == true,
             shouldAck = allowsSuccessfulAck &&
                 inboundDeliveryLedgerRepository.shouldAckDelivery(
                     deliveryId = displayInbound.record.deliveryId,
@@ -504,7 +514,7 @@ object InboundPersistenceCoordinator {
         val thingId = inbound.record.thingId?.trim()?.takeIf { it.isNotEmpty() }
             ?: inbound.record.entityId
         messageRepository.replayPendingForThing(thingId)
-        entityRepository.replayPendingForThing(thingId)
+        entityRepository.activateStoredEventsForThing(thingId)
     }
 
     private suspend fun resolveEntityNotificationDisplayAfterPersist(

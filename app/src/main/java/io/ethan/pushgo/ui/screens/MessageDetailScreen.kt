@@ -135,7 +135,6 @@ fun MessageDetailScreen(
     val message by viewModel.message.collectAsStateWithLifecycle()
     val isLoading by viewModel.isLoading.collectAsStateWithLifecycle()
     val loadError by viewModel.loadError.collectAsStateWithLifecycle()
-    val effectivePendingScope by pendingLocalDeletionCoordinator.effectiveScope.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val clipboard = LocalClipboard.current
     val copiedMessage = stringResource(R.string.message_text_copied)
@@ -148,12 +147,7 @@ fun MessageDetailScreen(
     }
     val current = message
 
-    LaunchedEffect(current?.id, current?.channel, effectivePendingScope) {
-        val visibleMessage = current ?: return@LaunchedEffect
-        if (effectivePendingScope.suppressesMessage(visibleMessage.id, visibleMessage.channel)) {
-            onDismiss()
-        }
-    }
+
 
     LaunchedEffect(current?.id) {
         current ?: return@LaunchedEffect
@@ -231,7 +225,7 @@ fun MessageDetailScreen(
                     onDelete = {
                         val targetMessage = current
                         scope.launch {
-                            pendingLocalDeletionCoordinator.schedule(
+                            val deleted = pendingLocalDeletionCoordinator.confirmAndDelete(
                                 summary = targetMessage.title.trim().ifEmpty {
                                     messagesTabLabel
                                 },
@@ -252,7 +246,7 @@ fun MessageDetailScreen(
                                     }
                                 },
                             )
-                            onDismiss()
+                            if (deleted) onDismiss()
                         }
                     },
                     onCopyText = { text ->

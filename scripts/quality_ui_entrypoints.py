@@ -65,7 +65,7 @@ def source_files(roots: Iterable[Path]) -> list[Path]:
             if (
                 candidate.is_file()
                 and candidate.suffix in SOURCE_SUFFIXES
-                and not EXCLUDED_DIRECTORIES.intersection(candidate.parts)
+                and not EXCLUDED_DIRECTORIES.intersection(candidate.relative_to(root).parts[:-1])
             ):
                 files.add(candidate.resolve())
     return sorted(files)

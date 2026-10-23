@@ -14,6 +14,9 @@ import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 
 interface PendingLocalDeletionRepository {
+    fun observeFailures(): Flow<List<PendingLocalDeletionRecord>>
+    suspend fun loadFailures(): List<PendingLocalDeletionRecord>
+
     fun observeActive(): Flow<List<PendingLocalDeletionRecord>>
 
     suspend fun loadActive(): List<PendingLocalDeletionRecord>
@@ -24,8 +27,6 @@ interface PendingLocalDeletionRepository {
         requestedAtEpochMillis: Long,
         undoWindowMillis: Long,
     ): PendingLocalDeletionRecord
-
-    suspend fun cancelPending(id: Long, nowEpochMillis: Long): Boolean
 
     suspend fun claim(
         id: Long,
@@ -48,6 +49,8 @@ interface PendingLocalDeletionRepository {
         lastError: String,
     ): Boolean
 
+    suspend fun retryFailed(id: Long, nowEpochMillis: Long): Boolean
+
     suspend fun recoverInterruptedClaims(nowEpochMillis: Long): Int
 }
 
@@ -55,6 +58,12 @@ class RoomPendingLocalDeletionRepository(
     private val database: RoomDatabase,
     private val dao: PendingLocalDeletionDao,
 ) : PendingLocalDeletionRepository {
+    override fun observeFailures(): Flow<List<PendingLocalDeletionRecord>> =
+        dao.observeFailures().map { rows -> rows.map(PendingLocalDeletionEntity::toRecord) }
+
+    override suspend fun loadFailures(): List<PendingLocalDeletionRecord> =
+        dao.loadFailures().map(PendingLocalDeletionEntity::toRecord)
+
     override fun observeActive(): Flow<List<PendingLocalDeletionRecord>> =
         dao.observeActive().map { rows -> rows.map(PendingLocalDeletionEntity::toRecord) }
 
@@ -67,10 +76,7 @@ class RoomPendingLocalDeletionRepository(
         requestedAtEpochMillis: Long,
         undoWindowMillis: Long,
     ): PendingLocalDeletionRecord = database.withTransaction {
-        val deadline = maxOf(
-            requestedAtEpochMillis,
-            dao.latestUndoDeadline() ?: requestedAtEpochMillis,
-        ) + undoWindowMillis.coerceAtLeast(0L)
+        val deadline = requestedAtEpochMillis + undoWindowMillis.coerceAtLeast(0L)
         val entity = pendingLocalDeletionEntity(
             summary = summary,
             operation = operation,
@@ -79,9 +85,6 @@ class RoomPendingLocalDeletionRepository(
         )
         entity.copy(id = dao.insert(entity)).toRecord()
     }
-
-    override suspend fun cancelPending(id: Long, nowEpochMillis: Long): Boolean =
-        dao.cancelPending(id, nowEpochMillis) == 1
 
     override suspend fun claim(
         id: Long,
@@ -116,16 +119,16 @@ class RoomPendingLocalDeletionRepository(
             nowEpochMillis = nowEpochMillis,
             lastError = lastError.take(MAX_ERROR_LENGTH),
         ) == 1
-        dao.pruneFailedHistory(MAX_FAILED_HISTORY)
         failed
     }
+
+    override suspend fun retryFailed(id: Long, nowEpochMillis: Long): Boolean = dao.retryFailed(id, nowEpochMillis) == 1
 
     override suspend fun recoverInterruptedClaims(nowEpochMillis: Long): Int =
         dao.recoverInterruptedClaims(nowEpochMillis)
 
     private companion object {
         const val MAX_ERROR_LENGTH = 2_000
-        const val MAX_FAILED_HISTORY = 100
     }
 }
 
@@ -134,9 +137,12 @@ class InMemoryPendingLocalDeletionRepository : PendingLocalDeletionRepository {
     private val nextId = AtomicLong(1L)
     private val rows = MutableStateFlow<List<PendingLocalDeletionRecord>>(emptyList())
 
-    override fun observeActive(): Flow<List<PendingLocalDeletionRecord>> = rows
+    override fun observeFailures(): Flow<List<PendingLocalDeletionRecord>> = rows.map { all -> all.filter { it.state == PendingLocalDeletionState.FAILED } }
+    override suspend fun loadFailures(): List<PendingLocalDeletionRecord> = rows.value.filter { it.state == PendingLocalDeletionState.FAILED }
 
-    override suspend fun loadActive(): List<PendingLocalDeletionRecord> = rows.value
+    override fun observeActive(): Flow<List<PendingLocalDeletionRecord>> = rows.map { all -> all.filter { it.state != PendingLocalDeletionState.FAILED } }
+
+    override suspend fun loadActive(): List<PendingLocalDeletionRecord> = rows.value.filter { it.state != PendingLocalDeletionState.FAILED }
 
     override suspend fun enqueue(
         summary: String,
@@ -162,15 +168,6 @@ class InMemoryPendingLocalDeletionRepository : PendingLocalDeletionRepository {
         )
         rows.value = (rows.value + record).sortedWith(RECORD_ORDER)
         record
-    }
-
-    override suspend fun cancelPending(id: Long, nowEpochMillis: Long): Boolean = mutex.withLock {
-        val current = rows.value.firstOrNull { it.id == id } ?: return@withLock false
-        if (!current.isUndoable || current.undoDeadlineEpochMillis <= nowEpochMillis) {
-            return@withLock false
-        }
-        rows.value = rows.value.filterNot { it.id == id }
-        true
     }
 
     override suspend fun claim(
@@ -224,7 +221,13 @@ class InMemoryPendingLocalDeletionRepository : PendingLocalDeletionRepository {
     ): Boolean = mutex.withLock {
         val current = rows.value.firstOrNull { it.id == id } ?: return@withLock false
         if (current.state != PendingLocalDeletionState.COMMITTING) return@withLock false
-        rows.value = rows.value.filterNot { it.id == id }
+        rows.value = rows.value.map { if (it.id == id) it.copy(state = PendingLocalDeletionState.FAILED, updatedAtEpochMillis = nowEpochMillis, lastError = lastError) else it }
+        true
+    }
+
+    override suspend fun retryFailed(id: Long, nowEpochMillis: Long): Boolean = mutex.withLock {
+        val current = rows.value.firstOrNull { it.id == id && it.state == PendingLocalDeletionState.FAILED } ?: return@withLock false
+        rows.value = rows.value.map { if (it.id == id) current.copy(state = PendingLocalDeletionState.PENDING, nextAttemptAtEpochMillis = nowEpochMillis, updatedAtEpochMillis = nowEpochMillis) else it }
         true
     }
 

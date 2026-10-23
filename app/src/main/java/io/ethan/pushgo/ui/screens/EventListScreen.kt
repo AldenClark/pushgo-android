@@ -206,7 +206,6 @@ fun EventListScreen(
     var channelNameMap by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
     val context = LocalContext.current
     val appContext = context.applicationContext
-    val effectivePendingScope by container.pendingLocalDeletionCoordinator.effectiveScope.collectAsStateWithLifecycle()
     val closeEventFailedMessage = stringResource(R.string.error_event_close_failed)
     val closeEventStatusDefault = stringResource(R.string.event_status_closed_default)
     val closeEventBodyDefault = stringResource(R.string.event_message_closed_default)
@@ -229,12 +228,7 @@ fun EventListScreen(
         }
     }
 
-    fun isPendingLocalDeletion(event: EventCardModel): Boolean {
-        return effectivePendingScope.suppressesEvent(
-            id = event.eventId,
-            channelId = event.channelId,
-        )
-    }
+
 
     suspend fun reloadEventsInternal() {
         if (isLoadingMoreEvents) return
@@ -338,7 +332,7 @@ fun EventListScreen(
             "${uniqueEvents.size} × $eventsLabel"
         }
 
-        container.pendingLocalDeletionCoordinator.schedule(
+        val deleted = container.pendingLocalDeletionCoordinator.confirmAndDelete(
             summary = summary,
             operation = PendingLocalDeletionOperation.events(eventIds),
             onCompletion = { result ->
@@ -351,7 +345,7 @@ fun EventListScreen(
             },
         )
 
-        if (selectedEvent?.eventId in eventIds) {
+        if (deleted && selectedEvent?.eventId in eventIds) {
             selectedEvent = null
             onEventDetailClosed()
         }
@@ -372,6 +366,7 @@ fun EventListScreen(
                 )
                 reloadEventsInternal()
             }.onFailure { error ->
+                showToast(error.toUserFacingText(context, R.string.error_request_failed))
                 io.ethan.pushgo.util.SilentSink.w(
                     "EventListScreen",
                     "provider ingress refresh failed",
@@ -460,13 +455,12 @@ fun EventListScreen(
         listState.animateScrollToItem(0)
     }
 
-    val filteredEvents = remember(allEvents, searchQuery, selectedChannelFilters, selectedTagFilters, showOnlyOpen, effectivePendingScope) {
+    val filteredEvents = remember(allEvents, searchQuery, selectedChannelFilters, selectedTagFilters, showOnlyOpen) {
         allEvents.filter { event ->
             (selectedChannelFilters.isEmpty() || selectedChannelFilters.contains(event.channelId.orEmpty().trim())) &&
             (selectedTagFilters.isEmpty() || event.tags.any { tag -> selectedTagFilters.contains(tag.trim().lowercase()) }) &&
             (!showOnlyOpen || event.state == EventLifecycleState.Ongoing) &&
-            eventMatchesSearch(event, searchQuery) &&
-            !isPendingLocalDeletion(event)
+            eventMatchesSearch(event, searchQuery)
         }
     }
     val hasActiveEventSearch = searchQuery.isNotBlank() ||
@@ -508,23 +502,17 @@ fun EventListScreen(
             }
     }
 
-    val channelOptions = remember(allEvents, effectivePendingScope) {
+    val channelOptions = remember(allEvents) {
         allEvents
             .asSequence()
-            .filter { event ->
-                !isPendingLocalDeletion(event)
-            }
             .mapNotNull { it.channelId?.trim()?.takeIf { value -> value.isNotEmpty() } }
             .distinct()
             .sorted()
             .toList()
     }
-    val tagOptions = remember(allEvents, effectivePendingScope) {
+    val tagOptions = remember(allEvents) {
         allEvents
             .asSequence()
-            .filter { event ->
-                !isPendingLocalDeletion(event)
-            }
             .flatMap { it.tags.asSequence() }
             .map { it.trim().lowercase() }
             .filter { it.isNotEmpty() }
@@ -535,11 +523,7 @@ fun EventListScreen(
 
     LaunchedEffect(openEventId, allEvents, hasMoreEvents, isLoadingMoreEvents) {
         val target = openEventId?.trim()?.takeIf { it.isNotEmpty() } ?: return@LaunchedEffect
-        if (effectivePendingScope.suppressesEvent(target, null)) {
-            targetUnavailableFeedback = targetUnavailableMessage
-            onOpenEventHandled()
-            return@LaunchedEffect
-        }
+
         val matched = allEvents.firstOrNull { it.eventId == target }
         if (matched != null) {
             targetUnavailableFeedback = null
@@ -568,15 +552,7 @@ fun EventListScreen(
         }
     }
 
-    LaunchedEffect(effectivePendingScope) {
-        val currentEvent = selectedEvent
-        if (currentEvent != null && effectivePendingScope.suppressesEvent(currentEvent.eventId, currentEvent.channelId)) {
-            closeEventErrorMessage = null
-            closingEventId = null
-            selectedEvent = null
-            onEventDetailClosed()
-        }
-    }
+
 
     if (selectedEvent != null) {
         val event = selectedEvent!!
@@ -849,7 +825,6 @@ fun EventListRowItem(
                 .pushGoMergedActionSemantics(
                     summary = rowSummary,
                     stateDescription = rowStateDescription,
-                    selectedState = null,
                     onClickLabel = stringResource(R.string.a11y_action_open_event),
                     onClickAction = onClick,
                     onLongClickLabel = null,

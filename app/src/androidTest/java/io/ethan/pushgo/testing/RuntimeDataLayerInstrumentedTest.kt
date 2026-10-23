@@ -205,9 +205,6 @@ class RuntimeDataLayerInstrumentedTest {
                 assertNewestFirst(firstFivePages)
             }
 
-            metrics.ftsCountMs = elapsedMs {
-                assertEquals(size, ftsCount(db, "runtime*"))
-            }
             metrics.searchPageMs = elapsedMs {
                 val result = messages.searchMessagesSnapshot("runtime", unreadOnly = false, limit = PAGE_SIZE)
                 assertEquals(min(PAGE_SIZE, size), result.size)
@@ -397,9 +394,8 @@ class RuntimeDataLayerInstrumentedTest {
         }
         println("RUNTIME_DATA_LAYER eventProjectionQueryMs=$eventProjectionMs thingProjectionQueryMs=$thingProjectionMs")
 
-        val ftsMatches = messages.searchMessagesSnapshot("runtime", unreadOnly = false, limit = 20)
-        assertTrue(ftsMatches.isNotEmpty())
-        assertEquals(1, ftsCount(db, "TaskUnique*"))
+        val searchMatches = messages.searchMessagesSnapshot("runtime", unreadOnly = false, limit = 20)
+        assertTrue(searchMatches.isNotEmpty())
     }
 
     @Test
@@ -1456,9 +1452,6 @@ class RuntimeDataLayerInstrumentedTest {
         metrics.fivePagesMs = elapsedMs {
             assertEquals(PAGE_SIZE * 5, loadPages(db, MessageFilter(), PAGE_SIZE, 5).size)
         }
-        metrics.ftsCountMs = elapsedMs {
-            assertEquals(100_000, ftsCount(db, "runtime*"))
-        }
         metrics.searchPageMs = elapsedMs {
             assertEquals(PAGE_SIZE, messages.searchMessagesSnapshot("runtime", unreadOnly = false, limit = PAGE_SIZE).size)
         }
@@ -1572,7 +1565,6 @@ class RuntimeDataLayerInstrumentedTest {
             topLevelEventHeadDao = db.topLevelEventHeadDao(),
             thingHeadDao = db.thingHeadDao(),
             thingSubMessageDao = db.thingSubMessageDao(),
-            pendingThingEventDao = db.pendingThingEventDao(),
         )
     }
 
@@ -1633,20 +1625,6 @@ class RuntimeDataLayerInstrumentedTest {
             result = source.load(PagingSource.LoadParams.Append(next, pageSize, false))
         }
         return loaded
-    }
-
-    private fun ftsCount(db: PushGoDatabase, query: String): Int {
-        val escapedQuery = query.replace("'", "''")
-        val sql = """
-            SELECT COUNT(*)
-            FROM messages m
-            JOIN message_fts f ON m.rowid = f.rowid
-            WHERE message_fts MATCH '$escapedQuery'
-        """.trimIndent()
-        db.openHelper.readableDatabase.query(sql).use { cursor ->
-            assertTrue(cursor.moveToFirst())
-            return cursor.getInt(0)
-        }
     }
 
     private fun metadataCount(db: PushGoDatabase, keyName: String, value: String): Int {
@@ -1826,7 +1804,6 @@ class RuntimeDataLayerInstrumentedTest {
                 "bulkWriteMs=${metrics.bulkWriteMs} " +
                 "firstPageMs=${metrics.firstPageMs} " +
                 "fivePagesMs=${metrics.fivePagesMs} " +
-                "ftsCountMs=${metrics.ftsCountMs} " +
                 "searchPageMs=${metrics.searchPageMs} " +
                 "channelFilterMs=${metrics.channelFilterMs} " +
                 "tagFilterMs=${metrics.tagFilterMs} " +
@@ -1865,7 +1842,6 @@ class RuntimeDataLayerInstrumentedTest {
         var bulkWriteMs: Long = 0,
         var firstPageMs: Long = 0,
         var fivePagesMs: Long = 0,
-        var ftsCountMs: Long = 0,
         var searchPageMs: Long = 0,
         var channelFilterMs: Long = 0,
         var tagFilterMs: Long = 0,

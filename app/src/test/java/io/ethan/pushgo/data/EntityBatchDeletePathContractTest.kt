@@ -14,15 +14,6 @@ class EntityBatchDeletePathContractTest {
     }
 
     @Test
-    fun thingDeletePathsAlsoClearPendingThingScopedEvents() {
-        val source = readSource("src/main/java/io/ethan/pushgo/data/EntityRepository.kt")
-        assertTrue(source.contains("pendingThingEventDao.deleteByThingId(normalized)"))
-        assertTrue(source.contains("pendingThingEventDao.deleteByThingIds(normalizedIds)"))
-        assertTrue(source.contains("pendingThingEventDao.deleteByChannel(normalizedChannel)"))
-        assertTrue(source.contains("pendingThingEventDao.deleteAll()"))
-    }
-
-    @Test
     fun channelRemovalAlsoClearsPendingThingMessagesThatCouldReplayLater() {
         val repository = readSource("src/main/java/io/ethan/pushgo/data/MessageRepository.kt")
         val channelRepository = readSource("src/main/java/io/ethan/pushgo/data/ChannelSubscriptionRepository.kt")
@@ -48,42 +39,20 @@ class EntityBatchDeletePathContractTest {
     }
 
     @Test
-    fun eventAndThingScreensUseEffectiveDeletionScopeThroughCommitCompletion() {
-        val eventScreen = readSource("src/main/java/io/ethan/pushgo/ui/screens/EventListScreen.kt")
-        val thingScreen = readSource("src/main/java/io/ethan/pushgo/ui/screens/ThingListScreen.kt")
-
-        assertTrue(eventScreen.contains("pendingLocalDeletionCoordinator.effectiveScope.collectAsStateWithLifecycle()"))
-        assertTrue(eventScreen.contains("LaunchedEffect(effectivePendingScope)"))
-        assertFalse(eventScreen.contains("pendingLocalDeletionCoordinator.pendingDeletion.collectAsStateWithLifecycle()"))
-
-        assertTrue(thingScreen.contains("pendingLocalDeletionCoordinator.effectiveScope.collectAsStateWithLifecycle()"))
-        assertTrue(thingScreen.contains("LaunchedEffect(effectivePendingScope)"))
-        assertFalse(thingScreen.contains("pendingLocalDeletionCoordinator.pendingDeletion.collectAsStateWithLifecycle()"))
-    }
-
-    @Test
-    fun messageDetailClosesForChannelWideEffectiveDeletionScope() {
-        val detailScreen = readSource("src/main/java/io/ethan/pushgo/ui/screens/MessageDetailScreen.kt")
-
-        assertTrue(detailScreen.contains("pendingLocalDeletionCoordinator.effectiveScope.collectAsStateWithLifecycle()"))
-        assertTrue(detailScreen.contains("effectivePendingScope.suppressesMessage(visibleMessage.id, visibleMessage.channel)"))
-    }
-
-    @Test
     fun channelRemovalIntentBindsGatewayVersionAndDeliveryModeBeforeCommit() {
         val channelScreen = readSource("src/main/java/io/ethan/pushgo/ui/screens/ChannelListScreen.kt")
         val durableExecutor = readSource(
             "src/main/java/io/ethan/pushgo/data/DurablePendingChannelDeletionExecutor.kt"
         )
 
-        assertTrue(channelScreen.contains("expectedUseProvider = viewModel.channelRemovalUsesProvider(appContext)"))
-        assertTrue(channelScreen.contains("expectedUpdatedAt = removalTarget.updatedAt"))
+        assertTrue(channelScreen.contains("expectedUseProvider = viewModel.channelRemovalUsesProvider(context.applicationContext)"))
+        assertTrue(channelScreen.contains("expectedUpdatedAt = subscription.updatedAt"))
         assertTrue(durableExecutor.contains("backend.currentlyUsesProvider() != expectedProvider"))
         assertTrue(durableExecutor.contains("Channel delivery mode changed while removal was pending"))
     }
 
     @Test
-    fun channelRemovalDialogIsClaimedBeforeSnapshotReadsAndCompensationUsesOriginalGateway() {
+    fun channelRemovalDialogUsesPreconfirmationSnapshotAndCompensationUsesOriginalGateway() {
         val channelScreen = readSource("src/main/java/io/ethan/pushgo/ui/screens/ChannelListScreen.kt")
         val durableBackend = readSource(
             "src/main/java/io/ethan/pushgo/data/RepositoryPendingChannelDeletionBackend.kt"
@@ -94,13 +63,10 @@ class EntityBatchDeletePathContractTest {
             "pendingChannelRemoval = null",
             startIndex = actionStart.coerceAtLeast(0),
         )
-        val snapshotRead = channelScreen.indexOf(
-            "loadGatewayConfig().first",
-            startIndex = claim.coerceAtLeast(0),
-        )
+        val snapshotRead = channelScreen.indexOf("loadGatewayConfig().first")
         assertTrue(actionStart >= 0)
         assertTrue(claim >= 0)
-        assertTrue(snapshotRead > claim)
+        assertTrue(snapshotRead < claim)
         assertTrue(channelScreen.contains("if (error is CancellationException) throw error"))
         assertTrue(durableBackend.contains("operation.expectedGatewayUrl"))
     }

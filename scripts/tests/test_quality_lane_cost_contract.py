@@ -306,8 +306,8 @@ adb_with_timeout() {
         for expected in (
             "standardFixtureShowsAccurateContentAndSurvivesActivityRelaunch",
             "workflowFixtureLoadsSecondPageAndPersistsReadActions",
-            "deleteUndoRestoresTheSameObjectAcrossActivityRelaunch",
-            "deleteWithoutUndoPermanentlyRemovesOnlyTargetAcrossStorageRecreation",
+            "deleteCancelPreservesTheSameObjectAcrossActivityRelaunch",
+            "confirmedDeletePermanentlyRemovesOnlyTargetAcrossStorageRecreation",
             "searchReturnsOnlyTheTargetAndOpensItsRealDetail",
             "primaryNavigationUsesRealControlsAndReachesEveryProductScreen",
             "eventClosePersistsAndOngoingFilterReflectsTheRealProjection",
@@ -367,6 +367,20 @@ adb_with_timeout() {
         self.assertIn("QualitySystemNotificationJourneyInstrumentedTest#", coverage_marker)
         self.assertIn("QualityPrivateForegroundServiceJourneyInstrumentedTest#", coverage_marker)
         self.assertIn('not_run+=("$controlled_doze_not_run")', coverage_marker)
+
+    def test_device_evidence_upload_retains_native_additional_outputs(self) -> None:
+        workflow = (REPO / ".github/workflows/android-quality.yml").read_text()
+        upload = re.search(
+            r"- name: Upload device evidence(?P<body>.*?)(?=\n      - name:|\Z)",
+            workflow,
+            re.DOTALL,
+        )
+        self.assertIsNotNone(upload)
+        self.assertIn("if: always()", upload.group("body"))
+        self.assertIn(
+            "app/build/outputs/connected_android_test_additional_output/",
+            upload.group("body"),
+        )
 
     def test_device_scope_resolution_is_safe_for_empty_optional_exclusions(self) -> None:
         # The runner is re-executed from stdin with nounset enabled.  An empty
@@ -671,7 +685,7 @@ adb_with_timeout() {
         host_journey = (REPO / "scripts/run_android_notification_permission_positive.sh").read_text()
         identity_verifier = (REPO / "scripts/verify_android_instrumentation_identity.py").read_text()
         build = (REPO / "app/build.gradle.kts").read_text()
-        manifest = (REPO / "app/src/main/AndroidManifest.xml").read_text()
+        manifest = (REPO / "app/src/debug/AndroidManifest.xml").read_text()
 
         self.assertEqual(1, runner.count('run_android_notification_permission_positive.sh'))
         self.assertIn('run_system_notification_journeys', runner)
@@ -841,41 +855,22 @@ adb_with_timeout() {
         self.assertNotIn('dump_ui || failed "UI tree could not be captured before tapping', host_journey)
         self.assertNotIn('run_android_process_restart_positive.sh', runner.split('  pr-ui)', 1)[1].split('    ;;', 1)[0])
 
-    def test_pending_deletion_process_restart_keeps_two_purpose_oracles_separate(self) -> None:
+    def test_deletion_confirmation_process_restart_keeps_two_purpose_oracles_separate(self) -> None:
         runner = (REPO / "scripts/quality_test.sh").read_text()
-        host_journey = (
-            REPO / "scripts/run_android_pending_deletion_process_restart_positive.sh"
-        ).read_text()
-        app = (REPO / "app/src/main/java/io/ethan/pushgo/PushGoApp.kt").read_text()
-        container = (REPO / "app/src/main/java/io/ethan/pushgo/data/AppContainer.kt").read_text()
-        runtime = (REPO / "app/src/main/java/io/ethan/pushgo/testing/QualityRuntime.kt").read_text()
-        provider = (REPO / "app/src/benchmark/java/io/ethan/pushgo/testing/BenchmarkFixtureProvider.kt").read_text()
-        impact = (REPO / "config/quality-impact.json").read_text()
-
+        host_journey = (REPO / "scripts/run_android_pending_deletion_process_restart_positive.sh").read_text()
         self.assertEqual(1, runner.count("run_android_pending_deletion_process_restart_positive.sh"))
-        self.assertIn("QUALITY_ANDROID_SKIP_INSTALL=1", runner)
-        self.assertIn('fixture": "messages.cleanup"', host_journey)
-        self.assertIn('pending_deletion_undo_window_ms', host_journey)
-        self.assertIn('run_undo_case()', host_journey)
-        self.assertIn('run_deadline_case()', host_journey)
-        self.assertIn('state.pending_deletion', host_journey)
-        self.assertIn('action.pending_deletion.undo', host_journey)
+        self.assertIn('run_confirmation_case cancel', host_journey)
+        self.assertIn('run_confirmation_case confirm', host_journey)
+        self.assertIn('action.delete.cancel', host_journey)
+        self.assertIn('action.delete.confirm', host_journey)
+        self.assertNotIn('pending_deletion_undo_window_ms', host_journey)
+        self.assertNotIn('action.pending_deletion.undo', host_journey)
         self.assertIn('message.row.quality-cleanup-old', host_journey)
         self.assertIn('message.row.quality-cleanup-recent', host_journey)
-        self.assertIn('[[ "$second_pid" != "$first_pid" ]]', host_journey)
+        self.assertIn('"$second_pid" != "$first_pid"', host_journey)
         self.assertIn('Deterministic cleanup boundary message.', host_journey)
         self.assertIn('cases.jsonl', host_journey)
         self.assertIn('capture_failure_evidence()', host_journey)
-        self.assertIn('App-owned pending-deletion session was not cleared', host_journey)
-        self.assertIn('container.pendingLocalDeletionCoordinator.start()', app)
-        quality_branch = app.split('if (io.ethan.pushgo.testing.QualityRuntime.currentSession() != null) {', 1)[1].split('return', 1)[0]
-        self.assertIn('container.pendingLocalDeletionCoordinator.start()', quality_branch)
-        self.assertIn('pendingDeletionUndoWindowMillis', container)
-        self.assertIn('pending deletion undo window must be between 5000 and 120000 ms', runtime)
-        self.assertIn('QualityFixture.MESSAGES_CLEANUP', provider)
-        self.assertIn('quality-cleanup-recent', provider)
-        self.assertIn('scripts/run_android_pending_deletion_process_restart_positive.sh', impact)
-        self.assertIn('pending-deletion', impact)
 
     def test_changed_device_workflow_consumes_structured_profiled_scopes(self) -> None:
         workflow = (REPO / ".github/workflows/android-quality.yml").read_text()

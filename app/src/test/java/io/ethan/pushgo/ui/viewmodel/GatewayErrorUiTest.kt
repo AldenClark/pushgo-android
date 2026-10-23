@@ -8,6 +8,29 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GatewayErrorUiTest {
+    @Test fun localNetworkDenialHasSpecificRecoveryInsteadOfGenericNetworkOrGatewayAuth() {
+        val error = ChannelSubscriptionException.local(
+            message = "permission denied",
+            code = io.ethan.pushgo.util.LocalNetworkPermission.ERROR_CODE,
+            category = GatewayErrorCategory.PERMISSION,
+        )
+        assertEquals(R.string.error_local_network_permission,
+            (error.toUiErrorMessage(R.string.error_request_failed) as ResMessage).resId)
+    }
+
+    @Test
+    fun requiredV2HasAnUpgradeMessageDistinctFromAuthNetworkAndMalformedResponse() {
+        val cases = listOf(
+            ChannelSubscriptionException("upgrade", code = "gateway_v2_required", category = GatewayErrorCategory.FEATURE_DISABLED) to R.string.error_gateway_v2_required,
+            ChannelSubscriptionException("auth", code = "authentication_failed", category = GatewayErrorCategory.AUTH) to R.string.error_gateway_auth_failed,
+            java.net.ConnectException("offline") to R.string.private_transport_status_network_unavailable,
+            ChannelSubscriptionException("malformed", code = "gateway_invalid_response", category = GatewayErrorCategory.INTERNAL) to R.string.error_gateway_temporarily_unavailable,
+        )
+        cases.forEach { (error, expectedResId) ->
+            assertEquals(expectedResId, (error.toUiErrorMessage(R.string.error_request_failed) as ResMessage).resId)
+        }
+    }
+
     @Test
     fun channelNotFoundUsesSpecificMessage() {
         val error = ChannelSubscriptionException(

@@ -13,7 +13,13 @@ import java.net.UnknownHostException
 import javax.net.ssl.SSLException
 
 fun Throwable.toUiErrorMessage(@StringRes fallbackResId: Int): UiMessage {
+    if (this is io.ethan.pushgo.data.OrdinaryDeletionTargetChangedException) {
+        return ResMessage(R.string.error_deletion_target_changed)
+    }
     if (this is ChannelSubscriptionException) {
+        if (matchesCode(io.ethan.pushgo.util.LocalNetworkPermission.ERROR_CODE)) {
+            return ResMessage(R.string.error_local_network_permission)
+        }
         if (matchesCode("private_channel_disabled")) {
             return ResMessage(R.string.error_gateway_private_disabled_use_fcm)
         }
@@ -72,6 +78,7 @@ private fun ChannelSubscriptionException.gatewayCodeResId(): Int? {
             R.string.error_gateway_validation_failed
         matchesCode("device_key_not_found") -> R.string.error_gateway_device_registration_stale
         matchesCode("device_not_found") -> R.string.error_gateway_device_route_stale
+        matchesCode("gateway_v2_required") -> R.string.error_gateway_v2_required
         matchesCode("route_not_found") -> R.string.error_gateway_route_not_found
         matchesCode("event_missing_channel_id") -> R.string.error_event_missing_channel
         else -> null

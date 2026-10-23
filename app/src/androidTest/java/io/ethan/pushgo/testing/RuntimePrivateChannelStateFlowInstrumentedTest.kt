@@ -513,11 +513,11 @@ class RuntimePrivateChannelStateFlowInstrumentedTest {
         val gatewayEntered = CompletableDeferred<Unit>()
         val releaseGateway = CompletableDeferred<Unit>()
         val saved = CompletableDeferred<Unit>()
-        val vm = buildSettingsViewModelOnMain {
+        val vm = buildSettingsViewModelOnMain(gatewayPrivateChannelEnabledFetcher = {
             gatewayEntered.complete(Unit)
             releaseGateway.await()
             true
-        }
+        })
         try {
             withTimeout(8_000) { gatewayEntered.await() }
             assertTrue("The remote capability query must still be pending", !releaseGateway.isCompleted)
@@ -690,8 +690,81 @@ class RuntimePrivateChannelStateFlowInstrumentedTest {
         )
     }
 
+    @Test
+    fun privateSelection_routePermissionFailureExplainsAndPreservesFcm() = runBlocking {
+        assertPrivatePermissionFailure(userInitiated = true, failCapabilityFetch = false)
+    }
+
+    @Test
+    fun privateSelection_capabilityPermissionFailureExplainsAndPreservesFcm() = runBlocking {
+        assertPrivatePermissionFailure(userInitiated = true, failCapabilityFetch = true)
+    }
+
+    @Test
+    fun automaticPrivateFallback_routePermissionFailureDoesNotOpenDialog() = runBlocking {
+        assertPrivatePermissionFailure(userInitiated = false, failCapabilityFetch = false)
+    }
+
+    @Test
+    fun automaticPrivateFallback_capabilityPermissionFailureDoesNotOpenDialog() = runBlocking {
+        assertPrivatePermissionFailure(userInitiated = false, failCapabilityFetch = true)
+    }
+
+    private suspend fun assertPrivatePermissionFailure(userInitiated: Boolean, failCapabilityFetch: Boolean) {
+        // Public ViewModel action + real Room settings owner; no OS permission outcome is claimed.
+        harness.settingsRepository.setUseFcmChannel(true)
+        var failFetch = false
+        var routeAttempts = 0
+        fun permissionFailure() = io.ethan.pushgo.data.ChannelSubscriptionException.local(
+            message = "local network access denied",
+            code = io.ethan.pushgo.util.LocalNetworkPermission.ERROR_CODE,
+            category = io.ethan.pushgo.data.GatewayErrorCategory.PERMISSION,
+        )
+        val vm = buildSettingsViewModelOnMain(
+            gatewayPrivateChannelEnabledFetcher = {
+                if (failFetch) throw permissionFailure()
+                true
+            },
+            fcmSupportChecker = { false },
+            transportSwitcher = object : TransportSwitcher {
+                override suspend fun switchToFcm(providerToken: String) = Unit
+                override suspend fun switchToPrivate() {
+                    routeAttempts++
+                    throw permissionFailure()
+                }
+            },
+        )
+        awaitUiState(vm) { it.isChannelModeLoaded && it.useFcmChannel }
+        withContext(Dispatchers.Main) {
+            failFetch = failCapabilityFetch
+            if (userInitiated) vm.updateUseFcmChannel(context, enabled = false)
+            else vm.ensurePrivateTransportWhenFcmUnsupported(context)
+        }
+        val state = awaitUiState(vm) {
+            !it.isSwitchingTransport &&
+                (if (userInitiated) it.transportErrorMessage != null else it.errorMessage != null)
+        }
+        val message = if (userInitiated) state.transportErrorMessage else state.errorMessage
+        assertEquals(io.ethan.pushgo.R.string.error_local_network_permission,
+            (message as io.ethan.pushgo.ui.viewmodel.ResMessage).resId)
+        withContext(Dispatchers.Main) {
+            assertEquals(userInitiated, vm.showLocalNetworkPermissionDialog)
+            vm.dismissLocalNetworkPermissionDialog()
+            assertFalse(vm.showLocalNetworkPermissionDialog)
+        }
+        assertTrue(state.useFcmChannel)
+        assertTrue(harness.settingsRepository.getUseFcmChannel())
+        assertFalse(state.shouldShowPrivateChannelWhitelistDialog)
+        assertEquals(if (failCapabilityFetch) 0 else 1, routeAttempts)
+    }
+
     private fun buildSettingsViewModel(
         gatewayPrivateChannelEnabledFetcher: suspend () -> Boolean? = { true },
+        fcmSupportChecker: (Context) -> Boolean = io.ethan.pushgo.util.FcmSupport::isAvailable,
+        transportSwitcher: TransportSwitcher = object : TransportSwitcher {
+            override suspend fun switchToFcm(providerToken: String) = Unit
+            override suspend fun switchToPrivate() = Unit
+        },
     ): SettingsViewModel {
         return SettingsViewModel(
             settingsRepository = harness.settingsRepository,
@@ -704,20 +777,23 @@ class RuntimePrivateChannelStateFlowInstrumentedTest {
                 override suspend fun fetchToken(timeoutMs: Long): String? = null
             },
             gatewayPrivateChannelEnabledFetcher = gatewayPrivateChannelEnabledFetcher,
-            transportSwitcher = object : TransportSwitcher {
-                override suspend fun switchToFcm(providerToken: String) = Unit
-                override suspend fun switchToPrivate() = Unit
-            },
+            fcmSupportChecker = fcmSupportChecker,
+            transportSwitcher = transportSwitcher,
         )
     }
 
     private fun buildSettingsViewModelOnMain(
         onCreated: (SettingsViewModel) -> Unit = {},
         gatewayPrivateChannelEnabledFetcher: suspend () -> Boolean? = { true },
+        fcmSupportChecker: (Context) -> Boolean = io.ethan.pushgo.util.FcmSupport::isAvailable,
+        transportSwitcher: TransportSwitcher = object : TransportSwitcher {
+            override suspend fun switchToFcm(providerToken: String) = Unit
+            override suspend fun switchToPrivate() = Unit
+        },
     ): SettingsViewModel {
         lateinit var vm: SettingsViewModel
         InstrumentationRegistry.getInstrumentation().runOnMainSync {
-            vm = buildSettingsViewModel(gatewayPrivateChannelEnabledFetcher)
+            vm = buildSettingsViewModel(gatewayPrivateChannelEnabledFetcher, fcmSupportChecker, transportSwitcher)
             onCreated(vm)
         }
         settingsViewModels += vm
@@ -923,7 +999,6 @@ class RuntimePrivateChannelStateFlowInstrumentedTest {
             topLevelEventHeadDao = database.topLevelEventHeadDao(),
             thingHeadDao = database.thingHeadDao(),
             thingSubMessageDao = database.thingSubMessageDao(),
-            pendingThingEventDao = database.pendingThingEventDao(),
         )
         val channelRepository = ChannelSubscriptionRepository(
             store = ChannelSubscriptionStore(database.channelSubscriptionDao(), secretStore),
