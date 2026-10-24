@@ -470,6 +470,7 @@ release_smoke_device_scopes="io.ethan.pushgo.testing.QualityMessageJourneyInstru
 core_data_classes="io.ethan.pushgo.data.db.PushGoDatabaseMigrationDeviceTest,io.ethan.pushgo.data.PendingLocalDeletionRoomDeviceTest,io.ethan.pushgo.data.ProviderAckScopeDeviceTest"
 nightly_data_classes="$core_data_classes,io.ethan.pushgo.testing.RuntimeDataLayerInstrumentedTest,io.ethan.pushgo.testing.RuntimeChannelSwitchInstrumentedTest,io.ethan.pushgo.testing.RuntimePrivateChannelStateFlowInstrumentedTest,io.ethan.pushgo.ui.PendingLocalDeletionWorkBoundaryDeviceTest"
 system_notification_classes="io.ethan.pushgo.testing.QualitySystemNotificationJourneyInstrumentedTest,io.ethan.pushgo.testing.QualityPrivateForegroundServiceJourneyInstrumentedTest"
+resource_display_classes="io.ethan.pushgo.ui.ResourceDisplayLifecycleDeviceTest"
 
 run_device_classes() {
   local classes="$1"
@@ -1073,6 +1074,8 @@ case "$lane" in
     run_device_classes "$nightly_data_classes" \
       "Android migration/deletion/ACK/transport data boundaries excluding opt-in 100k performance" \
       "io.ethan.pushgo.testing.RuntimeDataLayerInstrumentedTest#realRoomDaoSearchAndPaging_optIn100000"
+    run_device_classes "$resource_display_classes" \
+      "Android visible resource history/retry and animation lifecycle"
     run_system_notification_journeys
     run_accessibility_localization
     ;;
@@ -1082,6 +1085,8 @@ case "$lane" in
     run_device_classes "$nightly_data_classes" \
       "Android migration/deletion/ACK/transport data boundaries excluding opt-in 100k performance" \
       "io.ethan.pushgo.testing.RuntimeDataLayerInstrumentedTest#realRoomDaoSearchAndPaging_optIn100000"
+    run_device_classes "$resource_display_classes" \
+      "Android visible resource history/retry and animation lifecycle"
     run_system_notification_journeys
     run_accessibility_localization
     run_performance

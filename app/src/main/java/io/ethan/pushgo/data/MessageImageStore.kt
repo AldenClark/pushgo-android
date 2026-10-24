@@ -93,37 +93,51 @@ class MessageImageStore internal constructor(
     private fun parsePayload(raw: String): JSONObject? = runCatching { JSONObject(raw) }.getOrNull()
 
     /** A frozen binding wins before HTTP freshness: reopening history never refreshes its version. */
-    suspend fun acquire(request: ImageRequestModel): AcquiredImage? = withContext(Dispatchers.IO) {
-        val model = freezeOwner(request) ?: return@withContext null
-        synchronized(fileAccess) { if (activeAcquisitions >= MAX_CONSUMERS) return@withContext null; activeAcquisitions++ }
+    suspend fun acquire(request: ImageRequestModel): AcquiredImage? {
+        var pending: AcquiredImage? = null
+        var handedOff = false
+        try {
+            val acquired = withContext(Dispatchers.IO) { acquireOnIo(request).also { pending = it } }
+            handedOff = true
+            return acquired
+        } finally {
+            // withContext can reject an already-created result when the caller is cancelled
+            // before its dispatcher resumes. That result never reaches the decoder's close.
+            if (!handedOff) pending?.close()
+        }
+    }
+
+    private suspend fun acquireOnIo(request: ImageRequestModel): AcquiredImage? {
+        val model = freezeOwner(request) ?: return null
+        synchronized(fileAccess) { if (activeAcquisitions >= MAX_CONSUMERS) return null; activeAcquisitions++ }
         var operationLease: java.io.Closeable? = null
         try {
-        val normalized = if (model.ownerId != null && model.url.startsWith("pushgo-local:")) model.url else normalizeResourceUrl(model.url) ?: return@withContext null
+        val normalized = if (model.ownerId != null && model.url.startsWith("pushgo-local:")) model.url else normalizeResourceUrl(model.url) ?: return null
         val key = requestKey(model.ownerScope, normalized)
         val bindingKey = requestKey("binding", normalized)
-        bound(model, bindingKey)?.let { return@withContext display(it, model.thumbnail, false) }
-        if (model.ownerId != null && model.ownerVersion != null && database?.messageResourceDao()?.find(model.ownerId, requireNotNull(model.generation), bindingKey) != null) return@withContext null
-        migrateLegacyOwner(model, bindingKey)?.let { return@withContext display(it, model.thumbnail, false) }
-        if (!ownerCurrent(model) || normalized.startsWith("pushgo-local:")) return@withContext null
+        bound(model, bindingKey)?.let { return display(it, model.thumbnail, false) }
+        if (model.ownerId != null && model.ownerVersion != null && database?.messageResourceDao()?.find(model.ownerId, requireNotNull(model.generation), bindingKey) != null) return null
+        migrateLegacyOwner(model, bindingKey)?.let { return display(it, model.thumbnail, false) }
+        if (!ownerCurrent(model) || normalized.startsWith("pushgo-local:")) return null
         val consumer = model.ownerId?.let { "$it:${model.generation}" } ?: "unbound:${UUID.randomUUID()}"
-        val result = sharedObtain(key, normalized, consumer) ?: return@withContext null
+        val result = sharedObtain(key, normalized, consumer) ?: return null
         // A no-store response belongs only to the initiating consumer, even when GET began shared.
         operationLease = result.lease
         val actual = if (result.noStoreOwner != null && result.noStoreOwner != consumer) networkSlots.withPermit { obtain(key, normalized, consumer) } else result
         operationLease = actual?.lease
-        if (actual == null || !ownerCurrent(model)) return@withContext null
+        if (actual == null || !ownerCurrent(model)) return null
         if (actual.hash != null && !actual.stale && model.ownerId != null && model.ownerVersion != null) {
-            val db = database ?: return@withContext null
+            val db = database ?: return null
             val selected = db.withTransaction {
                 if (!ownerCurrent(model)) return@withTransaction null
                 db.messageResourceDao().bind(MessageResourceBinding(model.ownerId, requireNotNull(model.generation), bindingKey, actual.hash, clock()))
                 db.messageResourceDao().find(model.ownerId, requireNotNull(model.generation), bindingKey)?.contentHash
-            } ?: return@withContext null
-            return@withContext display(File(originalDir, selected), model.thumbnail, false)
+            } ?: return null
+            return display(File(originalDir, selected), model.thumbnail, false)
         }
-        actual.file?.let { display(it, model.thumbnail, actual.stale) } ?: actual.bytes?.let { bytes ->
-            val info = imageInfo(bytes) ?: return@withContext null
-            val lease = retainTransient(bytes.size.toLong()) ?: return@withContext null
+        return actual.file?.let { display(it, model.thumbnail, actual.stale) } ?: actual.bytes?.let { bytes ->
+            val info = imageInfo(bytes) ?: return null
+            val lease = retainTransient(bytes.size.toLong()) ?: return null
             AcquiredImage(null, bytes, info.mimeType, info.animated, false, info.width, info.height, info.frames, info.animationAllowed) { lease.close() }
         }
         } finally { operationLease?.close(); synchronized(fileAccess) { activeAcquisitions-- } }
@@ -409,20 +423,31 @@ class MessageImageStore internal constructor(
     }
     private fun display(file: File, thumbnail: Boolean, stale: Boolean): AcquiredImage? {
         val lease = retainHash(file.name)
+        var thumbnailLease: java.io.Closeable? = null
         var transferred = false
         try {
             if (!usable(file)) return null
             headerSlots.acquire()
             try {
                 val info = imageInfo(file.readBytes()) ?: return null
-                val chosen = if (thumbnail) thumbnail(file) ?: file else file
+                val chosen = if (thumbnail) {
+                    // Acquire before checking or publishing the derivative, using the same
+                    // lock as capacity eviction. The returned file stays leased until decode closes.
+                    thumbnailLease = retainHash(thumbnailFile(file.name).name)
+                    thumbnail(file) ?: file
+                } else file
+                if (chosen == file) { thumbnailLease?.close(); thumbnailLease = null }
+                val displayedLease = thumbnailLease
                 transferred = true
-                return AcquiredImage(chosen, null, if (thumbnail && chosen != file) "image/png" else info.mimeType, !thumbnail && info.animated, stale, info.width, info.height, info.frames, info.animationAllowed) { lease.close() }
+                return AcquiredImage(chosen, null, if (thumbnail && chosen != file) "image/png" else info.mimeType, !thumbnail && info.animated, stale, info.width, info.height, info.frames, info.animationAllowed) {
+                    try { displayedLease?.close() } finally { lease.close() }
+                }
             } finally { headerSlots.release() }
-        } finally { if (!transferred) lease.close() }
+        } finally { if (!transferred) { thumbnailLease?.close(); lease.close() } }
     }
+    private fun thumbnailFile(hash: String): File = File(thumbnailDir, "$hash-128-v1.png")
     private fun thumbnail(original: File): File? {
-        val target = File(thumbnailDir, "${original.name}-128-v1.png")
+        val target = thumbnailFile(original.name)
         if (target.isFile) { metadataStore.touchThumbnail(original.name, target.length(), clock()); return target }
         val bitmap = android.graphics.ImageDecoder.decodeBitmap(android.graphics.ImageDecoder.createSource(original)) { decoder, info, _ ->
             val ratio = minOf(1.0, 256.0 / maxOf(info.size.width, info.size.height))
@@ -476,8 +501,11 @@ class MessageImageStore internal constructor(
         }
         if (metadataStore.thumbnailBytes() > THUMBNAIL_DISK_LIMIT_BYTES) {
             metadataStore.oldestThumbnails(64).forEach { hash ->
-                val file = File(thumbnailDir, "$hash-128-v1.png")
-                if (file.delete() || !file.exists()) metadataStore.forgetThumbnail(hash)
+                val file = thumbnailFile(hash)
+                synchronized(fileAccess) {
+                    if (synchronized(activeReads) { file.name !in activeReads } &&
+                        (file.delete() || !file.exists())) metadataStore.forgetThumbnail(hash)
+                }
             }
         }
         removed

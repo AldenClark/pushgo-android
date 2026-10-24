@@ -3,6 +3,7 @@ package io.ethan.pushgo.data
 import android.content.Context
 import android.content.ContextWrapper
 import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import io.ethan.pushgo.data.db.MessageEntity
@@ -11,6 +12,7 @@ import io.ethan.pushgo.data.model.MessageStatus
 import io.ethan.pushgo.data.model.PushMessage
 import java.io.ByteArrayOutputStream
 import java.io.File
+import java.io.IOException
 import java.net.HttpURLConnection
 import java.net.InetAddress
 import java.net.ServerSocket
@@ -23,10 +25,16 @@ import java.util.TimeZone
 import java.util.UUID
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.CountDownLatch
+import java.util.concurrent.LinkedBlockingQueue
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.yield
@@ -37,6 +45,9 @@ import org.junit.Assert.*
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
+import coil3.fetch.SourceFetchResult
+import coil3.request.Options
+import kotlin.coroutines.CoroutineContext
 
 /** Real HTTP request counts, platform image headers and production Room/file publication.
  * The explicit test connection maps synthetic HTTPS identities to a local cleartext fixture;
@@ -64,7 +75,7 @@ class MessageResourceStoreDeviceTest {
             override fun getDatabasePath(name: String): File = File(root, "db/$name").apply { parentFile?.mkdirs() }
         }
         db = PushGoDatabase.buildForTest(context, "resource.db")
-        fixture = Fixture()
+        fixture = Fixture { date(now) }
         newStore()
         fixture.response = Response(imageA, mapOf("Cache-Control" to "max-age=60", "ETag" to "\"a\""))
     }
@@ -212,6 +223,127 @@ class MessageResourceStoreDeviceTest {
         assertEquals(0, scalar("SELECT COUNT(*) FROM message_resource_bindings"))
     }
 
+    /** User-visible risk: Coil opens a returned thumbnail lazily, after capacity GC can run.
+     * Real ImageSource reads and Room ownership need a device; deterministic barriers add <1s,
+     * without creating 64MiB of disposable files just to enter the existing capacity branch.
+     */
+    @Test fun imageSourceReadLeaseSurvivesCapacityCleanupAndRegeneratesWithoutGet() = runBlocking {
+        val one = message("thumbnail-one"); val two = message("thumbnail-two"); save(one); save(two)
+        val first = fetchThumbnail(one)
+        val second = fetchThumbnail(two)
+        val derivative = thumbnail()
+        val original = originals().single()
+        first.source.close() // A different subscriber still needs the same derivative.
+        val readerReady = CompletableDeferred<Unit>()
+        val cleanupFinished = CompletableDeferred<Unit>()
+        coroutineScope {
+            val reader = async(Dispatchers.IO) {
+                second.source.use { source ->
+                    readerReady.complete(Unit)
+                    cleanupFinished.await()
+                    assertThumbnail(source.source().readByteArray())
+                }
+            }
+            readerReady.await()
+            try {
+                forceThumbnailPressure(derivative)
+                store.purgeExpired()
+                assertTrue("the actual lazily opened thumbnail must remain readable", derivative.isFile)
+            } finally { cleanupFinished.complete(Unit) }
+            reader.await()
+        }
+        forceThumbnailPressure(derivative); store.purgeExpired()
+        assertFalse(derivative.exists())
+        assertTrue(original.isFile)
+        assertEquals(2, scalar("SELECT COUNT(*) FROM message_resource_bindings"))
+        assertEquals(2, scalar("SELECT COUNT(*) FROM messages"))
+        fetchThumbnail(two).source.use { source ->
+            assertThumbnail(source.source().readByteArray())
+            assertEquals("a derivative is regenerated from the bound original, never a GET", 1, fixture.requests.size)
+            assertTrue(derivative.isFile)
+            original.setLastModified(now - 25 * 60 * 60 * 1000)
+            db.messageDao().deleteById(one.id); store.purgeExpired(); assertTrue(original.isFile)
+            db.messageDao().deleteById(two.id)
+            forceThumbnailPressure(derivative); store.purgeExpired()
+            assertTrue("last reference deletion waits for the active source", original.isFile)
+            assertTrue(derivative.isFile)
+        }
+        forceThumbnailPressure(derivative); store.purgeExpired()
+        assertFalse(original.exists()); assertFalse(derivative.exists())
+        assertEquals(0, scalar("SELECT COUNT(*) FROM message_resource_bindings"))
+    }
+
+    @Test fun cancelledImageSourceAndUndeliveredAcquireReleaseEveryFileLease() = runBlocking {
+        val one = message("cancel-reader"); save(one)
+        val opened = CompletableDeferred<Unit>()
+        val reader = async(Dispatchers.IO) {
+            fetchThumbnail(one).source.use {
+                opened.complete(Unit)
+                awaitCancellation()
+            }
+        }
+        opened.await()
+        val derivative = thumbnail()
+        forceThumbnailPressure(derivative); store.purgeExpired(); assertTrue(derivative.isFile)
+        reader.cancelAndJoin()
+        forceThumbnailPressure(derivative); store.purgeExpired(); assertFalse(derivative.exists())
+
+        // Suspend exactly after IO created AcquiredImage, before the caller can own/close it.
+        val dispatcher = ReturnHandoffDispatcher()
+        var delivered = false
+        val pending = async(dispatcher, start = CoroutineStart.UNDISPATCHED) {
+            fetchThumbnail(one).source.use { delivered = true }
+        }
+        try {
+            val resumeCaller = requireNotNull(dispatcher.continuations.poll(5, TimeUnit.SECONDS))
+            val regenerated = thumbnail()
+            val original = originals().single()
+            forceThumbnailPressure(regenerated); store.purgeExpired(); assertTrue(regenerated.isFile)
+            pending.cancel()
+            resumeCaller.run()
+            pending.join()
+            assertFalse("cancelled result must not reach the decoder", delivered)
+            db.messageDao().deleteById(one.id)
+            original.setLastModified(now - 25 * 60 * 60 * 1000)
+            forceThumbnailPressure(regenerated); store.purgeExpired()
+            assertFalse("dropped IO result must release the original too", original.exists())
+            assertFalse(regenerated.exists())
+            assertEquals(0, scalar("SELECT COUNT(*) FROM message_resource_bindings"))
+        } finally { pending.cancel(); dispatcher.close() }
+    }
+
+    @Test fun failedThumbnailDecodeClosesSourceAndRetryUsesBoundOriginal() = runBlocking {
+        val one = message("decode-failure"); save(one)
+        val result = fetchThumbnail(one)
+        val derivative = thumbnail()
+        val original = originals().single()
+        derivative.writeBytes(byteArrayOf(0, 1, 2, 3)) // Explicit damaged disposable-cache fault.
+        val failure = runCatching {
+            result.source.use { source ->
+                val bytes = source.source().readByteArray()
+                assertNull(BitmapFactory.decodeByteArray(bytes, 0, bytes.size))
+                throw IOException("synthetic decoder rejection after invalid-byte decode")
+            }
+        }.exceptionOrNull()
+        assertTrue(failure is IOException)
+        forceThumbnailPressure(derivative); store.purgeExpired()
+        assertFalse(derivative.exists()); assertTrue(original.isFile)
+        // Fail after taking the derivative's publication lease, before a caller can close it.
+        val directory = derivative.parentFile!!
+        assertTrue(directory.delete())
+        directory.writeBytes(byteArrayOf(0))
+        try {
+            assertTrue(runCatching { fetchThumbnail(one) }.exceptionOrNull() is IOException)
+        } finally { assertTrue(directory.delete()); assertTrue(directory.mkdirs()) }
+        fetchThumbnail(one).source.use { assertThumbnail(it.source().readByteArray()) }
+        assertEquals(1, fixture.requests.size)
+        assertEquals(1, scalar("SELECT COUNT(*) FROM message_resource_bindings"))
+        forceThumbnailPressure(derivative); store.purgeExpired(); assertFalse(derivative.exists())
+        db.messageDao().deleteById(one.id)
+        original.setLastModified(now - 25 * 60 * 60 * 1000)
+        store.purgeExpired(); assertFalse(original.exists())
+    }
+
     @Test fun laterProvenOriginDoesNotChangeHistoricalBindingOrRequireGet() = runBlocking {
         val old = message("unknown")
         db.messageDao().insert(MessageEntity.fromModel(old))
@@ -338,6 +470,31 @@ class MessageResourceStoreDeviceTest {
         val three = message("three"); save(three)
         assertNull(store.acquire(store.imageModel(three, "$url&dimension=1")))
         assertTrue(originals().isEmpty()); assertEquals(0, scalar("SELECT COUNT(*) FROM message_resource_bindings"))
+        // A valid tiny GIF may still exceed the independent animation frame budget.
+        // Repeat its complete first-frame GCE + image block; retain all original bytes.
+        val gifSeed = android.util.Base64.decode("R0lGODlhAgACAPAAAP8AAAAAACH/C05FVFNDQVBFMi4wAwEAAAAh+QQAAAAAACwAAAAAAgACAAACAoRRACH5BAAKAAAALAAAAAACAAIAgAAA/wAAAAIChFEAOw==", android.util.Base64.DEFAULT)
+        val overBudgetGif = ByteArrayOutputStream().use { output ->
+            output.write(gifSeed, 0, 38)
+            repeat(257) { output.write(gifSeed, 38, 23) }
+            output.write(0x3b)
+            output.toByteArray()
+        }
+        fixture.response = Response(overBudgetGif, mapOf("Cache-Control" to "max-age=60"))
+        val four = message("animation-budget"); save(four)
+        val model = store.imageModel(four, "$url&frame-budget=1")
+        val requestsBefore = fixture.requests.size
+        store.acquire(model)!!.use { image ->
+            assertTrue(image.isAnimated); assertFalse(image.animationAllowed)
+            assertEquals(257, image.frameCount)
+            assertArrayEquals(overBudgetGif, image.file!!.readBytes())
+        }
+        val fetched = MessageImageStoreFetcher(model, Options(context), store).fetch()
+        assertTrue("An over-budget GIF must return a static image before Coil's animated decoder", fetched is coil3.fetch.ImageFetchResult)
+        val staticImage = (fetched as coil3.fetch.ImageFetchResult).image
+        assertTrue(staticImage is coil3.BitmapImage)
+        assertEquals(2, staticImage.width); assertEquals(2, staticImage.height)
+        assertEquals(requestsBefore + 1, fixture.requests.size)
+        assertArrayEquals(overBudgetGif, originals().single().readBytes())
     }
 
     private suspend fun save(message: PushMessage) {
@@ -346,6 +503,28 @@ class MessageResourceStoreDeviceTest {
     }
     private fun message(id: String, server: String = "gateway", local: String? = null) = PushMessage(id, id, "Image", "saved independently of resource", null, null, false, Instant.ofEpochMilli(now), JSONObject().put("entity_type", "message").put("images", url).apply { local?.let { put(MessageImageStore.KEY_IMAGE_LOCAL_PATH, it) } }.toString(), MessageStatus.NORMAL, null, null, server)
     private fun originals(): List<File> = File(context.filesDir, "message_resources/original").listFiles().orEmpty().filter { !it.name.startsWith('.') }
+    private suspend fun fetchThumbnail(message: PushMessage): SourceFetchResult = MessageImageStoreFetcher(store.imageModel(message, url, thumbnail = true), Options(context), store).fetch() as SourceFetchResult
+    private fun thumbnail(): File = File(context.cacheDir, "message_resources/thumbnail").listFiles().orEmpty().single { !it.name.startsWith('.') }
+    private fun forceThumbnailPressure(file: File) {
+        // Mark the existing entry above the real configured budget; no large fixture allocation.
+        ImageAssetMetadataStore.get(context).touchThumbnail(file.name.removeSuffix("-128-v1.png"), 64L * 1024 * 1024 + 1, now)
+    }
+    private fun assertThumbnail(bytes: ByteArray) {
+        val bitmap = requireNotNull(BitmapFactory.decodeByteArray(bytes, 0, bytes.size))
+        try { assertEquals(128, bitmap.width); assertEquals(128, bitmap.height); assertEquals(0xffff0000.toInt(), bitmap.getPixel(64, 64)) } finally { bitmap.recycle() }
+    }
+    private class ReturnHandoffDispatcher : CoroutineDispatcher(), java.io.Closeable {
+        val continuations = LinkedBlockingQueue<Runnable>()
+        private var closed = false
+        override fun dispatch(context: CoroutineContext, block: Runnable) {
+            synchronized(this) { if (!closed) { continuations.add(block); return } }
+            block.run()
+        }
+        override fun close() {
+            synchronized(this) { closed = true }
+            while (true) (continuations.poll() ?: break).run()
+        }
+    }
     private fun scalar(sql: String): Int = db.openHelper.readableDatabase.query(sql).use { it.moveToFirst(); it.getInt(0) }
     private fun png(color: Int): ByteArray = ByteArrayOutputStream().use { out -> Bitmap.createBitmap(3, 2, Bitmap.Config.ARGB_8888).also { it.eraseColor(color); it.compress(Bitmap.CompressFormat.PNG, 100, out); it.recycle() }; out.toByteArray() }
     private fun validPng(width: Int, height: Int): ByteArray {
@@ -366,8 +545,8 @@ class MessageResourceStoreDeviceTest {
         return output.toByteArray()
     }
     private fun date(value: Long) = SimpleDateFormat("EEE, dd MMM yyyy HH:mm:ss zzz", Locale.US).apply { timeZone = TimeZone.getTimeZone("GMT") }.format(Date(value))
-    private data class Response(val bytes: ByteArray, val headers: Map<String, String>, val code: Int = 200, val chunked: Boolean = false)
-    private inner class Fixture : java.io.Closeable {
+    internal data class Response(val bytes: ByteArray, val headers: Map<String, String>, val code: Int = 200, val chunked: Boolean = false)
+    internal class Fixture(private val dateHeader: () -> String) : java.io.Closeable {
         private val server = ServerSocket(0, 4, InetAddress.getByName("127.0.0.1"))
         val port = server.localPort
         val requests = CopyOnWriteArrayList<Map<String, String>>()
@@ -389,7 +568,7 @@ class MessageResourceStoreDeviceTest {
                     val value = route?.invoke(target, headers) ?: response
                     val output = socket.getOutputStream()
                     val head = buildString {
-                        append("HTTP/1.1 ${value.code} Result\r\nDate: ${date(now)}\r\nConnection: close\r\n")
+                        append("HTTP/1.1 ${value.code} Result\r\nDate: ${dateHeader()}\r\nConnection: close\r\n")
                         value.headers.forEach { (key, content) -> append("$key: $content\r\n") }
                         if (value.chunked) append("Transfer-Encoding: chunked\r\n") else append("Content-Length: ${value.bytes.size}\r\n")
                         append("\r\n")

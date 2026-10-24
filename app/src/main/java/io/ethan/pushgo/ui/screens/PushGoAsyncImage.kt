@@ -21,6 +21,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.key
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -99,7 +100,9 @@ fun PushGoAsyncImage(
     }
 
     Box(modifier = modifier.then(clickableModifier)) {
-        AsyncImage(
+        // Coil's default model equality intentionally ignores request extras. A
+        // user retry must acquire this same owner again, not retain its old painter.
+        key(model, retryVersion) { AsyncImage(
             model = request,
             contentDescription = contentDescription,
             modifier = Modifier.fillMaxSize(),
@@ -115,7 +118,7 @@ fun PushGoAsyncImage(
             onError = {
                 loadState = PushGoImageLoadState.Error
             },
-        )
+        ) }
 
         if (loadState == PushGoImageLoadState.Stale) {
             ResourceImageFallbackBadge(Modifier.align(Alignment.TopEnd)) { retryVersion++ }

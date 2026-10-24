@@ -13,6 +13,7 @@ import coil3.request.Disposable
 import coil3.request.ImageRequest
 import coil3.request.CachePolicy
 import io.ethan.pushgo.data.MessageImageStore
+import io.ethan.pushgo.data.ImageResourceObservation
 import io.ethan.pushgo.ui.screens.ResourceImageDecodeBudget
 import coil3.target.Target
 import io.ethan.pushgo.R
@@ -27,6 +28,7 @@ import io.noties.markwon.image.DrawableUtils
 import io.noties.markwon.image.ImageSpanFactory
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicLong
 import org.commonmark.node.Image as MarkdownImage
 
 class Coil3ImagesPlugin private constructor(
@@ -66,15 +68,26 @@ class Coil3ImagesPlugin private constructor(
         private val metadataStore: ImageAssetMetadataStore,
     ) : AsyncDrawableLoader() {
         private val cache = ConcurrentHashMap<AsyncDrawable, Disposable>(2)
+        private val generations = ConcurrentHashMap<AsyncDrawable, Long>(2)
+        private val nextGeneration = AtomicLong()
 
         override fun load(drawable: AsyncDrawable) {
+            generations.remove(drawable)
+            cache.remove(drawable)?.let(coilStore::cancel)
+            (drawable.result as? MarkdownPlayableDrawable)?.release()
             // A Markdown document may contain many image spans. Do not create a
             // coroutine/request for every span while the bounded store is busy.
             if (cache.size >= 16) {
-                drawable.setResult(ErrorPlaceholderDrawable(resources, resources.getString(R.string.error_image_load_failed)))
+                val display = MarkdownPlayableDrawable.wrapResource(resources, ErrorPlaceholderDrawable(resources, resources.getString(R.string.error_image_load_failed)))
+                display.showRetry(temporaryFallback = false) { load(drawable) }
+                DrawableUtils.applyIntrinsicBoundsIfEmpty(display)
+                drawable.setResult(display)
                 return
             }
+            val generation = nextGeneration.incrementAndGet()
+            generations[drawable] = generation
             val loaded = AtomicBoolean(false)
+            val observation = ImageResourceObservation()
             val request = coilStore
                 .load(drawable)
                 .newBuilder()
@@ -83,16 +96,22 @@ class Coil3ImagesPlugin private constructor(
                 .memoryCachePolicy(CachePolicy.DISABLED)
                 .diskCachePolicy(CachePolicy.DISABLED)
                 .decoderCoroutineContext(ResourceImageDecodeBudget.dispatcher)
-                .target(AsyncDrawableTarget(drawable, loaded, resources, cache))
+                .apply { extras[ImageResourceObservation.Key] = observation }
+                .target(AsyncDrawableTarget(drawable, loaded, resources, cache, observation,
+                    isCurrent = { generations[drawable] == generation },
+                    completed = { generations.remove(drawable, generation) },
+                    retry = { load(drawable) },
+                ))
                 .build()
             val disposable = imageLoader.enqueue(request)
             if (!loaded.get()) {
-                loaded.set(true)
                 cache[drawable] = disposable
             }
         }
 
         override fun cancel(drawable: AsyncDrawable) {
+            generations.remove(drawable)
+            (drawable.result as? MarkdownPlayableDrawable)?.release()
             val disposable = cache.remove(drawable) ?: return
             coilStore.cancel(disposable)
         }
@@ -109,34 +128,47 @@ class Coil3ImagesPlugin private constructor(
         private val loaded: AtomicBoolean,
         private val resources: Resources,
         private val cache: MutableMap<AsyncDrawable, Disposable>,
+        private val observation: ImageResourceObservation,
+        private val isCurrent: () -> Boolean,
+        private val completed: () -> Unit,
+        private val retry: () -> Unit,
     ) : Target {
         override fun onStart(placeholder: Image?) {
+            if (!isCurrent()) return
             val placeholderDrawable = placeholder?.asDrawable(resources) ?: return
             DrawableUtils.applyIntrinsicBoundsIfEmpty(placeholderDrawable)
             drawable.setResult(placeholderDrawable)
         }
 
         override fun onError(error: Image?) {
+            if (!isCurrent()) return
             cache.remove(drawable)
             loaded.set(true)
             val errorDrawable = error?.asDrawable(resources) ?: ErrorPlaceholderDrawable(
                 resources = resources,
                 label = resources.getString(R.string.error_image_load_failed),
             )
-            DrawableUtils.applyIntrinsicBoundsIfEmpty(errorDrawable)
-            drawable.setResult(errorDrawable)
+            val display = MarkdownPlayableDrawable.wrapResource(resources, errorDrawable)
+            display.showRetry(temporaryFallback = false, action = retry)
+            DrawableUtils.applyIntrinsicBoundsIfEmpty(display)
+            drawable.setResult(display)
+            completed()
         }
 
         override fun onSuccess(result: Image) {
+            if (!isCurrent()) {
+                (result.asDrawable(resources) as? android.graphics.drawable.Animatable)?.stop()
+                return
+            }
             cache.remove(drawable)
             loaded.set(true)
             val loadedDrawable = result.asDrawable(resources)
-            val displayDrawable = MarkdownPlayableDrawable.wrapIfAnimated(resources, loadedDrawable)
-            if (displayDrawable is MarkdownPlayableDrawable) {
-                MarkdownAnimatedImagePlaybackRegistry.register(displayDrawable)
-            }
+            val displayDrawable = MarkdownPlayableDrawable.wrapResource(resources, loadedDrawable)
+            if (observation.stale) displayDrawable.showRetry(temporaryFallback = true, action = retry)
+            MarkdownAnimatedImagePlaybackRegistry.register(displayDrawable)
             DrawableUtils.applyIntrinsicBoundsIfEmpty(displayDrawable)
             drawable.setResult(displayDrawable)
+            completed()
         }
     }
 

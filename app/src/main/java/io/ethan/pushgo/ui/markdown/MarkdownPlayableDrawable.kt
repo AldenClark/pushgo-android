@@ -77,6 +77,8 @@ internal class MarkdownPlayableDrawable private constructor(
     private var drawable: Drawable = baseDrawable.mutate()
     private var isPlaying = false
     private var isReleased = false
+    private var retryAction: (() -> Unit)? = null
+    private var showsTemporaryFallback = false
     private var hideOverlayUntilPlaybackFinishes = false
     private val density = resources.displayMetrics.density
     private val overlaySizePx = 24f * density
@@ -102,6 +104,26 @@ internal class MarkdownPlayableDrawable private constructor(
         get() = !isReleased && isAnimationCapable(drawable) &&
             !hideOverlayUntilPlaybackFinishes &&
             !drawable.isActuallyRunning()
+
+    val isRetryVisible: Boolean get() = !isReleased && retryAction != null
+    val isTemporaryFallback: Boolean get() = isRetryVisible && showsTemporaryFallback
+
+    fun showRetry(temporaryFallback: Boolean, action: () -> Unit) {
+        showsTemporaryFallback = temporaryFallback
+        retryAction = action
+        invalidateSelf()
+    }
+
+    fun retry(): Boolean {
+        val action = retryAction ?: return false
+        release()
+        action()
+        return true
+    }
+
+    fun isRetryButtonHit(localX: Float, localY: Float): Boolean = isRetryVisible &&
+        localX >= bounds.left && localX <= bounds.right &&
+        localY >= bounds.top && localY <= minOf(bounds.bottom.toFloat(), bounds.top + 48f * density)
 
     fun playOnce(): Boolean {
         if (isReleased) return false
@@ -131,6 +153,7 @@ internal class MarkdownPlayableDrawable private constructor(
     fun release() {
         if (isReleased) return
         isReleased = true
+        retryAction = null
         animationCallback.detach()
         compatAnimationCallback.detach()
         drawable.asAnimatable()?.stop()
@@ -173,6 +196,22 @@ internal class MarkdownPlayableDrawable private constructor(
         drawable.draw(canvas)
         if (isOverlayVisible) {
             drawPlayOverlay(canvas)
+        }
+        if (isRetryVisible) {
+            val left = bounds.left.toFloat()
+            val bottom = minOf(bounds.bottom.toFloat(), bounds.top + 48f * density)
+            val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xE6FFF1D6.toInt() }
+            canvas.drawRect(left, bounds.top.toFloat(), bounds.right.toFloat(), bottom, paint)
+            paint.color = 0xFF6D4100.toInt()
+            val label = resources.getString(if (showsTemporaryFallback) io.ethan.pushgo.R.string.image_cached_fallback_retry else io.ethan.pushgo.R.string.action_retry)
+            val text = android.text.TextPaint(paint).apply { textSize = 12f * density }
+            val layout = android.text.StaticLayout.Builder.obtain(label, 0, label.length, text, maxOf(1, bounds.width() - (12f * density).toInt()))
+                .setMaxLines(2).setEllipsize(android.text.TextUtils.TruncateAt.END).build()
+            canvas.save()
+            canvas.clipRect(left, bounds.top.toFloat(), bounds.right.toFloat(), bottom)
+            canvas.translate(left + 6f * density, bounds.top + 4f * density)
+            layout.draw(canvas)
+            canvas.restore()
         }
     }
 
@@ -320,6 +359,9 @@ internal class MarkdownPlayableDrawable private constructor(
     }
 
     companion object {
+        fun wrapResource(resources: Resources, drawable: Drawable): MarkdownPlayableDrawable =
+            MarkdownPlayableDrawable(resources, drawable)
+
         fun wrapIfAnimated(resources: Resources, drawable: Drawable): Drawable {
             if (!isAnimationCapable(drawable)) {
                 return drawable

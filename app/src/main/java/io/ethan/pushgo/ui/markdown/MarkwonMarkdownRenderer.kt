@@ -13,6 +13,11 @@ import android.text.style.URLSpan
 import android.util.TypedValue
 import android.view.MotionEvent
 import android.widget.TextView
+import android.view.View
+import android.os.Bundle
+import androidx.core.view.AccessibilityDelegateCompat
+import androidx.core.view.ViewCompat
+import androidx.core.view.accessibility.AccessibilityNodeInfoCompat
 import androidx.appcompat.widget.AppCompatTextView
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -61,6 +66,8 @@ private data class MarkdownRenderEvidence(
     val text: String = "",
     val spanClasses: String = "",
 )
+
+private data class MarkdownViewBinding(val text: String, val renderer: Markwon)
 
 @Composable
 fun SelectablePlainTextRenderer(
@@ -251,6 +258,7 @@ fun FullMarkdownRenderer(
         ),
         factory = {
             AppCompatTextView(it).apply {
+                ViewCompat.setAccessibilityDelegate(this, MarkdownResourceAccessibilityDelegate())
                 typeface = bodyTypeface
                 setTextColor(color)
                 setTextSize(TypedValue.COMPLEX_UNIT_SP, textSizeSp)
@@ -283,10 +291,10 @@ fun FullMarkdownRenderer(
             textView.setTextSize(TypedValue.COMPLEX_UNIT_SP, textSizeSp)
             textView.setLineSpacing(lineSpacingExtraPx, 1f)
             textView.movementMethod = interactionMovementMethod
-            val previousText = textView.tag as? String
-            if (previousText != text) {
+            val binding = MarkdownViewBinding(text, markwon)
+            if (textView.tag != binding) {
                 markwon.setMarkdown(textView, text)
-                textView.tag = text
+                textView.tag = binding
             }
             if (recordsRenderEvidence) {
                 val rendered = textView.text
@@ -307,6 +315,27 @@ fun FullMarkdownRenderer(
             }
         },
     )
+}
+
+/** Retry only the currently displayed failed image; no retained URL or old renderer callback. */
+private class MarkdownResourceAccessibilityDelegate : AccessibilityDelegateCompat() {
+    override fun onInitializeAccessibilityNodeInfo(host: View, info: AccessibilityNodeInfoCompat) {
+        super.onInitializeAccessibilityNodeInfo(host, info)
+        val retry = retryImage(host) ?: return
+        val label = host.resources.getString(if (retry.isTemporaryFallback) io.ethan.pushgo.R.string.image_cached_fallback_retry else io.ethan.pushgo.R.string.action_retry)
+        info.addAction(AccessibilityNodeInfoCompat.AccessibilityActionCompat(io.ethan.pushgo.R.id.action_markdown_resource_retry, label))
+    }
+
+    override fun performAccessibilityAction(host: View, action: Int, args: Bundle?): Boolean {
+        if (action == io.ethan.pushgo.R.id.action_markdown_resource_retry) return retryImage(host)?.retry() == true
+        return super.performAccessibilityAction(host, action, args)
+    }
+
+    private fun retryImage(host: View): MarkdownPlayableDrawable? {
+        val text = (host as? TextView)?.text as? Spanned ?: return null
+        return text.getSpans(0, text.length, AsyncDrawableSpan::class.java)
+            .asSequence().mapNotNull { it.drawable.result as? MarkdownPlayableDrawable }.firstOrNull { it.isRetryVisible }
+    }
 }
 
 private class MarkdownInteractionMovementMethod(
@@ -339,6 +368,9 @@ private class MarkdownInteractionMovementMethod(
                 }
                 is AsyncDrawableSpan -> {
                     val playable = pressedSpan.drawable.result as? MarkdownPlayableDrawable
+                    val didRetry = playable != null && isRetryButtonPressed(
+                        widget, buffer, pressedSpan, pressedTarget.touchX, pressedTarget.touchY, playable,
+                    ) && playable.retry()
                     val didStartPlayback = playable != null && isPlayButtonPressed(
                         widget = widget,
                         buffer = buffer,
@@ -346,8 +378,10 @@ private class MarkdownInteractionMovementMethod(
                         touchX = pressedTarget.touchX,
                         touchY = pressedTarget.touchY,
                         drawable = playable,
-                    ) && MarkdownAnimatedImagePlaybackRegistry.play(playable)
-                    if (didStartPlayback) {
+                    ) && !didRetry && MarkdownAnimatedImagePlaybackRegistry.play(playable)
+                    if (didRetry) {
+                        widget.postInvalidateOnAnimation()
+                    } else if (didStartPlayback) {
                         onAnimatedImagePlay?.invoke()
                         widget.postInvalidateOnAnimation()
                     } else {
@@ -401,6 +435,24 @@ private class MarkdownInteractionMovementMethod(
         val localX = touchX - imageLeft
         val localY = touchY - imageTop
         return drawable.isPlayButtonHit(localX = localX, localY = localY)
+    }
+
+    private fun isRetryButtonPressed(
+        widget: TextView,
+        buffer: Spannable,
+        span: AsyncDrawableSpan,
+        touchX: Int,
+        touchY: Int,
+        drawable: MarkdownPlayableDrawable,
+    ): Boolean {
+        if (!drawable.isRetryVisible) return false
+        val layout = widget.layout ?: return false
+        val spanStart = buffer.getSpanStart(span)
+        if (spanStart < 0) return false
+        val line = layout.getLineForOffset(spanStart)
+        val localX = touchX - layout.getPrimaryHorizontal(spanStart)
+        val localY = touchY - (layout.getLineBottom(line) - span.drawable.bounds.bottom)
+        return drawable.isRetryButtonHit(localX, localY.toFloat())
     }
 
     private data class PressedSpanTarget(

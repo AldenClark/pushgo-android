@@ -28,6 +28,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.key
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -121,8 +122,12 @@ fun PushGoPlayableImage(
         builder.build()
     }
 
-    DisposableEffect(decodedImage, shouldAnimate) {
-        val image = decodedImage
+    // Bind the object during composition, at the same point as the effect key.
+    // Reading the mutable state inside the later effect body can adopt a newly
+    // decoded image, then stop that new image when the old keyed effect disposes.
+    val playbackImage = decodedImage
+    DisposableEffect(playbackImage, shouldAnimate) {
+        val image = playbackImage
         if (shouldAnimate) image?.startAnimationIfPossible() else image?.stopAnimationIfPossible()
         onDispose { image?.stopAnimationIfPossible() }
     }
@@ -143,7 +148,9 @@ fun PushGoPlayableImage(
             visible = bounds.bottom > 0 && bounds.right > 0 && bounds.top < screen.heightPixels && bounds.left < screen.widthPixels
         },
     ) {
-        AsyncImage(
+        // Decoder/extras changes are not part of Coil's default model equality.
+        // Switching poster/playback or retrying must create a new bounded request.
+        key(model, wantsAnimation, retryVersion) { AsyncImage(
             model = request,
             contentDescription = contentDescription,
             modifier = Modifier.fillMaxSize(),
@@ -173,7 +180,7 @@ fun PushGoPlayableImage(
                 decodedImage = null
                 imageLoadState = PushGoImageLoadState.Error
             },
-        )
+        ) }
         if (!imageLoadState.isLoaded) {
             PushGoImagePlaceholder(
                 modifier = Modifier.fillMaxSize().then(
