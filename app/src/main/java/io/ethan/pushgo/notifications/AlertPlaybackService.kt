@@ -225,7 +225,7 @@ class AlertPlaybackService : Service() {
     }
 }
 
-/** The API37 test image can expose an unusable default-alias cache while its actual
+/** In the observed API37 image, MediaPlayer(default alias) fails while the actual
  * selected sound is readable. Do not change channel/settings or replace custom/silent
  * choices. Older platforms retain their existing cache-capability path. */
 internal fun resolveAlertPlaybackSoundUri(context: Context, selected: Uri?, sdkInt: Int = Build.VERSION.SDK_INT): Uri? {
