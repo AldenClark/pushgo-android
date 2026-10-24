@@ -10,7 +10,9 @@ import android.content.Context
 import android.content.Intent
 import android.media.AudioAttributes
 import android.media.MediaPlayer
+import android.media.RingtoneManager
 import android.net.Uri
+import android.os.Build
 import android.provider.Settings
 import android.os.IBinder
 import androidx.core.app.NotificationCompat
@@ -142,10 +144,8 @@ class AlertPlaybackService : Service() {
     private fun resolveSoundUri(channelId: String): Uri? {
         val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         val channel = manager.getNotificationChannel(channelId)
-        if (channel != null) {
-            return channel.sound
-        }
-        return Settings.System.DEFAULT_NOTIFICATION_URI
+        val selected = if (channel != null) channel.sound else Settings.System.DEFAULT_NOTIFICATION_URI
+        return resolveAlertPlaybackSoundUri(this, selected)
     }
 
     private fun ensureServiceChannel() {
@@ -223,4 +223,21 @@ class AlertPlaybackService : Service() {
             "io.ethan.pushgo.notification_channels.alert_playback_service"
         private const val ALERT_PLAYBACK_NOTIFICATION_GROUP_KEY = "io.ethan.pushgo.alert_playback_service"
     }
+}
+
+/** The API37 test image can expose an unusable default-alias cache while its actual
+ * selected sound is readable. Do not change channel/settings or replace custom/silent
+ * choices. Older platforms retain their existing cache-capability path. */
+internal fun resolveAlertPlaybackSoundUri(context: Context, selected: Uri?, sdkInt: Int = Build.VERSION.SDK_INT): Uri? {
+    if (selected == null || sdkInt < 37 || !RingtoneManager.isDefault(selected)) return selected
+    return runCatching {
+        val actual = RingtoneManager.getActualDefaultRingtoneUri(context, RingtoneManager.getDefaultType(selected))
+            ?: return@runCatching selected
+        // Merely obtaining a URI does not prove this app can open it. Preserve the
+        // original alias if the actual source is unavailable or cache-only access is needed.
+        context.contentResolver.openAssetFileDescriptor(actual, "r")?.use { source ->
+            val size = source.parcelFileDescriptor.statSize
+            if (source.declaredLength != 0L && size > source.startOffset) actual else selected
+        } ?: selected
+    }.getOrDefault(selected)
 }
