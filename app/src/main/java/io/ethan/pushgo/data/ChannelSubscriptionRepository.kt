@@ -3,6 +3,7 @@ package io.ethan.pushgo.data
 import androidx.room.withTransaction
 import io.ethan.pushgo.BuildConfig
 import io.ethan.pushgo.data.db.PushGoDatabase
+import io.ethan.pushgo.data.db.ProviderPullFrontierEntity
 import io.ethan.pushgo.data.model.ChannelSubscription
 import io.ethan.pushgo.notifications.MessageStateCoordinator
 import io.ethan.pushgo.testing.QualityRuntime
@@ -13,6 +14,24 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import org.json.JSONObject
 import java.net.URLEncoder
+import java.security.MessageDigest
+import java.util.UUID
+
+/** One bounded HTTP turn only. Credentials never enter the rebuildable frontier row. */
+internal class ProviderPullContext(
+    val destination: ProviderAckDestination,
+    val scopeKey: String,
+    internal val credential: String?,
+    val frontier: ProviderPullFrontierEntity?,
+) {
+    override fun toString(): String = "ProviderPullContext(frontier=${frontier != null})"
+}
+
+internal class ProviderPullTurnEnded : IllegalStateException("provider Pull context changed; retry from the next due turn")
+
+internal fun ChannelSubscriptionException.invalidatesPullFrontier(): Boolean =
+    (httpStatus == 400 && reportedGatewayCodes == setOf("page_token_invalid")) ||
+        (httpStatus == 409 && reportedGatewayCodes == setOf("page_token_scope_changed"))
 
 fun interface EventCloseRoundTrip {
     suspend fun deliver(outboundPayload: JSONObject)
@@ -105,6 +124,7 @@ class ChannelSubscriptionRepository(
     service: ChannelSubscriptionService? = null,
     private val eventCloseRoundTrip: EventCloseRoundTrip? = null,
     private val channelMutationRoundTrip: ChannelMutationRoundTrip? = null,
+    private val onPullContinuation: (suspend () -> Boolean) -> Unit = {},
 ) {
     companion object {
         private const val FCM_CHANNEL_TYPE = "fcm"
@@ -150,6 +170,92 @@ class ChannelSubscriptionRepository(
             ),
         )
     }
+
+    internal suspend fun preparePullContext(deliveryId: String?): ProviderPullContext {
+        val config = resolveServerConfig()
+        val deviceKey = resolveProviderDeviceKeyForIngress(config)
+        rememberAckCredential(config) // Existing ACK recovery policy, not a new credential store.
+        val scope = pullScope(config, deviceKey)
+        val frontier = if (deliveryId.isNullOrBlank()) database.withTransaction {
+            val dao = database.providerPullFrontierDao()
+            val previous = dao.get()?.takeIf { it.scopeKey == scope }
+            ProviderPullFrontierEntity(scopeKey = scope, requestGeneration = UUID.randomUUID().toString(),
+                pageToken = previous?.pageToken).also { dao.put(it) }
+        } else null
+        return ProviderPullContext(ProviderAckDestination(config.address, deviceKey), scope, config.token, frontier)
+    }
+
+    internal suspend fun pullMessages(context: ProviderPullContext, deliveryId: String?): ProviderPullPage {
+        requireCurrentPullContext(context)
+        val token = context.frontier?.pageToken
+        val page = try {
+            service.pullMessages(context.destination.baseUrl, context.credential, context.destination.deviceKey,
+                deliveryId?.trim()?.takeIf(String::isNotEmpty), token)
+        } catch (error: ChannelSubscriptionException) {
+            if (token != null && error.invalidatesPullFrontier()) {
+                clearPullFrontier(context)
+                throw ProviderPullTurnEnded()
+            }
+            throw error
+        }
+        // A response which lost ownership while HTTP was in flight cannot enter a
+        // replacement account/configuration's content or scan checkpoint.
+        requireCurrentPullContext(context)
+        return page.copy(destination = context.destination)
+    }
+
+    internal suspend fun checkpointPullPage(context: ProviderPullContext, page: ProviderPullPage): ProviderPullContext {
+        val previous = context.frontier ?: return context
+        requireCurrentPullContext(context)
+        if (page.scanComplete == null) {
+            // An old server owns no resumable scan contract. Its ACK-driven bounded
+            // path remains available, but a saved new-server cursor cannot linger.
+            clearPullFrontier(context)
+            return ProviderPullContext(context.destination, context.scopeKey, context.credential, null)
+        }
+        if (page.scanComplete) {
+            if (database.providerPullFrontierDao().clear(context.scopeKey, previous.requestGeneration) != 1) throw ProviderPullTurnEnded()
+            return ProviderPullContext(context.destination, context.scopeKey, context.credential, null)
+        }
+        val generation = previous.requestGeneration
+        val next = requireNotNull(page.nextPageToken)
+        if (next != null && next == previous.pageToken) {
+            clearPullFrontier(context)
+            throw ProviderPullTurnEnded()
+        }
+        val changed = database.providerPullFrontierDao().checkpoint(context.scopeKey, previous.requestGeneration, next, generation)
+        if (changed != 1) throw ProviderPullTurnEnded()
+        return ProviderPullContext(context.destination, context.scopeKey, context.credential,
+            previous.copy(requestGeneration = generation, pageToken = next))
+    }
+
+    private suspend fun requireCurrentPullContext(context: ProviderPullContext) {
+        if (!isCurrentPullContext(context)) {
+            clearPullFrontier(context)
+            throw ProviderPullTurnEnded()
+        }
+    }
+
+    internal suspend fun hasPullContinuation(): Boolean = database.providerPullFrontierDao().get()?.pageToken != null
+
+    internal fun schedulePullContinuation(context: ProviderPullContext) {
+        onPullContinuation { isCurrentPullContext(context) }
+    }
+
+    private suspend fun isCurrentPullContext(context: ProviderPullContext): Boolean {
+        val current = resolveServerConfig()
+        val device = settingsRepository.getDeviceKey()?.trim().orEmpty()
+        return device == context.destination.deviceKey && current.address == context.destination.baseUrl &&
+            current.token == context.credential && pullScope(current, device) == context.scopeKey
+    }
+
+    private suspend fun clearPullFrontier(context: ProviderPullContext) {
+        context.frontier?.let { database.providerPullFrontierDao().clear(it.scopeKey, it.requestGeneration) }
+    }
+
+    private fun pullScope(config: ServerConfig, deviceKey: String): String = MessageDigest.getInstance("SHA-256")
+        .digest((config.address + "\u0000" + deviceKey).toByteArray(Charsets.UTF_8))
+        .joinToString("") { "%02x".format(it.toInt() and 0xff) }
 
     suspend fun ackMessage(deliveryId: String): Boolean {
         val normalizedDeliveryId = deliveryId.trim()
@@ -197,10 +303,37 @@ class ChannelSubscriptionRepository(
         val currentConfig = resolveServerConfig()
         val normalizedDestinationUrl = destination.baseUrl.trim().removeSuffix("/")
         val token = if (currentConfig.address.trim().removeSuffix("/") == normalizedDestinationUrl) {
+            if (settingsRepository.getDeviceKey()?.trim() != destination.deviceKey.trim()) {
+                throw ChannelSubscriptionException.local(
+                    message = "The original ACK context is not active; its receipt remains pending.",
+                    code = "ack_context_unavailable", category = GatewayErrorCategory.LOCAL,
+                )
+            }
             currentConfig.token
         } else {
             settingsRepository.getGatewayAckToken(normalizedDestinationUrl)
         }
+        return executeAck(destination, contract, normalizedDeliveryIds, token)
+    }
+
+    internal suspend fun ackMessagesForPull(
+        context: ProviderPullContext,
+        destination: ProviderAckDestination,
+        contract: ProviderAckContract,
+        deliveryIds: Collection<String>,
+    ): ProviderAckAttemptResult {
+        check(destination == context.destination && contract == ProviderAckContract.V2_BATCH)
+        val ids = deliveryIds.map(String::trim).filter(String::isNotEmpty).distinct()
+        if (ids.isEmpty()) return ProviderAckAttemptResult(0, 0)
+        return executeAck(destination, contract, ids, context.credential)
+    }
+
+    private suspend fun executeAck(
+        destination: ProviderAckDestination,
+        contract: ProviderAckContract,
+        normalizedDeliveryIds: List<String>,
+        token: String?,
+    ): ProviderAckAttemptResult {
         return when (contract) {
             ProviderAckContract.V2_BATCH -> service.ackMessages(
                 baseUrl = destination.baseUrl,

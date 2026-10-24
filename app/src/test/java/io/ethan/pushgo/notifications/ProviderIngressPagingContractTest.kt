@@ -1,6 +1,7 @@
 package io.ethan.pushgo.notifications
 
 import io.ethan.pushgo.data.ProviderPullPage
+import io.ethan.pushgo.data.ProviderPullTurnEnded
 import io.ethan.pushgo.data.PullItem
 import io.ethan.pushgo.data.ProviderAckContract
 import io.ethan.pushgo.data.ProviderAckDestination
@@ -12,6 +13,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.time.Instant
 
@@ -96,6 +98,73 @@ class ProviderIngressPagingContractTest {
         )
 
         assertEquals(1, pullCount)
+    }
+
+    @Test
+    fun newScanContinuesPastFailedItemsAndCheckpointsAfterEachHandledPage() = runBlocking {
+        val pages = ArrayDeque(listOf(
+            page(listOf("retained-failure"), false).copy(nextPageToken = "next-opaque", scanComplete = false),
+            page(listOf("healthy-later"), true).copy(scanComplete = true),
+        ))
+        val order = mutableListOf<String>()
+        val count = consumeProviderPullPages(null, { pages.removeFirst() }, checkpointPage = {
+            order += "checkpoint:${it.items.single().deliveryId}"
+        }) {
+            order += "handled:${it.items.single().deliveryId}"
+            ProviderPullPageProcessResult(if (it.scanComplete == true) 1 else 0, it.scanComplete == false)
+        }
+        assertEquals(1, count)
+        assertEquals(listOf("handled:retained-failure", "checkpoint:retained-failure", "handled:healthy-later", "checkpoint:healthy-later"), order)
+        assertTrue(pages.isEmpty())
+    }
+
+    @Test
+    fun newScanAlsoContinuesAfterDurableRetryableAckFailure() = runBlocking {
+        var pulled = 0
+        val count = consumeProviderPullPages(null, {
+            pulled++
+            page(listOf("row-$pulled"), false).copy(nextPageToken = if (pulled == 1) "next" else null, scanComplete = pulled == 2)
+        }) { ProviderPullPageProcessResult(1, false, hadAckFailure = true) }
+        assertEquals(2, count)
+        assertEquals(2, pulled)
+    }
+
+    @Test
+    fun boundedTurnPersistsFourthFrontierAndDoesNotRollImmediatelyBackToHead() = runBlocking {
+        var pulled = 0
+        val checkpoints = mutableListOf<String?>()
+        val count = consumeProviderPullPages(null, {
+            pulled++
+            page(listOf("row-$pulled"), true).copy(nextPageToken = "opaque-$pulled", scanComplete = false)
+        }, checkpointPage = { checkpoints += it.nextPageToken }) { ProviderPullPageProcessResult(1, false) }
+        assertEquals(4, count)
+        assertEquals(4, pulled)
+        assertEquals(listOf("opaque-1", "opaque-2", "opaque-3", "opaque-4"), checkpoints)
+    }
+
+    @Test
+    fun checkpointFailureCannotFetchAnotherPageOrClaimAnAdoptedPosition() = runBlocking {
+        var pulled = 0
+        val failure = IllegalStateException("synthetic frontier write failure")
+        val actual = runCatching {
+            consumeProviderPullPages(null, {
+                pulled++
+                page(listOf("committed"), true).copy(nextPageToken = "next", scanComplete = false)
+            }, checkpointPage = { throw failure }) { ProviderPullPageProcessResult(1, false) }
+        }.exceptionOrNull()
+        assertEquals(failure, actual)
+        assertEquals(1, pulled)
+    }
+
+    @Test
+    fun invalidatedScopeEndsTheTurnWithoutAnInTurnHeadReset() = runBlocking {
+        var pulled = 0
+        val count = consumeProviderPullPages(null, {
+            pulled++
+            throw ProviderPullTurnEnded()
+        }) { error("an invalidated request has no owned page") }
+        assertEquals(0, count)
+        assertEquals(1, pulled)
     }
 
     @Test

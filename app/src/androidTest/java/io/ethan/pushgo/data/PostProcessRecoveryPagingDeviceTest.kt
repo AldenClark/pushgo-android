@@ -47,7 +47,7 @@ class PostProcessRecoveryPagingDeviceTest {
         seedSchema36Copy()
         open()
 
-        assertEquals(37, scalar("PRAGMA user_version"))
+        assertEquals(38, scalar("PRAGMA user_version"))
         for (name in listOf("index_messages_read_received_id", "index_messages_channel_key_read_received_id", "index_messages_channel_key_received_id")) {
             assertEquals("onOpen restores runtime performance index $name", 1,
                 scalar("SELECT COUNT(*) FROM sqlite_master WHERE type='index' AND name='$name'"))

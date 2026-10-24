@@ -104,16 +104,17 @@ class PushGoApp : Application(), SingletonImageLoader.Factory {
     }
 
     private fun releaseStorageForControlledRuntime() {
-        val (job, database) = synchronized(this) {
+        val (job, current) = synchronized(this) {
             val currentJob = containerJob
-            val currentDatabase = initializedContainer?.database
+            val currentContainer = initializedContainer
             containerJob = null
             initializedContainer = null
             startupStorageError = null
-            currentJob to currentDatabase
+            currentJob to currentContainer
         }
         runBlocking { job?.cancelAndJoin() }
-        database?.close()
+        current?.close()
+        current?.database?.close()
     }
 
     fun startupStorageErrorMessage(): String? = startupStorageError

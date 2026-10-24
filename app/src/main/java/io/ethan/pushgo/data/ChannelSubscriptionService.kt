@@ -170,7 +170,11 @@ data class ProviderPullPage(
     val items: List<PullItem>,
     val hasMore: Boolean,
     val destination: ProviderAckDestination? = null,
-)
+    val nextPageToken: String? = null,
+    val scanComplete: Boolean? = null,
+) {
+    override fun toString(): String = "ProviderPullPage(items=${items.size},hasMore=$hasMore,scanComplete=$scanComplete,continuation=${nextPageToken != null})"
+}
 
 data class ProviderBatchAckResult(
     val requestedCount: Int,
@@ -427,6 +431,7 @@ class ChannelSubscriptionService(
         token: String?,
         deviceKey: String,
         deliveryId: String? = null,
+        pageToken: String? = null,
     ): ProviderPullPage = withContext(ioDispatcher) {
         val normalizedDeviceKey = deviceKey.trim()
         if (normalizedDeviceKey.isEmpty()) {
@@ -437,11 +442,18 @@ class ChannelSubscriptionService(
             )
         }
         val normalizedDeliveryId = deliveryId?.trim()?.takeIf { it.isNotEmpty() }
+        if (pageToken != null && normalizedDeliveryId != null) {
+            throw ChannelSubscriptionException.local("Request failed", "page_token_delivery_id_conflict", GatewayErrorCategory.VALIDATION)
+        }
+        if (pageToken != null && (pageToken.isEmpty() || pageToken.toByteArray(Charsets.UTF_8).size > 2048)) {
+            throw ChannelSubscriptionException.local("Request failed", "page_token_invalid", GatewayErrorCategory.VALIDATION)
+        }
         val payload = JSONObject().apply {
             put("device_key", normalizedDeviceKey)
             if (normalizedDeliveryId != null) {
                 put("delivery_id", normalizedDeliveryId)
             }
+            if (pageToken != null) put("page_token", pageToken)
         }
         val response = executeRequiredV2(buildUrl(baseUrl, PULL_MESSAGE_V2_ENDPOINT), token, payload)
         val data = response.data ?: throw ChannelSubscriptionException.local(
@@ -450,6 +462,25 @@ class ChannelSubscriptionService(
             category = GatewayErrorCategory.INTERNAL,
         )
         val wireItems = data.optJSONArray("items")
+        // Old servers omit both fields. A partial new pair is not a legacy response:
+        // rejecting it preserves the last durable checkpoint instead of resetting it.
+        if (data.has("scan_complete") != data.has("next_page_token")) {
+            throw ChannelSubscriptionException.local("Request failed", "gateway_invalid_response", GatewayErrorCategory.INTERNAL)
+        }
+        // A complete new pair is strict: progress
+        // is independent of filtered items and never an acknowledgement receipt.
+        val hasProgress = data.has("scan_complete") && data.has("next_page_token")
+        val complete = if (hasProgress) data.opt("scan_complete") as? Boolean
+            ?: throw ChannelSubscriptionException.local("Request failed", "gateway_invalid_response", GatewayErrorCategory.INTERNAL)
+        else null
+        val next = if (hasProgress && !data.isNull("next_page_token")) data.opt("next_page_token") as? String
+            ?: throw ChannelSubscriptionException.local("Request failed", "gateway_invalid_response", GatewayErrorCategory.INTERNAL)
+        else null
+        if (hasProgress && ((complete == true && next != null) ||
+                (complete == false && next == null) ||
+                (next != null && (next.isEmpty() || next.toByteArray(Charsets.UTF_8).size > 2048)))) {
+            throw ChannelSubscriptionException.local("Request failed", "gateway_invalid_response", GatewayErrorCategory.INTERNAL)
+        }
         val items = buildList {
             if (wireItems == null) return@buildList
             for (index in 0 until wireItems.length()) {
@@ -468,6 +499,8 @@ class ChannelSubscriptionService(
         return@withContext ProviderPullPage(
             items = items,
             hasMore = data.optBoolean("has_more", false),
+            nextPageToken = next,
+            scanComplete = complete,
         )
     }
 

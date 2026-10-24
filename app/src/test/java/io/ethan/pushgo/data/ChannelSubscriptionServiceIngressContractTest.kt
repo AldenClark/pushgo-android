@@ -348,6 +348,65 @@ class ChannelSubscriptionServiceIngressContractTest {
     }
 
     @Test
+    fun pullMessagesPreservesOpaqueProgressEvenWhenEveryWireItemIsFiltered() = runBlocking {
+        CapturingGatewayServer(responseBody = """
+            {"success":true,"data":{"has_more":false,"items":[{"payload":{"title":"no outer identity"}}],"scan_complete":false,"next_page_token":"opaque-next"}}
+        """.trimIndent()).use { server ->
+            val page = ChannelSubscriptionService().pullMessages(server.baseUrl, null, "device-001", pageToken = "opaque-current")
+            assertTrue(page.items.isEmpty())
+            assertEquals(false, page.scanComplete)
+            assertEquals("opaque-next", page.nextPageToken)
+            assertEquals("opaque-current", JSONObject(server.firstRequest().body).getString("page_token"))
+            assertFalse(page.toString().contains("opaque-next"))
+        }
+    }
+
+    @Test
+    fun pullMessagesRejectsContradictoryProgressAndBoundsTokenBeforeHttp() = runBlocking {
+        CapturingGatewayServer(responseBody = """
+            {"success":true,"data":{"items":[],"scan_complete":true,"next_page_token":"must-not-exist"}}
+        """.trimIndent()).use { server ->
+            val service = ChannelSubscriptionService()
+            val malformed = runCatching { service.pullMessages(server.baseUrl, null, "device-001") }.exceptionOrNull()
+            assertEquals("gateway_invalid_response", (malformed as ChannelSubscriptionException).code)
+            val oversized = runCatching { service.pullMessages(server.baseUrl, null, "device-001", pageToken = "x".repeat(2049)) }.exceptionOrNull()
+            assertEquals("page_token_invalid", (oversized as ChannelSubscriptionException).code)
+            val targeted = runCatching { service.pullMessages(server.baseUrl, null, "device-001", "delivery", "next") }.exceptionOrNull()
+            assertEquals("page_token_delivery_id_conflict", (targeted as ChannelSubscriptionException).code)
+            assertEquals(1, server.allRequests().size)
+        }
+    }
+
+    @Test
+    fun partialProgressIsNotMisclassifiedAsAnOldServer() = runBlocking {
+        for (metadata in listOf("\"scan_complete\":true", "\"next_page_token\":\"next\"")) {
+            CapturingGatewayServer(responseBody = """{"success":true,"data":{"items":[],$metadata}}""").use { server ->
+                val error = runCatching { ChannelSubscriptionService().pullMessages(server.baseUrl, null, "device") }.exceptionOrNull()
+                assertEquals("gateway_invalid_response", (error as ChannelSubscriptionException).code)
+                assertFalse(error.invalidatesPullFrontier())
+            }
+        }
+    }
+
+    @Test
+    fun onlyExactStatusAndUnambiguousServerCodeInvalidatesAStoredFrontier() = runBlocking {
+        for ((status, codes, expected) in listOf(
+            Triple(400, "page_token_invalid" to "page_token_invalid", true),
+            Triple(409, "page_token_scope_changed" to "page_token_scope_changed", true),
+            Triple(503, "page_token_invalid" to "page_token_invalid", false),
+            Triple(400, "page_token_invalid" to "validation_error", false),
+        )) {
+            CapturingGatewayServer(responseCode = status, responseBody = """
+                {"success":false,"error_code":"${codes.first}","problem":{"code":"${codes.second}","category":"validation","status":$status,"retryable":false}}
+            """.trimIndent()).use { server ->
+                val error = runCatching { ChannelSubscriptionService().pullMessages(server.baseUrl, null, "device", pageToken = "opaque") }.exceptionOrNull()
+                assertEquals(expected, (error as ChannelSubscriptionException).invalidatesPullFrontier())
+                assertEquals(1, server.allRequests().size)
+            }
+        }
+    }
+
+    @Test
     fun pullMessages_requiresGatewayUpgradeWithoutDestructiveFallback() = runBlocking {
         CapturingGatewayServer(
             responseBody = """{"success":false,"error_code":"route_not_found","problem":{"code":"route_not_found","category":"not_found","status":404,"retryable":false}}""",

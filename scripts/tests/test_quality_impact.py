@@ -282,10 +282,14 @@ class RuntimeExtendedJourneyInstrumentedTest {{
             for run in plan["required_device_runs"]
         }
         self.assertEqual(
-            {"accessibility": 1, "app-owned": 37, "system-notification": 3},
+            {"accessibility": 1, "app-owned": 38, "system-notification": 3},
             profiles,
         )
-        self.assertEqual(41, len(plan["required_device_scopes"]))
+        self.assertEqual(42, len(plan["required_device_scopes"]))
+        self.assertIn(
+            "io.ethan.pushgo.testing.QualityImageShareInstrumentedTest#viewerSavePreservesCompletePngAndAnimatedGifOriginalsInMediaStore",
+            plan["required_device_scopes"],
+        )
 
     def test_unknown_changed_instrumented_class_forces_full_lane(self):
         path = "app/src/androidTest/java/io/ethan/pushgo/testing/Unknown.kt"

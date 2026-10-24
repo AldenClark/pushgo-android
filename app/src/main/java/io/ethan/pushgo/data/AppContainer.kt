@@ -14,6 +14,7 @@ import io.ethan.pushgo.notifications.InboundPersistenceStatus
 import io.ethan.pushgo.notifications.NotificationIngressParser
 import io.ethan.pushgo.notifications.PrivateChannelClient
 import io.ethan.pushgo.notifications.PrivateChannelServiceManager
+import io.ethan.pushgo.notifications.ProviderIngressCoordinator
 import io.ethan.pushgo.testing.InstrumentationRuntime
 import io.ethan.pushgo.testing.QualityFixture
 import io.ethan.pushgo.testing.QualityChannelMutationScenario
@@ -31,8 +32,14 @@ import io.ethan.pushgo.update.UpdateFeedClient
 import io.ethan.pushgo.update.UpdateFeedPayload
 import io.ethan.pushgo.util.UrlValidators
 import io.ethan.pushgo.util.FcmSupport
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
 import org.json.JSONArray
 import org.json.JSONObject
 import java.time.Instant
@@ -46,8 +53,8 @@ import javax.crypto.spec.SecretKeySpec
 
 class AppContainer(
     context: Context,
-    appScope: CoroutineScope,
-    awaitRouteSynchronization: suspend () -> Unit = {},
+    private val appScope: CoroutineScope,
+    private val awaitRouteSynchronization: suspend () -> Unit = {},
     pendingLocalDeletionDrainScheduler: PendingLocalDeletionDrainScheduler = if (
         InstrumentationRuntime.isUnderInstrumentationTest()
     ) {
@@ -57,6 +64,11 @@ class AppContainer(
     },
 ) {
     val appContext = context.applicationContext
+    private val providerPullContinuationLock = Any()
+    private var providerPullContinuationJob: Job? = null
+    private var providerPullContinuationRequest: (suspend () -> Boolean)? = null
+    private var providerPullContinuationKick = 0L
+    private var closed = false
     private val qualitySession = QualityRuntime.currentSession()
     private val qualityTransportScenario =
         qualitySession?.transportSwitchScenario ?: QualityTransportSwitchScenario.NONE
@@ -151,6 +163,7 @@ class AppContainer(
         awaitRouteSynchronization = awaitRouteSynchronization,
         transportRouteWriterGate = transportRouteWriterGate,
         onRemoteRoute = { transportSwitchCoordinator.observeRoute(it) },
+        onPullContinuation = { isCurrent -> scheduleProviderPullContinuation(isCurrent) },
         service = ChannelSubscriptionService(
             ioDispatcher = coroutineDispatchers.io,
             requireNetworkAccess = { io.ethan.pushgo.util.LocalNetworkPermission.requireAccess(appContext, it) },
@@ -513,6 +526,97 @@ class AppContainer(
         messageImageStore = messageImageStore,
         transportSwitcher = transportSwitchCoordinator,
     )
+
+    private fun scheduleProviderPullContinuation(isCurrent: suspend () -> Boolean) {
+        val job = synchronized(providerPullContinuationLock) {
+            if (closed || !appScope.isActive) return
+            providerPullContinuationRequest = isCurrent
+            providerPullContinuationKick++
+            if (providerPullContinuationJob != null) null else newProviderPullContinuationJob()
+        }
+        job?.start()
+    }
+
+    /** Called only under the short owner lock; the lazy Job starts after releasing it. */
+    private fun newProviderPullContinuationJob(): Job {
+        val isCurrent = checkNotNull(providerPullContinuationRequest)
+        providerPullContinuationRequest = null
+        var exhausted = false
+        val job = appScope.launch(start = CoroutineStart.LAZY) {
+            exhausted = continueProviderPull(isCurrent)
+        }
+        providerPullContinuationJob = job
+        job.invokeOnCompletion { cause ->
+            val successor = synchronized(providerPullContinuationLock) {
+                if (providerPullContinuationJob !== job) return@synchronized null
+                providerPullContinuationJob = null
+                if (closed || exhausted || cause != null || !appScope.isActive) {
+                    providerPullContinuationRequest = null
+                    null
+                } else if (providerPullContinuationRequest != null) {
+                    // A kick arriving after the final check belongs to a new turn.
+                    newProviderPullContinuationJob()
+                } else null
+            }
+            successor?.start()
+        }
+        return job
+    }
+
+    /** Returns true only when the bounded error budget is exhausted. */
+    private suspend fun continueProviderPull(isCurrent: suspend () -> Boolean): Boolean {
+        awaitRouteSynchronization()
+        // The first kick also follows a completed bounded foreground turn.
+        delay(250L)
+        var failures = 0
+        var backoffMs = 1_000L
+        while (currentCoroutineContext().isActive && QualityRuntime.currentSession() == null) {
+            try {
+                val observedKick = synchronized(providerPullContinuationLock) { providerPullContinuationKick }
+                if (!isCurrent()) return false
+                synchronized(providerPullContinuationLock) {
+                    if (providerPullContinuationKick == observedKick) providerPullContinuationRequest = null
+                }
+                // A completed scan never starts another head request on this owner.
+                if (!channelRepository.hasPullContinuation()) return false
+                ProviderIngressCoordinator.pullPersistAndDrainAcks(
+                    context = appContext,
+                    channelRepository = channelRepository,
+                    messageRepository = messageRepository,
+                    entityRepository = entityRepository,
+                    inboundDeliveryLedgerRepository = inboundDeliveryLedgerRepository,
+                    settingsRepository = settingsRepository,
+                    reason = "continuation",
+                )
+                failures = 0
+                backoffMs = 1_000L
+                delay(250L)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                failures++
+                if (failures >= 8) {
+                    io.ethan.pushgo.util.SilentSink.w(
+                        "ProviderIngress",
+                        "provider continuation retained after $failures failed turns type=${error.javaClass.simpleName}",
+                    )
+                    return true
+                }
+                delay(backoffMs)
+                backoffMs = (backoffMs * 2).coerceAtMost(30_000L)
+            }
+        }
+        return false
+    }
+
+    fun close() {
+        val job = synchronized(providerPullContinuationLock) {
+            closed = true
+            providerPullContinuationRequest = null
+            providerPullContinuationJob
+        }
+        job?.cancel()
+    }
 
     internal suspend fun initializeQualityFixtureIfNeeded() {
         val session = QualityRuntime.currentSession() ?: return

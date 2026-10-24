@@ -108,7 +108,7 @@ class PushGoDatabaseMigrationDeviceTest {
         assertEquals(CHANNEL_ID, subscriptions.single().channelId)
         assertEquals(1, messages.size)
         assertEquals(MESSAGE_ID, messages.single().messageId)
-        assertEquals(37, readUserVersion(context.getDatabasePath("pushgo.db")))
+        assertEquals(38, readUserVersion(context.getDatabasePath("pushgo.db")))
         assertEquals(1, container.messageRepository.totalCount())
         assertEquals(1, container.messageRepository.unreadCount())
         assertTrue(context.getDatabasePath("pushgo.db").exists())
@@ -157,7 +157,7 @@ class PushGoDatabaseMigrationDeviceTest {
         assertEquals(MESSAGE_ID, messages.single().messageId)
         assertEquals(1, container.messageRepository.totalCount())
         assertEquals(1, container.messageRepository.unreadCount())
-        assertEquals(37, readUserVersion(context.getDatabasePath("pushgo.db")))
+        assertEquals(38, readUserVersion(context.getDatabasePath("pushgo.db")))
         val sqlite = container.database.openHelper.writableDatabase
         val revision = sqlite.query(
             "SELECT revision FROM message_store_revision WHERE id = 1"
@@ -252,7 +252,7 @@ class PushGoDatabaseMigrationDeviceTest {
             cursor.getString(0) to cursor.getString(1)
         }
 
-        assertEquals(37, readUserVersion(context.getDatabasePath("pushgo.db")))
+        assertEquals(38, readUserVersion(context.getDatabasePath("pushgo.db")))
         assertEquals(0, pendingOutbox)
         assertEquals(1, retainedLedger)
         assertEquals("" to "", retainedLedgerScope)
@@ -337,7 +337,7 @@ class PushGoDatabaseMigrationDeviceTest {
             found
         }
 
-        assertEquals(37, readUserVersion(context.getDatabasePath("pushgo.db")))
+        assertEquals(38, readUserVersion(context.getDatabasePath("pushgo.db")))
         assertEquals(Triple("", "", "pending"), legacyLedger)
         assertEquals(
             listOf("https://gateway-a.example", "device-a", "legacy_single", 0),
@@ -375,7 +375,7 @@ class PushGoDatabaseMigrationDeviceTest {
         val migrated = PushGoDatabase.build(context)
         try {
             assertLegacyIngressBusinessState(migrated)
-            assertEquals(37, readUserVersion(context.getDatabasePath("pushgo.db")))
+            assertEquals(38, readUserVersion(context.getDatabasePath("pushgo.db")))
         } finally {
             migrated.close()
         }
@@ -475,7 +475,7 @@ class PushGoDatabaseMigrationDeviceTest {
         val container = AppContainer(context, appScope)
         val sqlite = container.database.openHelper.writableDatabase
         try {
-            assertEquals(37, readUserVersion(context.getDatabasePath("pushgo.db")))
+            assertEquals(38, readUserVersion(context.getDatabasePath("pushgo.db")))
             val migratedMessage = sqlite.query(
                 "SELECT message_id, title, body, channel, is_read, raw_payload_json " +
                     "FROM messages WHERE id = 'retained-v32-message'",
@@ -651,7 +651,7 @@ class PushGoDatabaseMigrationDeviceTest {
         val container = AppContainer(context, appScope)
         try {
             val sqlite = container.database.openHelper.writableDatabase
-            assertEquals(37, readUserVersion(context.getDatabasePath("pushgo.db")))
+            assertEquals(38, readUserVersion(context.getDatabasePath("pushgo.db")))
             assertTrue(
                 container.messageRepository.searchMessagesSnapshot(
                     "fresh-database-query", unreadOnly = false, limit = 10,
@@ -755,7 +755,7 @@ class PushGoDatabaseMigrationDeviceTest {
             val database = PushGoDatabase.build(context)
             try {
                 val sqlite = database.openHelper.writableDatabase
-                assertEquals(37, readUserVersion(context.getDatabasePath("pushgo.db")))
+                assertEquals(38, readUserVersion(context.getDatabasePath("pushgo.db")))
                 assertEquals(expected.getValue("events"), sqlite.query(
                     "SELECT $childEventContentColumns, activated FROM thing_sub_events ORDER BY id, activated"
                 ).use(::readBusinessRows))
@@ -924,7 +924,7 @@ class PushGoDatabaseMigrationDeviceTest {
 
         fun assertBusinessState(database: PushGoDatabase) {
             val sqlite = database.openHelper.writableDatabase
-            assertEquals(37, readUserVersion(context.getDatabasePath("pushgo.db")))
+            assertEquals(38, readUserVersion(context.getDatabasePath("pushgo.db")))
             retainedRouteCleanupTables.forEach { table ->
                 // Compare every original business column, even as a later migration adds
                 // an internal recovery field. Nothing from the source row is omitted.
@@ -1010,7 +1010,7 @@ class PushGoDatabaseMigrationDeviceTest {
         val migrated = PushGoDatabase.build(context)
         try {
             assertPendingDeletionBusinessState(migrated)
-            assertEquals(37, readUserVersion(context.getDatabasePath("pushgo.db")))
+            assertEquals(38, readUserVersion(context.getDatabasePath("pushgo.db")))
         } finally {
             migrated.close()
         }

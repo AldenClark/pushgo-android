@@ -2,6 +2,7 @@ package io.ethan.pushgo.notifications
 
 import android.content.Context
 import io.ethan.pushgo.data.ChannelSubscriptionRepository
+import io.ethan.pushgo.data.ChannelSubscriptionException
 import io.ethan.pushgo.data.EntityRepository
 import io.ethan.pushgo.data.InboundDeliveryLedgerRepository
 import io.ethan.pushgo.data.MessageRepository
@@ -9,6 +10,8 @@ import io.ethan.pushgo.data.ProviderAckContract
 import io.ethan.pushgo.data.ProviderAckDestination
 import io.ethan.pushgo.data.ProviderAckIdentity
 import io.ethan.pushgo.data.ProviderPullPage
+import io.ethan.pushgo.data.ProviderPullContext
+import io.ethan.pushgo.data.ProviderPullTurnEnded
 import io.ethan.pushgo.data.PullItem
 import io.ethan.pushgo.data.SettingsRepository
 import io.ethan.pushgo.data.model.PushMessage
@@ -91,14 +94,29 @@ object ProviderIngressCoordinator {
             beforeMessageNotify = beforeMessageNotify,
         )
         var hadPersistenceFailure = false
+        var ackFailure: ChannelSubscriptionException? = null
+        var pullContext: ProviderPullContext? = null
         val persistedCount = consumeProviderPullPages(
             requestedDeliveryId = deliveryId,
             pullPage = {
-                if (reason == "messages_pull_to_refresh") {
-                    QualityRuntime.takeMessageRefreshPullOverride()?.getOrThrow()
-                        ?: channelRepository.pullMessages(deliveryId)
-                } else {
-                    channelRepository.pullMessages(deliveryId)
+                val override = if (reason == "messages_pull_to_refresh") QualityRuntime.takeMessageRefreshPullOverride() else null
+                if (override != null) override.getOrThrow() else {
+                    val frozen = pullContext ?: channelRepository.preparePullContext(deliveryId).also { pullContext = it }
+                    channelRepository.pullMessages(frozen, deliveryId)
+                }
+            },
+            checkpointPage = { page ->
+                pullContext?.let { frozen -> pullContext = channelRepository.checkpointPullPage(frozen, page) }
+            },
+            afterCheckpointPage = { page ->
+                try {
+                    drainPendingAcksNow(channelRepository, inboundDeliveryLedgerRepository,
+                        requireNotNull(page.destination), pullContext)
+                    false
+                } catch (error: ChannelSubscriptionException) {
+                    if (page.scanComplete == null || !error.retryable) throw error
+                    if (ackFailure == null) ackFailure = error
+                    true
                 }
             },
         ) { page ->
@@ -110,6 +128,7 @@ object ProviderIngressCoordinator {
                 source = "provider_pull",
             ) ?: error("provider pull page has invalid ACK destination")
             var pageHadPersistenceFailure = false
+            var pageHadHardFailure = false
             var pagePersisted = 0
             for (item in page.items) {
                 val authoritativePayload = item.authoritativePayload()
@@ -120,15 +139,12 @@ object ProviderIngressCoordinator {
                     textLocalizer = NotificationIngressParser.NotificationTextLocalizer.fromContext(context),
                 )?.withProviderAckIdentity(pageIdentity)
                 if (parsed == null) {
-                    val discardedIdentity = ProviderAckIdentity.create(
-                        destination = destination,
-                        contract = ProviderAckContract.V2_BATCH,
-                        source = "provider_pull_discarded",
-                    ) ?: error("provider pull page has invalid discarded ACK destination")
-                    inboundDeliveryLedgerRepository.enqueueAcks(
-                        deliveryIds = listOf(item.deliveryId),
-                        identity = discardedIdentity,
-                    )
+                    pageHadPersistenceFailure = true
+                    // Only an independently malformed ordinary item has no parent
+                    // business boundary. Its original server delivery remains unACKed.
+                    val ordinary = authoritativePayload["entity_type"].orEmpty().lowercase() in setOf("", "message") &&
+                        authoritativePayload["thing_id"].isNullOrBlank() && authoritativePayload["event_id"].isNullOrBlank()
+                    if (!ordinary) { pageHadHardFailure = true; break }
                     continue
                 }
                 val outcome = InboundPersistenceCoordinator.persistAndNotify(
@@ -144,6 +160,7 @@ object ProviderIngressCoordinator {
                     pagePersisted += 1
                 } else {
                     pageHadPersistenceFailure = true
+                    pageHadHardFailure = true
                 }
                 if (outcome.shouldAck) {
                     inboundDeliveryLedgerRepository.enqueueAcks(
@@ -151,20 +168,21 @@ object ProviderIngressCoordinator {
                         identity = pageIdentity,
                     )
                 }
+                if (pageHadHardFailure) break
             }
 
-            drainPendingAcksNow(
-                channelRepository = channelRepository,
-                inboundDeliveryLedgerRepository = inboundDeliveryLedgerRepository,
-                destination = destination,
-            )
             ProviderPullPageProcessResult(
                 persistedCount = pagePersisted,
                 hadPersistenceFailure = pageHadPersistenceFailure,
+                hadHardFailure = pageHadHardFailure,
             ).also { result ->
                 hadPersistenceFailure = hadPersistenceFailure || result.hadPersistenceFailure
             }
         }
+        if (deliveryId.isNullOrBlank() && channelRepository.hasPullContinuation()) {
+            pullContext?.let(channelRepository::schedulePullContinuation)
+        }
+        ackFailure?.let { throw it }
         if (hadPersistenceFailure) {
             throw InboundMessageProcessor.InboundRetryableException(
                 "provider Pull retained at least one item after local persistence failure"
@@ -290,6 +308,7 @@ object ProviderIngressCoordinator {
         channelRepository: ChannelSubscriptionRepository,
         inboundDeliveryLedgerRepository: InboundDeliveryLedgerRepository,
         destination: ProviderAckDestination,
+        pullContext: ProviderPullContext? = null,
     ) {
         repeat(MAX_ACK_BATCHES_PER_PULL_PAGE) {
             val result = ProviderAckDrainCoordinator.drainPendingAcks(
@@ -301,7 +320,10 @@ object ProviderIngressCoordinator {
                     )
                 },
                 beginAttempt = inboundDeliveryLedgerRepository::beginAckAttempt,
-                ackMessages = channelRepository::ackMessages,
+                ackMessages = { target, contract, ids ->
+                    if (pullContext == null) channelRepository.ackMessages(target, contract, ids)
+                    else channelRepository.ackMessagesForPull(pullContext, target, contract, ids)
+                },
                 markAcked = inboundDeliveryLedgerRepository::markAckRecordsAcked,
             )
             if (result.hasFailures) {
@@ -364,27 +386,45 @@ private fun LegacyProviderIngressEntity.payloadMap(): Map<String, String> {
 internal data class ProviderPullPageProcessResult(
     val persistedCount: Int,
     val hadPersistenceFailure: Boolean,
+    val hadAckFailure: Boolean = false,
+    val hadHardFailure: Boolean = false,
 )
 
 internal suspend fun consumeProviderPullPages(
     requestedDeliveryId: String?,
     pullPage: suspend () -> ProviderPullPage,
+    checkpointPage: suspend (ProviderPullPage) -> Unit = {},
+    afterCheckpointPage: suspend (ProviderPullPage) -> Boolean = { false },
     processPage: suspend (ProviderPullPage) -> ProviderPullPageProcessResult,
 ): Int {
     var totalPersisted = 0
     var pageCount = 0
     var nextPage = true
+    var progressPages = 0
+    val started = System.nanoTime()
     while (nextPage) {
         pageCount += 1
         check(pageCount <= MAX_PROVIDER_PULL_PAGES_PER_RUN) {
             "provider pull exceeded $MAX_PROVIDER_PULL_PAGES_PER_RUN pages"
         }
-        val page = pullPage()
+        val page = try { pullPage() } catch (_: ProviderPullTurnEnded) { break }
         val result = processPage(page)
         totalPersisted += result.persistedCount
-        nextPage = page.hasMore &&
-            requestedDeliveryId.isNullOrBlank() &&
-            !result.hadPersistenceFailure
+        if (!result.hadHardFailure) {
+            try { checkpointPage(page) } catch (_: ProviderPullTurnEnded) {
+                afterCheckpointPage(page) // already durable ACKs still use the frozen page context
+                break
+            }
+        }
+        val ackFailed = afterCheckpointPage(page) || result.hadAckFailure
+        if (result.hadHardFailure) break
+        nextPage = if (!requestedDeliveryId.isNullOrBlank()) false else if (page.scanComplete != null) {
+            progressPages++
+            // Check only between pages. Existing HTTP/DB deadlines still govern an
+            // individual page; this is not a claim of a five-second hard request cap.
+            !page.scanComplete && progressPages < MAX_PROGRESS_PULL_PAGES_PER_TURN &&
+                System.nanoTime() - started < PROGRESS_PULL_TURN_NANOS
+        } else page.hasMore && !result.hadPersistenceFailure && !ackFailed
     }
     return totalPersisted
 }
@@ -420,3 +460,5 @@ internal fun InboundPersistenceOutcome.isCanonicalPersistenceComplete(): Boolean
     status != InboundPersistenceStatus.FAILED && status != InboundPersistenceStatus.REJECTED
 
 private const val MAX_PROVIDER_PULL_PAGES_PER_RUN = 1_000
+private const val MAX_PROGRESS_PULL_PAGES_PER_TURN = 4
+private const val PROGRESS_PULL_TURN_NANOS = 5_000_000_000L

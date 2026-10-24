@@ -36,8 +36,9 @@ import java.io.File
         AppSettingsEntity::class,
         PendingLocalDeletionEntity::class,
         DeletionNotificationCleanupEntity::class,
+        ProviderPullFrontierEntity::class,
     ],
-    version = 37,
+    version = 38,
     exportSchema = true,
 )
 abstract class PushGoDatabase : RoomDatabase() {
@@ -63,6 +64,7 @@ abstract class PushGoDatabase : RoomDatabase() {
     abstract fun appSettingsDao(): AppSettingsDao
     abstract fun pendingLocalDeletionDao(): PendingLocalDeletionDao
     abstract fun deletionNotificationCleanupDao(): DeletionNotificationCleanupDao
+    abstract fun providerPullFrontierDao(): ProviderPullFrontierDao
 
     companion object {
         private const val TAG = "PushGoDatabase"
@@ -375,6 +377,17 @@ abstract class PushGoDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_37_38 = object : Migration(37, 38) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                // Runtime-only indexes are restored by the unchanged onOpen callback
+                // after Room validates the migrated schema.
+                db.execSQL("DROP INDEX IF EXISTS index_messages_read_received_id")
+                db.execSQL("DROP INDEX IF EXISTS index_messages_channel_key_read_received_id")
+                db.execSQL("DROP INDEX IF EXISTS index_messages_channel_key_received_id")
+                db.execSQL("CREATE TABLE IF NOT EXISTS provider_pull_frontier (id INTEGER NOT NULL, scope_key TEXT NOT NULL, request_generation TEXT NOT NULL, page_token TEXT, PRIMARY KEY(id))")
+            }
+        }
+
         private val MIGRATION_36_37 = object : Migration(36, 37) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 // These non-unique runtime indexes are not part of Room's declared
@@ -558,6 +571,7 @@ abstract class PushGoDatabase : RoomDatabase() {
                     MIGRATION_34_35,
                     MIGRATION_35_36,
                     MIGRATION_36_37,
+                    MIGRATION_37_38,
                 )
                 .setJournalMode(RoomDatabase.JournalMode.WRITE_AHEAD_LOGGING)
                 .addCallback(object : RoomDatabase.Callback() {
