@@ -19,6 +19,7 @@ import org.json.JSONObject
         Index(value = ["event_id", "event_time_epoch"]),
         Index(value = ["channel"]),
         Index(value = ["received_at"]),
+        Index(value = ["post_process_pending"]),
     ],
 )
 data class EventChangeLogEntity(
@@ -46,6 +47,8 @@ data class EventChangeLogEntity(
     val eventState: String?,
     @ColumnInfo(name = "event_time_epoch")
     val eventTimeEpoch: Long?,
+    @ColumnInfo(name = "post_process_pending", defaultValue = "0")
+    val postProcessPending: Int = 0,
 ) {
     fun asModel(): PushMessage = asModelInternal(
         id = id,
@@ -90,6 +93,7 @@ data class EventChangeLogEntity(
         Index(value = ["thing_id", "observed_time_epoch", "event_time_epoch"]),
         Index(value = ["channel"]),
         Index(value = ["received_at"]),
+        Index(value = ["post_process_pending"]),
     ],
 )
 data class ThingChangeLogEntity(
@@ -119,6 +123,8 @@ data class ThingChangeLogEntity(
     val eventTimeEpoch: Long?,
     @ColumnInfo(name = "observed_time_epoch")
     val observedTimeEpoch: Long?,
+    @ColumnInfo(name = "post_process_pending", defaultValue = "0")
+    val postProcessPending: Int = 0,
 ) {
     fun asModel(): PushMessage = asModelInternal(
         id = id,
@@ -166,6 +172,7 @@ data class ThingChangeLogEntity(
         Index(value = ["event_id", "activated", "event_time_epoch"]),
         Index(value = ["channel", "activated"]),
         Index(value = ["activated", "received_at"]),
+        Index(value = ["post_process_pending"]),
     ],
 )
 data class ThingSubEventEntity(
@@ -196,6 +203,8 @@ data class ThingSubEventEntity(
     // The old tables could each hold this ID. Keep both lifecycle slots until activation.
     @ColumnInfo(defaultValue = "1")
     val activated: Boolean = true,
+    @ColumnInfo(name = "post_process_pending", defaultValue = "0")
+    val postProcessPending: Int = 0,
 ) {
     fun isNewerThan(current: ThingSubEventEntity): Boolean {
         if (receivedAt != current.receivedAt) return receivedAt > current.receivedAt
@@ -520,6 +529,7 @@ data class ThingHeadEntity(
         Index(value = ["thing_id", "occurred_at_epoch", "event_time_epoch"]),
         Index(value = ["channel"]),
         Index(value = ["received_at"]),
+        Index(value = ["post_process_pending"]),
     ],
 )
 data class ThingSubMessageEntity(
@@ -557,6 +567,8 @@ data class ThingSubMessageEntity(
     val eventTimeEpoch: Long?,
     @ColumnInfo(name = "occurred_at_epoch")
     val occurredAtEpoch: Long?,
+    @ColumnInfo(name = "post_process_pending", defaultValue = "0")
+    val postProcessPending: Int = 0,
 ) {
     fun asModel(): PushMessage {
         val statusValue = runCatching { MessageStatus.valueOf(status) }.getOrNull() ?: MessageStatus.NORMAL

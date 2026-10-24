@@ -974,13 +974,7 @@ class PrivateChannelClient(
             settingsRepository = settingsRepository,
             inbound = parsed,
             deliveryScope = deliveryScope,
-        ) { message, imageUrl ->
-            enqueueMessagePostProcess(
-                context = appContext,
-                messageId = message.id,
-                imageUrl = imageUrl,
-            )
-        }
+        )
         if (outcome.status == InboundPersistenceStatus.FAILED) {
             throw InboundMessageProcessor.InboundRetryableException("private canonical persistence incomplete")
         }

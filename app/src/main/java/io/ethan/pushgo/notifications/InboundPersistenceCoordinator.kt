@@ -2,13 +2,6 @@ package io.ethan.pushgo.notifications
 
 import android.content.Context
 import android.util.Log
-import androidx.work.BackoffPolicy
-import androidx.work.Constraints
-import androidx.work.ExistingWorkPolicy
-import androidx.work.NetworkType
-import androidx.work.OneTimeWorkRequestBuilder
-import androidx.work.WorkManager
-import androidx.work.workDataOf
 import io.ethan.pushgo.automation.PushGoAutomation
 import io.ethan.pushgo.data.EntityRepository
 import io.ethan.pushgo.data.InboundDeliveryScope
@@ -24,48 +17,16 @@ import io.ethan.pushgo.data.inboundDeliveryScope
 import io.ethan.pushgo.data.model.DecryptionState
 import io.ethan.pushgo.data.model.MessageSeverity
 import io.ethan.pushgo.data.model.PushMessage
-import java.util.concurrent.TimeUnit
-
-internal data class MessagePostProcessHandoff(
-    val uniqueWorkName: String,
-    val messageId: String,
-    val imageUrl: String?,
-)
-
-internal fun messagePostProcessHandoff(
-    messageId: String,
-    imageUrl: String?,
-): MessagePostProcessHandoff = MessagePostProcessHandoff(
-    uniqueWorkName = "message-post-process:$messageId",
-    messageId = messageId,
-    imageUrl = imageUrl,
-)
-
-internal fun enqueueMessagePostProcess(
-    context: Context,
-    messageId: String,
-    imageUrl: String?,
-) {
-    val handoff = messagePostProcessHandoff(messageId, imageUrl)
-    val input = workDataOf(
-        MessagePostProcessWorker.KEY_MESSAGE_ID to handoff.messageId,
-        MessagePostProcessWorker.KEY_IMAGE_URL to handoff.imageUrl,
-    )
-    val request = OneTimeWorkRequestBuilder<MessagePostProcessWorker>()
-        .setInputData(input)
-        .setConstraints(
-            Constraints.Builder()
-                .setRequiredNetworkType(NetworkType.CONNECTED)
-                .build()
-        )
-        .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 10, TimeUnit.SECONDS)
-        .build()
-    WorkManager.getInstance(context.applicationContext).enqueueUniqueWork(
-        handoff.uniqueWorkName,
-        ExistingWorkPolicy.KEEP,
-        request,
-    )
-}
+import kotlinx.coroutines.CancellationException
+import io.ethan.pushgo.data.POST_PROCESS_MEDIA
+import io.ethan.pushgo.data.POST_PROCESS_NOTIFICATION
+import io.ethan.pushgo.data.finishPostProcessIfCurrent
+import io.ethan.pushgo.data.markPostProcessPending
+import io.ethan.pushgo.data.postProcessLocator
+import io.ethan.pushgo.data.scopedDeliveryStorageKey
+import io.ethan.pushgo.data.db.EventChangeLogEntity
+import io.ethan.pushgo.data.db.ThingChangeLogEntity
+import io.ethan.pushgo.data.db.ThingSubEventEntity
 
 sealed interface InboundPersistenceRequest {
     data class Message(
@@ -128,6 +89,8 @@ object InboundPersistenceCoordinator {
         settingsRepository: SettingsRepository,
         inbound: InboundPersistenceRequest,
         deliveryScope: InboundDeliveryScope? = null,
+        postProcessRecovery: ((String) -> Unit)? = null,
+        notificationPublisher: (Context, InboundPersistenceRequest, Boolean) -> Boolean = ::publishInboundNotification,
         beforeMessageNotify: suspend (PushMessage, String?) -> Unit = { _, _ -> },
     ): InboundPersistenceOutcome {
         // Synchronously determine the target before registration; all production ingress paths
@@ -142,13 +105,41 @@ object InboundPersistenceCoordinator {
             is InboundPersistenceRequest.Entity -> inbound.record.channel
         }
         val thingWriteTicket = entityRepository.beginThingWrite(thingId, channel)
+        var canonicalMessageId: String? = null
         return try {
             persistRegisteredAndNotify(
                 context, messageRepository, entityRepository, inboundDeliveryLedgerRepository,
-                settingsRepository, inbound, deliveryScope, thingWriteTicket, beforeMessageNotify,
+                settingsRepository, inbound, deliveryScope, thingWriteTicket, notificationPublisher,
+                beforeMessageNotify = { message, imageUrl ->
+                    canonicalMessageId = message.id
+                    beforeMessageNotify(message, imageUrl)
+                },
             )
         } finally {
             thingWriteTicket?.close()
+            try {
+                    val locator = when (inbound) {
+                        is InboundPersistenceRequest.Message -> messageRepository.postProcessLocator(
+                            canonicalMessageId ?: inbound.message.id,
+                            deliveryScope ?: inbound.providerAckIdentity.inboundDeliveryScope(),
+                        )
+                        is InboundPersistenceRequest.Entity -> {
+                            val scope = deliveryScope ?: inbound.providerAckIdentity.inboundDeliveryScope()
+                            val (table, id) = entityPostProcessIdentity(inbound.record, scope)
+                            messageRepository.postProcessDatabase.postProcessLocator(table, id)
+                        }
+                    }
+                    // Empty/completed ingress does not register a worker or scan history.
+                    if (locator != null) {
+                        if (postProcessRecovery != null) postProcessRecovery(locator.generation)
+                        else MessagePostProcessWorker.enqueueLocator(context.applicationContext, locator)
+                    }
+            } catch (error: Exception) {
+                if (error is CancellationException) throw error
+                // The canonical pending bits survive a scheduler failure and the existing
+                // startup/cleanup worker will retry registration. No payload/URL is logged.
+                io.ethan.pushgo.util.SilentSink.w(TAG, "post-process recovery scheduling failed type=${error.javaClass.simpleName}")
+            }
         }
     }
 
@@ -162,6 +153,7 @@ object InboundPersistenceCoordinator {
         inbound: InboundPersistenceRequest,
         deliveryScope: InboundDeliveryScope?,
         thingWriteTicket: ThingWriteTicket?,
+        notificationPublisher: (Context, InboundPersistenceRequest, Boolean) -> Boolean = ::publishInboundNotification,
         beforeMessageNotify: suspend (PushMessage, String?) -> Unit = { _, _ -> },
     ): InboundPersistenceOutcome {
         return when (inbound) {
@@ -174,6 +166,7 @@ object InboundPersistenceCoordinator {
                 deliveryScope = deliveryScope ?: inbound.providerAckIdentity.inboundDeliveryScope(),
                 beforeMessageNotify = beforeMessageNotify,
                 thingWriteTicket = thingWriteTicket,
+                notificationPublisher = notificationPublisher,
             )
 
             is InboundPersistenceRequest.Entity -> persistEntity(
@@ -185,6 +178,7 @@ object InboundPersistenceCoordinator {
                 inbound = inbound,
                 deliveryScope = deliveryScope ?: inbound.providerAckIdentity.inboundDeliveryScope(),
                 thingWriteTicket = thingWriteTicket,
+                notificationPublisher = notificationPublisher,
             )
         }
     }
@@ -198,6 +192,7 @@ object InboundPersistenceCoordinator {
         deliveryScope: InboundDeliveryScope?,
         beforeMessageNotify: suspend (PushMessage, String?) -> Unit,
         thingWriteTicket: ThingWriteTicket?,
+        notificationPublisher: (Context, InboundPersistenceRequest, Boolean) -> Boolean,
     ): InboundPersistenceOutcome {
         val allowsSuccessfulAck = inbound.securityDisposition.allowsSuccessfulAck
         val providerAckIdentity = inbound.providerAckIdentity.takeIf { allowsSuccessfulAck }
@@ -226,9 +221,13 @@ object InboundPersistenceCoordinator {
                 deliveryScope = effectiveDeliveryScope,
                 claimIngressIdentity = allowsSuccessfulAck,
                 thingWriteTicket = thingWriteTicket,
+                postProcessFlags = (if (inbound.imageUrl != null) POST_PROCESS_MEDIA else 0) or
+                    (if (inbound.shouldNotify && inbound.securityDisposition.allowsNotification) POST_PROCESS_NOTIFICATION else 0),
+                beforeAcceptanceCommit = { settingsRepository.reenableInboundPageInTransaction("message") },
             )
         }
             .onFailure { error ->
+                if (error is CancellationException) throw error
                 if (error is ThingWriteInvalidatedException) {
                     io.ethan.pushgo.util.SilentSink.i(TAG, "Thing deletion cancelled old message persistence; no ACK")
                     return@onFailure
@@ -248,7 +247,7 @@ object InboundPersistenceCoordinator {
                 shouldAck = false,
             )
         }
-        settingsRepository.reenablePageForEntity("message")
+        refreshPageCacheAfterCommit(settingsRepository)
         if (!inserted) {
             val pending = messageRepository.wouldPersistAsPending(inbound.message)
             val shouldAck = allowsSuccessfulAck &&
@@ -295,22 +294,9 @@ object InboundPersistenceCoordinator {
                     )
                 }
                 // Resolve media from the canonical payload too; a replay payload may differ.
-                beforeMessageNotify(canonicalMessage, null)
-                if (
-                    inbound.shouldNotify && inbound.securityDisposition.allowsNotification &&
-                    messageRepository.publishNotificationIfCurrent(canonicalMessage) {
-                        NotificationHelper.showMessageReplayNotificationSilently(
-                            context = context,
-                            message = canonicalMessage,
-                            level = canonicalNotificationLevel(canonicalMessage, inbound.level),
-                        )
-                    } == false
-                ) {
-                    return InboundPersistenceOutcome(
-                        status = InboundPersistenceStatus.FAILED,
-                        notified = false,
-                        shouldAck = false,
-                    )
+                handOffMessagePostProcess(beforeMessageNotify, canonicalMessage, null)
+                if (inbound.shouldNotify && inbound.securityDisposition.allowsNotification) {
+                    publishMessageAfterCommit(context, messageRepository, inbound.copy(message = canonicalMessage), true, notificationPublisher)
                 }
             }
             return InboundPersistenceOutcome(
@@ -324,7 +310,7 @@ object InboundPersistenceCoordinator {
             )
         }
 
-        beforeMessageNotify(inbound.message, inbound.imageUrl)
+        handOffMessagePostProcess(beforeMessageNotify, inbound.message, inbound.imageUrl)
         if (!inbound.shouldNotify || !inbound.securityDisposition.allowsNotification) {
             return InboundPersistenceOutcome(
                 status = InboundPersistenceStatus.PERSISTED_MAIN,
@@ -337,20 +323,7 @@ object InboundPersistenceCoordinator {
             )
         }
 
-        val published = messageRepository.publishNotificationIfCurrent(inbound.message) {
-            NotificationHelper.showMessageNotification(
-                context = context,
-                message = inbound.message,
-                level = inbound.level,
-            )
-        }
-        if (published == false) {
-            return InboundPersistenceOutcome(
-                status = InboundPersistenceStatus.FAILED,
-                notified = false,
-                shouldAck = false,
-            )
-        }
+        val published = publishMessageAfterCommit(context, messageRepository, inbound, false, notificationPublisher)
         return InboundPersistenceOutcome(
             status = InboundPersistenceStatus.PERSISTED_MAIN,
             notified = published == true,
@@ -371,6 +344,7 @@ object InboundPersistenceCoordinator {
         inbound: InboundPersistenceRequest.Entity,
         deliveryScope: InboundDeliveryScope?,
         thingWriteTicket: ThingWriteTicket?,
+        notificationPublisher: (Context, InboundPersistenceRequest, Boolean) -> Boolean,
     ): InboundPersistenceOutcome {
         if (!shouldPersistEntityProjection(inbound)) {
             return InboundPersistenceOutcome(
@@ -417,9 +391,12 @@ object InboundPersistenceCoordinator {
                 providerAckIdentity,
                 effectiveDeliveryScope,
                 thingWriteTicket,
+                postProcessFlags = if (resolvedInbound.shouldNotify && resolvedInbound.securityDisposition.allowsNotification) POST_PROCESS_NOTIFICATION else 0,
+                beforeAcceptanceCommit = { settingsRepository.reenableInboundPageInTransaction(resolvedInbound.record.entityType) },
             )
         }
             .onFailure { error ->
+                if (error is CancellationException) throw error
                 if (error is ThingWriteInvalidatedException) {
                     io.ethan.pushgo.util.SilentSink.i(TAG, "Thing deletion cancelled old entity persistence; no ACK")
                     return@onFailure
@@ -447,7 +424,7 @@ object InboundPersistenceCoordinator {
             entityRepository = entityRepository,
             inbound = resolvedInbound,
         )
-        settingsRepository.reenablePageForEntity(displayInbound.record.entityType)
+        refreshPageCacheAfterCommit(settingsRepository)
         if (!inserted) {
             val pending = entityRepository.wouldPersistAsPending(displayInbound.record)
             val shouldAck = allowsSuccessfulAck &&
@@ -459,16 +436,8 @@ object InboundPersistenceCoordinator {
                 shouldAck && !pending && displayInbound.shouldNotify &&
                 displayInbound.securityDisposition.allowsNotification
             ) {
-                if (entityRepository.publishNotificationIfCurrent(
-                        resolvedInbound.record, effectiveDeliveryScope, replay = true,
-                    ) { showEntityReplayNotificationSilently(context, displayInbound) } == false
-                ) {
-                    return InboundPersistenceOutcome(
-                        status = InboundPersistenceStatus.FAILED,
-                        notified = false,
-                        shouldAck = false,
-                    )
-                }
+                publishEntityAfterCommit(context, messageRepository, entityRepository, displayInbound,
+                    effectiveDeliveryScope, true, notificationPublisher)
             }
             if (shouldAck && !pending && displayInbound.record.entityType == "thing") {
                 if (!replayPendingThingChildren(
@@ -505,16 +474,8 @@ object InboundPersistenceCoordinator {
             )
         }
 
-        val published = entityRepository.publishNotificationIfCurrent(
-            resolvedInbound.record, effectiveDeliveryScope, replay = false,
-        ) { showEntityNotification(context, displayInbound) }
-        if (published == false) {
-            return InboundPersistenceOutcome(
-                status = InboundPersistenceStatus.FAILED,
-                notified = false,
-                shouldAck = false,
-            )
-        }
+        val published = publishEntityAfterCommit(context, messageRepository, entityRepository, displayInbound,
+            effectiveDeliveryScope, false, notificationPublisher)
         if (displayInbound.record.entityType == "thing") {
             if (!replayPendingThingChildren(messageRepository, entityRepository, displayInbound, thingWriteTicket)) {
                 return lifecycleChangedOutcome()
@@ -530,6 +491,90 @@ object InboundPersistenceCoordinator {
                 ),
         )
     }
+
+    private suspend fun handOffMessagePostProcess(
+        handoff: suspend (PushMessage, String?) -> Unit,
+        message: PushMessage,
+        imageUrl: String?,
+    ) {
+        try { handoff(message, imageUrl) } catch (error: Exception) {
+            if (error is CancellationException) throw error
+            io.ethan.pushgo.util.SilentSink.w(TAG, "media scheduling deferred type=${error.javaClass.simpleName}")
+        }
+    }
+
+    private suspend fun refreshPageCacheAfterCommit(settings: SettingsRepository) {
+        try { settings.refreshInboundPageCacheAfterCommit() }
+        catch (error: Exception) {
+            if (error is CancellationException) throw error
+            // The canonical Room row and its page visibility are already committed;
+            // a preferences projection can be repaired by the next normal read.
+            io.ethan.pushgo.util.SilentSink.w(TAG, "page cache refresh deferred type=${error.javaClass.simpleName}")
+        }
+    }
+
+    private suspend fun publishMessageAfterCommit(
+        context: Context,
+        repository: MessageRepository,
+        inbound: InboundPersistenceRequest.Message,
+        replay: Boolean,
+        publisher: (Context, InboundPersistenceRequest, Boolean) -> Boolean,
+    ): Boolean {
+        val db = repository.postProcessDatabase
+        if (replay) repository.publishNotificationIfCurrent(inbound.message) {
+            val table = if (inbound.message.thingId.isNullOrBlank()) "messages" else "thing_sub_messages"
+            db.markPostProcessPending(table, inbound.message.id, POST_PROCESS_NOTIFICATION)
+            true
+        }
+        val locator = repository.postProcessLocator(inbound.message.id) ?: return false
+        val published = try {
+            db.finishPostProcessIfCurrent(locator, POST_PROCESS_NOTIFICATION) { snapshot ->
+                publisher(context, inbound.copy(message = snapshot.message,
+                    level = canonicalNotificationLevel(snapshot.message, inbound.level)), replay)
+            }
+        } catch (error: Exception) {
+            if (error is CancellationException) throw error
+            io.ethan.pushgo.util.SilentSink.w(TAG, "notification deferred type=${error.javaClass.simpleName}")
+            false
+        }
+        return published
+    }
+
+    private suspend fun publishEntityAfterCommit(
+        context: Context,
+        repository: MessageRepository,
+        entities: EntityRepository,
+        inbound: InboundPersistenceRequest.Entity,
+        scope: InboundDeliveryScope?,
+        replay: Boolean,
+        publisher: (Context, InboundPersistenceRequest, Boolean) -> Boolean,
+    ): Boolean {
+        val record = inbound.record
+        val (table, id) = entityPostProcessIdentity(record, scope)
+        val db = repository.postProcessDatabase
+        if (replay) entities.publishNotificationIfCurrent(record, scope, true) {
+            db.markPostProcessPending(table, id, POST_PROCESS_NOTIFICATION)
+            true
+        }
+        val locator = db.postProcessLocator(table, id) ?: return false
+        val published = try { db.finishPostProcessIfCurrent(locator, POST_PROCESS_NOTIFICATION) { publisher(context, inbound, replay) } }
+        catch (error: Exception) {
+            if (error is CancellationException) throw error
+            io.ethan.pushgo.util.SilentSink.w(TAG, "notification deferred type=${error.javaClass.simpleName}")
+            false
+        }
+        return published
+    }
+
+    private fun entityPostProcessIdentity(record: IncomingEntityRecord, scope: InboundDeliveryScope?): Pair<String, String> {
+        val scoped = record.copy(localDeliveryKey = record.deliveryId?.trim()?.takeIf(String::isNotEmpty)?.let { scope.scopedDeliveryStorageKey(it) })
+        return when {
+            record.entityType == "thing" -> "thing_change_logs" to ThingChangeLogEntity.fromIncoming(scoped).id
+            record.thingId.isNullOrBlank() -> "event_change_logs" to EventChangeLogEntity.fromIncoming(scoped).id
+            else -> "thing_sub_events" to ThingSubEventEntity.fromIncoming(scoped).id
+        }
+    }
+
 
     private fun showEntityNotification(
         context: Context,
@@ -638,4 +683,15 @@ internal suspend fun resolveCanonicalMessageForReplay(
 ): PushMessage? {
     val stableMessageId = replay.messageId?.trim()?.takeIf { it.isNotEmpty() } ?: return null
     return loadByMessageId(stableMessageId)
+}
+
+internal fun publishInboundNotification(context: Context, inbound: InboundPersistenceRequest, replay: Boolean): Boolean = when (inbound) {
+    is InboundPersistenceRequest.Message -> if (replay) NotificationHelper.showMessageReplayNotificationSilently(context, inbound.message, inbound.level)
+        else NotificationHelper.showMessageNotification(context, inbound.message, inbound.level)
+    is InboundPersistenceRequest.Entity -> if (replay) NotificationHelper.showEntityReplayNotificationSilently(context,
+        inbound.record.entityType, inbound.record.entityId, inbound.record.channel, inbound.record.eventId, inbound.record.thingId,
+        inbound.notificationTitle, inbound.notificationBody, inbound.level)
+        else NotificationHelper.showEntityNotification(context,
+            inbound.record.entityType, inbound.record.entityId, inbound.record.channel, inbound.record.eventId, inbound.record.thingId,
+            inbound.notificationTitle, inbound.notificationBody, inbound.level)
 }

@@ -10,6 +10,7 @@ import io.ethan.pushgo.notifications.MessageStateCoordinator
 import io.ethan.pushgo.notifications.ProviderIngressCoordinator
 import java.net.ServerSocket
 import java.net.SocketException
+import java.net.URL
 import java.util.Collections
 import java.util.concurrent.atomic.AtomicReference
 import kotlin.concurrent.thread
@@ -188,6 +189,78 @@ class ProviderV2PullOnlyDeviceTest {
         }
         assertEquals(listOf("https://old-gateway.example", "old-device", "acked"), migratedScope)
         gateway.assertHealthy()
+    }
+
+    /** Explicit opt-in composition with the normal Gateway binary; no replacement service. */
+    internal suspend fun verifyNormalGateway(contextData: JSONObject): JSONObject {
+        check(contextData.getBoolean("synthetic_only") && contextData.getBoolean("normal_product"))
+        val origin = contextData.getString("base_url")
+        check(origin.startsWith("http://127.0.0.1:"))
+        settings.setServerAddress(origin)
+        settings.setDeviceKey(contextData.getString("device_key"))
+        settings.setGatewayToken(contextData.getString("token"))
+        settings.setGatewayAckToken(origin, contextData.getString("token"))
+        settings.setUseFcmChannel(false)
+        val submitted = JSONArray()
+        val payloads = mutableListOf<JSONObject>()
+        for ((index, size) in listOf(0 to 0, 1 to 49_152)) {
+            val value = JSONObject().put("channel_id", contextData.getString("channel_id"))
+                .put("password", contextData.getString("channel_password"))
+                .put("op_id", java.util.UUID.randomUUID().toString()).put("title", "synthetic-android-$index")
+                .put("body", "retained-body-$index").put("ttl", System.currentTimeMillis()+3_600_000L)
+            if (size > 0) {
+                value.put("images", JSONArray().put("https://synthetic-resource.invalid/image.png"))
+                val current = value.toString().toByteArray(Charsets.UTF_8).size
+                value.put("body", value.getString("body")+"x".repeat(size-current))
+                assertEquals(size, value.toString().toByteArray(Charsets.UTF_8).size)
+            }
+            val accepted = actualGatewayPost(origin+"/message", contextData.getString("token"), value)
+            assertTrue(accepted.getBoolean("success"))
+            payloads += value
+            submitted.put(JSONObject().put("op_id", value.getString("op_id"))
+                .put("message_id", accepted.getJSONObject("data").getString("message_id"))
+                .put("request_bytes", value.toString().toByteArray(Charsets.UTF_8).size))
+        }
+        // A genuine scheduling exception occurs after the repository commit. The real
+        // V2 HTTP ACK must still settle; canonical pending bits retain optional recovery.
+        assertEquals(2, pull { error("synthetic optional scheduling failure") })
+        assertEquals(2, sqlCount("messages"))
+        assertEquals(0, sqlCount("inbound_delivery_ack_outbox"))
+        assertEquals(2, sqlCount("inbound_delivery_ledger", "ack_state='acked'"))
+        val rows = db.messageDao().getByMessageIds((0 until submitted.length()).map { submitted.getJSONObject(it).getString("message_id") })
+        val expectedBodies = payloads.indices.associate { index -> submitted.getJSONObject(index).getString("message_id") to payloads[index].getString("body") }
+        for (row in rows) assertEquals(expectedBodies[row.messageId], row.body)
+        assertTrue(rows.any { JSONObject(it.rawPayloadJson).optString("images").contains("synthetic-resource.invalid") })
+        db.close(); open()
+        assertEquals(2, sqlCount("messages"))
+        assertTrue(ledger.loadPendingAcks().isEmpty())
+        for (index in payloads.indices) {
+            val replay = actualGatewayPost(origin+"/message", contextData.getString("token"), payloads[index])
+            assertEquals(submitted.getJSONObject(index).getString("message_id"), replay.getJSONObject("data").getString("message_id"))
+        }
+        assertEquals(0, pull())
+        assertEquals(2, sqlCount("messages"))
+        return JSONObject().put("kind", "normal-Gateway-to-production-Android-ProviderIngress-Room-HTTP-ACK")
+            .put("submitted", submitted).put("canonical_rows", 2).put("acked_ledger", 2).put("pending_ack", 0)
+            .put("limits", "API37 Debug production modules under instrumentation, HTTP adb reverse loopback; not normal Release/TLS/Private wire or OS FCM proof; body release separately reconciled by Gateway owner")
+    }
+
+    private fun actualGatewayPost(endpoint: String, access: String, value: JSONObject): JSONObject {
+        val connection = URL(endpoint).openConnection() as java.net.HttpURLConnection
+        return try {
+            connection.requestMethod = "POST"; connection.connectTimeout=5_000; connection.readTimeout=10_000
+            connection.setRequestProperty("Authorization", "Bearer "+access)
+            connection.setRequestProperty("Content-Type", "application/json")
+            connection.doOutput=true
+            connection.outputStream.use { it.write(value.toString().toByteArray(Charsets.UTF_8)) }
+            val code = connection.responseCode
+            val errorCode = if (code == 200) "" else runCatching {
+                val error = JSONObject(connection.errorStream.bufferedReader().use { it.readText() })
+                error.optString("error_code").ifBlank { error.optJSONObject("problem")?.optString("code").orEmpty() }
+            }.getOrDefault("unparseable_error")
+            assertEquals("normal Gateway accept must commit error_code=$errorCode", 200, code)
+            JSONObject(connection.inputStream.bufferedReader().use { it.readText() })
+        } finally { connection.disconnect() }
     }
 
     private suspend fun pull(beforeNotify: suspend () -> Unit = {}): Int =

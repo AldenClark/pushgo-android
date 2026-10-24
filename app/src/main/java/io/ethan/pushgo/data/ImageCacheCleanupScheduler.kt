@@ -55,6 +55,9 @@ object ImageCacheCleanupScheduler {
                 return Result.success()
             }
             MessageImageStore.shared(applicationContext).purgeExpired()
+            // Reuse the existing startup/periodic entry. Pending canonical bits, not
+            // an in-memory notification map or HTTP cache, survive a failed handoff.
+            io.ethan.pushgo.notifications.MessagePostProcessWorker.enqueueRecovery(applicationContext)
             return Result.success()
         }
     }

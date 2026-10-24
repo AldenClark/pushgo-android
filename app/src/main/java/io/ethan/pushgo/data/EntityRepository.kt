@@ -363,6 +363,8 @@ class EntityRepository(
         providerAckIdentity: ProviderAckIdentity? = null,
         deliveryScope: InboundDeliveryScope? = providerAckIdentity.inboundDeliveryScope(),
         thingWriteTicket: ThingWriteTicket? = null,
+        postProcessFlags: Int = 0,
+        beforeAcceptanceCommit: (suspend () -> Unit)? = null,
     ): Boolean {
         val scopedEntity = entity.copy(
             localDeliveryKey = entity.deliveryId
@@ -373,6 +375,7 @@ class EntityRepository(
         val entityType = scopedEntity.entityType.trim().lowercase()
         return database.withTransaction {
             thingWriteTicket?.requireCurrent()
+            beforeAcceptanceCommit?.invoke()
             val inserted = when (entityType) {
                 "event", "thing" -> {
                     val deliveryClaimed = io.ethan.pushgo.data.claimInboundDelivery(
@@ -413,6 +416,12 @@ class EntityRepository(
             if (inserted) {
                 val ownerId = scopedEntity.localDeliveryKey ?: scopedEntity.deliveryId ?: "${scopedEntity.entityId}:${scopedEntity.receivedAt.toEpochMilli()}"
                 database.recordResourceOrigin(ownerId, scopedEntity.receivedAt.toEpochMilli(), deliveryScope)
+                val table = when {
+                    entityType == "thing" -> "thing_change_logs"
+                    scopedEntity.thingId.isNullOrBlank() -> "event_change_logs"
+                    else -> "thing_sub_events"
+                }
+                database.markPostProcessPending(table, ownerId, postProcessFlags)
             }
             inserted
         }
@@ -446,20 +455,20 @@ class EntityRepository(
             "event" -> if (scoped.thingId.isNullOrBlank()) {
                 val expected = EventChangeLogEntity.fromIncoming(scoped)
                 val current = eventChangeLogDao.getById(expected.id) ?: return@withTransaction null
-                if (current != expected.copy(receivedAt = if (replay) current.receivedAt else expected.receivedAt)) {
+                if (current != expected.copy(receivedAt = if (replay) current.receivedAt else expected.receivedAt, postProcessPending = current.postProcessPending)) {
                     return@withTransaction null
                 }
             } else {
                 val expected = ThingSubEventEntity.fromIncoming(scoped)
                 val current = thingSubEventDao.getById(expected.id) ?: return@withTransaction null
-                if (current != expected.copy(receivedAt = if (replay) current.receivedAt else expected.receivedAt)) {
+                if (current != expected.copy(receivedAt = if (replay) current.receivedAt else expected.receivedAt, postProcessPending = current.postProcessPending)) {
                     return@withTransaction null
                 }
             }
             "thing" -> {
                 val expected = ThingChangeLogEntity.fromIncoming(scoped)
                 val current = thingChangeLogDao.getById(expected.id) ?: return@withTransaction null
-                if (current != expected.copy(receivedAt = if (replay) current.receivedAt else expected.receivedAt)) {
+                if (current != expected.copy(receivedAt = if (replay) current.receivedAt else expected.receivedAt, postProcessPending = current.postProcessPending)) {
                     return@withTransaction null
                 }
             }

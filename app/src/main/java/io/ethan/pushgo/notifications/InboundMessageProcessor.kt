@@ -1,18 +1,11 @@
 package io.ethan.pushgo.notifications
 
 import android.content.Context
-import androidx.work.OneTimeWorkRequestBuilder
-import androidx.work.BackoffPolicy
-import androidx.work.Constraints
-import androidx.work.NetworkType
-import androidx.work.WorkManager
-import androidx.work.workDataOf
 import io.ethan.pushgo.PushGoApp
 import io.ethan.pushgo.data.ChannelSubscriptionRepository
 import io.ethan.pushgo.data.EntityRepository
 import io.ethan.pushgo.data.MessageRepository
 import io.ethan.pushgo.data.SettingsRepository
-import java.util.concurrent.TimeUnit
 
 internal object DefaultInboundMessageProcessor {
     private val delegate = InboundMessageProcessor()
@@ -185,13 +178,7 @@ private class DefaultInboundProcessorHooks(
             inboundDeliveryLedgerRepository = defaultRuntime.inboundDeliveryLedgerRepository,
             settingsRepository = defaultRuntime.settingsRepository,
             deliveryId = deliveryId,
-        ) { message, imageUrl ->
-            enqueuePostProcess(
-                context = context,
-                messageId = message.id,
-                imageUrl = imageUrl,
-            )
-        }
+        )
     }
 
     override suspend fun parseDirect(
@@ -223,13 +210,7 @@ private class DefaultInboundProcessorHooks(
             inboundDeliveryLedgerRepository = defaultRuntime.inboundDeliveryLedgerRepository,
             settingsRepository = defaultRuntime.settingsRepository,
             inbound = parsed,
-        ) { message, imageUrl ->
-            enqueuePostProcess(
-                context = context,
-                messageId = message.id,
-                imageUrl = imageUrl,
-            )
-        }
+        )
     }
 
     override suspend fun ackDirect(
@@ -246,30 +227,7 @@ private class DefaultInboundProcessorHooks(
         )
     }
 
-    private fun enqueuePostProcess(
-        context: Context,
-        messageId: String,
-        imageUrl: String?,
-    ) {
-        val input = workDataOf(
-            MessagePostProcessWorker.KEY_MESSAGE_ID to messageId,
-            MessagePostProcessWorker.KEY_IMAGE_URL to imageUrl,
-        )
-        val request = OneTimeWorkRequestBuilder<MessagePostProcessWorker>()
-            .setInputData(input)
-            .setConstraints(
-                Constraints.Builder()
-                    .setRequiredNetworkType(NetworkType.CONNECTED)
-                    .build()
-            )
-            .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 10, TimeUnit.SECONDS)
-            .build()
-        WorkManager.getInstance(context.applicationContext).enqueueUniqueWork(
-            "message-post-process:$messageId",
-            androidx.work.ExistingWorkPolicy.KEEP,
-            request,
-        )
-    }
+
 }
 
 private fun InboundProcessorRuntime.asDefaultRuntime(): DefaultInboundProcessorRuntime {

@@ -125,15 +125,5 @@ class PrivateChannelDeliveryReliabilityTest {
         )
     }
 
-    @Test
-    fun privateMessageUsesDurableImagePostProcessHandoffIdentity() {
-        val handoff = messagePostProcessHandoff(
-            messageId = "message-1",
-            imageUrl = "https://cdn.example/image.png",
-        )
 
-        assertEquals("message-post-process:message-1", handoff.uniqueWorkName)
-        assertEquals("message-1", handoff.messageId)
-        assertEquals("https://cdn.example/image.png", handoff.imageUrl)
-    }
 }

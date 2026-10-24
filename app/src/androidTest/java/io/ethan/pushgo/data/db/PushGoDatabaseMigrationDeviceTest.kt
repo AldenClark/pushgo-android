@@ -108,7 +108,7 @@ class PushGoDatabaseMigrationDeviceTest {
         assertEquals(CHANNEL_ID, subscriptions.single().channelId)
         assertEquals(1, messages.size)
         assertEquals(MESSAGE_ID, messages.single().messageId)
-        assertEquals(36, readUserVersion(context.getDatabasePath("pushgo.db")))
+        assertEquals(37, readUserVersion(context.getDatabasePath("pushgo.db")))
         assertEquals(1, container.messageRepository.totalCount())
         assertEquals(1, container.messageRepository.unreadCount())
         assertTrue(context.getDatabasePath("pushgo.db").exists())
@@ -157,7 +157,7 @@ class PushGoDatabaseMigrationDeviceTest {
         assertEquals(MESSAGE_ID, messages.single().messageId)
         assertEquals(1, container.messageRepository.totalCount())
         assertEquals(1, container.messageRepository.unreadCount())
-        assertEquals(36, readUserVersion(context.getDatabasePath("pushgo.db")))
+        assertEquals(37, readUserVersion(context.getDatabasePath("pushgo.db")))
         val sqlite = container.database.openHelper.writableDatabase
         val revision = sqlite.query(
             "SELECT revision FROM message_store_revision WHERE id = 1"
@@ -252,7 +252,7 @@ class PushGoDatabaseMigrationDeviceTest {
             cursor.getString(0) to cursor.getString(1)
         }
 
-        assertEquals(36, readUserVersion(context.getDatabasePath("pushgo.db")))
+        assertEquals(37, readUserVersion(context.getDatabasePath("pushgo.db")))
         assertEquals(0, pendingOutbox)
         assertEquals(1, retainedLedger)
         assertEquals("" to "", retainedLedgerScope)
@@ -337,7 +337,7 @@ class PushGoDatabaseMigrationDeviceTest {
             found
         }
 
-        assertEquals(36, readUserVersion(context.getDatabasePath("pushgo.db")))
+        assertEquals(37, readUserVersion(context.getDatabasePath("pushgo.db")))
         assertEquals(Triple("", "", "pending"), legacyLedger)
         assertEquals(
             listOf("https://gateway-a.example", "device-a", "legacy_single", 0),
@@ -375,7 +375,7 @@ class PushGoDatabaseMigrationDeviceTest {
         val migrated = PushGoDatabase.build(context)
         try {
             assertLegacyIngressBusinessState(migrated)
-            assertEquals(36, readUserVersion(context.getDatabasePath("pushgo.db")))
+            assertEquals(37, readUserVersion(context.getDatabasePath("pushgo.db")))
         } finally {
             migrated.close()
         }
@@ -475,7 +475,7 @@ class PushGoDatabaseMigrationDeviceTest {
         val container = AppContainer(context, appScope)
         val sqlite = container.database.openHelper.writableDatabase
         try {
-            assertEquals(36, readUserVersion(context.getDatabasePath("pushgo.db")))
+            assertEquals(37, readUserVersion(context.getDatabasePath("pushgo.db")))
             val migratedMessage = sqlite.query(
                 "SELECT message_id, title, body, channel, is_read, raw_payload_json " +
                     "FROM messages WHERE id = 'retained-v32-message'",
@@ -651,7 +651,7 @@ class PushGoDatabaseMigrationDeviceTest {
         val container = AppContainer(context, appScope)
         try {
             val sqlite = container.database.openHelper.writableDatabase
-            assertEquals(36, readUserVersion(context.getDatabasePath("pushgo.db")))
+            assertEquals(37, readUserVersion(context.getDatabasePath("pushgo.db")))
             assertTrue(
                 container.messageRepository.searchMessagesSnapshot(
                     "fresh-database-query", unreadOnly = false, limit = 10,
@@ -755,7 +755,7 @@ class PushGoDatabaseMigrationDeviceTest {
             val database = PushGoDatabase.build(context)
             try {
                 val sqlite = database.openHelper.writableDatabase
-                assertEquals(36, readUserVersion(context.getDatabasePath("pushgo.db")))
+                assertEquals(37, readUserVersion(context.getDatabasePath("pushgo.db")))
                 assertEquals(expected.getValue("events"), sqlite.query(
                     "SELECT $childEventContentColumns, activated FROM thing_sub_events ORDER BY id, activated"
                 ).use(::readBusinessRows))
@@ -847,6 +847,7 @@ class PushGoDatabaseMigrationDeviceTest {
 
     private fun assertRouteJournalRemovalPreservesBusinessData(version: Int) {
         seedDatabaseFromExportedSchema(version)
+        val originalColumns = linkedMapOf<String, List<String>>()
         val expected = SQLiteDatabase.openDatabase(
             context.getDatabasePath("pushgo.db").path,
             null,
@@ -914,18 +915,29 @@ class PushGoDatabaseMigrationDeviceTest {
                 )
             }
             retainedRouteCleanupTables.associateWith { table ->
-                database.rawQuery("SELECT * FROM $table", null).use(::readBusinessRows)
+                database.rawQuery("SELECT * FROM $table", null).use { cursor ->
+                    originalColumns[table] = cursor.columnNames.toList()
+                    readBusinessRows(cursor)
+                }
             }
         }
 
         fun assertBusinessState(database: PushGoDatabase) {
             val sqlite = database.openHelper.writableDatabase
-            assertEquals(36, readUserVersion(context.getDatabasePath("pushgo.db")))
+            assertEquals(37, readUserVersion(context.getDatabasePath("pushgo.db")))
             retainedRouteCleanupTables.forEach { table ->
-                val actual = sqlite.query("SELECT * FROM $table").use(::readBusinessRows)
+                // Compare every original business column, even as a later migration adds
+                // an internal recovery field. Nothing from the source row is omitted.
+                val columns = originalColumns.getValue(table).joinToString(",") { "`$it`" }
+                val actual = sqlite.query("SELECT $columns FROM $table").use(::readBusinessRows)
                 assertEquals("Preserve $table", expected[table], actual)
                 assertEquals("Seeded $table is retained", 1, actual.size)
             }
+            assertEquals(
+                "The retained historical message must not acquire a new notification obligation",
+                listOf(listOf("0")),
+                sqlite.query("SELECT post_process_pending FROM messages").use(::readBusinessRows),
+            )
             val removed = sqlite.query(
                 "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'transport_transitions'"
             ).use { cursor -> !cursor.moveToFirst() }
@@ -998,7 +1010,7 @@ class PushGoDatabaseMigrationDeviceTest {
         val migrated = PushGoDatabase.build(context)
         try {
             assertPendingDeletionBusinessState(migrated)
-            assertEquals(36, readUserVersion(context.getDatabasePath("pushgo.db")))
+            assertEquals(37, readUserVersion(context.getDatabasePath("pushgo.db")))
         } finally {
             migrated.close()
         }
@@ -1311,6 +1323,182 @@ data class LegacyMessageChannelStatsV21Entity(
     @ColumnInfo(name = "latest_received_at") val latestReceivedAt: Long,
 )
 
+// Freeze the legacy fixture shape at the last pre-post-processing schema. These are
+// schema-only test records, not aliases to evolving production entities: otherwise
+// constructing a v21/v23/v24/v25 fixture would already contain the v37 column.
+@Entity(
+    tableName = "messages",
+    indices = [
+        Index(value = ["message_id"], unique = true, name = "index_messages_message_id_unique"),
+        Index(value = ["channel", "received_at"]),
+        Index(value = ["is_read", "received_at"]),
+        Index(value = ["received_at"]),
+        Index(value = ["entity_type", "event_time_epoch"]),
+        Index(value = ["event_id", "event_time_epoch"]),
+        Index(value = ["thing_id", "occurred_at_epoch", "event_time_epoch"]),
+    ]
+)
+data class LegacyMessageV36ShapeEntity(
+    @PrimaryKey val id: String,
+    @ColumnInfo(name = "message_id")
+    val messageId: String?,
+    val title: String,
+    val body: String,
+    val channel: String?,
+    val url: String?,
+    @ColumnInfo(name = "is_read")
+    val isRead: Boolean,
+    @ColumnInfo(name = "received_at")
+    val receivedAt: Long,
+    @ColumnInfo(name = "raw_payload_json")
+    val rawPayloadJson: String,
+    val status: String,
+    @ColumnInfo(name = "decryption_state")
+    val decryptionState: String?,
+    @ColumnInfo(name = "notification_id")
+    val notificationId: String?,
+    @ColumnInfo(name = "server_id")
+    val serverId: String?,
+    @ColumnInfo(name = "body_preview")
+    val bodyPreview: String,
+    @ColumnInfo(name = "entity_type")
+    val entityType: String,
+    @ColumnInfo(name = "entity_id")
+    val entityId: String?,
+    @ColumnInfo(name = "event_id")
+    val eventId: String?,
+    @ColumnInfo(name = "thing_id")
+    val thingId: String?,
+    @ColumnInfo(name = "event_state")
+    val eventState: String?,
+    @ColumnInfo(name = "event_time_epoch")
+    val eventTimeEpoch: Long?,
+    @ColumnInfo(name = "occurred_at_epoch")
+    val occurredAtEpoch: Long?,
+    @ColumnInfo(name = "list_payload_json", defaultValue = "'{}'")
+    val listPayloadJson: String = "{}",
+)
+
+@Entity(
+    tableName = "event_change_logs",
+    indices = [
+        Index(value = ["delivery_id"]),
+        Index(value = ["event_id", "event_time_epoch"]),
+        Index(value = ["channel"]),
+        Index(value = ["received_at"]),
+    ],
+)
+data class LegacyEventChangeV36ShapeEntity(
+    @PrimaryKey val id: String,
+    @ColumnInfo(name = "entity_id")
+    val entityId: String,
+    val channel: String?,
+    val title: String,
+    val body: String,
+    @ColumnInfo(name = "raw_payload_json")
+    val rawPayloadJson: String,
+    @ColumnInfo(name = "received_at")
+    val receivedAt: Long,
+    @ColumnInfo(name = "op_id")
+    val opId: String?,
+    @ColumnInfo(name = "delivery_id")
+    val deliveryId: String?,
+    @ColumnInfo(name = "server_id")
+    val serverId: String?,
+    @ColumnInfo(name = "event_id")
+    val eventId: String,
+    @ColumnInfo(name = "thing_id")
+    val thingId: String?,
+    @ColumnInfo(name = "event_state")
+    val eventState: String?,
+    @ColumnInfo(name = "event_time_epoch")
+    val eventTimeEpoch: Long?,
+)
+
+@Entity(
+    tableName = "thing_change_logs",
+    indices = [
+        Index(value = ["delivery_id"]),
+        Index(value = ["thing_id", "observed_time_epoch", "event_time_epoch"]),
+        Index(value = ["channel"]),
+        Index(value = ["received_at"]),
+    ],
+)
+data class LegacyThingChangeV36ShapeEntity(
+    @PrimaryKey val id: String,
+    @ColumnInfo(name = "entity_id")
+    val entityId: String,
+    val channel: String?,
+    val title: String,
+    val body: String,
+    @ColumnInfo(name = "raw_payload_json")
+    val rawPayloadJson: String,
+    @ColumnInfo(name = "received_at")
+    val receivedAt: Long,
+    @ColumnInfo(name = "op_id")
+    val opId: String?,
+    @ColumnInfo(name = "delivery_id")
+    val deliveryId: String?,
+    @ColumnInfo(name = "server_id")
+    val serverId: String?,
+    @ColumnInfo(name = "event_id")
+    val eventId: String?,
+    @ColumnInfo(name = "thing_id")
+    val thingId: String,
+    @ColumnInfo(name = "event_state")
+    val eventState: String?,
+    @ColumnInfo(name = "event_time_epoch")
+    val eventTimeEpoch: Long?,
+    @ColumnInfo(name = "observed_time_epoch")
+    val observedTimeEpoch: Long?,
+)
+
+@Entity(
+    tableName = "thing_sub_messages",
+    indices = [
+        Index(value = ["message_id"], unique = true, name = "index_thing_sub_messages_message_id_unique"),
+        Index(value = ["thing_id", "occurred_at_epoch", "event_time_epoch"]),
+        Index(value = ["channel"]),
+        Index(value = ["received_at"]),
+    ],
+)
+data class LegacyThingSubMessageV36ShapeEntity(
+    @PrimaryKey val id: String,
+    @ColumnInfo(name = "message_id")
+    val messageId: String?,
+    val title: String,
+    val body: String,
+    val channel: String?,
+    val url: String?,
+    @ColumnInfo(name = "received_at")
+    val receivedAt: Long,
+    @ColumnInfo(name = "raw_payload_json")
+    val rawPayloadJson: String,
+    val status: String,
+    @ColumnInfo(name = "decryption_state")
+    val decryptionState: String?,
+    @ColumnInfo(name = "notification_id")
+    val notificationId: String?,
+    @ColumnInfo(name = "server_id")
+    val serverId: String?,
+    @ColumnInfo(name = "body_preview")
+    val bodyPreview: String,
+    @ColumnInfo(name = "entity_type")
+    val entityType: String,
+    @ColumnInfo(name = "entity_id")
+    val entityId: String?,
+    @ColumnInfo(name = "event_id")
+    val eventId: String?,
+    @ColumnInfo(name = "thing_id")
+    val thingId: String?,
+    @ColumnInfo(name = "event_state")
+    val eventState: String?,
+    @ColumnInfo(name = "event_time_epoch")
+    val eventTimeEpoch: Long?,
+    @ColumnInfo(name = "occurred_at_epoch")
+    val occurredAtEpoch: Long?,
+)
+
 @Fts4(contentEntity = LegacyMessageV21Entity::class)
 @Entity(tableName = "message_fts")
 data class LegacyMessageFtsV21(
@@ -1319,7 +1507,7 @@ data class LegacyMessageFtsV21(
     val channel: String?,
 )
 
-@Fts4(contentEntity = MessageEntity::class)
+@Fts4(contentEntity = LegacyMessageV36ShapeEntity::class)
 @Entity(tableName = "message_fts")
 data class LegacyMessageFtsV24(
     val title: String,
@@ -1409,12 +1597,12 @@ data class LegacyThingSubEventV33Entity(
         LegacyInboundDeliveryLedgerV25Entity::class,
         LegacyInboundDeliveryAckOutboxV24Entity::class,
         OperationLedgerEntity::class,
-        EventChangeLogEntity::class,
-        ThingChangeLogEntity::class,
+        LegacyEventChangeV36ShapeEntity::class,
+        LegacyThingChangeV36ShapeEntity::class,
         LegacyThingSubEventV33Entity::class,
         TopLevelEventHeadEntity::class,
         ThingHeadEntity::class,
-        ThingSubMessageEntity::class,
+        LegacyThingSubMessageV36ShapeEntity::class,
         PendingThingMessageEntity::class,
         LegacyPendingThingEventV33Entity::class,
         ChannelSubscriptionEntity::class,
@@ -1434,12 +1622,12 @@ abstract class LegacyPushGoV21Database : RoomDatabase()
         LegacyInboundDeliveryLedgerV25Entity::class,
         LegacyInboundDeliveryAckOutboxV24Entity::class,
         OperationLedgerEntity::class,
-        EventChangeLogEntity::class,
-        ThingChangeLogEntity::class,
+        LegacyEventChangeV36ShapeEntity::class,
+        LegacyThingChangeV36ShapeEntity::class,
         LegacyThingSubEventV33Entity::class,
         TopLevelEventHeadEntity::class,
         ThingHeadEntity::class,
-        ThingSubMessageEntity::class,
+        LegacyThingSubMessageV36ShapeEntity::class,
         PendingThingMessageEntity::class,
         LegacyPendingThingEventV33Entity::class,
         ChannelSubscriptionEntity::class,
@@ -1483,7 +1671,7 @@ data class LegacyInboundDeliveryAckOutboxV24Entity(
 
 @Database(
     entities = [
-        MessageEntity::class,
+        LegacyMessageV36ShapeEntity::class,
         MessageMetadataIndexEntity::class,
         LegacyMessageFtsV24::class,
         MessageChannelStatsEntity::class,
@@ -1493,12 +1681,12 @@ data class LegacyInboundDeliveryAckOutboxV24Entity(
         LegacyInboundDeliveryLedgerV25Entity::class,
         LegacyInboundDeliveryAckOutboxV24Entity::class,
         OperationLedgerEntity::class,
-        EventChangeLogEntity::class,
-        ThingChangeLogEntity::class,
+        LegacyEventChangeV36ShapeEntity::class,
+        LegacyThingChangeV36ShapeEntity::class,
         LegacyThingSubEventV33Entity::class,
         TopLevelEventHeadEntity::class,
         ThingHeadEntity::class,
-        ThingSubMessageEntity::class,
+        LegacyThingSubMessageV36ShapeEntity::class,
         PendingThingMessageEntity::class,
         LegacyPendingThingEventV33Entity::class,
         ChannelSubscriptionEntity::class,
@@ -1549,7 +1737,7 @@ data class LegacyPendingThingEventV25Entity(
 
 @Database(
     entities = [
-        MessageEntity::class,
+        LegacyMessageV36ShapeEntity::class,
         MessageMetadataIndexEntity::class,
         LegacyMessageFtsV24::class,
         MessageChannelStatsEntity::class,
@@ -1559,12 +1747,12 @@ data class LegacyPendingThingEventV25Entity(
         LegacyInboundDeliveryLedgerV25Entity::class,
         LegacyInboundDeliveryAckOutboxV25Entity::class,
         OperationLedgerEntity::class,
-        EventChangeLogEntity::class,
-        ThingChangeLogEntity::class,
+        LegacyEventChangeV36ShapeEntity::class,
+        LegacyThingChangeV36ShapeEntity::class,
         LegacyThingSubEventV33Entity::class,
         TopLevelEventHeadEntity::class,
         ThingHeadEntity::class,
-        ThingSubMessageEntity::class,
+        LegacyThingSubMessageV36ShapeEntity::class,
         PendingThingMessageEntity::class,
         LegacyPendingThingEventV25Entity::class,
         ChannelSubscriptionEntity::class,

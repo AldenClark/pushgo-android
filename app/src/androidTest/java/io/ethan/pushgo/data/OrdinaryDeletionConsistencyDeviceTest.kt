@@ -568,11 +568,11 @@ class OrdinaryDeletionConsistencyDeviceTest {
         assertEquals("Existing v34 body", stored.body)
         assertEquals(RECEIVED_AT, stored.receivedAt)
         assertFalse(stored.isRead)
-        assertEquals(35, container.database.openHelper.readableDatabase.version)
+        assertEquals(37, container.database.openHelper.readableDatabase.version)
         assertNoDeletionRows(container)
         val reopened = reopen()
         assertEquals(stored, reopened.database.messageDao().getById(stored.id))
-        assertEquals(35, reopened.database.openHelper.readableDatabase.version)
+        assertEquals(37, reopened.database.openHelper.readableDatabase.version)
         assertNoDeletionRows(reopened)
     }
 

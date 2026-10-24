@@ -37,7 +37,7 @@ import java.io.File
         PendingLocalDeletionEntity::class,
         DeletionNotificationCleanupEntity::class,
     ],
-    version = 36,
+    version = 37,
     exportSchema = true,
 )
 abstract class PushGoDatabase : RoomDatabase() {
@@ -375,6 +375,24 @@ abstract class PushGoDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_36_37 = object : Migration(36, 37) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                // Historical rows have no unfinished post-processing claim. Only a
+                // new canonical commit may register work; upgrading must not re-alert history.
+                listOf(
+                    "messages",
+                    "thing_sub_messages",
+                    "event_change_logs",
+                    "thing_change_logs",
+                    "thing_sub_events",
+                ).forEach { table ->
+                    db.execSQL("ALTER TABLE $table ADD COLUMN post_process_pending INTEGER NOT NULL DEFAULT 0")
+                    db.execSQL("CREATE INDEX index_${table}_post_process_pending ON $table(post_process_pending)")
+                }
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_pending_thing_messages_thing_id_id ON pending_thing_messages(thing_id,id)")
+            }
+        }
+
         private val MIGRATION_35_36 = object : Migration(35, 36) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("CREATE TABLE IF NOT EXISTS message_resource_bindings (owner_id TEXT NOT NULL, owner_version TEXT NOT NULL, request_key TEXT NOT NULL, content_hash TEXT NOT NULL, bound_at INTEGER NOT NULL, PRIMARY KEY(owner_id, owner_version, request_key))")
@@ -521,6 +539,7 @@ abstract class PushGoDatabase : RoomDatabase() {
                     MIGRATION_33_34,
                     MIGRATION_34_35,
                     MIGRATION_35_36,
+                    MIGRATION_36_37,
                 )
                 .setJournalMode(RoomDatabase.JournalMode.WRITE_AHEAD_LOGGING)
                 .addCallback(object : RoomDatabase.Callback() {

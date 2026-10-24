@@ -359,6 +359,11 @@ class MessageRepository(
         }
     }
 
+    internal val postProcessDatabase: PushGoDatabase get() = database
+
+    internal suspend fun postProcessLocator(id: String, scope: InboundDeliveryScope? = null): PostProcessLocator? =
+        database.postProcessLocator("messages", id, scope?.let { MessageImageStore.originScope(it) }) ?: database.postProcessLocator("thing_sub_messages", id, scope?.let { MessageImageStore.originScope(it) })
+
     suspend fun getById(id: String): PushMessage? {
         return dao.getById(id)?.asModel()
             ?: thingSubMessageDao.getById(id)?.asModel()
@@ -410,7 +415,7 @@ class MessageRepository(
                 notificationId = existing.notificationId,
                 serverId = existing.serverId,
             )
-            val replacementEntity = MessageEntity.fromModel(replacement)
+            val replacementEntity = MessageEntity.fromModel(replacement).copy(postProcessPending = existingEntity.postProcessPending)
             val changed = existingEntity.title != replacementEntity.title ||
                 existingEntity.body != replacementEntity.body ||
                 existingEntity.channel != replacementEntity.channel ||
@@ -484,6 +489,8 @@ class MessageRepository(
         deliveryScope: InboundDeliveryScope? = providerAckIdentity.inboundDeliveryScope(),
         claimIngressIdentity: Boolean = true,
         thingWriteTicket: ThingWriteTicket? = null,
+        postProcessFlags: Int = 0,
+        beforeAcceptanceCommit: (suspend () -> Unit)? = null,
     ): Boolean {
         if (!isMessageEntity(message)) {
             return false
@@ -496,6 +503,7 @@ class MessageRepository(
         var committedTopLevel: Pair<String, PushMessage>? = null
         val accepted = database.withTransaction {
             thingWriteTicket?.requireCurrent()
+            beforeAcceptanceCommit?.invoke()
             val deliveryClaimed = claimInboundDelivery(
                 inboundDeliveryLedgerDao = inboundDeliveryLedgerDao,
                 channelId = canonicalMessage.channel,
@@ -537,7 +545,10 @@ class MessageRepository(
                     return@withTransaction false
                 }
                 val inserted = tryInsertThingSubMessage(ThingSubMessageEntity.fromModel(canonicalMessage))
-                if (inserted) database.recordResourceOrigin(canonicalMessage.id, canonicalMessage.receivedAt.toEpochMilli(), deliveryScope)
+                if (inserted) {
+                    database.recordResourceOrigin(canonicalMessage.id, canonicalMessage.receivedAt.toEpochMilli(), deliveryScope)
+                    database.markPostProcessPending("thing_sub_messages", canonicalMessage.id, postProcessFlags)
+                }
                 return@withTransaction inserted
             }
 
@@ -551,7 +562,7 @@ class MessageRepository(
             val entity = MessageEntity.fromModel(canonicalMessage)
             val existing = dao.getById(entity.id)
             val inserted = if (existing != null) {
-                dao.update(entity)
+                dao.update(entity.copy(postProcessPending = existing.postProcessPending))
                 true
             } else {
                 tryInsertTopLevelMessage(entity)
@@ -560,6 +571,7 @@ class MessageRepository(
                 return@withTransaction false
             }
             database.recordResourceOrigin(entity.id, canonicalMessage.receivedAt.toEpochMilli(), deliveryScope)
+            database.markPostProcessPending("messages", entity.id, postProcessFlags)
             committedTopLevel = entity.id to canonicalMessage
             true
         }
@@ -630,7 +642,7 @@ class MessageRepository(
             val entity = MessageEntity.fromModel(canonicalMessage)
             val existing = dao.getById(entity.id)
             val inserted = if (existing != null) {
-                dao.update(entity)
+                dao.update(entity.copy(postProcessPending = existing.postProcessPending))
                 true
             } else {
                 tryInsertTopLevelMessage(entity)
@@ -738,7 +750,7 @@ class MessageRepository(
                 }
                 resolved.values.forEach { (entity, message) ->
                     val persisted = if (existingById.containsKey(entity.id)) {
-                        dao.update(entity)
+                        dao.update(entity.copy(postProcessPending = existingById.getValue(entity.id).postProcessPending))
                         true
                     } else {
                         tryInsertTopLevelMessage(entity)
@@ -793,7 +805,7 @@ class MessageRepository(
                     val existingById = getThingSubMessagesByIdsChunked(entities.map { it.id }).associateBy { it.id }
                     entities.forEach { entity ->
                         if (existingById.containsKey(entity.id)) {
-                            thingSubMessageDao.update(entity)
+                            thingSubMessageDao.update(entity.copy(postProcessPending = existingById.getValue(entity.id).postProcessPending))
                         } else {
                             tryInsertThingSubMessage(entity)
                         }
@@ -824,7 +836,7 @@ class MessageRepository(
                 val current = thingSubMessageDao.getById(canonical.id) ?: return@withTransaction null
                 val expected = ThingSubMessageEntity.fromModel(canonical)
                 if (!notificationPayloadMatches(current.rawPayloadJson, expected.rawPayloadJson) ||
-                    current != expected.copy(bodyPreview = current.bodyPreview, rawPayloadJson = current.rawPayloadJson)
+                    current != expected.copy(bodyPreview = current.bodyPreview, rawPayloadJson = current.rawPayloadJson, postProcessPending = current.postProcessPending)
                 ) return@withTransaction null
             } else {
                 val current = dao.getById(canonical.id) ?: return@withTransaction null
@@ -835,6 +847,7 @@ class MessageRepository(
                         bodyPreview = current.bodyPreview,
                         listPayloadJson = current.listPayloadJson,
                         rawPayloadJson = current.rawPayloadJson,
+                        postProcessPending = current.postProcessPending,
                     )
                 ) return@withTransaction null
             }
@@ -1426,46 +1439,56 @@ class MessageRepository(
         return thingHeadDao.existsByThingId(normalizedThingId)
     }
 
-    suspend fun replayPendingForThing(thingId: String, thingWriteTicket: ThingWriteTicket? = null) {
+    suspend fun replayPendingForThing(
+        thingId: String,
+        thingWriteTicket: ThingWriteTicket? = null,
+        onReplayPage: ((Int) -> Unit)? = null,
+    ) {
         val normalizedThingId = thingId.trim().takeIf { it.isNotEmpty() } ?: return
         database.withTransaction {
             thingWriteTicket?.requireCurrent()
-            val pending = pendingThingMessageDao.loadByThingId(normalizedThingId)
-            if (pending.isEmpty()) return@withTransaction
-            val consumedIds = mutableListOf<String>()
-            pending.forEach { row ->
-                val inserted = tryInsertThingSubMessage(
-                    ThingSubMessageEntity(
-                        id = row.id,
-                        messageId = row.messageId,
-                        title = row.title,
-                        body = row.body,
-                        channel = row.channel,
-                        url = row.url,
-                        receivedAt = row.receivedAt,
-                        rawPayloadJson = row.rawPayloadJson,
-                        status = row.status,
-                        decryptionState = row.decryptionState,
-                        notificationId = row.notificationId,
-                        serverId = row.serverId,
-                        bodyPreview = row.bodyPreview,
-                        entityType = row.entityType,
-                        entityId = row.entityId,
-                        eventId = row.eventId,
-                        thingId = row.thingId,
-                        eventState = row.eventState,
-                        eventTimeEpoch = row.eventTimeEpoch,
-                        occurredAtEpoch = row.occurredAtEpoch,
+            // Promotion has no per-child external effect. Source id/message_id are
+            // unique; visible ordering uses unchanged business times, never rowid.
+            // Keep the entire original transaction/rollback boundary, while holding
+            // at most 64 full payloads and 64 consumed IDs at once.
+            var afterId: String? = null
+            while (true) {
+                val pending = if (afterId == null) pendingThingMessageDao.firstReplayPage(normalizedThingId)
+                    else pendingThingMessageDao.nextReplayPage(normalizedThingId, afterId)
+                if (pending.isEmpty()) break
+                onReplayPage?.invoke(pending.size)
+                val consumedIds = mutableListOf<String>()
+                pending.forEach { row ->
+                    val inserted = tryInsertThingSubMessage(
+                        ThingSubMessageEntity(
+                            id = row.id,
+                            messageId = row.messageId,
+                            title = row.title,
+                            body = row.body,
+                            channel = row.channel,
+                            url = row.url,
+                            receivedAt = row.receivedAt,
+                            rawPayloadJson = row.rawPayloadJson,
+                            status = row.status,
+                            decryptionState = row.decryptionState,
+                            notificationId = row.notificationId,
+                            serverId = row.serverId,
+                            bodyPreview = row.bodyPreview,
+                            entityType = row.entityType,
+                            entityId = row.entityId,
+                            eventId = row.eventId,
+                            thingId = row.thingId,
+                            eventState = row.eventState,
+                            eventTimeEpoch = row.eventTimeEpoch,
+                            occurredAtEpoch = row.occurredAtEpoch,
+                        )
                     )
-                )
-                if (inserted) {
-                    consumedIds += row.id
+                    if (inserted) {
+                        consumedIds += row.id
+                    }
                 }
-            }
-            if (consumedIds.isNotEmpty()) {
-                consumedIds
-                    .chunked(SQLITE_BIND_PARAMETER_CHUNK_SIZE)
-                    .forEach { pendingThingMessageDao.deleteByIds(it) }
+                if (consumedIds.isNotEmpty()) pendingThingMessageDao.deleteByIds(consumedIds)
+                afterId = pending.last().id
             }
         }
     }

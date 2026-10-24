@@ -23,6 +23,7 @@ import java.time.Instant
         Index(value = ["entity_type", "event_time_epoch"]),
         Index(value = ["event_id", "event_time_epoch"]),
         Index(value = ["thing_id", "occurred_at_epoch", "event_time_epoch"]),
+        Index(value = ["post_process_pending"]),
     ]
 )
 data class MessageEntity(
@@ -64,6 +65,8 @@ data class MessageEntity(
     val occurredAtEpoch: Long?,
     @ColumnInfo(name = "list_payload_json", defaultValue = "'{}'")
     val listPayloadJson: String = "{}",
+    @ColumnInfo(name = "post_process_pending", defaultValue = "0")
+    val postProcessPending: Int = 0,
 ) {
     fun asModel(): PushMessage {
         val state = decryptionState?.let { runCatching { DecryptionState.valueOf(it) }.getOrNull() }

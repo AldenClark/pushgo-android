@@ -14,6 +14,7 @@ import androidx.room.Query
     indices = [
         Index(value = ["thing_id", "occurred_at_epoch", "event_time_epoch", "received_at"]),
         Index(value = ["message_id"], unique = true),
+        Index(value = ["thing_id", "id"]),
     ],
 )
 data class PendingThingMessageEntity(
@@ -96,6 +97,12 @@ interface PendingThingMessageDao {
         """
     )
     suspend fun loadByThingId(thingId: String): List<PendingThingMessageEntity>
+
+    @Query("SELECT * FROM pending_thing_messages INDEXED BY index_pending_thing_messages_thing_id_id WHERE thing_id=:thingId ORDER BY id LIMIT 64")
+    suspend fun firstReplayPage(thingId: String): List<PendingThingMessageEntity>
+
+    @Query("SELECT * FROM pending_thing_messages INDEXED BY index_pending_thing_messages_thing_id_id WHERE thing_id=:thingId AND id>:afterId ORDER BY id LIMIT 64")
+    suspend fun nextReplayPage(thingId: String, afterId: String): List<PendingThingMessageEntity>
 
     @Query("SELECT id FROM pending_thing_messages WHERE channel = :channelId")
     suspend fun getIdsByChannel(channelId: String): List<String>

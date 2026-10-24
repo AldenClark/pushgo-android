@@ -622,6 +622,24 @@ class SettingsRepository(
         }
     }
 
+    /** Ingress calls this inside its existing canonical/identity Room transaction.
+     * Preferences are a projection and must not publish an uncommitted visibility. */
+    internal suspend fun reenableInboundPageInTransaction(entityType: String) {
+        val stored = appSettingsDao.get()
+        val current = stored ?: defaultSettings()
+        val updated = when (entityType.trim().lowercase()) {
+            "message" -> current.copy(isMessagePageEnabled = true)
+            "event" -> current.copy(isEventPageEnabled = true)
+            "thing" -> current.copy(isThingPageEnabled = true)
+            else -> current
+        }
+        if (stored == null || updated != current) appSettingsDao.upsert(updated)
+    }
+
+    internal suspend fun refreshInboundPageCacheAfterCommit() {
+        appSettingsDao.get()?.let(::cachePageVisibility)
+    }
+
     suspend fun resetForAutomation(defaultServerAddress: String?) {
         // Remove the ordinary metadata before clearing protected values.  If a
         // test process is interrupted during reset, the next run must not see
