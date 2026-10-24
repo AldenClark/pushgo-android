@@ -1,12 +1,17 @@
 package io.ethan.pushgo.data
 
+import android.Manifest
 import android.app.Notification
 import android.app.NotificationManager
 import android.content.Context
+import android.content.pm.PackageManager
 import android.database.sqlite.SQLiteDatabase
+import android.os.Build
 import android.os.ParcelFileDescriptor
 import android.os.SystemClock
 import android.service.notification.StatusBarNotification
+import androidx.core.app.NotificationManagerCompat
+import androidx.core.content.ContextCompat
 import androidx.room.withTransaction
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -22,7 +27,6 @@ import io.ethan.pushgo.notifications.InboundPersistenceCoordinator
 import io.ethan.pushgo.notifications.InboundPersistenceRequest
 import io.ethan.pushgo.notifications.InboundPersistenceStatus
 import io.ethan.pushgo.notifications.NotificationHelper
-import io.ethan.pushgo.testing.NotificationPermissionTestSupport
 import io.ethan.pushgo.testing.QualityFaults
 import io.ethan.pushgo.testing.QualityFixture
 import io.ethan.pushgo.testing.QualityRuntime
@@ -39,6 +43,7 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import org.json.JSONObject
 import org.junit.After
+import org.junit.Assume.assumeTrue
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
@@ -78,7 +83,6 @@ class OrdinaryDeletionConsistencyDeviceTest {
         assertEquals(session, QualityRuntime.currentSession())
         QualityRuntime.installOrdinaryDeletionAfterCommitHookForTest(null)
         NotificationHelper.installNotificationObservationHiddenForTest(false)
-        NotificationPermissionTestSupport.grantAndVerify(app)
     }
 
     @After
@@ -696,11 +700,13 @@ class OrdinaryDeletionConsistencyDeviceTest {
     }
 
     private suspend fun post(message: PushMessage): StatusBarNotification {
+        assumeNotificationPermissionAlreadySatisfied()
         assertTrue(NotificationHelper.showMessageNotification(app, message, level = "low"))
         return awaitPosted("message", message.id, message.title, message.body)
     }
 
     private suspend fun post(entity: IncomingEntityRecord): StatusBarNotification {
+        assumeNotificationPermissionAlreadySatisfied()
         assertTrue(NotificationHelper.showEntityNotification(
             app, entity.entityType, entity.entityId, entity.channel, entity.eventId, entity.thingId,
             entity.title, entity.body, level = "low",
@@ -709,6 +715,7 @@ class OrdinaryDeletionConsistencyDeviceTest {
     }
 
     private suspend fun awaitPosted(kind: String, ownId: String, title: String, body: String): StatusBarNotification {
+        assumeNotificationPermissionAlreadySatisfied()
         fun matches() = manager.activeNotifications.filter {
             it.notification.flags and Notification.FLAG_GROUP_SUMMARY == 0 &&
                 it.notification.extras.getString(OWN_KIND) == kind &&
@@ -718,6 +725,20 @@ class OrdinaryDeletionConsistencyDeviceTest {
         }
         withTimeout(5_000L) { while (matches().isEmpty()) delay(25L) }
         return matches().single().also { generation(it) }
+    }
+
+    private fun assumeNotificationPermissionAlreadySatisfied() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            assumeTrue(
+                "POST_NOTIFICATIONS is not already granted; this test does not change permissions",
+                ContextCompat.checkSelfPermission(app, Manifest.permission.POST_NOTIFICATIONS) ==
+                    PackageManager.PERMISSION_GRANTED,
+            )
+        }
+        assumeTrue(
+            "App notifications are disabled; this test does not change notification settings",
+            NotificationManagerCompat.from(app).areNotificationsEnabled(),
+        )
     }
 
     private fun generation(notification: StatusBarNotification): String =
@@ -743,6 +764,7 @@ class OrdinaryDeletionConsistencyDeviceTest {
     // Same OS oracle as the system-notification journey: the app UID's real alarm player,
     // rather than service flags or a test callback. Critical playback has no expiry timeout.
     private suspend fun awaitAlarmPlayback(expected: Boolean) {
+        assumeNotificationPermissionAlreadySatisfied()
         val appUid = android.os.Process.myUid()
         val deadline = SystemClock.elapsedRealtime() + 8_000L
         do {
