@@ -120,14 +120,22 @@ internal suspend fun PushGoDatabase.finishPostProcessIfCurrent(
     true
 }
 
-internal suspend fun PushGoDatabase.postProcessLocator(table: String, id: String, expectedOriginScope: String? = null): PostProcessLocator? = withTransaction {
+internal suspend fun PushGoDatabase.postProcessLocator(table: String, id: String, expectedOriginScope: String? = null): PostProcessLocator? {
+    // A locator is one read-only hint; execution still rechecks its generation in
+    // finishPostProcessIfCurrent's transaction. Retain a caller's uncommitted view
+    // when already inside its transaction, otherwise use a normal IO statement.
+    return if (isOpen && inTransaction()) readPostProcessLocator(table, id, expectedOriginScope)
+    else withContext(Dispatchers.IO) { readPostProcessLocator(table, id, expectedOriginScope) }
+}
+
+private fun PushGoDatabase.readPostProcessLocator(table: String, id: String, expectedOriginScope: String?): PostProcessLocator? {
     val tableIndex = POST_PROCESS_TABLES.indexOf(table)
-    if (tableIndex < 0) return@withTransaction null
+    if (tableIndex < 0) return null
     val slot = if (table == "thing_sub_events") "t.activated" else "0"
     val active = if (table == "thing_sub_events") " AND t.activated=1" else ""
     val originFilter = if (expectedOriginScope == null) "" else " AND o.origin_scope=?"
     val bindings: Array<Any> = if (expectedOriginScope == null) arrayOf(table, id) else arrayOf(table, id, expectedOriginScope)
-    openHelper.readableDatabase.query(
+    return openHelper.readableDatabase.query(
         """SELECT t.rowid,o.generation,t.post_process_pending FROM $table t
            JOIN message_resource_owners o ON o.source_table=? AND o.owner_id=t.id AND o.owner_slot=$slot
            WHERE t.id=? AND t.post_process_pending>0$active$originFilter LIMIT 1""".trimIndent(), bindings,

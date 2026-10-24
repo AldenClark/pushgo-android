@@ -377,6 +377,12 @@ abstract class PushGoDatabase : RoomDatabase() {
 
         private val MIGRATION_36_37 = object : Migration(36, 37) {
             override fun migrate(db: SupportSQLiteDatabase) {
+                // These non-unique runtime indexes are not part of Room's declared
+                // schema. Validate the upgrade without them; the unchanged onOpen
+                // callback restores all three after validation succeeds.
+                db.execSQL("DROP INDEX IF EXISTS index_messages_read_received_id")
+                db.execSQL("DROP INDEX IF EXISTS index_messages_channel_key_read_received_id")
+                db.execSQL("DROP INDEX IF EXISTS index_messages_channel_key_received_id")
                 // Historical rows have no unfinished post-processing claim. Only a
                 // new canonical commit may register work; upgrading must not re-alert history.
                 listOf(
@@ -499,7 +505,14 @@ abstract class PushGoDatabase : RoomDatabase() {
             }
         }
 
-        internal fun buildForTest(context: Context, databaseName: String): PushGoDatabase {
+        internal fun buildForTest(context: Context, databaseName: String): PushGoDatabase =
+            buildForTest(context, databaseName, null)
+
+        internal fun buildForTest(
+            context: Context,
+            databaseName: String,
+            queryCallback: RoomDatabase.QueryCallback?,
+        ): PushGoDatabase {
             val normalizedName = databaseName.trim()
             require(normalizedName.matches(Regex("[A-Za-z0-9._-]+"))) {
                 "test database name contains unsupported characters"
@@ -507,11 +520,16 @@ abstract class PushGoDatabase : RoomDatabase() {
             require(normalizedName != DATABASE_NAME) {
                 "test database must not use the production database name"
             }
-            return newBuilder(
+            val builder = newBuilder(
                 context = context,
                 databaseName = normalizedName,
                 prepareLegacyDatabase = false,
-            ).build()
+            )
+            // Opt-in test observation only; normal database creation installs no profiler.
+            if (queryCallback != null) {
+                builder.setQueryCallback(queryCallback, java.util.concurrent.Executor { it.run() })
+            }
+            return builder.build()
         }
 
         private fun newBuilder(

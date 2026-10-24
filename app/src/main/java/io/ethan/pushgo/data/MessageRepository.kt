@@ -361,8 +361,11 @@ class MessageRepository(
 
     internal val postProcessDatabase: PushGoDatabase get() = database
 
-    internal suspend fun postProcessLocator(id: String, scope: InboundDeliveryScope? = null): PostProcessLocator? =
-        database.postProcessLocator("messages", id, scope?.let { MessageImageStore.originScope(it) }) ?: database.postProcessLocator("thing_sub_messages", id, scope?.let { MessageImageStore.originScope(it) })
+    internal suspend fun postProcessLocator(id: String, scope: InboundDeliveryScope? = null): PostProcessLocator? {
+        val expectedOriginScope = scope?.let { MessageImageStore.originScope(it) }
+        return database.postProcessLocator("messages", id, expectedOriginScope)
+            ?: database.postProcessLocator("thing_sub_messages", id, expectedOriginScope)
+    }
 
     suspend fun getById(id: String): PushMessage? {
         return dao.getById(id)?.asModel()

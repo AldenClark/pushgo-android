@@ -48,6 +48,14 @@ class PostProcessRecoveryPagingDeviceTest {
         open()
 
         assertEquals(37, scalar("PRAGMA user_version"))
+        for (name in listOf("index_messages_read_received_id", "index_messages_channel_key_read_received_id", "index_messages_channel_key_received_id")) {
+            assertEquals("onOpen restores runtime performance index $name", 1,
+                scalar("SELECT COUNT(*) FROM sqlite_master WHERE type='index' AND name='$name'"))
+        }
+        assertEquals(1, scalar("SELECT COUNT(*) FROM inbound_delivery_ledger WHERE delivery_id='migration-acked' AND ack_state='acked' AND acked_at=$RECEIVED_AT"))
+        assertEquals(1, scalar("SELECT COUNT(*) FROM inbound_delivery_ledger WHERE delivery_id='migration-pending' AND ack_state='pending' AND acked_at IS NULL"))
+        assertEquals(1, scalar("SELECT COUNT(*) FROM inbound_delivery_ack_outbox WHERE delivery_id='migration-pending' AND attempt_count=2 AND last_attempt_uncertain=1"))
+        assertEquals(1, scalar("SELECT COUNT(*) FROM message_resource_owners WHERE source_table='messages' AND owner_id='old-messages' AND generation='0123456789abcdef0123456789abcdef' AND origin_scope IS NULL"))
         for (table in POST_PROCESS_TABLES) {
             val info = db.openHelper.readableDatabase.query("PRAGMA table_info($table)").use { cursor ->
                 val name = cursor.getColumnIndexOrThrow("name")
@@ -204,11 +212,20 @@ class PostProcessRecoveryPagingDeviceTest {
             }
             val setup = schema.getJSONArray("setupQueries")
             for (index in 0 until setup.length()) sql.execSQL(setup.getString(index))
+            // Explicit schema fixture plus the three non-unique indexes installed
+            // by the real v36 onOpen path. This is not claimed as an old APK artifact.
+            sql.execSQL("CREATE INDEX index_messages_read_received_id ON messages(is_read,received_at DESC,id DESC)")
+            sql.execSQL("CREATE INDEX index_messages_channel_key_read_received_id ON messages(COALESCE(NULLIF(TRIM(channel), ''), ''),is_read,received_at DESC,id DESC)")
+            sql.execSQL("CREATE INDEX index_messages_channel_key_received_id ON messages(COALESCE(NULLIF(TRIM(channel), ''), ''),received_at DESC,id DESC)")
             sql.execSQL("INSERT INTO messages(id,message_id,title,body,is_read,received_at,raw_payload_json,status,body_preview,entity_type) VALUES(?,?,?,?,?,?,?,?,?,?)", arrayOf<Any>("old-messages", "old-message", "Historical", "Kept historical body", 0, RECEIVED_AT, "{\"entity_type\":\"message\"}", "NORMAL", "Historical", "message"))
             sql.execSQL("INSERT INTO thing_sub_messages(id,message_id,title,body,received_at,raw_payload_json,status,body_preview,entity_type,thing_id) VALUES(?,?,?,?,?,?,?,?,?,?)", arrayOf<Any>("old-thing_sub_messages", "old-child-message", "Historical", "Kept historical body", RECEIVED_AT, "{\"entity_type\":\"message\",\"thing_id\":\"old-thing\"}", "NORMAL", "Historical", "message", "old-thing"))
             sql.execSQL("INSERT INTO event_change_logs(id,entity_id,title,body,raw_payload_json,received_at,event_id) VALUES(?,?,?,?,?,?,?)", arrayOf<Any>("old-event_change_logs", "old-event", "Historical", "Kept historical body", "{\"entity_type\":\"event\"}", RECEIVED_AT, "old-event"))
             sql.execSQL("INSERT INTO thing_change_logs(id,entity_id,title,body,raw_payload_json,received_at,thing_id) VALUES(?,?,?,?,?,?,?)", arrayOf<Any>("old-thing_change_logs", "old-thing", "Historical", "Kept historical body", "{\"entity_type\":\"thing\"}", RECEIVED_AT, "old-thing"))
             sql.execSQL("INSERT INTO thing_sub_events(id,entity_id,title,body,raw_payload_json,received_at,event_id,thing_id) VALUES(?,?,?,?,?,?,?,?)", arrayOf<Any>("old-thing_sub_events", "old-child-event", "Historical", "Kept historical body", "{\"entity_type\":\"event\",\"thing_id\":\"old-thing\"}", RECEIVED_AT, "old-child-event", "old-thing"))
+            sql.execSQL("INSERT INTO inbound_delivery_ledger(gateway_url,device_key,delivery_id,entity_type,applied_at,ack_state,acked_at) VALUES(?,?,?,?,?,?,?)", arrayOf<Any>("https://migration.invalid", "synthetic-device", "migration-acked", "message", RECEIVED_AT, "acked", RECEIVED_AT))
+            sql.execSQL("INSERT INTO inbound_delivery_ledger(gateway_url,device_key,delivery_id,entity_type,applied_at,ack_state) VALUES(?,?,?,?,?,?)", arrayOf<Any>("https://migration.invalid", "synthetic-device", "migration-pending", "message", RECEIVED_AT, "pending"))
+            sql.execSQL("INSERT INTO inbound_delivery_ack_outbox(delivery_id,gateway_url,device_key,ack_contract,source,enqueued_at,updated_at,attempt_count,last_attempt_uncertain) VALUES(?,?,?,?,?,?,?,?,?)", arrayOf<Any>("migration-pending", "https://migration.invalid", "synthetic-device", "v2_batch", "provider_pull", RECEIVED_AT, RECEIVED_AT, 2, 1))
+            sql.execSQL("INSERT INTO message_resource_owners(source_table,owner_id,owner_slot,generation) VALUES(?,?,?,?)", arrayOf<Any>("messages", "old-messages", 0, "0123456789abcdef0123456789abcdef"))
             sql.version = 36
         }
     }
