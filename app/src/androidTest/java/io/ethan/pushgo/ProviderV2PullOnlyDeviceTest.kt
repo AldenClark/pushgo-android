@@ -1558,6 +1558,7 @@ class ProviderV2PullOnlyDeviceTest {
         private val socket = ServerSocket(0)
         val baseUrl = "http://127.0.0.1:${socket.localPort}"
         private val paths = Collections.synchronizedList(mutableListOf<String>())
+        private val requestSummaries = Collections.synchronizedList(mutableListOf<String>())
         private val authorizations = Collections.synchronizedList(mutableListOf<Pair<String, String?>>())
         private val failure = AtomicReference<Throwable?>()
         private val worker = thread(name = "provider-v2-native-gateway", isDaemon = true) {
@@ -1566,7 +1567,9 @@ class ProviderV2PullOnlyDeviceTest {
                     socket.accept().use { connection ->
                         connection.soTimeout = 5_000
                         val reader = connection.getInputStream().bufferedReader()
-                        val path = reader.readLine().split(' ')[1]
+                        val request = reader.readLine().split(' ')
+                        val method = request[0]
+                        val path = request[1]
                         var length = 0
                         var authorization: String? = null
                         while (true) {
@@ -1579,8 +1582,9 @@ class ProviderV2PullOnlyDeviceTest {
                         var read = 0
                         while (read < length) { val n = reader.read(content, read, length - read); check(n >= 0); read += n }
                         paths += path
+                        requestSummaries += "$method ${runCatching { java.net.URI(path).path }.getOrNull() ?: "<invalid-path>"}"
                         authorizations += path to authorization
-                        val response = try { handler(path, JSONObject(String(content))) } catch (error: Throwable) {
+                        val response = try { handler(path, if (content.isEmpty()) JSONObject() else JSONObject(String(content))) } catch (error: Throwable) {
                             failure.compareAndSet(null, error)
                             500 to JSONObject().put("success", false).put("error", "test request oracle failed")
                         }
@@ -1594,10 +1598,11 @@ class ProviderV2PullOnlyDeviceTest {
             }
         }
         fun paths(): List<String> = synchronized(paths) { paths.toList() }
+        fun requestSummaries(): List<String> = synchronized(requestSummaries) { requestSummaries.toList() }
         fun authorizations(path: String): List<String?> = synchronized(authorizations) {
             authorizations.filter { it.first == path }.map { it.second }
         }
-        fun assertHealthy() { failure.get()?.let { throw AssertionError("Gateway request oracle failed", it) } }
+        fun assertHealthy() { failure.get()?.let { throw AssertionError("Gateway request oracle failed; requests=${requestSummaries()}", it) } }
         override fun close() { socket.close(); worker.join(1_000); assertHealthy() }
     }
 

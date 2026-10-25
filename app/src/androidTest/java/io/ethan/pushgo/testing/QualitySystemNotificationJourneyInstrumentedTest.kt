@@ -13,6 +13,7 @@ import androidx.test.uiautomator.UiDevice
 import androidx.test.uiautomator.Until
 import androidx.work.WorkInfo
 import androidx.work.WorkManager
+import io.ethan.pushgo.ProviderV2PullOnlyDeviceTest
 import io.ethan.pushgo.data.ProviderAckContract
 import io.ethan.pushgo.data.ProviderAckDestination
 import io.ethan.pushgo.data.ProviderAckIdentity
@@ -26,6 +27,7 @@ import io.ethan.pushgo.notifications.NotificationIngressParser
 import java.io.BufferedReader
 import java.io.InputStreamReader
 import java.util.Base64
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
 import javax.crypto.Cipher
 import javax.crypto.spec.GCMParameterSpec
@@ -52,13 +54,30 @@ import org.junit.runner.RunWith
  */
 @RunWith(AndroidJUnit4::class)
 class QualitySystemNotificationJourneyInstrumentedTest : QualityAppJourneyTestCase() {
+    private val providerDeviceKey = "synthetic-system-notification-device"
+    private val providerCredential = "synthetic-system-notification-credential"
+    private var providerGateway: ProviderV2PullOnlyDeviceTest.Gateway? = null
+    private val providerPayloads = ConcurrentHashMap<String, Map<String, String>>()
+    private val pulledDeliveryIds = ConcurrentHashMap.newKeySet<String>()
+    private val ackedDeliveryIds = ConcurrentHashMap.newKeySet<String>()
+    private val ownedWorkNames = linkedSetOf<String>()
+
     private val notificationManager: NotificationManager
         get() = app.getSystemService(NotificationManager::class.java)
 
     @After
     fun clearJourneyNotifications() {
-        app.stopService(Intent(app, AlertPlaybackService::class.java))
-        notificationManager.cancelAll()
+        try {
+            ownedWorkNames.forEach(::cancelOwnedInboundWork)
+        } finally {
+            try {
+                providerGateway?.close()
+            } finally {
+                providerGateway = null
+                app.stopService(Intent(app, AlertPlaybackService::class.java))
+                notificationManager.cancelAll()
+            }
+        }
     }
 
     @Test
@@ -70,6 +89,7 @@ class QualitySystemNotificationJourneyInstrumentedTest : QualityAppJourneyTestCa
             "entity_type" to "message",
             "entity_id" to messageId,
             "message_id" to messageId,
+            "delivery_id" to "quality-system-route-delivery",
             "title" to title,
             "body" to body,
             "channel_id" to "quality-system-route",
@@ -303,6 +323,7 @@ class QualitySystemNotificationJourneyInstrumentedTest : QualityAppJourneyTestCa
                 "entity_type" to "message",
                 "entity_id" to messageId,
                 "message_id" to messageId,
+                "delivery_id" to "quality-system-message-after-thing-delivery",
                 "title" to messageTitle,
                 "body" to messageBody,
                 "channel_id" to "quality-system-entity-route",
@@ -358,16 +379,88 @@ class QualitySystemNotificationJourneyInstrumentedTest : QualityAppJourneyTestCa
         NotificationPermissionTestSupport.requireEnabled(app)
     }
 
-    private fun enqueueAndAwaitSuccess(
+    private suspend fun ensureProviderGateway(): ProviderV2PullOnlyDeviceTest.Gateway {
+        providerGateway?.let { return it }
+        checkNotNull(QualityRuntime.currentSession())
+        val settings = checkNotNull(app.containerOrNull()).settingsRepository
+        val gateway = ProviderV2PullOnlyDeviceTest.Gateway { path, request ->
+            if (path == "/gateway/profile") {
+                assertEquals(0, request.length())
+                // This fixture serves Provider HTTP only, not a Private transport.
+                return@Gateway 200 to JSONObject().put("success", true).put("data", JSONObject()
+                    .put("private_channel_enabled", false))
+            }
+            assertEquals(providerDeviceKey, request.getString("device_key"))
+            assertEquals(2, request.length())
+            when (path) {
+                "/v2/messages/pull" -> {
+                    val deliveryId = request.getString("delivery_id")
+                    val payload = checkNotNull(providerPayloads[deliveryId]) {
+                        "Unexpected system-notification Pull delivery: $deliveryId"
+                    }
+                    pulledDeliveryIds += deliveryId
+                    200 to JSONObject().put("success", true).put("data", JSONObject()
+                        .put("items", JSONArray().put(JSONObject()
+                            .put("delivery_id", deliveryId)
+                            .put("payload", JSONObject(payload.filterKeys { it != "delivery_id" }))))
+                        .put("has_more", false)
+                        .put("next_page_token", JSONObject.NULL)
+                        .put("scan_complete", true))
+                }
+                "/v2/messages/ack" -> {
+                    val values = request.getJSONArray("delivery_ids")
+                    val deliveryIds = (0 until values.length()).map(values::getString)
+                    assertTrue("System-notification ACK had no deliveries", deliveryIds.isNotEmpty())
+                    assertEquals(deliveryIds.distinct().sorted(), deliveryIds)
+                    assertTrue("System-notification ACK contained an unknown delivery",
+                        deliveryIds.all(providerPayloads::containsKey))
+                    ackedDeliveryIds.addAll(deliveryIds)
+                    200 to JSONObject().put("success", true).put("data", JSONObject()
+                        .put("requested_count", deliveryIds.size)
+                        .put("removed_count", deliveryIds.size))
+                }
+                else -> error("Unexpected system-notification gateway endpoint: $path")
+            }
+        }
+        providerGateway = gateway
+        settings.setServerAddress(gateway.baseUrl)
+        settings.setDeviceKey(providerDeviceKey)
+        settings.setGatewayToken(providerCredential)
+        settings.setGatewayAckToken(gateway.baseUrl, providerCredential)
+        return gateway
+    }
+
+    private fun cancelOwnedInboundWork(uniqueName: String) {
+        val workManager = WorkManager.getInstance(app)
+        workManager.cancelUniqueWork(uniqueName).result.get(3, TimeUnit.SECONDS)
+        val states = workManager.getWorkInfosForUniqueWork(uniqueName)
+            .get(3, TimeUnit.SECONDS)
+            .map(WorkInfo::state)
+        assertTrue("Owned inbound work did not finish cancellation for $uniqueName: $states",
+            states.all(WorkInfo.State::isFinished))
+    }
+
+    private suspend fun enqueueAndAwaitSuccess(
         payload: Map<String, String>,
         transportMessageId: String,
     ) {
-        val encoded = InboundMessagePayloadCodec.encode(payload)
+        val gateway = ensureProviderGateway()
+        val deliveryId = checkNotNull(payload["delivery_id"])
+        val targetedPayload = payload + mapOf(
+            "base_url" to gateway.baseUrl,
+            "provider_device_key" to providerDeviceKey,
+        )
+        providerPayloads[deliveryId] = targetedPayload
+        val encoded = InboundMessagePayloadCodec.encode(targetedPayload)
         val uniqueName = InboundMessageWorker.buildUniqueWorkName(transportMessageId, encoded)
-        InboundMessageWorker.enqueueForQualitySession(app, payload, transportMessageId)
+        ownedWorkNames += uniqueName
+        // ExistingWorkPolicy.KEEP must not retain this journey's failed work from an earlier run.
+        cancelOwnedInboundWork(uniqueName)
+        InboundMessageWorker.enqueueForQualitySession(app, targetedPayload, transportMessageId)
         val deadline = SystemClock.elapsedRealtime() + 15_000
         var states = emptyList<WorkInfo.State>()
         do {
+            gateway.assertHealthy()
             states = WorkManager.getInstance(app)
                 .getWorkInfosForUniqueWork(uniqueName)
                 .get(3, TimeUnit.SECONDS)
@@ -375,8 +468,20 @@ class QualitySystemNotificationJourneyInstrumentedTest : QualityAppJourneyTestCa
             if (states.isNotEmpty() && states.all(WorkInfo.State::isFinished)) break
             SystemClock.sleep(50)
         } while (SystemClock.elapsedRealtime() < deadline)
+        gateway.assertHealthy()
         assertTrue("Inbound worker did not finish for $uniqueName: $states", states.isNotEmpty())
         assertTrue("Inbound worker failed for $uniqueName: $states", states.all { it == WorkInfo.State.SUCCEEDED })
+        assertTrue("Inbound worker did not Pull the exact provider delivery: $deliveryId",
+            pulledDeliveryIds.contains(deliveryId))
+        gateway.requestSummaries().forEach { request ->
+            assertTrue("Unexpected system-notification HTTP method/path: $request",
+                request == "GET /gateway/profile" || request == "POST /v2/messages/pull" ||
+                    request == "POST /v2/messages/ack")
+        }
+        for (path in listOf("/v2/messages/pull", "/v2/messages/ack")) {
+            assertTrue("System-notification request used the wrong provider credential: $path",
+                gateway.authorizations(path).all { it == "Bearer $providerCredential" })
+        }
     }
 
     /**
@@ -389,14 +494,14 @@ class QualitySystemNotificationJourneyInstrumentedTest : QualityAppJourneyTestCa
         val authenticatedKey = ByteArray(16) { index -> (index + 1).toByte() }
         val wrongKey = ByteArray(16) { index -> (index + 33).toByte() }
         val providerDestination = ProviderAckDestination(
-            baseUrl = "https://quality.invalid",
-            deviceKey = "quality-auth-device",
+            baseUrl = ensureProviderGateway().baseUrl,
+            deviceKey = providerDeviceKey,
         )
         val providerIdentity = checkNotNull(
             ProviderAckIdentity.create(
                 destination = providerDestination,
-                contract = ProviderAckContract.LEGACY_SINGLE,
-                source = "provider_direct",
+                contract = ProviderAckContract.V2_BATCH,
+                source = "provider_pull",
             ),
         )
 
@@ -479,8 +584,8 @@ class QualitySystemNotificationJourneyInstrumentedTest : QualityAppJourneyTestCa
         "entity_id" to messageId,
         "message_id" to messageId,
         "delivery_id" to deliveryId,
-        "base_url" to "https://quality.invalid",
-        "provider_device_key" to "quality-auth-device",
+        "base_url" to checkNotNull(providerGateway).baseUrl,
+        "provider_device_key" to providerDeviceKey,
         "title" to "$companionMarker title",
         "body" to "$companionMarker body",
         "url" to "https://attacker.example/$companionMarker/open",
@@ -500,6 +605,11 @@ class QualitySystemNotificationJourneyInstrumentedTest : QualityAppJourneyTestCa
         providerIdentity: ProviderAckIdentity,
     ) {
         val container = checkNotNull(app.containerOrNull())
+        checkNotNull(providerGateway).assertHealthy()
+        assertTrue("Authentication-failed delivery did not cross the provider Pull boundary: $deliveryId",
+            pulledDeliveryIds.contains(deliveryId))
+        assertFalse("Authentication-failed provider delivery was ACKed over HTTP: $deliveryId",
+            ackedDeliveryIds.contains(deliveryId))
         val quarantined = checkNotNull(container.messageRepository.getByMessageId(messageId))
         assertEquals(NotificationIngressParser.AUTHENTICATION_FAILED_TITLE, quarantined.title)
         assertEquals(NotificationIngressParser.AUTHENTICATION_FAILED_BODY, quarantined.body)
