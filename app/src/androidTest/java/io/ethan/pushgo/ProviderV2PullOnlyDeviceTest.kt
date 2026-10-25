@@ -702,6 +702,52 @@ class ProviderV2PullOnlyDeviceTest {
     }
 
     @Test
+    fun foreignEncryptedQuarantineDoesNotOwnAnotherGatewaysIndependentChildDomain() = runBlocking {
+        val stable = "foreign-encrypted-shared-id"
+        val current = requireNotNull(InboundDeliveryScope.create("https://current-encrypted.invalid", "current-device"))
+        val foreign = requireNotNull(InboundDeliveryScope.create("https://foreign-encrypted.invalid", "foreign-device"))
+        fun parsed(raw: JSONObject) = NotificationIngressParser.parse(
+            raw.keys().asSequence().associateWith { raw.get(it).toString() }, stable, null,
+        ) as InboundPersistenceRequest.Message
+        val foreignRaw = identityPayload(stable).put("ciphertext", "retained-foreign-envelope")
+        val old = parsed(foreignRaw).message.copy(
+            rawPayloadJson = foreignRaw.toString(),
+            decryptionState = io.ethan.pushgo.data.model.DecryptionState.DECRYPT_FAILED,
+        )
+        assertTrue(messages.insertIncoming(old, deliveryScope = foreign, claimIngressIdentity = false))
+        val previousTop = canonicalOwnerSnapshot(stable)
+        val childRaw = identityPayload(stable).put("thing_id", "independent-current-parent")
+            .put("occurred_at", "1767225600000")
+            .put("ciphertext", "independently-authenticated-current-envelope")
+        // This Room-level fixture starts after authenticated parsing; actual AES
+        // promotion/rejection is owned by the Private ingress journey.
+        val parsedChild = parsed(childRaw)
+        val child = parsedChild.copy(
+            message = parsedChild.message.copy(
+                title = childRaw.getString("title"),
+                body = childRaw.getString("body"),
+                rawPayloadJson = childRaw.toString(),
+                decryptionState = io.ethan.pushgo.data.model.DecryptionState.DECRYPT_OK,
+            ),
+            shouldNotify = false,
+            securityDisposition = io.ethan.pushgo.notifications.InboundSecurityDisposition.ACCEPTED,
+        )
+        val outcome = io.ethan.pushgo.notifications.InboundPersistenceCoordinator.persistAndNotify(
+            context, messages, entities, ledger, settings, child, deliveryScope = current,
+            postProcessRecovery = {},
+        )
+        assertEquals(io.ethan.pushgo.notifications.InboundPersistenceStatus.PERSISTED_PENDING, outcome.status)
+        assertTrue(outcome.shouldAck)
+        assertEquals(previousTop, canonicalOwnerSnapshot(stable))
+        val pending = requireNotNull(db.pendingThingMessageDao().getByMessageId(stable))
+        assertEquals("independent-current-parent", pending.thingId)
+        assertEquals(current.gatewayUrl, pending.authenticatedGatewayUrl)
+        assertEquals(current.deviceKey, pending.authenticatedDeviceKey)
+        assertEquals(true, db.inboundDeliveryLedgerDao().get(current.gatewayUrl, current.deviceKey, stable)?.acceptanceProven)
+        assertNull(db.inboundDeliveryLedgerDao().get(foreign.gatewayUrl, foreign.deviceKey, stable))
+    }
+
+    @Test
     fun childReplayHandoffUsesItsCanonicalDomainInsteadOfAForeignTopLevelMessageWithTheSameStableId() = runBlocking {
         val stable = "cross-domain-shared-message-id"
         val thing = "cross-domain-current-parent"

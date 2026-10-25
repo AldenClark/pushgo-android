@@ -67,23 +67,29 @@ private val ENCRYPTED_RECOVERY_PROVENANCE_FIELDS = listOf(
     "sent_at",
 )
 
+private val ENCRYPTED_RECOVERY_STATES = setOf(
+    DecryptionState.NOT_CONFIGURED.name,
+    DecryptionState.ALG_MISMATCH.name,
+    DecryptionState.DECRYPT_FAILED.name,
+)
+
 internal fun hasSameEncryptedRecoveryProvenance(
     existing: PushMessage,
     replay: PushMessage,
-): Boolean {
-    fun provenance(rawPayloadJson: String): Map<String, String>? {
-        val payload = runCatching { JSONObject(rawPayloadJson) }.getOrNull() ?: return null
-        val encrypted = listOf(
-            "ciphertext",
-            "_pushgo_recovery_title_ciphertext",
-            "_pushgo_recovery_body_ciphertext",
-        ).any { key -> payload.optString(key, "").isNotBlank() }
-        if (!encrypted) return null
-        return ENCRYPTED_RECOVERY_PROVENANCE_FIELDS.associateWith { key ->
-            if (payload.has(key) && !payload.isNull(key)) payload.optString(key, "") else ""
-        }
+): Boolean = encryptedRecoveryProvenance(existing.rawPayloadJson)
+    ?.let { it == encryptedRecoveryProvenance(replay.rawPayloadJson) } == true
+
+private fun encryptedRecoveryProvenance(rawPayloadJson: String): Map<String, String>? {
+    val payload = runCatching { JSONObject(rawPayloadJson) }.getOrNull() ?: return null
+    val encrypted = listOf(
+        "ciphertext",
+        "_pushgo_recovery_title_ciphertext",
+        "_pushgo_recovery_body_ciphertext",
+    ).any { key -> payload.optString(key, "").isNotBlank() }
+    if (!encrypted) return null
+    return ENCRYPTED_RECOVERY_PROVENANCE_FIELDS.associateWith { key ->
+        if (payload.has(key) && !payload.isNull(key)) payload.optString(key, "") else ""
     }
-    return provenance(existing.rawPayloadJson)?.let { it == provenance(replay.rawPayloadJson) } == true
 }
 
 private const val SQLITE_BIND_PARAMETER_CHUNK_SIZE = 900
@@ -408,59 +414,64 @@ class MessageRepository(
         existingId: String,
         reparsed: PushMessage,
     ): Boolean {
-        var committedReplacement: Pair<String, PushMessage>? = null
-        val replaced = database.withTransaction {
-            val existingEntity = dao.getById(existingId) ?: return@withTransaction false
-            if (existingEntity.decryptionState !in setOf(
-                DecryptionState.NOT_CONFIGURED.name,
-                DecryptionState.ALG_MISMATCH.name,
-                DecryptionState.DECRYPT_FAILED.name,
-            )
-            ) {
-                return@withTransaction false
-            }
-            val existing = existingEntity.asModel()
-            val stableMessageId = existing.messageId?.trim()?.takeIf(String::isNotEmpty)
-            if (stableMessageId == null || reparsed.messageId?.trim() != stableMessageId) {
-                return@withTransaction false
-            }
-            if (!hasSameEncryptedRecoveryProvenance(existing, reparsed)) {
-                return@withTransaction false
-            }
-            val replacement = reparsed.copy(
-                id = existing.id,
-                messageId = existing.messageId,
-                isRead = existing.isRead,
-                receivedAt = existing.receivedAt,
-                status = existing.status,
-                notificationId = existing.notificationId,
-                serverId = existing.serverId,
-            )
-            val replacementEntity = MessageEntity.fromModel(replacement).copy(postProcessPending = existingEntity.postProcessPending)
-            val changed = existingEntity.title != replacementEntity.title ||
-                existingEntity.body != replacementEntity.body ||
-                existingEntity.channel != replacementEntity.channel ||
-                existingEntity.url != replacementEntity.url ||
-                existingEntity.rawPayloadJson != replacementEntity.rawPayloadJson ||
-                existingEntity.decryptionState != replacementEntity.decryptionState ||
-                existingEntity.bodyPreview != replacementEntity.bodyPreview
-            if (!changed) {
-                return@withTransaction false
-            }
-            if (dao.update(replacementEntity) != 1) {
-                return@withTransaction false
-            }
-            committedReplacement = existing.id to replacement
-            true
+        val committedReplacement = database.withTransaction {
+            replaceEncryptedRecoveryCandidateInTransaction(existingId, reparsed)
         }
-        committedReplacement?.let { (messageId, replacement) ->
+        committedReplacement?.let { replacement ->
             upsertRealtimeDerivedDataSafely(
-                messageId = messageId,
+                messageId = replacement.id,
                 message = replacement,
                 updateListPayload = true,
             )
         }
-        return replaced
+        return committedReplacement != null
+    }
+
+    /** Canonical mutation only; the caller publishes derived data after its outer commit. */
+    private suspend fun replaceEncryptedRecoveryCandidateInTransaction(
+        existingId: String,
+        reparsed: PushMessage,
+    ): PushMessage? {
+        check(database.inTransaction())
+        val existingEntity = dao.getById(existingId) ?: return null
+        if (existingEntity.decryptionState !in ENCRYPTED_RECOVERY_STATES) return null
+        val existing = existingEntity.asModel()
+        val stableMessageId = existing.messageId?.trim()?.takeIf(String::isNotEmpty)
+        if (stableMessageId == null || reparsed.messageId?.trim() != stableMessageId) return null
+        if (!hasSameEncryptedRecoveryProvenance(existing, reparsed)) return null
+        val replacement = reparsed.copy(
+            id = existing.id,
+            messageId = existing.messageId,
+            isRead = existing.isRead,
+            receivedAt = existing.receivedAt,
+            status = existing.status,
+            notificationId = existing.notificationId,
+            serverId = existing.serverId,
+        )
+        val replacementEntity = MessageEntity.fromModel(replacement).copy(postProcessPending = existingEntity.postProcessPending)
+        val changed = existingEntity.title != replacementEntity.title ||
+            existingEntity.body != replacementEntity.body ||
+            existingEntity.channel != replacementEntity.channel ||
+            existingEntity.url != replacementEntity.url ||
+            existingEntity.rawPayloadJson != replacementEntity.rawPayloadJson ||
+            existingEntity.decryptionState != replacementEntity.decryptionState ||
+            existingEntity.bodyPreview != replacementEntity.bodyPreview
+        if (!changed || dao.update(replacementEntity) != 1) return null
+        return replacement
+    }
+
+    /** Called only after the existing top-level owner has passed acceptance checks. */
+    private suspend fun promoteVerifiedTopLevelEncryptedRecoveryInTransaction(
+        incoming: PushMessage,
+        existing: MessageEntity? = null,
+    ): PushMessage? {
+        check(database.inTransaction())
+        if (incoming.decryptionState != DecryptionState.DECRYPT_OK || isThingScopedMessage(incoming)) return null
+        val previous = existing ?: incoming.messageId?.let { dao.getByMessageId(it) } ?: return null
+        if (previous.decryptionState !in ENCRYPTED_RECOVERY_STATES) return null
+        return checkNotNull(replaceEncryptedRecoveryCandidateInTransaction(previous.id, incoming)) {
+            "Authenticated encrypted recovery did not replace its canonical message"
+        }
     }
 
     suspend fun getIdsBefore(readState: Boolean?, cutoff: Long): List<String> {
@@ -523,6 +534,7 @@ class MessageRepository(
         // a projection failure must mark those projections stale, never roll back
         // a successfully accepted notification.
         var committedTopLevel: Pair<String, PushMessage>? = null
+        var committedEncryptedRecovery: PushMessage? = null
         val accepted = database.withTransaction {
             thingWriteTicket?.requireCurrent()
             beforeAcceptanceCommit?.invoke()
@@ -546,9 +558,12 @@ class MessageRepository(
             if (!deliveryClaimed && !recoveringLegacyReceipt) {
                 if (!previouslyAccepted) {
                     requireCurrentMessageAcceptance(canonicalMessage, deliveryScope)
+                    committedEncryptedRecovery = promoteVerifiedTopLevelEncryptedRecoveryInTransaction(canonicalMessage)
                     proveInboundAcceptance(database, deliveryScope, canonicalMessage.deliveryId)
                 } else if (!mayReplayCurrentCanonical(canonicalMessage, deliveryScope)) {
                     onPreviouslyAcceptedReplay?.invoke()
+                } else {
+                    committedEncryptedRecovery = promoteVerifiedTopLevelEncryptedRecoveryInTransaction(canonicalMessage)
                 }
                 return@withTransaction false
             }
@@ -568,12 +583,18 @@ class MessageRepository(
                         canonicalMessage.channel, canonicalMessage.entityType,
                         operationScopeEntityId(canonicalMessage), canonicalMessage.opId)) {
                     requireCurrentMessageAcceptance(canonicalMessage, deliveryScope)
+                    committedEncryptedRecovery = promoteVerifiedTopLevelEncryptedRecoveryInTransaction(canonicalMessage)
                 } else if (!mayReplayCurrentCanonical(canonicalMessage, deliveryScope)) {
                     onPreviouslyAcceptedReplay?.invoke()
+                } else {
+                    committedEncryptedRecovery = promoteVerifiedTopLevelEncryptedRecoveryInTransaction(canonicalMessage)
                 }
                 return@withTransaction false
             }
             val stableMessageId = canonicalMessage.messageId?.trim()?.takeIf { it.isNotEmpty() }
+            if (canonicalMessage.decryptionState == DecryptionState.DECRYPT_OK) {
+                requireUnchangedEncryptedRecoveryTopology(canonicalMessage, deliveryScope)
+            }
             if (isThingScopedMessage(canonicalMessage)) {
                 if (!hasThingHead(canonicalMessage.thingId, deliveryScope)) {
                     enqueuePendingThingMessage(canonicalMessage, deliveryScope)
@@ -604,6 +625,7 @@ class MessageRepository(
             val existingCanonical = stableMessageId?.let { dao.getByMessageId(it) }
             if (existingCanonical != null) {
                 check(requireExistingInboundOwner(canonicalMessage, deliveryScope, existingCanonical))
+                committedEncryptedRecovery = promoteVerifiedTopLevelEncryptedRecoveryInTransaction(canonicalMessage, existingCanonical)
                 if (recoveringLegacyReceipt) proveInboundAcceptance(database, deliveryScope, canonicalMessage.deliveryId)
                 return@withTransaction false
             }
@@ -618,6 +640,7 @@ class MessageRepository(
             }
             if (!inserted) {
                 requireCurrentMessageAcceptance(canonicalMessage, deliveryScope)
+                committedEncryptedRecovery = promoteVerifiedTopLevelEncryptedRecoveryInTransaction(canonicalMessage)
                 if (recoveringLegacyReceipt) proveInboundAcceptance(database, deliveryScope, canonicalMessage.deliveryId)
                 return@withTransaction false
             }
@@ -626,6 +649,13 @@ class MessageRepository(
             database.markPostProcessPending("messages", entity.id, postProcessFlags)
             committedTopLevel = entity.id to canonicalMessage
             true
+        }
+        committedEncryptedRecovery?.let { replacement ->
+            upsertRealtimeDerivedDataSafely(
+                messageId = replacement.id,
+                message = replacement,
+                updateListPayload = true,
+            )
         }
         if (!accepted) {
             return false
@@ -637,6 +667,60 @@ class MessageRepository(
     }
 
     private data class DuplicateOwnerProof(val id: String, val hash: String?, val gateway: String?, val device: String?)
+
+    /** A retained failed envelope cannot acquire a new parent/domain on successful replay. */
+    private suspend fun requireUnchangedEncryptedRecoveryTopology(
+        incoming: PushMessage,
+        scope: InboundDeliveryScope?,
+    ) {
+        if (scope == null) return
+        val stableId = incoming.messageId?.trim()?.takeIf(String::isNotEmpty) ?: return
+        val deliveryId = incoming.deliveryId?.trim()?.takeIf(String::isNotEmpty) ?: return
+        fun candidate(state: String?, raw: String): Boolean {
+            if (state !in ENCRYPTED_RECOVERY_STATES) return false
+            return encryptedRecoveryProvenance(raw)?.get("delivery_id") == deliveryId
+        }
+        // Indexed, bounded domain lookups only on authenticated encrypted recovery.
+        // A changed message_id is outside this guard; it never scans other identities.
+        // Earlier proven-receipt returns retain their deletion/replay ACK authority.
+        dao.getByMessageId(stableId)?.let { previous ->
+            if (candidate(previous.decryptionState, previous.rawPayloadJson) &&
+                hasMatchingEncryptedRecoveryOrigin("messages", previous.id, scope)) {
+                requireExistingInboundOwner(incoming, scope, previous, sourceTable = "messages")
+            }
+        }
+        thingSubMessageDao.getByMessageId(stableId)?.let { previous ->
+            if (candidate(previous.decryptionState, previous.rawPayloadJson) &&
+                hasMatchingEncryptedRecoveryOrigin("thing_sub_messages", previous.id, scope)) {
+                requireExistingInboundOwner(incoming, scope, sourceTable = "thing_sub_messages")
+            }
+        }
+        pendingThingMessageDao.getByMessageId(stableId)?.let { previous ->
+            if (!candidate(previous.decryptionState, previous.rawPayloadJson)) return@let
+            val previousScope = InboundDeliveryScope.create(previous.authenticatedGatewayUrl, previous.authenticatedDeviceKey)
+                ?: return@let
+            if (previousScope.gatewayUrl != scope.gatewayUrl) return@let
+            if (encryptedRecoveryProvenance(previous.rawPayloadJson) != encryptedRecoveryProvenance(incoming.rawPayloadJson)) {
+                throw InboundIdentityConflictException(InboundIdentityConflictReason.DIFFERENT_CONTENT)
+            }
+        }
+    }
+
+    /** Only positively matched persisted ownership may connect otherwise independent domains. */
+    private fun hasMatchingEncryptedRecoveryOrigin(
+        sourceTable: String,
+        ownerId: String,
+        scope: InboundDeliveryScope,
+    ): Boolean = database.openHelper.readableDatabase.query(
+        "SELECT origin_scope,authenticated_gateway_url,authenticated_device_key FROM message_resource_owners WHERE source_table=? AND owner_id=? AND owner_slot=0",
+        arrayOf(sourceTable, ownerId),
+    ).use { cursor ->
+        if (!cursor.moveToFirst()) return@use false
+        val origin = cursor.getString(0) ?: return@use false
+        if (origin == MessageImageStore.originScope(scope)) return@use true
+        val previousScope = InboundDeliveryScope.create(cursor.getString(1), cursor.getString(2)) ?: return@use false
+        origin == MessageImageStore.originScope(previousScope) && previousScope.gatewayUrl == scope.gatewayUrl
+    }
 
     private suspend fun mayReplayCurrentCanonical(incoming: PushMessage, scope: InboundDeliveryScope?): Boolean = try {
         requireCurrentMessageAcceptance(incoming, scope)
@@ -659,9 +743,10 @@ class MessageRepository(
         incoming: PushMessage,
         scope: InboundDeliveryScope?,
         existing: MessageEntity? = null,
+        sourceTable: String? = null,
     ): Boolean {
         if (scope == null) return true
-        val table = if (isThingScopedMessage(incoming)) "thing_sub_messages" else "messages"
+        val table = sourceTable ?: if (isThingScopedMessage(incoming)) "thing_sub_messages" else "messages"
         val owner = if (existing != null) {
             database.openHelper.readableDatabase.query(
                 "SELECT origin_scope,authenticated_gateway_url,authenticated_device_key FROM message_resource_owners WHERE source_table=? AND owner_id=? AND owner_slot=0",

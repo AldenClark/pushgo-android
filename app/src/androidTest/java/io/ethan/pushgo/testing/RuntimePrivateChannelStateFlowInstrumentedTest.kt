@@ -338,6 +338,10 @@ class RuntimePrivateChannelStateFlowInstrumentedTest {
         )
 
         assertEquals(
+            "Topology mutation: pending=" +
+                harness.database.pendingThingMessageDao().loadByThingId(transplantedThingId).size +
+                ", ledger=" + harness.inboundDeliveryLedgerRepository.deliveryAckState(deliveryId, scope) +
+                ", canonical=" + harness.messageRepository.loadAllForExport().count { it.messageId == messageId },
             FakeNativeRuntime.ResolveCall(303L, PRIVATE_STREAM_ACK_STATUS_IGNORE),
             fakeRuntime.resolveCalls().last(),
         )
@@ -347,6 +351,33 @@ class RuntimePrivateChannelStateFlowInstrumentedTest {
             harness.database.pendingThingMessageDao().loadByThingId(transplantedThingId).isEmpty(),
         )
         assertEquals(1, harness.messageRepository.loadAllForExport().count { it.messageId == messageId })
+
+        harness.database.openHelper.writableDatabase.execSQL(
+            "CREATE TRIGGER reject_encrypted_recovery_update BEFORE UPDATE OF decryption_state ON messages " +
+                "WHEN NEW.message_id = '$messageId' AND NEW.decryption_state = 'DECRYPT_OK' " +
+                "BEGIN SELECT RAISE(ABORT, 'injected encrypted recovery write failure'); END",
+        )
+        try {
+            harness.privateChannelClient.injectSessionEventForTesting(
+                eventJson = encryptedMessageEventJson(
+                    deliveryId = deliveryId,
+                    messageId = messageId,
+                    ackId = 3031L,
+                    seq = 33L,
+                    ciphertext = ciphertext,
+                ),
+                deliveryScope = scope,
+            )
+            assertEquals(FakeNativeRuntime.ResolveCall(3031L, PRIVATE_STREAM_ACK_STATUS_IGNORE),
+                fakeRuntime.resolveCalls().last())
+            assertNull(harness.inboundDeliveryLedgerRepository.deliveryAckState(deliveryId, scope))
+            assertNull(harness.inboundDeliveryLedgerRepository.deliveryAckState(deliveryId, null))
+            val failedPromotion = checkNotNull(harness.messageRepository.getByMessageId(messageId))
+            assertEquals(DecryptionState.DECRYPT_FAILED, failedPromotion.decryptionState)
+            assertEquals(NotificationIngressParser.AUTHENTICATION_FAILED_BODY, failedPromotion.body)
+        } finally {
+            harness.database.openHelper.writableDatabase.execSQL("DROP TRIGGER reject_encrypted_recovery_update")
+        }
 
         harness.privateChannelClient.injectSessionEventForTesting(
             eventJson = encryptedMessageEventJson(
@@ -364,6 +395,7 @@ class RuntimePrivateChannelStateFlowInstrumentedTest {
                 FakeNativeRuntime.ResolveCall(301L, PRIVATE_STREAM_ACK_STATUS_IGNORE),
                 FakeNativeRuntime.ResolveCall(302L, PRIVATE_STREAM_ACK_STATUS_IGNORE),
                 FakeNativeRuntime.ResolveCall(303L, PRIVATE_STREAM_ACK_STATUS_IGNORE),
+                FakeNativeRuntime.ResolveCall(3031L, PRIVATE_STREAM_ACK_STATUS_IGNORE),
                 FakeNativeRuntime.ResolveCall(304L, PRIVATE_STREAM_ACK_STATUS_OK),
             ),
             fakeRuntime.resolveCalls(),

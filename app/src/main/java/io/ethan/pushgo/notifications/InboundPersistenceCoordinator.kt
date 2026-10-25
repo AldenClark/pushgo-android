@@ -208,7 +208,9 @@ object InboundPersistenceCoordinator {
             messageRepository.insertIncoming(
                 message = inbound.message,
                 providerAckIdentity = providerAckIdentity,
-                deliveryScope = effectiveDeliveryScope,
+                // Transport ownership remains reliable when decryption fails.
+                // claimIngressIdentity still forbids an acceptance fact or ACK.
+                deliveryScope = deliveryScope,
                 claimIngressIdentity = allowsSuccessfulAck,
                 thingWriteTicket = thingWriteTicket,
                 postProcessFlags = (if (inbound.imageUrl != null) POST_PROCESS_MEDIA else 0) or

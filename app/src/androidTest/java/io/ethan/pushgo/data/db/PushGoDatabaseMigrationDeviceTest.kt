@@ -738,7 +738,8 @@ class PushGoDatabaseMigrationDeviceTest {
                         "ORDER BY id, activated", null
                 ).use(::readBusinessRows))
                 childMigrationBusinessTables.forEach { table ->
-                    put(table, database.rawQuery("SELECT * FROM $table", null).use(::readBusinessRows))
+                    val columns = if (table == "inbound_delivery_ledger") childLedgerContentColumns else "*"
+                    put(table, database.rawQuery("SELECT $columns FROM $table", null).use(::readBusinessRows))
                 }
             }
         }
@@ -752,9 +753,13 @@ class PushGoDatabaseMigrationDeviceTest {
                     "SELECT $childEventContentColumns, activated FROM thing_sub_events ORDER BY id, activated"
                 ).use(::readBusinessRows))
                 childMigrationBusinessTables.forEach { table ->
+                    val columns = if (table == "inbound_delivery_ledger") childLedgerContentColumns else "*"
                     assertEquals("Retain $table", expected.getValue(table),
-                        sqlite.query("SELECT * FROM $table").use(::readBusinessRows))
+                        sqlite.query("SELECT $columns FROM $table").use(::readBusinessRows))
                 }
+                assertTrue("Historical acceptance must not be fabricated", sqlite.query(
+                    "SELECT acceptance_proven FROM inbound_delivery_ledger WHERE delivery_id = 'child-delivery'"
+                ).use { cursor -> cursor.moveToFirst() && cursor.isNull(0) && !cursor.moveToNext() })
                 val visibleIds = sqlite.query(
                     "SELECT id FROM thing_sub_events WHERE activated = 1 ORDER BY id"
                 ).use { cursor -> buildList { while (cursor.moveToNext()) add(cursor.getString(0)) } }
@@ -812,6 +817,10 @@ class PushGoDatabaseMigrationDeviceTest {
 
     private val childMigrationBusinessTables =
         listOf("thing_heads", "inbound_delivery_ledger", "inbound_delivery_ack_outbox")
+
+    private val childLedgerContentColumns =
+        "gateway_url, device_key, delivery_id, channel_id, entity_type, entity_id, " +
+            "op_id, applied_at, ack_state, acked_at"
 
     private val childEventContentColumns =
         "id, entity_id, channel, title, body, raw_payload_json, received_at, op_id, " +
@@ -1580,6 +1589,53 @@ data class LegacyThingSubEventV33Entity(
     val eventTimeEpoch: Long?,
 )
 
+// Frozen pre-v39 pending shape; do not reuse the evolving production entity.
+@Entity(
+    tableName = "pending_thing_messages",
+    indices = [
+        Index(value = ["thing_id", "occurred_at_epoch", "event_time_epoch", "received_at"]),
+        Index(value = ["message_id"], unique = true),
+    ],
+)
+data class LegacyPendingThingMessageV36ShapeEntity(
+    @PrimaryKey
+    @ColumnInfo(name = "id")
+    val id: String,
+    @ColumnInfo(name = "message_id")
+    val messageId: String,
+    val title: String,
+    val body: String,
+    val channel: String?,
+    val url: String?,
+    @ColumnInfo(name = "received_at")
+    val receivedAt: Long,
+    @ColumnInfo(name = "raw_payload_json")
+    val rawPayloadJson: String,
+    val status: String,
+    @ColumnInfo(name = "decryption_state")
+    val decryptionState: String?,
+    @ColumnInfo(name = "notification_id")
+    val notificationId: String?,
+    @ColumnInfo(name = "server_id")
+    val serverId: String?,
+    @ColumnInfo(name = "body_preview")
+    val bodyPreview: String,
+    @ColumnInfo(name = "entity_type")
+    val entityType: String,
+    @ColumnInfo(name = "entity_id")
+    val entityId: String?,
+    @ColumnInfo(name = "event_id")
+    val eventId: String?,
+    @ColumnInfo(name = "thing_id")
+    val thingId: String,
+    @ColumnInfo(name = "event_state")
+    val eventState: String?,
+    @ColumnInfo(name = "event_time_epoch")
+    val eventTimeEpoch: Long?,
+    @ColumnInfo(name = "occurred_at_epoch")
+    val occurredAtEpoch: Long?,
+)
+
 @Database(
     entities = [
         LegacyMessageV21Entity::class,
@@ -1595,7 +1651,7 @@ data class LegacyThingSubEventV33Entity(
         TopLevelEventHeadEntity::class,
         ThingHeadEntity::class,
         LegacyThingSubMessageV36ShapeEntity::class,
-        PendingThingMessageEntity::class,
+        LegacyPendingThingMessageV36ShapeEntity::class,
         LegacyPendingThingEventV33Entity::class,
         ChannelSubscriptionEntity::class,
         LegacyAppSettingsEntity::class,
@@ -1620,7 +1676,7 @@ abstract class LegacyPushGoV21Database : RoomDatabase()
         TopLevelEventHeadEntity::class,
         ThingHeadEntity::class,
         LegacyThingSubMessageV36ShapeEntity::class,
-        PendingThingMessageEntity::class,
+        LegacyPendingThingMessageV36ShapeEntity::class,
         LegacyPendingThingEventV33Entity::class,
         ChannelSubscriptionEntity::class,
         AppSettingsEntity::class,
@@ -1679,7 +1735,7 @@ data class LegacyInboundDeliveryAckOutboxV24Entity(
         TopLevelEventHeadEntity::class,
         ThingHeadEntity::class,
         LegacyThingSubMessageV36ShapeEntity::class,
-        PendingThingMessageEntity::class,
+        LegacyPendingThingMessageV36ShapeEntity::class,
         LegacyPendingThingEventV33Entity::class,
         ChannelSubscriptionEntity::class,
         AppSettingsEntity::class,
@@ -1745,7 +1801,7 @@ data class LegacyPendingThingEventV25Entity(
         TopLevelEventHeadEntity::class,
         ThingHeadEntity::class,
         LegacyThingSubMessageV36ShapeEntity::class,
-        PendingThingMessageEntity::class,
+        LegacyPendingThingMessageV36ShapeEntity::class,
         LegacyPendingThingEventV25Entity::class,
         ChannelSubscriptionEntity::class,
         AppSettingsEntity::class,
