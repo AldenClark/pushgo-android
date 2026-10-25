@@ -305,7 +305,19 @@ class QualityEntityJourneyInstrumentedTest : QualityAppJourneyTestCase() {
         composeRule.onNodeWithTag("thing.related.message.quality-related-message").assertIsDisplayed()
 
         composeRule.onNodeWithTag("tab.thing.detail.updates").performClick()
-        composeRule.onNodeWithTag("thing.related.update.quality-delivery-thing-initial")
+        val initialUpdate = kotlinx.coroutines.runBlocking {
+            checkNotNull(app.container.entityRepository.getThingProjectionDetail("quality-thing"))
+                .history.single {
+                    it.deliveryId == "quality-delivery-thing-initial" &&
+                        it.entityType == "thing" && it.entityId == "quality-thing"
+                }
+        }
+        org.junit.Assert.assertEquals("Quality Initial Thing Snapshot", initialUpdate.title)
+        org.junit.Assert.assertEquals(
+            "A deterministic reactor with linked events, messages, and updates.",
+            initialUpdate.body,
+        )
+        composeRule.onNodeWithTag("thing.related.update.${initialUpdate.id}")
             .performScrollTo()
             .assertIsDisplayed()
             .performClick()
@@ -313,7 +325,7 @@ class QualityEntityJourneyInstrumentedTest : QualityAppJourneyTestCase() {
         composeRule.onNodeWithTag("content.thing.related.update.detail", useUnmergedTree = true)
             .assert(hasAnyDescendant(hasText("Quality Initial Thing Snapshot")))
         dismissTopSheet()
-        composeRule.onNodeWithTag("thing.related.update.quality-delivery-thing-initial")
+        composeRule.onNodeWithTag("thing.related.update.${initialUpdate.id}")
             .performScrollTo()
             .assertIsDisplayed()
 
