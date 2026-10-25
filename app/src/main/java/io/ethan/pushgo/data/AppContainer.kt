@@ -171,6 +171,7 @@ class AppContainer(
         eventCloseRoundTrip = QualityRuntime.currentSession()?.eventCloseScenario
             ?.takeUnless { it == QualityEventCloseScenario.NONE }
             ?.let { scenario ->
+                val ingressIdentity = qualityEntityIngressIdentity()
                 val closeAttempts = AtomicInteger(0)
                 val closeInFlight = AtomicBoolean(false)
                 EventCloseRoundTrip { outbound ->
@@ -213,7 +214,11 @@ class AppContainer(
                             entityRepository = entityRepository,
                             inboundDeliveryLedgerRepository = inboundDeliveryLedgerRepository,
                             settingsRepository = settingsRepository,
-                            inbound = parsed.copy(shouldNotify = false),
+                            inbound = parsed.copy(
+                                shouldNotify = false,
+                                providerAckIdentity = ingressIdentity,
+                            ),
+                            deliveryScope = ingressIdentity.inboundDeliveryScope(),
                         )
                         check(
                             outcome.status == InboundPersistenceStatus.PERSISTED_MAIN ||
@@ -684,26 +689,28 @@ class AppContainer(
             }
             QualityFixture.EVENT_STANDARD -> {
                 seedQualityEventSubscription()
+                val ingressIdentity = qualityEntityIngressIdentity()
                 entityRepository.insertIncoming(qualityThing(
                     title = "Quality Initial Thing Snapshot",
                     deliverySuffix = "initial",
                     receivedAt = Instant.parse("2026-01-15T08:00:00Z"),
-                ))
+                ), providerAckIdentity = ingressIdentity)
                 entityRepository.insertIncoming(qualityThing(
                     title = "Quality Reactor Alpha",
                     deliverySuffix = "current",
                     receivedAt = Instant.parse("2026-01-15T08:01:00Z"),
-                ))
-                entityRepository.insertIncoming(qualityEvent())
+                ), providerAckIdentity = ingressIdentity)
+                entityRepository.insertIncoming(qualityEvent(), providerAckIdentity = ingressIdentity)
                 entityRepository.insertIncoming(
                     qualityEvent(
                         thingId = "quality-thing",
                         relatedIdentity = false,
                         deliverySuffix = "thing-projection",
-                    )
+                    ),
+                    providerAckIdentity = ingressIdentity,
                 )
                 (0 until 16).forEach { index ->
-                    entityRepository.insertIncoming(qualityNavigationEvent(index))
+                    entityRepository.insertIncoming(qualityNavigationEvent(index), providerAckIdentity = ingressIdentity)
                 }
                 check(entityRepository.eventCount() == 17) {
                     "event.standard did not reach its canonical projection"
@@ -714,22 +721,23 @@ class AppContainer(
             }
             QualityFixture.THING_STANDARD -> {
                 seedQualityEventSubscription()
+                val ingressIdentity = qualityEntityIngressIdentity()
                 entityRepository.insertIncoming(qualityThing(
                     title = "Quality Initial Thing Snapshot",
                     deliverySuffix = "initial",
                     receivedAt = Instant.parse("2026-01-15T08:00:00Z"),
-                ))
+                ), providerAckIdentity = ingressIdentity)
                 entityRepository.insertIncoming(qualityThing(
                     title = "Quality Reactor Alpha",
                     deliverySuffix = "current",
                     receivedAt = Instant.parse("2026-01-15T08:01:00Z"),
-                ))
-                entityRepository.insertIncoming(qualityThingDistractor())
+                ), providerAckIdentity = ingressIdentity)
+                entityRepository.insertIncoming(qualityThingDistractor(), providerAckIdentity = ingressIdentity)
                 (0 until 16).forEach { index ->
-                    entityRepository.insertIncoming(qualityNavigationThing(index))
+                    entityRepository.insertIncoming(qualityNavigationThing(index), providerAckIdentity = ingressIdentity)
                 }
-                entityRepository.insertIncoming(qualityEvent(thingId = "quality-thing"))
-                messageRepository.insertIncoming(qualityThingMessage())
+                entityRepository.insertIncoming(qualityEvent(thingId = "quality-thing"), providerAckIdentity = ingressIdentity)
+                messageRepository.insertIncoming(qualityThingMessage(), providerAckIdentity = ingressIdentity)
                 check(entityRepository.thingCount() == 18) {
                     "thing.standard did not reach its canonical projection"
                 }
@@ -789,6 +797,20 @@ class AppContainer(
      */
     internal suspend fun recoverGatewayTransitionBeforeUse(): GatewayTransitionStartupRecovery =
         settingsRepository.recoverGatewayTransitionAtStartup()
+
+    private fun qualityEntityIngressIdentity(): ProviderAckIdentity {
+        check(qualitySession != null) { "Synthetic entity ingress requires a QualityRuntime session" }
+        // Fixture history and synthetic close deliveries share an explicit origin;
+        // the selected production Gateway never supplies fixture authentication.
+        return checkNotNull(ProviderAckIdentity.create(
+            destination = ProviderAckDestination(
+                baseUrl = "https://quality-session.invalid",
+                deviceKey = "quality-fixture-device",
+            ),
+            contract = ProviderAckContract.V2_BATCH,
+            source = "quality_fixture",
+        ))
+    }
 
     private suspend fun seedQualityEventSubscription() {
         val rawGateway = settingsRepository.getServerAddress()
