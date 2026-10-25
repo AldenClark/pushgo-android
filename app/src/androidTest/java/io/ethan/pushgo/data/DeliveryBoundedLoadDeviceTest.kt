@@ -33,7 +33,7 @@ class DeliveryBoundedLoadDeviceTest {
         fun repositories(database: PushGoDatabase) = Components(context, database)
         var components = repositories(db)
         val identity = requireNotNull(ProviderAckIdentity.create(ProviderAckDestination("https://bounded-load.invalid", "synthetic-device"), ProviderAckContract.V2_BATCH, "provider_pull"))
-        // Same public APIs in the old3f and current candidate. Warmup has its own DB;
+        // Current authenticated Room39 input for both compared candidates. Warmup has its own DB;
         // it cannot contribute canonical rows, ACK markers or latency samples.
         repeat(64) { i ->
             val raw=JSONObject().put("entity_type","message").put("entity_id","warm-$i")
@@ -41,7 +41,8 @@ class DeliveryBoundedLoadDeviceTest {
             val m=PushMessage("warm-$i","warm-$i","Warm", "x".repeat(1024),"synthetic",null,false,
                 Instant.ofEpochMilli(1_800_000_000_000L+i),raw,MessageStatus.NORMAL,null,null,"synthetic")
             assertTrue(InboundPersistenceCoordinator.persistAndNotify(context,components.messages,components.entities,
-                components.ledger,components.settings,InboundPersistenceRequest.Message(m,null,null,false,identity)).shouldAck)
+                components.ledger,components.settings,InboundPersistenceRequest.Message(m,null,null,false,identity),
+                deliveryScope=identity.inboundDeliveryScope()).shouldAck)
         }
         db.close(); context.deleteDatabase(name); db=PushGoDatabase.buildForTest(context,name); components=repositories(db)
         val samples = JSONArray(); val observations = JSONArray()
@@ -68,6 +69,7 @@ class DeliveryBoundedLoadDeviceTest {
             try {
             val outcome=InboundPersistenceCoordinator.persistAndNotify(context,components.messages,components.entities,
                 components.ledger,components.settings,InboundPersistenceRequest.Message(message,null,null,false,identity),
+                deliveryScope=identity.inboundDeliveryScope(),
                 beforeMessageNotify={_,_->committed=SystemClock.elapsedRealtimeNanos()})
             val ended=SystemClock.elapsedRealtimeNanos()
             assertTrue("durable acceptance must produce safe ACK eligibility",outcome.shouldAck)
@@ -125,7 +127,7 @@ class DeliveryBoundedLoadDeviceTest {
             assertEquals(1400,offered);assertEquals(1200,accepted);assertEquals(200,replayed);assertEquals(1400,safe);assertEquals(1400,completed);assertEquals(offered,samples.length())
         } catch(error:Throwable) { failure=error;throw error }
         finally {
-            val record=JSONObject().put("test","paired-module-plan-v2").put("label",InstrumentationRegistry.getArguments().getString("deliveryPairLabel"))
+            val record=JSONObject().put("test","paired-module-plan-v3-authenticated").put("label",InstrumentationRegistry.getArguments().getString("deliveryPairLabel"))
                 .put("warmup_excluded",64).put("offered",offered).put("new_canonical",accepted).put("replayed",replayed)
                 .put("ack_safe_dispositions_not_wire_ack",safe).put("completed_samples",completed).put("failed",failed).put("unfinished",1400-completed).put("not_started",1400-offered).put("error_type",failure?.javaClass?.simpleName)
                 .put("canonical_rows",runCatching{components.messages.totalCount().toLong()}.getOrNull()).put("pending_ack_after",runCatching{components.ledger.loadPendingAcks().size}.getOrNull()).put("samples",samples).put("observations",observations)

@@ -163,7 +163,7 @@ class MessageImageStore internal constructor(
     }
     private suspend fun ownerCurrent(model: ImageRequestModel): Boolean {
         if (model.ownerId == null) return true
-        val rows = database?.messageResourceDao()?.owners(model.ownerId) ?: return false
+        val rows = database?.messageResourceDao()?.identityOwners(model.ownerId) ?: return false
         return rows.any { it.generation == model.generation && resourceOwnerVersion(it.serverId, it.receivedAt) == model.ownerVersion && (it.originScope ?: "owner:${it.generation}") == model.ownerScope }
     }
     private suspend fun migrateLegacyOwner(model: ImageRequestModel, key: String): File? {

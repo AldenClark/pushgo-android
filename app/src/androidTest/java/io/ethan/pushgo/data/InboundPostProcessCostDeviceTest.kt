@@ -8,6 +8,11 @@ import androidx.room.withTransaction
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import io.ethan.pushgo.data.db.PushGoDatabase
+import io.ethan.pushgo.data.db.EventChangeLogEntity
+import io.ethan.pushgo.data.db.ThingChangeLogEntity
+import io.ethan.pushgo.data.db.ThingSubEventEntity
+import io.ethan.pushgo.data.db.ThingSubMessageEntity
+import io.ethan.pushgo.data.db.MessageEntity
 import io.ethan.pushgo.data.model.MessageStatus
 import io.ethan.pushgo.data.model.PushMessage
 import io.ethan.pushgo.notifications.InboundPersistenceCoordinator
@@ -114,6 +119,7 @@ class InboundPostProcessCostDeviceTest {
         var registered = 0
         val result = InboundPersistenceCoordinator.persistAndNotify(context, messages, entities, ledger, settings,
             InboundPersistenceRequest.Message(pending, null, "https://post-process-cost.invalid/image.png", false, identity),
+            deliveryScope = identity.inboundDeliveryScope(),
             postProcessRecovery = { registered++ })
         val pendingSql = queries.snapshot()
         assertTrue(result.shouldAck)
@@ -142,9 +148,81 @@ class InboundPostProcessCostDeviceTest {
         assertTrue(ledger.shouldAck(value.deliveryId, identity))
     }
 
+    @Test fun originRecordingDoesNotLoadBodiesAndKeepsAllDomainTimeAndOwnerFences() = runBlocking {
+        val id = "origin-same-id-across-domains"
+        val received = 1_800_000_000_000L
+        val largeBody = "x".repeat(40 * 1024)
+        val ordinary = message(id).copy(body = largeBody,
+            rawPayloadJson = JSONObject().put("body", largeBody).toString())
+        val record = IncomingEntityRecord("event", id, "synthetic", "Synthetic", largeBody,
+            ordinary.rawPayloadJson, Instant.ofEpochMilli(received), null, id, "synthetic",
+            "synthetic-event", "synthetic-thing", "open", null, null)
+        db.messageDao().insert(MessageEntity.fromModel(ordinary))
+        db.thingSubMessageDao().insert(ThingSubMessageEntity.fromModel(ordinary.copy(
+            rawPayloadJson = JSONObject(ordinary.rawPayloadJson).put("thing_id", "synthetic-thing").toString(),
+            receivedAt = Instant.ofEpochMilli(received + 1))))
+        db.eventChangeLogDao().insert(EventChangeLogEntity.fromIncoming(record))
+        db.thingChangeLogDao().insert(ThingChangeLogEntity.fromIncoming(record.copy(entityType = "thing")))
+        db.thingSubEventDao().insert(ThingSubEventEntity.fromIncoming(record, activated = false))
+        db.thingSubEventDao().insert(ThingSubEventEntity.fromIncoming(record.copy(
+            receivedAt = Instant.ofEpochMilli(received + 2)), activated = true))
+        val owners = db.messageResourceDao().owners(id)
+        assertEquals(6, owners.size) // Five concrete domains, including both Event lifecycle slots.
+        val expected = owners.filter { it.receivedAt == received }.map { it.generation }.toSet()
+        assertEquals(4, expected.size)
+        val foreign = requireNotNull(InboundDeliveryScope.create("https://foreign-cost.invalid", "foreign-device"))
+        val retainedForeign = owners.first { it.sourceTable == "event_change_logs" }.generation
+        db.messageResourceDao().setOrigin(id, retainedForeign, MessageImageStore.originScope(foreign),
+            foreign.gatewayUrl, foreign.deviceKey)
+        val bodyRowsBefore = bodyRows(id)
+        queries.clear()
+        db.withTransaction { db.recordResourceOrigin(id, received, identity.inboundDeliveryScope()) }
+        val sql = queries.snapshot()
+        val scope = requireNotNull(identity.inboundDeliveryScope())
+        db.openHelper.readableDatabase.query(
+            "SELECT generation,origin_scope,authenticated_gateway_url,authenticated_device_key FROM message_resource_owners WHERE owner_id=?",
+            arrayOf(id),
+        ).use { cursor ->
+            var rows = 0
+            while (cursor.moveToNext()) {
+                rows++
+                val generation = cursor.getString(0)
+                when {
+                    generation == retainedForeign -> {
+                        assertEquals(MessageImageStore.originScope(foreign), cursor.getString(1))
+                        assertEquals(foreign.gatewayUrl, cursor.getString(2)); assertEquals(foreign.deviceKey, cursor.getString(3))
+                    }
+                    generation in expected -> {
+                        assertEquals(MessageImageStore.originScope(scope), cursor.getString(1))
+                        assertEquals(scope.gatewayUrl, cursor.getString(2)); assertEquals(scope.deviceKey, cursor.getString(3))
+                    }
+                    else -> for (column in 1..3) assertTrue("different receive time stays unclaimed", cursor.isNull(column))
+                }
+            }
+            assertEquals(6, rows)
+        }
+        assertEquals(bodyRowsBefore, bodyRows(id))
+        emit("origin-projection", JSONObject().put("sql", sql).put("canonical_domains", 5)
+            .put("owner_rows", owners.size).put("time_matched_generations", expected.size)
+            .put("foreign_generation_retained", true)
+            .put("wide_body_bytes_which_old_projection_returns", owners.sumOf { it.rawPayloadJson.toByteArray(Charsets.UTF_8).size })
+            .put("scope", "SQL projection/identity equivalence oracle; projected bytes are not allocated-heap or performance measurements"))
+        assertEquals("origin registration must not fetch unused canonical bodies", 0, sql.getInt("wide_owner_projection_selects"))
+    }
+
+    private fun bodyRows(id: String): Map<String, String> = buildMap {
+        for (table in POST_PROCESS_TABLES) db.openHelper.readableDatabase.query(
+            "SELECT raw_payload_json FROM $table WHERE id=? ORDER BY raw_payload_json", arrayOf(id),
+        ).use { cursor ->
+            var slot = 0
+            while (cursor.moveToNext()) put("$table:${slot++}", cursor.getString(0))
+        }
+    }
+
     private suspend fun persist(message: PushMessage, image: String? = null) =
         InboundPersistenceCoordinator.persistAndNotify(context, messages, entities, ledger, settings,
             InboundPersistenceRequest.Message(message, null, image, false, identity),
+            deliveryScope = identity.inboundDeliveryScope(),
             postProcessRecovery = { /* Execution is not part of this cost attribution. */ })
 
     private fun message(id: String): PushMessage {
@@ -233,6 +311,7 @@ class InboundPostProcessCostDeviceTest {
                 .put("ends", sql.count { it.text.startsWith("END TRANSACTION", true) || it.text.startsWith("COMMIT", true) })
                 .put("locator_selects", sql.count { it.text.startsWith("SELECT t.rowid,o.generation,t.post_process_pending") })
                 .put("locator_selects_in_transaction", locatorInTransaction)
+                .put("wide_owner_projection_selects", sql.count { it.text.contains("raw_payload_json AS rawPayloadJson") && it.text.contains("JOIN message_resource_owners") })
                 .put("small_thread_trace", trace)
                 .put("boundary_scope", "Room/SQLite API labels, including nested calls; not physical COMMIT/fsync counts. Thread-local intervals separate unrelated invalidation work.")
                 .put("statements_without_bind_values", JSONObject(grouped))
