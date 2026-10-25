@@ -1,3 +1,5 @@
+import org.gradle.api.attributes.java.TargetJvmEnvironment
+
 plugins {
     id("com.android.test")
     id("androidx.baselineprofile")
@@ -31,6 +33,19 @@ android {
 
 baselineProfile {
     useConnectedDevices = true
+}
+
+// AGP 9.4's TestedApks consumer otherwise lacks the Android environment
+// already used by compile/runtime, selecting JVM/desktop KMP dependencies.
+configurations.configureEach {
+    if (name.endsWith("TestedApks")) {
+        attributes {
+            attribute(
+                TargetJvmEnvironment.TARGET_JVM_ENVIRONMENT_ATTRIBUTE,
+                objects.named(TargetJvmEnvironment::class.java, TargetJvmEnvironment.ANDROID),
+            )
+        }
+    }
 }
 
 dependencies {
