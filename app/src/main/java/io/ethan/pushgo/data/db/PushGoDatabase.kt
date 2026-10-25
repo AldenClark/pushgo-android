@@ -38,7 +38,7 @@ import java.io.File
         DeletionNotificationCleanupEntity::class,
         ProviderPullFrontierEntity::class,
     ],
-    version = 38,
+    version = 39,
     exportSchema = true,
 )
 abstract class PushGoDatabase : RoomDatabase() {
@@ -361,7 +361,7 @@ abstract class PushGoDatabase : RoomDatabase() {
             }
         }
 
-        private fun createResourceOwnership(db: SupportSQLiteDatabase, populateExisting: Boolean = false) {
+        private fun createResourceOwnership(db: SupportSQLiteDatabase, populateExisting: Boolean = false, authenticatedOrigin: Boolean = false) {
             db.execSQL("CREATE TABLE IF NOT EXISTS message_resource_owners (source_table TEXT NOT NULL, owner_id TEXT NOT NULL, owner_slot INTEGER NOT NULL, generation TEXT NOT NULL, origin_scope TEXT, PRIMARY KEY(source_table,owner_id,owner_slot))")
             db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS index_message_resource_owners_generation ON message_resource_owners(generation)")
             db.execSQL("CREATE INDEX IF NOT EXISTS index_message_resource_owners_owner_id ON message_resource_owners(owner_id)")
@@ -373,7 +373,29 @@ abstract class PushGoDatabase : RoomDatabase() {
                 db.execSQL("CREATE TRIGGER IF NOT EXISTS resource_owner_${table}_insert AFTER INSERT ON $table BEGIN DELETE FROM message_resource_bindings WHERE owner_id=NEW.id AND owner_version IN (SELECT generation FROM message_resource_owners WHERE source_table='$table' AND owner_id=NEW.id AND owner_slot=$newSlot); INSERT OR REPLACE INTO message_resource_owners(source_table,owner_id,owner_slot,generation) VALUES('$table',NEW.id,$newSlot,lower(hex(randomblob(16)))); END")
                 db.execSQL("CREATE TRIGGER IF NOT EXISTS resource_owner_${table}_delete AFTER DELETE ON $table BEGIN DELETE FROM message_resource_bindings WHERE owner_id=OLD.id AND owner_version IN (SELECT generation FROM message_resource_owners WHERE source_table='$table' AND owner_id=OLD.id AND owner_slot=$oldSlot); DELETE FROM message_resource_owners WHERE source_table='$table' AND owner_id=OLD.id AND owner_slot=$oldSlot; END")
                 if (table == "thing_sub_events") db.execSQL("CREATE TRIGGER IF NOT EXISTS resource_owner_${table}_activate AFTER UPDATE OF activated ON $table WHEN OLD.activated != NEW.activated BEGIN UPDATE message_resource_owners SET owner_slot=NEW.activated WHERE source_table='$table' AND owner_id=OLD.id AND owner_slot=OLD.activated; END")
-                db.execSQL("CREATE TRIGGER IF NOT EXISTS resource_owner_${table}_replace AFTER UPDATE OF received_at,server_id ON $table WHEN OLD.received_at != NEW.received_at OR OLD.server_id IS NOT NEW.server_id BEGIN DELETE FROM message_resource_bindings WHERE owner_id=OLD.id AND owner_version IN (SELECT generation FROM message_resource_owners WHERE source_table='$table' AND owner_id=OLD.id AND owner_slot=$newSlot); UPDATE message_resource_owners SET generation=lower(hex(randomblob(16))),origin_scope=NULL WHERE source_table='$table' AND owner_id=NEW.id AND owner_slot=$newSlot; END")
+                val clearAuthenticatedOrigin = if (authenticatedOrigin) ",authenticated_gateway_url=NULL,authenticated_device_key=NULL" else ""
+                db.execSQL("CREATE TRIGGER IF NOT EXISTS resource_owner_${table}_replace AFTER UPDATE OF received_at,server_id ON $table WHEN OLD.received_at != NEW.received_at OR OLD.server_id IS NOT NEW.server_id BEGIN DELETE FROM message_resource_bindings WHERE owner_id=OLD.id AND owner_version IN (SELECT generation FROM message_resource_owners WHERE source_table='$table' AND owner_id=OLD.id AND owner_slot=$newSlot); UPDATE message_resource_owners SET generation=lower(hex(randomblob(16))),origin_scope=NULL$clearAuthenticatedOrigin WHERE source_table='$table' AND owner_id=NEW.id AND owner_slot=$newSlot; END")
+            }
+        }
+
+        private val MIGRATION_38_39 = object : Migration(38, 39) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                // Do not infer historical ownership. New acceptance writes these
+                // nullable facts atomically; old pending/canonical content remains.
+                db.execSQL("DROP INDEX IF EXISTS index_messages_read_received_id")
+                db.execSQL("DROP INDEX IF EXISTS index_messages_channel_key_read_received_id")
+                db.execSQL("DROP INDEX IF EXISTS index_messages_channel_key_received_id")
+                for (table in listOf("pending_thing_messages", "message_resource_owners")) {
+                    db.execSQL("ALTER TABLE $table ADD COLUMN authenticated_gateway_url TEXT")
+                    db.execSQL("ALTER TABLE $table ADD COLUMN authenticated_device_key TEXT")
+                }
+                // A legacy claim is not proof of accepted canonical/pending content.
+                db.execSQL("ALTER TABLE inbound_delivery_ledger ADD COLUMN acceptance_proven INTEGER")
+                // A new canonical incarnation must not inherit the old origin.
+                for (table in listOf("messages", "thing_sub_messages", "event_change_logs", "thing_change_logs", "thing_sub_events")) {
+                    db.execSQL("DROP TRIGGER IF EXISTS resource_owner_${table}_replace")
+                }
+                createResourceOwnership(db, authenticatedOrigin = true)
             }
         }
 
@@ -572,6 +594,7 @@ abstract class PushGoDatabase : RoomDatabase() {
                     MIGRATION_35_36,
                     MIGRATION_36_37,
                     MIGRATION_37_38,
+                    MIGRATION_38_39,
                 )
                 .setJournalMode(RoomDatabase.JournalMode.WRITE_AHEAD_LOGGING)
                 .addCallback(object : RoomDatabase.Callback() {
@@ -581,7 +604,7 @@ abstract class PushGoDatabase : RoomDatabase() {
                         ensureMessageStatsSeedRows(db)
                         installMessagePerformanceIndexes(db)
                         installMessageStatsTriggers(db)
-                        createResourceOwnership(db)
+                        createResourceOwnership(db, authenticatedOrigin = true)
                         if (!messageStatsAreConsistent(db)) {
                             rebuildMessageStats(db)
                         }

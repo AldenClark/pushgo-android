@@ -7,6 +7,6 @@ internal suspend fun PushGoDatabase.recordResourceOrigin(id: String, receivedAt:
     if (scope == null) return
     val origin = MessageImageStore.originScope(scope)
     messageResourceDao().owners(id).filter { it.receivedAt == receivedAt }.forEach {
-        messageResourceDao().setOrigin(id, it.generation, origin)
+        messageResourceDao().setOrigin(id, it.generation, origin, scope.gatewayUrl, scope.deviceKey)
     }
 }

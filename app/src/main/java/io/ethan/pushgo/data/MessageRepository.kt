@@ -377,6 +377,24 @@ class MessageRepository(
             ?: thingSubMessageDao.getByMessageId(messageId)?.asModel()
     }
 
+    internal suspend fun getCanonicalInMessageDomain(incoming: PushMessage): PushMessage? {
+        val stableId = incoming.messageId?.trim()?.takeIf(String::isNotEmpty) ?: return null
+        return if (isThingScopedMessage(incoming)) thingSubMessageDao.getByMessageId(stableId)?.asModel()
+            else dao.getByMessageId(stableId)?.asModel()
+    }
+
+    /** Replay follows the canonical domain and verified owner, never a same-ID row in another domain. */
+    internal suspend fun getCanonicalInboundReplay(incoming: PushMessage, scope: InboundDeliveryScope?): PushMessage? = database.withTransaction {
+        val canonical = getCanonicalInMessageDomain(incoming)
+        if (canonical == null) return@withTransaction null
+        try {
+            if (!requireExistingInboundOwner(incoming, scope)) return@withTransaction null
+        } catch (_: InboundIdentityConflictException) {
+            return@withTransaction null
+        }
+        canonical
+    }
+
     suspend fun getByNotificationId(notificationId: String): PushMessage? {
         return dao.getByNotificationId(notificationId)?.asModel()
     }
@@ -494,6 +512,7 @@ class MessageRepository(
         thingWriteTicket: ThingWriteTicket? = null,
         postProcessFlags: Int = 0,
         beforeAcceptanceCommit: (suspend () -> Unit)? = null,
+        onPreviouslyAcceptedReplay: (() -> Unit)? = null,
     ): Boolean {
         if (!isMessageEntity(message)) {
             return false
@@ -517,8 +536,20 @@ class MessageRepository(
                 appliedAt = canonicalMessage.receivedAt.toEpochMilli(),
                 providerAckIdentity = providerAckIdentity,
                 deliveryScope = deliveryScope,
+                acceptanceProven = true,
             )
-            if (!deliveryClaimed) {
+            val previouslyAccepted = !deliveryClaimed && hasProvenInboundAcceptance(database, deliveryScope,
+                canonicalMessage.deliveryId, canonicalMessage.channel, canonicalMessage.entityType,
+                operationScopeEntityId(canonicalMessage), canonicalMessage.opId)
+            val recoveringLegacyReceipt = !deliveryClaimed && !previouslyAccepted && isLegacyStagingRecovery(database, deliveryScope,
+                canonicalMessage.deliveryId, providerAckIdentity)
+            if (!deliveryClaimed && !recoveringLegacyReceipt) {
+                if (!previouslyAccepted) {
+                    requireCurrentMessageAcceptance(canonicalMessage, deliveryScope)
+                    proveInboundAcceptance(database, deliveryScope, canonicalMessage.deliveryId)
+                } else if (!mayReplayCurrentCanonical(canonicalMessage, deliveryScope)) {
+                    onPreviouslyAcceptedReplay?.invoke()
+                }
                 return@withTransaction false
             }
             val claimed = claimOperationScope(
@@ -532,22 +563,34 @@ class MessageRepository(
                 providerAckIdentity = providerAckIdentity,
                 deliveryScope = deliveryScope,
             )
-            if (!claimed) {
+            if (!claimed && !recoveringLegacyReceipt) {
+                if (!hasProvenOperationAcceptance(database, deliveryScope, canonicalMessage.deliveryId,
+                        canonicalMessage.channel, canonicalMessage.entityType,
+                        operationScopeEntityId(canonicalMessage), canonicalMessage.opId)) {
+                    requireCurrentMessageAcceptance(canonicalMessage, deliveryScope)
+                } else if (!mayReplayCurrentCanonical(canonicalMessage, deliveryScope)) {
+                    onPreviouslyAcceptedReplay?.invoke()
+                }
                 return@withTransaction false
             }
             val stableMessageId = canonicalMessage.messageId?.trim()?.takeIf { it.isNotEmpty() }
             if (isThingScopedMessage(canonicalMessage)) {
-                if (!hasThingHead(canonicalMessage.thingId)) {
-                    enqueuePendingThingMessage(canonicalMessage)
+                if (!hasThingHead(canonicalMessage.thingId, deliveryScope)) {
+                    enqueuePendingThingMessage(canonicalMessage, deliveryScope)
+                    if (recoveringLegacyReceipt) proveInboundAcceptance(database, deliveryScope, canonicalMessage.deliveryId)
                     return@withTransaction false
                 }
                 if (stableMessageId != null) {
                     pruneThingSubMessageDuplicates(setOf(stableMessageId))
                 }
                 if (stableMessageId != null && thingSubMessageDao.getByMessageId(stableMessageId) != null) {
+                    check(requireExistingInboundOwner(canonicalMessage, deliveryScope))
+                    if (recoveringLegacyReceipt) proveInboundAcceptance(database, deliveryScope, canonicalMessage.deliveryId)
                     return@withTransaction false
                 }
                 val inserted = tryInsertThingSubMessage(ThingSubMessageEntity.fromModel(canonicalMessage))
+                if (!inserted) requireCurrentMessageAcceptance(canonicalMessage, deliveryScope)
+                if (recoveringLegacyReceipt) proveInboundAcceptance(database, deliveryScope, canonicalMessage.deliveryId)
                 if (inserted) {
                     database.recordResourceOrigin(canonicalMessage.id, canonicalMessage.receivedAt.toEpochMilli(), deliveryScope)
                     database.markPostProcessPending("thing_sub_messages", canonicalMessage.id, postProcessFlags)
@@ -558,7 +601,10 @@ class MessageRepository(
             if (stableMessageId != null) {
                 pruneTopLevelMessageDuplicates(setOf(stableMessageId))
             }
-            if (stableMessageId != null && dao.getByMessageId(stableMessageId) != null) {
+            val existingCanonical = stableMessageId?.let { dao.getByMessageId(it) }
+            if (existingCanonical != null) {
+                check(requireExistingInboundOwner(canonicalMessage, deliveryScope, existingCanonical))
+                if (recoveringLegacyReceipt) proveInboundAcceptance(database, deliveryScope, canonicalMessage.deliveryId)
                 return@withTransaction false
             }
 
@@ -571,8 +617,11 @@ class MessageRepository(
                 tryInsertTopLevelMessage(entity)
             }
             if (!inserted) {
+                requireCurrentMessageAcceptance(canonicalMessage, deliveryScope)
+                if (recoveringLegacyReceipt) proveInboundAcceptance(database, deliveryScope, canonicalMessage.deliveryId)
                 return@withTransaction false
             }
+            if (recoveringLegacyReceipt) proveInboundAcceptance(database, deliveryScope, canonicalMessage.deliveryId)
             database.recordResourceOrigin(entity.id, canonicalMessage.receivedAt.toEpochMilli(), deliveryScope)
             database.markPostProcessPending("messages", entity.id, postProcessFlags)
             committedTopLevel = entity.id to canonicalMessage
@@ -585,6 +634,91 @@ class MessageRepository(
             upsertRealtimeDerivedDataSafely(messageId, committedMessage)
         }
         return true
+    }
+
+    private data class DuplicateOwnerProof(val id: String, val hash: String?, val gateway: String?, val device: String?)
+
+    private suspend fun mayReplayCurrentCanonical(incoming: PushMessage, scope: InboundDeliveryScope?): Boolean = try {
+        requireCurrentMessageAcceptance(incoming, scope)
+        true
+    } catch (_: InboundIdentityConflictException) {
+        // A true processed fact still owns its ACK after deletion, without adopting
+        // the current foreign/replaced content or reviving its derived work.
+        false
+    }
+
+    private suspend fun requireCurrentMessageAcceptance(incoming: PushMessage, scope: InboundDeliveryScope?) {
+        if (scope == null) return // Trusted internal/local calls keep their existing contract.
+        val canonical = requireExistingInboundOwner(incoming, scope)
+        val pending = if (isThingScopedMessage(incoming)) requireExistingPendingOwner(incoming, scope) else false
+        if (!canonical && !pending) throw InboundIdentityConflictException(InboundIdentityConflictReason.UNVERIFIABLE_HISTORY)
+    }
+
+    /** Only duplicate branches pay for this check, inside their acceptance transaction. */
+    private suspend fun requireExistingInboundOwner(
+        incoming: PushMessage,
+        scope: InboundDeliveryScope?,
+        existing: MessageEntity? = null,
+    ): Boolean {
+        if (scope == null) return true
+        val table = if (isThingScopedMessage(incoming)) "thing_sub_messages" else "messages"
+        val owner = if (existing != null) {
+            database.openHelper.readableDatabase.query(
+                "SELECT origin_scope,authenticated_gateway_url,authenticated_device_key FROM message_resource_owners WHERE source_table=? AND owner_id=? AND owner_slot=0",
+                arrayOf(table, existing.id),
+            ).use { cursor ->
+                if (cursor.moveToFirst()) DuplicateOwnerProof(existing.id, cursor.getString(0), cursor.getString(1), cursor.getString(2))
+                else DuplicateOwnerProof(existing.id, null, null, null)
+            }
+        } else {
+            val stableId = incoming.messageId ?: return false
+            database.openHelper.readableDatabase.query(
+                "SELECT m.id,o.origin_scope,o.authenticated_gateway_url,o.authenticated_device_key FROM $table m LEFT JOIN message_resource_owners o ON o.source_table=? AND o.owner_id=m.id AND o.owner_slot=0 WHERE m.message_id=? LIMIT 1",
+                arrayOf(table, stableId),
+            ).use { cursor -> if (cursor.moveToFirst())
+                DuplicateOwnerProof(cursor.getString(0), cursor.getString(1), cursor.getString(2), cursor.getString(3)) else null }
+                ?: return false
+        }
+        val ownerOrigin = owner.hash
+        if (ownerOrigin.isNullOrBlank()) throw InboundIdentityConflictException(InboundIdentityConflictReason.UNVERIFIABLE_HISTORY)
+        val actualPrevious = (existing?.asModel() ?: if (table == "messages") dao.getById(owner.id)?.asModel()
+            else thingSubMessageDao.getById(owner.id)?.asModel())
+            ?: throw InboundIdentityConflictException(InboundIdentityConflictReason.UNVERIFIABLE_HISTORY)
+        if (ownerOrigin != MessageImageStore.originScope(scope)) {
+            val deliveryId = actualPrevious.deliveryId?.trim()?.takeIf(String::isNotEmpty)
+                ?: throw InboundIdentityConflictException(InboundIdentityConflictReason.UNVERIFIABLE_HISTORY)
+            // A newly inserted CURRENT claim cannot match the DIFFERENT old originHash.
+            val durableScope = if (owner.gateway != null || owner.device != null) {
+                InboundDeliveryScope.create(owner.gateway, owner.device)?.takeIf { MessageImageStore.originScope(it) == ownerOrigin }
+                    ?: throw InboundIdentityConflictException(InboundIdentityConflictReason.UNVERIFIABLE_HISTORY)
+            } else null
+            val previousGateway = durableScope?.gatewayUrl ?: database.provenInboundGateway(deliveryId, originHash = ownerOrigin) { fact ->
+                fact.channelId == actualPrevious.channel && fact.entityType == actualPrevious.entityType &&
+                    fact.entityId == operationScopeEntityId(actualPrevious) && fact.opId == actualPrevious.opId &&
+                    fact.appliedAt == actualPrevious.receivedAt.toEpochMilli()
+            } ?: throw InboundIdentityConflictException(InboundIdentityConflictReason.UNVERIFIABLE_HISTORY)
+            if (previousGateway != scope.gatewayUrl) throw InboundIdentityConflictException(InboundIdentityConflictReason.FOREIGN_GATEWAY)
+        }
+        val authenticatedRecovery = incoming.decryptionState == DecryptionState.DECRYPT_OK &&
+            actualPrevious.decryptionState in setOf(DecryptionState.NOT_CONFIGURED, DecryptionState.ALG_MISMATCH, DecryptionState.DECRYPT_FAILED) &&
+            hasSameEncryptedRecoveryProvenance(actualPrevious, incoming)
+        if (!sameCanonicalInboundContent(actualPrevious.rawPayloadJson, incoming.rawPayloadJson) && !authenticatedRecovery) {
+            throw InboundIdentityConflictException(InboundIdentityConflictReason.DIFFERENT_CONTENT)
+        }
+        return true
+    }
+
+    private fun sameCanonicalInboundContent(previous: String, incoming: String): Boolean {
+        fun content(raw: String): JSONObject? = runCatching { JSONObject(raw) }.getOrNull()?.apply {
+            // Target/transport observations are not the immutable business representation.
+            // Keep all business times, metadata, parent IDs, media and encrypted material.
+            listOf("base_url", "gateway_url", "provider_device_key", "delivery_id", "ack_contract",
+                "_fcm_message_id", "decryption_state", MessageImageStore.KEY_IMAGE_LOCAL_PATH,
+                MessageImageStore.KEY_IMAGE_THUMBNAIL_LOCAL_PATH).forEach(::remove)
+        }
+        val old = content(previous) ?: return false
+        val new = content(incoming) ?: return false
+        return notificationJsonMatches(old, new)
     }
 
     suspend fun insert(message: PushMessage) {
@@ -1437,19 +1571,42 @@ class MessageRepository(
         return candidate.id > current.id
     }
 
-    private suspend fun hasThingHead(thingId: String?): Boolean {
+    private suspend fun hasThingHead(thingId: String?, scope: InboundDeliveryScope? = null): Boolean {
         val normalizedThingId = thingId?.trim()?.takeIf { it.isNotEmpty() } ?: return false
-        return thingHeadDao.existsByThingId(normalizedThingId)
+        if (scope == null) return thingHeadDao.existsByThingId(normalizedThingId)
+        val head = database.openHelper.readableDatabase.query(
+            "SELECT source_id,message_id FROM thing_heads WHERE thing_id=? LIMIT 1", arrayOf(normalizedThingId),
+        ).use { cursor -> if (cursor.moveToFirst()) cursor.getString(0) to cursor.getString(1) else null } ?: return false
+        database.requireInboundHeadGateway(scope, head.first, head.second)
+        return true
     }
 
     suspend fun replayPendingForThing(
         thingId: String,
         thingWriteTicket: ThingWriteTicket? = null,
         onReplayPage: ((Int) -> Unit)? = null,
+        deliveryScope: InboundDeliveryScope? = null,
+        verifiedParentGateway: String? = null,
     ) {
+        // Only the shared canonical transaction may carry a proof from a headless
+        // visible group; a caller cannot infer ownership from a bare thing ID.
+        if (verifiedParentGateway != null) check(database.inTransaction())
         val normalizedThingId = thingId.trim().takeIf { it.isNotEmpty() } ?: return
         database.withTransaction {
             thingWriteTicket?.requireCurrent()
+            val head = thingHeadDao.getByThingId(normalizedThingId)
+            val headDeliveryId = head?.messageId?.trim()?.takeIf(String::isNotEmpty)
+            val targetGateway = if (head != null) {
+                if (deliveryScope != null) {
+                    database.requireInboundHeadGateway(deliveryScope, head.sourceId, headDeliveryId)
+                    deliveryScope.gatewayUrl
+                } else database.authenticatedSourceGateway(head.sourceId)
+                    ?: headDeliveryId?.let { database.provenInboundGateway(it, scopedSourceId = head.sourceId) }
+                    ?: return@withTransaction
+            } else verifiedParentGateway ?: return@withTransaction
+            if (deliveryScope != null && targetGateway != deliveryScope.gatewayUrl) {
+                throw InboundIdentityConflictException(InboundIdentityConflictReason.FOREIGN_GATEWAY)
+            }
             // Promotion has no per-child external effect. Source id/message_id are
             // unique; visible ordering uses unchanged business times, never rowid.
             // Keep the entire original transaction/rollback boundary, while holding
@@ -1462,6 +1619,8 @@ class MessageRepository(
                 onReplayPage?.invoke(pending.size)
                 val consumedIds = mutableListOf<String>()
                 pending.forEach { row ->
+                    val rowScope = InboundDeliveryScope.create(row.authenticatedGatewayUrl, row.authenticatedDeviceKey)
+                    if (rowScope?.gatewayUrl != targetGateway) return@forEach
                     val inserted = tryInsertThingSubMessage(
                         ThingSubMessageEntity(
                             id = row.id,
@@ -1487,6 +1646,7 @@ class MessageRepository(
                         )
                     )
                     if (inserted) {
+                        database.recordResourceOrigin(row.id, row.receivedAt, rowScope)
                         consumedIds += row.id
                     }
                 }
@@ -1548,18 +1708,39 @@ class MessageRepository(
         return entityType == "message" && thingId != null
     }
 
-    private suspend fun enqueuePendingThingMessage(message: PushMessage) {
+    private suspend fun enqueuePendingThingMessage(message: PushMessage, scope: InboundDeliveryScope? = null) {
         val thingScoped = ThingSubMessageEntity.fromModel(message)
         val thingId = thingScoped.thingId?.trim()?.takeIf { it.isNotEmpty() } ?: return
         val stableMessageId = thingScoped.messageId?.trim()?.takeIf { it.isNotEmpty() } ?: return
-        pendingThingMessageDao.insert(
+        val inserted = pendingThingMessageDao.insert(
             PendingThingMessageEntity.fromThingScopedMessage(
                 thingScoped.copy(
                     thingId = thingId,
                     messageId = stableMessageId,
                 )
-            )
+            ).copy(authenticatedGatewayUrl = scope?.gatewayUrl, authenticatedDeviceKey = scope?.deviceKey)
         )
+        if (inserted != -1L || scope == null) return
+        val previous = pendingThingMessageDao.getByMessageId(stableMessageId)
+            ?: error("Pending insert was ignored without an existing canonical identity")
+        requireExistingPendingOwner(message, scope, previous)
+    }
+
+    private suspend fun requireExistingPendingOwner(
+        incoming: PushMessage,
+        scope: InboundDeliveryScope,
+        existing: PendingThingMessageEntity? = null,
+    ): Boolean {
+        val previous = existing ?: incoming.messageId?.let { pendingThingMessageDao.getByMessageId(it) } ?: return false
+        val oldScope = InboundDeliveryScope.create(previous.authenticatedGatewayUrl, previous.authenticatedDeviceKey)
+            ?: throw InboundIdentityConflictException(InboundIdentityConflictReason.UNVERIFIABLE_HISTORY)
+        if (oldScope.gatewayUrl != scope.gatewayUrl) {
+            throw InboundIdentityConflictException(InboundIdentityConflictReason.FOREIGN_GATEWAY)
+        }
+        if (!sameCanonicalInboundContent(previous.rawPayloadJson, incoming.rawPayloadJson)) {
+            throw InboundIdentityConflictException(InboundIdentityConflictReason.DIFFERENT_CONTENT)
+        }
+        return true
     }
 
     private fun isMessageEntity(message: PushMessage): Boolean {

@@ -23,6 +23,7 @@ internal class ProviderPullContext(
     val scopeKey: String,
     internal val credential: String?,
     val frontier: ProviderPullFrontierEntity?,
+    internal val strictConfiguredTarget: Boolean = false,
 ) {
     override fun toString(): String = "ProviderPullContext(frontier=${frontier != null})"
 }
@@ -171,9 +172,38 @@ class ChannelSubscriptionRepository(
         )
     }
 
-    internal suspend fun preparePullContext(deliveryId: String?): ProviderPullContext {
-        val config = resolveServerConfig()
-        val deviceKey = resolveProviderDeviceKeyForIngress(config)
+    internal suspend fun preparePullContext(
+        deliveryId: String?,
+        expectedGatewayUrl: String? = null,
+        expectedDeviceKey: String? = null,
+        strictConfiguredTarget: Boolean = false,
+    ): ProviderPullContext {
+        if (strictConfiguredTarget && settingsRepository.getGatewayTransitionJournal() != null) {
+            throw io.ethan.pushgo.notifications.InboundMessageProcessor.InboundRetryableException("Provider target configuration is changing")
+        }
+        val config = if (strictConfiguredTarget) {
+            val address = settingsRepository.getServerAddress()?.trim()?.takeIf(String::isNotEmpty)
+                ?.let(UrlValidators::normalizeGatewayBaseUrl)
+                ?: throw io.ethan.pushgo.notifications.InboundMessageProcessor.InboundRetryableException("Configured provider target unavailable")
+            val token = settingsRepository.getGatewayToken()?.trim()?.takeIf(String::isNotEmpty)
+                ?: throw io.ethan.pushgo.notifications.InboundMessageProcessor.InboundRetryableException("Configured provider credential unavailable")
+            ServerConfig(address, token)
+        } else resolveServerConfig()
+        val deviceKey = if (strictConfiguredTarget) settingsRepository.getDeviceKey()?.trim()?.takeIf(String::isNotEmpty)
+            ?: throw io.ethan.pushgo.notifications.InboundMessageProcessor.InboundRetryableException("Configured provider device unavailable")
+            else resolveProviderDeviceKeyForIngress(config)
+        if (strictConfiguredTarget) {
+            require(!deliveryId.isNullOrBlank()) { "A provider hint requires an exact delivery" }
+            val advertisedGateway = expectedGatewayUrl?.trim()?.takeIf(String::isNotEmpty)
+            val advertisedDevice = expectedDeviceKey?.trim()?.takeIf(String::isNotEmpty)
+            if ((advertisedGateway != null && UrlValidators.normalizeGatewayBaseUrl(advertisedGateway) != config.address) ||
+                (advertisedDevice != null && advertisedDevice != deviceKey)) {
+                throw io.ethan.pushgo.notifications.InboundMessageProcessor.InboundRetryableException("Provider hint does not match the configured target")
+            }
+        }
+        if (strictConfiguredTarget && settingsRepository.getGatewayTransitionJournal() != null) {
+            throw io.ethan.pushgo.notifications.InboundMessageProcessor.InboundRetryableException("Provider target configuration is changing")
+        }
         rememberAckCredential(config) // Existing ACK recovery policy, not a new credential store.
         val scope = pullScope(config, deviceKey)
         val frontier = if (deliveryId.isNullOrBlank()) database.withTransaction {
@@ -182,7 +212,7 @@ class ChannelSubscriptionRepository(
             ProviderPullFrontierEntity(scopeKey = scope, requestGeneration = UUID.randomUUID().toString(),
                 pageToken = previous?.pageToken).also { dao.put(it) }
         } else null
-        return ProviderPullContext(ProviderAckDestination(config.address, deviceKey), scope, config.token, frontier)
+        return ProviderPullContext(ProviderAckDestination(config.address, deviceKey), scope, config.token, frontier, strictConfiguredTarget)
     }
 
     internal suspend fun pullMessages(context: ProviderPullContext, deliveryId: String?): ProviderPullPage {
@@ -242,8 +272,14 @@ class ChannelSubscriptionRepository(
         onPullContinuation { isCurrentPullContext(context) }
     }
 
-    private suspend fun isCurrentPullContext(context: ProviderPullContext): Boolean {
-        val current = resolveServerConfig()
+    internal suspend fun isCurrentPullContext(context: ProviderPullContext): Boolean {
+        if (context.strictConfiguredTarget && settingsRepository.getGatewayTransitionJournal() != null) return false
+        val current = if (context.strictConfiguredTarget) {
+            val address = settingsRepository.getServerAddress()?.trim()?.takeIf(String::isNotEmpty)
+                ?.let(UrlValidators::normalizeGatewayBaseUrl) ?: return false
+            val token = settingsRepository.getGatewayToken()?.trim()?.takeIf(String::isNotEmpty) ?: return false
+            ServerConfig(address, token)
+        } else resolveServerConfig()
         val device = settingsRepository.getDeviceKey()?.trim().orEmpty()
         return device == context.destination.deviceKey && current.address == context.destination.baseUrl &&
             current.token == context.credential && pullScope(current, device) == context.scopeKey

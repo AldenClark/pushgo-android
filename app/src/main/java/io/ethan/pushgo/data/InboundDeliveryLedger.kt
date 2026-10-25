@@ -11,9 +11,10 @@ import io.ethan.pushgo.data.db.PushGoDatabase
 
 internal const val INBOUND_DELIVERY_ACK_STATE_PENDING = "pending"
 internal const val INBOUND_DELIVERY_ACK_STATE_ACKED = "acked"
-// Gateway may retain/replay a frozen delivery for as long as 35 days. Keep the
-// client terminal decision one day longer so an ACKed delivery cannot be
-// resurrected after a long offline interval or an ambiguous wire ACK.
+// Keep the existing 36-day local terminal-fact window for retained deliveries.
+// Ordinary Gateway body (7 days) and operation identity (30 days) are separate:
+// a new stable entity/delivery after server identity GC has a different local key.
+// Neither replay nor acceptance certification restarts this existing window.
 internal const val INBOUND_DELIVERY_TOMBSTONE_RETENTION_DAYS = 36L
 internal const val INBOUND_DELIVERY_PRUNE_BATCH_SIZE = 200
 
@@ -27,6 +28,7 @@ internal suspend fun claimInboundDelivery(
     appliedAt: Long,
     providerAckIdentity: ProviderAckIdentity? = null,
     deliveryScope: InboundDeliveryScope? = providerAckIdentity.inboundDeliveryScope(),
+    acceptanceProven: Boolean? = null,
 ): Boolean {
     val normalizedDeliveryId = deliveryId?.trim()?.takeIf { it.isNotEmpty() } ?: return true
     val normalizedType = canonicalEntityTypeOrEmpty(entityType)
@@ -45,9 +47,81 @@ internal suspend fun claimInboundDelivery(
             appliedAt = appliedAt,
             ackState = INBOUND_DELIVERY_ACK_STATE_PENDING,
             ackedAt = null,
+            acceptanceProven = acceptanceProven,
         )
     )
     return inserted != -1L
+}
+
+/** Allows the existing destructive-Pull receipt to retry business acceptance; never proves it accepted. */
+internal fun isLegacyStagingRecovery(
+    database: PushGoDatabase,
+    scope: InboundDeliveryScope?,
+    deliveryId: String?,
+    identity: ProviderAckIdentity?,
+): Boolean {
+    if (identity?.source != "legacy_provider_staging" || scope == null) return false
+    val id = deliveryId?.trim()?.takeIf(String::isNotEmpty) ?: return false
+    return database.openHelper.readableDatabase.query(
+        "SELECT 1 FROM legacy_provider_ingress WHERE gateway_url=? AND device_key=? AND delivery_id=? LIMIT 1",
+        arrayOf(scope.gatewayUrl, scope.deviceKey, id),
+    ).use { it.moveToFirst() }
+}
+
+/** Exact processed facts survive content deletion; legacy claims alone prove no acceptance. */
+internal suspend fun hasProvenInboundAcceptance(
+    database: PushGoDatabase,
+    scope: InboundDeliveryScope?,
+    deliveryId: String?,
+    channelId: String?,
+    entityType: String?,
+    entityId: String?,
+    opId: String?,
+): Boolean {
+    val id = deliveryId?.trim()?.takeIf(String::isNotEmpty) ?: return false
+    val fact = database.inboundDeliveryLedgerDao().get(scope?.gatewayUrl.orEmpty(), scope?.deviceKey.orEmpty(), id)
+        ?: return false
+    if (fact.channelId != channelId?.trim()?.takeIf(String::isNotEmpty) ||
+        fact.entityType != canonicalEntityTypeOrEmpty(entityType) ||
+        fact.entityId != entityId?.trim()?.takeIf(String::isNotEmpty) ||
+        fact.opId != opId?.trim()?.takeIf(String::isNotEmpty)) {
+        throw InboundIdentityConflictException(InboundIdentityConflictReason.DIFFERENT_CONTENT)
+    }
+    return fact.acceptanceProven == true
+}
+
+/** Only an earlier, different delivery can prove an already accepted operation. */
+internal suspend fun hasProvenOperationAcceptance(
+    database: PushGoDatabase,
+    scope: InboundDeliveryScope?,
+    currentDeliveryId: String?,
+    channelId: String?,
+    entityType: String?,
+    entityId: String?,
+    opId: String?,
+): Boolean {
+    val operation = opId?.trim()?.takeIf(String::isNotEmpty) ?: return false
+    val key = scope.scopedDeliveryStorageKey(composeOperationScopeKey(channelId?.trim()?.takeIf(String::isNotEmpty),
+        canonicalEntityTypeOrEmpty(entityType), entityId?.trim()?.takeIf(String::isNotEmpty), operation))
+    val previous = database.openHelper.readableDatabase.query(
+        "SELECT delivery_id FROM operation_ledger WHERE scope_key=?", arrayOf(key),
+    ).use { cursor -> if (cursor.moveToFirst()) cursor.getString(0) else null }
+        ?: return false
+    // A newly inserted current claim is never evidence for the prior operation.
+    if (previous == currentDeliveryId?.trim()) return false
+    return hasProvenInboundAcceptance(database, scope, previous, channelId, entityType, entityId, operation)
+}
+
+internal suspend fun proveInboundAcceptance(
+    database: PushGoDatabase,
+    scope: InboundDeliveryScope?,
+    deliveryId: String?,
+) {
+    val id = deliveryId?.trim()?.takeIf(String::isNotEmpty) ?: return
+    check(database.inTransaction())
+    check(database.inboundDeliveryLedgerDao().markAcceptanceProven(scope?.gatewayUrl.orEmpty(), scope?.deviceKey.orEmpty(), id) == 1) {
+        "Accepted delivery fact disappeared before commit"
+    }
 }
 
 class InboundDeliveryLedgerRepository(
@@ -102,7 +176,7 @@ class InboundDeliveryLedgerRepository(
         scope: InboundDeliveryScope?,
     ): String? {
         val normalized = deliveryId?.trim()?.takeIf { it.isNotEmpty() } ?: return null
-        return inboundDeliveryLedgerDao.getAckState(
+        return inboundDeliveryLedgerDao.getProvenAckState(
             gatewayUrl = scope?.gatewayUrl.orEmpty(),
             deviceKey = scope?.deviceKey.orEmpty(),
             deliveryId = normalized,
@@ -117,10 +191,12 @@ class InboundDeliveryLedgerRepository(
         if (normalized.isEmpty()) return false
         val now = System.currentTimeMillis()
         return database.withTransaction {
-            // The empty -> nonempty edge is the durable drain signal. Producers that
+            // The eligible empty -> nonempty edge is the durable drain signal.
+            // Isolated old claims remain stored but cannot hide a new sendable ACK.
+            // Producers that
             // arrive while a worker is active do not replace/cancel it; a producer that
             // races after the worker's final empty read observes empty and kicks a successor.
-            val shouldKickDrain = !inboundDeliveryAckOutboxDao.hasPending()
+            val shouldKickDrain = !inboundDeliveryAckOutboxDao.hasEligiblePending()
             normalized.forEach { deliveryId ->
                 val record = InboundDeliveryAckOutboxEntity(
                     gatewayUrl = identity.gatewayUrl,
@@ -144,10 +220,13 @@ class InboundDeliveryLedgerRepository(
                     ) { "provider ACK record disappeared during refresh" }
                 }
             }
-            shouldKickDrain
+            shouldKickDrain && inboundDeliveryAckOutboxDao.hasEligiblePending()
         }
     }
 
+    suspend fun hasEligiblePendingAcks(): Boolean = inboundDeliveryAckOutboxDao.hasEligiblePending()
+
+    /** All retained rows, including isolated legacy claims, for diagnostics/recovery accounting. */
     suspend fun loadPendingAcks(limit: Int = 201): List<InboundDeliveryAckOutboxEntity> {
         return inboundDeliveryAckOutboxDao.loadPending(limit.coerceIn(1, 1_001))
     }
@@ -160,13 +239,13 @@ class InboundDeliveryLedgerRepository(
      */
     suspend fun loadFairPendingAcks(limit: Int = 201): List<InboundDeliveryAckOutboxEntity> {
         val boundedLimit = limit.coerceIn(1, 1_001)
-        val destinations = inboundDeliveryAckOutboxDao.loadPendingDestinations(boundedLimit)
+        val destinations = inboundDeliveryAckOutboxDao.loadEligiblePendingDestinations(boundedLimit)
         if (destinations.isEmpty()) return emptyList()
 
         val selected = ArrayList<InboundDeliveryAckOutboxEntity>(boundedLimit)
         val selectedKeys = HashSet<Triple<String, String, String>>(boundedLimit)
         destinations.forEach { destination ->
-            inboundDeliveryAckOutboxDao.loadPendingForDestination(
+            inboundDeliveryAckOutboxDao.loadEligiblePendingForDestination(
                 gatewayUrl = destination.gatewayUrl,
                 deviceKey = destination.deviceKey,
                 ackContract = destination.ackContract,
@@ -177,7 +256,7 @@ class InboundDeliveryLedgerRepository(
             }
         }
         if (selected.size < boundedLimit) {
-            inboundDeliveryAckOutboxDao.loadPending(boundedLimit).forEach { record ->
+            inboundDeliveryAckOutboxDao.loadEligiblePending(boundedLimit).forEach { record ->
                 if (selected.size < boundedLimit && selectedKeys.add(record.fairSelectionKey())) {
                     selected += record
                 }
@@ -197,7 +276,7 @@ class InboundDeliveryLedgerRepository(
         contract: ProviderAckContract,
         limit: Int = 201,
     ): List<InboundDeliveryAckOutboxEntity> {
-        return inboundDeliveryAckOutboxDao.loadPendingForDestination(
+        return inboundDeliveryAckOutboxDao.loadEligiblePendingForDestination(
             gatewayUrl = ProviderAckIdentity.create(
                 destination = destination,
                 contract = contract,

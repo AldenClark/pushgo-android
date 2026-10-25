@@ -19,6 +19,20 @@ import java.time.Instant
 
 class ProviderIngressPagingContractTest {
     @Test
+    fun durableProviderHintPropagatesContextEndWhileBroadDueTurnMayYield() = runBlocking {
+        val ended = ProviderPullTurnEnded()
+        val failure = runCatching {
+            consumeProviderPullPages("targeted-hint", { throw ended }, propagateContextEnd = true) {
+                error("An invalidated response must not be processed")
+            }
+        }.exceptionOrNull()
+        assertEquals(ended, failure)
+        assertEquals(0, consumeProviderPullPages(null, { throw ProviderPullTurnEnded() }) {
+            error("A broad invalidated response must not be processed")
+        })
+    }
+
+    @Test
     fun consumeProviderPullPages_drainsAll207ItemsAcrossHasMoreBoundary() = runBlocking {
         val pages = ArrayDeque(
             listOf(

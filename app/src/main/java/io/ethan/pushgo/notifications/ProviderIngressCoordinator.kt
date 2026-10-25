@@ -1,6 +1,7 @@
 package io.ethan.pushgo.notifications
 
 import android.content.Context
+import io.ethan.pushgo.data.inboundDeliveryScope
 import io.ethan.pushgo.data.ChannelSubscriptionRepository
 import io.ethan.pushgo.data.ChannelSubscriptionException
 import io.ethan.pushgo.data.EntityRepository
@@ -32,6 +33,9 @@ object ProviderIngressCoordinator {
         deliveryId: String? = null,
         reason: String = "unspecified",
         beforeMessageNotify: suspend (PushMessage, String?) -> Unit = { _, _ -> },
+        expectedGatewayUrl: String? = null,
+        expectedDeviceKey: String? = null,
+        strictConfiguredTarget: Boolean = false,
     ): Int {
         return try {
             pullAndPersist(
@@ -44,6 +48,9 @@ object ProviderIngressCoordinator {
                 deliveryId = deliveryId,
                 reason = reason,
                 beforeMessageNotify = beforeMessageNotify,
+                expectedGatewayUrl = expectedGatewayUrl,
+                expectedDeviceKey = expectedDeviceKey,
+                strictConfiguredTarget = strictConfiguredTarget,
             )
         } finally {
             enqueueAckDrainIfNeeded(
@@ -76,8 +83,15 @@ object ProviderIngressCoordinator {
         deliveryId: String? = null,
         reason: String = "unspecified",
         beforeMessageNotify: suspend (PushMessage, String?) -> Unit = { _, _ -> },
+        expectedGatewayUrl: String? = null,
+        expectedDeviceKey: String? = null,
+        strictConfiguredTarget: Boolean = false,
     ): Int = ingressMutex.withLock {
-        runCatching {
+        // Inline FCM is only an untrusted hint. Do not bootstrap a new FCM route
+        // or guess a default target before validating its existing configuration.
+        var pullContext: ProviderPullContext? = if (strictConfiguredTarget) channelRepository.preparePullContext(
+            deliveryId, expectedGatewayUrl, expectedDeviceKey, true) else null
+        if (!strictConfiguredTarget) runCatching {
             repairProviderRouteSnapshotIfNeeded(
                 channelRepository = channelRepository,
                 settingsRepository = settingsRepository,
@@ -95,9 +109,9 @@ object ProviderIngressCoordinator {
         )
         var hadPersistenceFailure = false
         var ackFailure: ChannelSubscriptionException? = null
-        var pullContext: ProviderPullContext? = null
         val persistedCount = consumeProviderPullPages(
             requestedDeliveryId = deliveryId,
+            propagateContextEnd = strictConfiguredTarget,
             pullPage = {
                 val override = if (reason == "messages_pull_to_refresh") QualityRuntime.takeMessageRefreshPullOverride() else null
                 if (override != null) override.getOrThrow() else {
@@ -154,13 +168,20 @@ object ProviderIngressCoordinator {
                     inboundDeliveryLedgerRepository = inboundDeliveryLedgerRepository,
                     settingsRepository = settingsRepository,
                     inbound = parsed,
+                    deliveryScope = pageIdentity.inboundDeliveryScope(),
                     beforeMessageNotify = beforeMessageNotify,
                 )
                 if (outcome.isCanonicalPersistenceComplete()) {
                     pagePersisted += 1
                 } else {
                     pageHadPersistenceFailure = true
-                    pageHadHardFailure = true
+                    // A proven per-item conflict/ambiguity keeps its server obligation.
+                    // Modern finite scans may pass only this fully rolled-back item.
+                    // These reasons are emitted only after a per-item acceptance
+                    // transaction rolled back. Parent/child scope checks retain
+                    // their own failed responsibility; unrelated items may progress.
+                    val independentIdentityConflict = page.scanComplete != null && outcome.identityConflict != null
+                    pageHadHardFailure = !independentIdentityConflict
                 }
                 if (outcome.shouldAck) {
                     inboundDeliveryLedgerRepository.enqueueAcks(
@@ -233,6 +254,7 @@ object ProviderIngressCoordinator {
                     inboundDeliveryLedgerRepository = inboundDeliveryLedgerRepository,
                     settingsRepository = settingsRepository,
                     inbound = parsed,
+                    deliveryScope = identity.inboundDeliveryScope(),
                     beforeMessageNotify = beforeMessageNotify,
                 )
                 if (!shouldCompleteLegacyPull(parsed, outcome)) {
@@ -297,7 +319,7 @@ object ProviderIngressCoordinator {
         inboundDeliveryLedgerRepository: InboundDeliveryLedgerRepository,
     ) {
         val hasPendingAcks = runCatching {
-            inboundDeliveryLedgerRepository.loadPendingAckIds(limit = 1).isNotEmpty()
+            inboundDeliveryLedgerRepository.hasEligiblePendingAcks()
         }.getOrDefault(false)
         if (hasPendingAcks) {
             InboundDeliveryAckWorker.enqueueDrain(context)
@@ -371,7 +393,8 @@ internal fun directAckDrainSchedule(
     persistenceStatus: InboundPersistenceStatus,
 ): DirectAckDrainSchedule = when {
     shouldKickDrain -> DirectAckDrainSchedule.PRIMARY
-    persistenceStatus == InboundPersistenceStatus.DUPLICATE -> DirectAckDrainSchedule.RECOVERY
+    persistenceStatus == InboundPersistenceStatus.DUPLICATE ||
+        persistenceStatus == InboundPersistenceStatus.PERSISTED_PENDING -> DirectAckDrainSchedule.RECOVERY
     else -> DirectAckDrainSchedule.NONE
 }
 
@@ -395,6 +418,7 @@ internal suspend fun consumeProviderPullPages(
     pullPage: suspend () -> ProviderPullPage,
     checkpointPage: suspend (ProviderPullPage) -> Unit = {},
     afterCheckpointPage: suspend (ProviderPullPage) -> Boolean = { false },
+    propagateContextEnd: Boolean = false,
     processPage: suspend (ProviderPullPage) -> ProviderPullPageProcessResult,
 ): Int {
     var totalPersisted = 0
@@ -407,12 +431,18 @@ internal suspend fun consumeProviderPullPages(
         check(pageCount <= MAX_PROVIDER_PULL_PAGES_PER_RUN) {
             "provider pull exceeded $MAX_PROVIDER_PULL_PAGES_PER_RUN pages"
         }
-        val page = try { pullPage() } catch (_: ProviderPullTurnEnded) { break }
+        val page = try { pullPage() } catch (ended: ProviderPullTurnEnded) {
+            // A foreground broad scan can yield to its next due turn. A durable
+            // provider hint must retain its existing Worker retry after a switch.
+            if (propagateContextEnd) throw ended
+            break
+        }
         val result = processPage(page)
         totalPersisted += result.persistedCount
         if (!result.hadHardFailure) {
-            try { checkpointPage(page) } catch (_: ProviderPullTurnEnded) {
+            try { checkpointPage(page) } catch (ended: ProviderPullTurnEnded) {
                 afterCheckpointPage(page) // already durable ACKs still use the frozen page context
+                if (propagateContextEnd) throw ended
                 break
             }
         }

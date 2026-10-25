@@ -38,6 +38,9 @@ internal interface InboundProcessorHooks {
     suspend fun handleProviderWakeupPull(
         runtime: InboundProcessorRuntime,
         deliveryId: String,
+        expectedGatewayUrl: String? = null,
+        expectedDeviceKey: String? = null,
+        strictConfiguredTarget: Boolean = true,
     )
 
     suspend fun parseDirect(
@@ -106,9 +109,15 @@ internal class InboundMessageProcessor(
                 hooks.handleProviderWakeupPull(
                     runtime = runtime,
                     deliveryId = route.deliveryId,
+                    expectedGatewayUrl = route.advertisedGatewayUrl,
+                    expectedDeviceKey = route.advertisedDeviceKey,
+                    strictConfiguredTarget = route.strictConfiguredTarget,
                 )
                 return
             }
+
+            is InboundIngressRoute.Invalid -> throw io.ethan.pushgo.data.ChannelSubscriptionException.local(
+                message = route.reason, code = "invalid_provider_hint", category = io.ethan.pushgo.data.GatewayErrorCategory.VALIDATION)
 
             is InboundIngressRoute.Drop -> {
                 io.ethan.pushgo.util.SilentSink.w(TAG, route.reason)
@@ -168,6 +177,9 @@ private class DefaultInboundProcessorHooks(
     override suspend fun handleProviderWakeupPull(
         runtime: InboundProcessorRuntime,
         deliveryId: String,
+        expectedGatewayUrl: String?,
+        expectedDeviceKey: String?,
+        strictConfiguredTarget: Boolean,
     ) {
         val defaultRuntime = runtime.asDefaultRuntime()
         ProviderIngressCoordinator.pullPersistAndDrainAcks(
@@ -178,54 +190,34 @@ private class DefaultInboundProcessorHooks(
             inboundDeliveryLedgerRepository = defaultRuntime.inboundDeliveryLedgerRepository,
             settingsRepository = defaultRuntime.settingsRepository,
             deliveryId = deliveryId,
+            expectedGatewayUrl = expectedGatewayUrl,
+            expectedDeviceKey = expectedDeviceKey,
+            strictConfiguredTarget = strictConfiguredTarget,
         )
     }
 
+    // Retain the internal hook surface for focused contract tests, without a
+    // second production parser/persist/ACK path or an inline fallback on failure.
     override suspend fun parseDirect(
         runtime: InboundProcessorRuntime,
         messageData: Map<String, String>,
         transportMessageId: String?,
-    ): InboundPersistenceRequest? {
-        val defaultRuntime = runtime.asDefaultRuntime()
-        val keyBytes = defaultRuntime.settingsRepository.getNotificationKeyBytes()
-        return NotificationIngressParser.parse(
-            data = messageData,
-            transportMessageId = transportMessageId,
-            keyBytes = keyBytes,
-            textLocalizer = NotificationIngressParser.NotificationTextLocalizer.fromContext(
-                context
-            ),
-        )
-    }
+    ): InboundPersistenceRequest? = throw InboundMessageProcessor.InboundRetryableException(
+        "Inline provider content requires authenticated Pull")
 
     override suspend fun persistDirect(
         runtime: InboundProcessorRuntime,
         parsed: InboundPersistenceRequest,
-    ): InboundPersistenceOutcome {
-        val defaultRuntime = runtime.asDefaultRuntime()
-        return InboundPersistenceCoordinator.persistAndNotify(
-            context = context,
-            messageRepository = defaultRuntime.messageRepository,
-            entityRepository = defaultRuntime.entityRepository,
-            inboundDeliveryLedgerRepository = defaultRuntime.inboundDeliveryLedgerRepository,
-            settingsRepository = defaultRuntime.settingsRepository,
-            inbound = parsed,
-        )
-    }
+    ): InboundPersistenceOutcome = throw InboundMessageProcessor.InboundRetryableException(
+        "Inline provider content requires authenticated Pull")
 
     override suspend fun ackDirect(
         runtime: InboundProcessorRuntime,
         parsed: InboundPersistenceRequest,
         outcome: InboundPersistenceOutcome,
-    ) {
-        val defaultRuntime = runtime.asDefaultRuntime()
-        ProviderIngressCoordinator.ackDirectDeliveryIfNeeded(
-            context = context,
-            inboundDeliveryLedgerRepository = defaultRuntime.inboundDeliveryLedgerRepository,
-            inbound = parsed,
-            outcome = outcome,
-        )
-    }
+    ): Unit = throw InboundMessageProcessor.InboundRetryableException(
+        "Inline provider content requires authenticated Pull")
+
 
 
 }

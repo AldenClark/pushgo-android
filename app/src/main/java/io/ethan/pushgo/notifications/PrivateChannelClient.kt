@@ -129,6 +129,14 @@ internal fun normalizePendingAckDeliveryIds(rawValues: Iterable<String>): List<S
         .toList()
 }
 
+/** Preserve rejected acceptance as a failed attempt before native replay ACK fallback. */
+internal fun privateStreamAcceptanceResult(outcome: InboundPersistenceOutcome): Boolean {
+    if (outcome.status == InboundPersistenceStatus.FAILED || outcome.status == InboundPersistenceStatus.REJECTED) {
+        throw InboundMessageProcessor.InboundRetryableException("private canonical persistence incomplete")
+    }
+    return outcome.shouldAck
+}
+
 internal object PrivateStreamAckPolicy {
     fun statusForDelivery(
         handledResult: Result<Boolean>,
@@ -975,10 +983,7 @@ class PrivateChannelClient(
             inbound = parsed,
             deliveryScope = deliveryScope,
         )
-        if (outcome.status == InboundPersistenceStatus.FAILED) {
-            throw InboundMessageProcessor.InboundRetryableException("private canonical persistence incomplete")
-        }
-        return outcome.shouldAck
+        return privateStreamAcceptanceResult(outcome)
     }
 
     private fun payloadStringMap(payload: JSONObject): Map<String, String> {

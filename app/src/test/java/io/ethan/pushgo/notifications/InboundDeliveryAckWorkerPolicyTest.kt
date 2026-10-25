@@ -23,7 +23,7 @@ class InboundDeliveryAckWorkerPolicyTest {
     }
 
     @Test
-    fun directAckScheduling_repairsOnlyTheCommittedDuplicateHandoffGap() {
+    fun directAckScheduling_repairsCommittedDuplicateAndPendingHandoffGaps() {
         assertEquals(
             DirectAckDrainSchedule.PRIMARY,
             directAckDrainSchedule(true, InboundPersistenceStatus.PERSISTED_MAIN),
@@ -31,6 +31,10 @@ class InboundDeliveryAckWorkerPolicyTest {
         assertEquals(
             DirectAckDrainSchedule.RECOVERY,
             directAckDrainSchedule(false, InboundPersistenceStatus.DUPLICATE),
+        )
+        assertEquals(
+            DirectAckDrainSchedule.RECOVERY,
+            directAckDrainSchedule(false, InboundPersistenceStatus.PERSISTED_PENDING),
         )
         assertEquals(
             DirectAckDrainSchedule.NONE,

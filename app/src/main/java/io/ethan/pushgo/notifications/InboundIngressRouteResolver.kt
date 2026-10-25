@@ -3,9 +3,18 @@ package io.ethan.pushgo.notifications
 internal sealed interface InboundIngressRoute {
     data class ProviderWakeupPull(
         val deliveryId: String,
+        val advertisedGatewayUrl: String? = null,
+        val advertisedDeviceKey: String? = null,
+        val strictConfiguredTarget: Boolean = true,
     ) : InboundIngressRoute
 
+    // Kept for internal hooks compatibility; the production resolver never
+    // authorizes an inline payload to choose persistence or ACK identity.
     data object Direct : InboundIngressRoute
+
+    data class Invalid(
+        val reason: String,
+    ) : InboundIngressRoute
 
     data class Drop(
         val reason: String,
@@ -14,21 +23,18 @@ internal sealed interface InboundIngressRoute {
 
 internal object InboundIngressRouteResolver {
     fun resolve(messageData: Map<String, String>): InboundIngressRoute {
-        val wakeupDeliveryId = NotificationIngressParser.providerWakeupPullDeliveryId(messageData)
-        if (wakeupDeliveryId != null) {
-            return InboundIngressRoute.ProviderWakeupPull(deliveryId = wakeupDeliveryId)
-        }
-
-        val providerWakeup = messageData["provider_wakeup"]?.trim()?.lowercase()
-        val providerMode = messageData["provider_mode"]?.trim()?.lowercase()
         val deliveryId = messageData["delivery_id"]?.trim().orEmpty()
-        val isWakeupCandidate = providerWakeup == "1" || providerWakeup == "true" || providerMode == "wakeup"
-        if (isWakeupCandidate && deliveryId.isEmpty()) {
-            return InboundIngressRoute.Drop(
-                reason = "provider wakeup marker present but delivery_id missing",
-            )
+        if (deliveryId.isEmpty()) {
+            // Default message payloads need not advertise entity_type. None may
+            // fall back to unauthenticated inline persistence after a bad wakeup.
+            return InboundIngressRoute.Invalid("provider delivery_id missing")
         }
-
-        return InboundIngressRoute.Direct
+        val gateway = messageData["gateway_url"]?.trim()?.takeIf(String::isNotEmpty)
+        val base = messageData["base_url"]?.trim()?.takeIf(String::isNotEmpty)
+        return InboundIngressRoute.ProviderWakeupPull(
+            deliveryId = deliveryId,
+            advertisedGatewayUrl = gateway ?: base,
+            advertisedDeviceKey = messageData["provider_device_key"]?.trim()?.takeIf(String::isNotEmpty),
+        )
     }
 }

@@ -54,6 +54,11 @@ data class PendingThingMessageEntity(
     val eventTimeEpoch: Long?,
     @ColumnInfo(name = "occurred_at_epoch")
     val occurredAtEpoch: Long?,
+    // Authenticated ingress facts, not values accepted from the remote payload.
+    @ColumnInfo(name = "authenticated_gateway_url")
+    val authenticatedGatewayUrl: String? = null,
+    @ColumnInfo(name = "authenticated_device_key")
+    val authenticatedDeviceKey: String? = null,
 ) {
     companion object {
         fun fromThingScopedMessage(message: ThingSubMessageEntity): PendingThingMessageEntity {
@@ -88,6 +93,9 @@ data class PendingThingMessageEntity(
 interface PendingThingMessageDao {
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun insert(record: PendingThingMessageEntity): Long
+
+    @Query("SELECT * FROM pending_thing_messages WHERE message_id=:messageId LIMIT 1")
+    suspend fun getByMessageId(messageId: String): PendingThingMessageEntity?
 
     @Query(
         """

@@ -35,6 +35,60 @@ class InboundMessageProcessorTest {
     }
 
     @Test
+    fun processWithRuntime_fullInlineAdvertisementOnlyPullsAndForwardsUntrustedConstraints() = runBlocking {
+        val payload = mapOf("entity_type" to "message", "delivery_id" to "delivery-full",
+            "title" to "Inline must not persist", "body" to "Untrusted body",
+            "base_url" to "https://advertised.invalid", "provider_device_key" to "advertised-device")
+        val hooks = RecordingHooks(route = InboundIngressRouteResolver.resolve(payload))
+        InboundMessageProcessor().processWithRuntime(FakeRuntime, hooks, payload, "untrusted-transport-id")
+
+        assertEquals(1, hooks.providerPullCalls)
+        assertEquals("delivery-full", hooks.providerPullDeliveryId)
+        assertEquals("https://advertised.invalid", hooks.expectedGatewayUrl)
+        assertEquals("advertised-device", hooks.expectedDeviceKey)
+        assertTrue(hooks.strictConfiguredTarget)
+        assertFalse(hooks.parseCalled)
+        assertFalse(hooks.persistCalled)
+        assertFalse(hooks.ackCalled)
+    }
+
+    @Test
+    fun processWithRuntime_failedTargetedPullThrowsWithoutInlineFallbackOrEarlyAck() = runBlocking {
+        val payload = mapOf("delivery_id" to "delivery-pull-fails", "title" to "Inline fallback forbidden", "body" to "retained by Worker")
+        val originalFailure = InboundMessageProcessor.InboundRetryableException("synthetic targeted Pull unavailable")
+        val hooks = RecordingHooks(route = InboundIngressRouteResolver.resolve(payload), providerFailure = originalFailure)
+        val failure = runCatching {
+            InboundMessageProcessor().processWithRuntime(FakeRuntime, hooks, payload, "untrusted-transport-id")
+        }.exceptionOrNull()
+
+        assertSame(originalFailure, failure)
+        assertEquals(1, hooks.providerPullCalls)
+        assertEquals("delivery-pull-fails", hooks.providerPullDeliveryId)
+        assertEquals(null, hooks.expectedGatewayUrl)
+        assertEquals(null, hooks.expectedDeviceKey)
+        assertTrue(hooks.strictConfiguredTarget)
+        assertFalse(hooks.parseCalled)
+        assertFalse(hooks.persistCalled)
+        assertFalse(hooks.ackCalled)
+    }
+
+    @Test
+    fun processWithRuntime_missingDeliveryIsUnsupportedWithoutParsingOrAcknowledgingInlineContent() = runBlocking {
+        val payload = mapOf("title" to "Default Message without entity_type", "body" to "Must not become an inline receipt")
+        val hooks = RecordingHooks(route = InboundIngressRouteResolver.resolve(payload))
+        val failure = runCatching {
+            InboundMessageProcessor().processWithRuntime(FakeRuntime, hooks, payload, "transport-is-not-a-delivery")
+        }.exceptionOrNull()
+
+        assertTrue(failure is io.ethan.pushgo.data.ChannelSubscriptionException)
+        assertFalse(shouldRetryInboundFailure(requireNotNull(failure)))
+        assertEquals(0, hooks.providerPullCalls)
+        assertFalse(hooks.parseCalled)
+        assertFalse(hooks.persistCalled)
+        assertFalse(hooks.ackCalled)
+    }
+
+    @Test
     fun processWithRuntime_dropRoute_shortCircuitsHandlers() = runBlocking {
         val hooks = RecordingHooks(
             route = InboundIngressRoute.Drop("bad payload"),
@@ -54,6 +108,8 @@ class InboundMessageProcessorTest {
         assertFalse(hooks.ackCalled)
     }
 
+    // Explicit fake-hook Direct routes retain internal compatibility; the real
+    // resolver no longer sends FCM content through these inline branches.
     @Test
     fun processWithRuntime_directRoute_parseNull_skipsPersistAndAck() = runBlocking {
         val hooks = RecordingHooks(
@@ -178,8 +234,17 @@ class InboundMessageProcessorTest {
             notified = false,
             shouldAck = false,
         ),
+        private val providerFailure: Throwable? = null,
     ) : InboundProcessorHooks {
         var providerPullCalls: Int = 0
+            private set
+        var providerPullDeliveryId: String? = null
+            private set
+        var expectedGatewayUrl: String? = null
+            private set
+        var expectedDeviceKey: String? = null
+            private set
+        var strictConfiguredTarget: Boolean = false
             private set
         var parseCalled: Boolean = false
             private set
@@ -199,8 +264,16 @@ class InboundMessageProcessorTest {
         override suspend fun handleProviderWakeupPull(
             runtime: InboundProcessorRuntime,
             deliveryId: String,
+            expectedGatewayUrl: String?,
+            expectedDeviceKey: String?,
+            strictConfiguredTarget: Boolean,
         ) {
             providerPullCalls += 1
+            providerPullDeliveryId = deliveryId
+            this.expectedGatewayUrl = expectedGatewayUrl
+            this.expectedDeviceKey = expectedDeviceKey
+            this.strictConfiguredTarget = strictConfiguredTarget
+            providerFailure?.let { throw it }
         }
 
         override suspend fun parseDirect(

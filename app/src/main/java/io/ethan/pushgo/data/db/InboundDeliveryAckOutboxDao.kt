@@ -17,6 +17,20 @@ interface InboundDeliveryAckOutboxDao {
     @Query("SELECT EXISTS(SELECT 1 FROM inbound_delivery_ack_outbox LIMIT 1)")
     suspend fun hasPending(): Boolean
 
+    @Query(
+        """
+        SELECT EXISTS(
+            SELECT 1 FROM inbound_delivery_ack_outbox AS outbox
+            JOIN inbound_delivery_ledger AS ledger
+              ON ledger.gateway_url = outbox.gateway_url
+             AND ledger.device_key = outbox.device_key
+             AND ledger.delivery_id = outbox.delivery_id
+            WHERE ledger.acceptance_proven = 1 LIMIT 1
+        )
+        """
+    )
+    suspend fun hasEligiblePending(): Boolean
+
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun insertOrIgnore(record: InboundDeliveryAckOutboxEntity): Long
 
@@ -82,6 +96,62 @@ interface InboundDeliveryAckOutboxDao {
         limit: Int,
     ): List<InboundDeliveryAckOutboxEntity>
 
+    /** Raw loads above retain old unresolved facts for diagnostics, never wire selection. */
+    @Query(
+        """
+        SELECT outbox.* FROM inbound_delivery_ack_outbox AS outbox
+        JOIN inbound_delivery_ledger AS ledger
+          ON ledger.gateway_url = outbox.gateway_url
+         AND ledger.device_key = outbox.device_key
+         AND ledger.delivery_id = outbox.delivery_id
+        WHERE ledger.acceptance_proven = 1
+        ORDER BY outbox.updated_at ASC, outbox.enqueued_at ASC
+        LIMIT :limit
+        """
+    )
+    suspend fun loadEligiblePending(limit: Int): List<InboundDeliveryAckOutboxEntity>
+
+    @Query(
+        """
+        SELECT outbox.gateway_url AS gatewayUrl,
+               outbox.device_key AS deviceKey,
+               outbox.ack_contract AS ackContract,
+               MIN(outbox.updated_at) AS oldestUpdatedAt
+        FROM inbound_delivery_ack_outbox AS outbox
+        JOIN inbound_delivery_ledger AS ledger
+          ON ledger.gateway_url = outbox.gateway_url
+         AND ledger.device_key = outbox.device_key
+         AND ledger.delivery_id = outbox.delivery_id
+        WHERE ledger.acceptance_proven = 1
+        GROUP BY outbox.gateway_url, outbox.device_key, outbox.ack_contract
+        ORDER BY oldestUpdatedAt ASC, outbox.gateway_url ASC, outbox.device_key ASC, outbox.ack_contract ASC
+        LIMIT :limit
+        """
+    )
+    suspend fun loadEligiblePendingDestinations(limit: Int): List<InboundDeliveryAckDestinationRow>
+
+    @Query(
+        """
+        SELECT outbox.* FROM inbound_delivery_ack_outbox AS outbox
+        JOIN inbound_delivery_ledger AS ledger
+          ON ledger.gateway_url = outbox.gateway_url
+         AND ledger.device_key = outbox.device_key
+         AND ledger.delivery_id = outbox.delivery_id
+        WHERE ledger.acceptance_proven = 1
+          AND outbox.gateway_url = :gatewayUrl
+          AND outbox.device_key = :deviceKey
+          AND outbox.ack_contract = :ackContract
+        ORDER BY outbox.updated_at ASC, outbox.enqueued_at ASC
+        LIMIT :limit
+        """
+    )
+    suspend fun loadEligiblePendingForDestination(
+        gatewayUrl: String,
+        deviceKey: String,
+        ackContract: String,
+        limit: Int,
+    ): List<InboundDeliveryAckOutboxEntity>
+
     @Query(
         """
         UPDATE inbound_delivery_ack_outbox
@@ -92,6 +162,13 @@ interface InboundDeliveryAckOutboxDao {
           AND device_key = :deviceKey
           AND delivery_id = :deliveryId
           AND updated_at = :expectedUpdatedAt
+          AND EXISTS (
+              SELECT 1 FROM inbound_delivery_ledger AS ledger
+              WHERE ledger.gateway_url = inbound_delivery_ack_outbox.gateway_url
+                AND ledger.device_key = inbound_delivery_ack_outbox.device_key
+                AND ledger.delivery_id = inbound_delivery_ack_outbox.delivery_id
+                AND ledger.acceptance_proven = 1
+          )
         """
     )
     suspend fun beginAttemptIfUnchanged(

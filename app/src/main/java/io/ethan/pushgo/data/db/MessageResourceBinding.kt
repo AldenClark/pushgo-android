@@ -25,6 +25,8 @@ data class MessageResourceOwner(
     @ColumnInfo(name = "owner_slot") val ownerSlot: Int,
     val generation: String,
     @ColumnInfo(name = "origin_scope") val originScope: String?,
+    @ColumnInfo(name = "authenticated_gateway_url") val authenticatedGatewayUrl: String? = null,
+    @ColumnInfo(name = "authenticated_device_key") val authenticatedDeviceKey: String? = null,
 )
 
 @Dao
@@ -41,8 +43,8 @@ interface MessageResourceDao {
     @Query("SELECT m.server_id AS serverId,m.received_at AS receivedAt,m.raw_payload_json AS rawPayloadJson,o.generation,o.origin_scope AS originScope,o.source_table AS sourceTable,o.owner_slot AS ownerSlot FROM messages m JOIN message_resource_owners o ON o.source_table='messages' AND o.owner_id=m.id AND o.owner_slot=0 WHERE m.id=:id UNION ALL SELECT m.server_id AS serverId,m.received_at AS receivedAt,m.raw_payload_json AS rawPayloadJson,o.generation,o.origin_scope AS originScope,o.source_table AS sourceTable,o.owner_slot AS ownerSlot FROM thing_sub_messages m JOIN message_resource_owners o ON o.source_table='thing_sub_messages' AND o.owner_id=m.id AND o.owner_slot=0 WHERE m.id=:id UNION ALL SELECT m.server_id AS serverId,m.received_at AS receivedAt,m.raw_payload_json AS rawPayloadJson,o.generation,o.origin_scope AS originScope,o.source_table AS sourceTable,o.owner_slot AS ownerSlot FROM event_change_logs m JOIN message_resource_owners o ON o.source_table='event_change_logs' AND o.owner_id=m.id AND o.owner_slot=0 WHERE m.id=:id UNION ALL SELECT m.server_id AS serverId,m.received_at AS receivedAt,m.raw_payload_json AS rawPayloadJson,o.generation,o.origin_scope AS originScope,o.source_table AS sourceTable,o.owner_slot AS ownerSlot FROM thing_change_logs m JOIN message_resource_owners o ON o.source_table='thing_change_logs' AND o.owner_id=m.id AND o.owner_slot=0 WHERE m.id=:id UNION ALL SELECT m.server_id AS serverId,m.received_at AS receivedAt,m.raw_payload_json AS rawPayloadJson,o.generation,o.origin_scope AS originScope,o.source_table AS sourceTable,o.owner_slot AS ownerSlot FROM thing_sub_events m JOIN message_resource_owners o ON o.source_table='thing_sub_events' AND o.owner_id=m.id AND o.owner_slot=m.activated WHERE m.id=:id")
     suspend fun owners(id: String): List<ResourceOwnerRow>
 
-    @Query("UPDATE message_resource_owners SET origin_scope=:scope WHERE owner_id=:id AND generation=:generation AND origin_scope IS NULL")
-    suspend fun setOrigin(id: String, generation: String, scope: String)
+    @Query("UPDATE message_resource_owners SET origin_scope=:scope,authenticated_gateway_url=:gatewayUrl,authenticated_device_key=:deviceKey WHERE owner_id=:id AND generation=:generation AND (origin_scope IS NULL OR origin_scope=:scope) AND (authenticated_gateway_url IS NULL OR authenticated_gateway_url=:gatewayUrl) AND (authenticated_device_key IS NULL OR authenticated_device_key=:deviceKey)")
+    suspend fun setOrigin(id: String, generation: String, scope: String, gatewayUrl: String, deviceKey: String)
 
 }
 

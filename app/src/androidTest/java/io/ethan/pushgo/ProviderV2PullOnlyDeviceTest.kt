@@ -3,6 +3,7 @@ package io.ethan.pushgo
 import android.content.Context
 import android.database.sqlite.SQLiteDatabase
 import android.os.SystemClock
+import androidx.room.withTransaction
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import io.ethan.pushgo.data.*
@@ -248,6 +249,630 @@ class ProviderV2PullOnlyDeviceTest {
         assertEquals(7, acknowledged.size)
         assertEquals(listOf(PULL, PULL, ACK, PULL, PULL), gateway.paths())
         gateway.assertHealthy()
+    }
+
+    @Test
+    fun rejectedForeignParentAndChildRemainUnadoptedWhileIndependentHealthyItemsProgress() = runBlocking {
+        val thing = "cross-gateway-parent"
+        fun parentWire(delivery: String, body: String) = JSONObject().put("entity_type", "thing")
+            .put("entity_id", thing).put("thing_id", thing).put("delivery_id", delivery)
+            .put("op_id", "operation-$delivery").put("title", "Parent").put("body", body)
+            .put("sent_at", "2026-01-01T00:00:00Z").put("ttl", "1")
+        val old = parentWire("foreign-parent-original", "foreign parent retained")
+        val parsed = NotificationIngressParser.parse(old.keys().asSequence().associateWith { old.get(it).toString() }, "foreign-parent-original", null)
+            as InboundPersistenceRequest.Entity
+        assertTrue(entities.insertIncoming(parsed.record, deliveryScope = requireNotNull(InboundDeliveryScope.create("https://foreign-parent.invalid", "foreign-device"))))
+        val original = db.thingHeadDao().getByThingId(thing)
+        val healthy = listOf("healthy-next-to-foreign-parent", "healthy-after-foreign-parent")
+        val gateway = gateway { path, body -> when (path) {
+            PULL -> 200 to if (!body.has("page_token")) {
+                progressPage(JSONArray().put(wireItem("foreign-parent-new", parentWire("foreign-parent-new", "must not replace")))
+                    .put(wireItem("foreign-parent-child", identityPayload("foreign-parent-child").put("thing_id", thing).put("occurred_at", "1767225600000")))
+                    .put(wireItem(healthy[0])), "after-rejected-parent", false)
+            } else {
+                assertEquals("after-rejected-parent", body.getString("page_token"))
+                progressPage(JSONArray().put(wireItem(healthy[1])), null, true)
+            }
+            ACK -> {
+                val ids = body.getJSONArray("delivery_ids").let { values -> (0 until values.length()).map(values::getString) }
+                assertTrue(ids.all { it in healthy }); 200 to ackReceipt(ids.size)
+            }
+            else -> error("Unexpected parent isolation endpoint")
+        } }
+        configure(gateway)
+        assertTrue(runCatching { pull() }.exceptionOrNull() is InboundMessageProcessor.InboundRetryableException)
+        assertEquals(listOf(PULL, ACK, PULL, ACK), gateway.paths())
+        assertEquals(original, db.thingHeadDao().getByThingId(thing))
+        assertEquals(0, sqlCount("thing_sub_messages")); assertEquals(0, sqlCount("pending_thing_messages"))
+        for (id in listOf("foreign-parent-new", "foreign-parent-child")) {
+            assertEquals(0, sqlCount("inbound_delivery_ledger", "gateway_url='${gateway.baseUrl}' AND delivery_id='$id'"))
+            assertEquals(0, sqlCount("inbound_delivery_ack_outbox", "delivery_id='$id'"))
+        }
+        healthy.forEach { assertCanonical(it); assertEquals("acked", ackState(it)) }
+        assertNull(db.providerPullFrontierDao().get()); gateway.assertHealthy()
+    }
+
+    @Test
+    fun reusedOperationWithANewStableEntityIdentityDoesNotReuseTheOldLocalClaim() = runBlocking {
+        val previous = "old-retained-identity"
+        val fresh = "new-after-identity-retention"
+        val sharedOperation = "normal-operation-reused-after-server-gc"
+        val gateway = gateway { path, body -> when (path) {
+            PULL -> 200 to progressPage(JSONArray()
+                .put(wireItem(previous, identityPayload(previous).put("op_id", sharedOperation)))
+                .put(wireItem(fresh, identityPayload(fresh).put("op_id", sharedOperation))), null, true)
+            ACK -> {
+                assertEquals(setOf(previous, fresh), body.getJSONArray("delivery_ids").let { values -> (0 until values.length()).map(values::getString).toSet() })
+                200 to ackReceipt(2)
+            }
+            else -> error("Unexpected normal identity endpoint")
+        } }
+        configure(gateway)
+        val wire = identityPayload(previous).put("op_id", sharedOperation)
+        val parsed = NotificationIngressParser.parse(wire.keys().asSequence().associateWith { wire.get(it).toString() }, previous, null)
+            as InboundPersistenceRequest.Message
+        assertTrue(messages.insertIncoming(parsed.message, deliveryScope = requireNotNull(InboundDeliveryScope.create(gateway.baseUrl, "device-a"))))
+        val original = canonicalOwnerSnapshot(previous)
+        assertEquals(2, pull())
+        assertEquals(2, sqlCount("messages")); assertEquals(2, sqlCount("operation_ledger", "op_id='$sharedOperation'"))
+        assertEquals(original, canonicalOwnerSnapshot(previous))
+        assertEquals("acked", ackState(previous)); assertEquals("acked", ackState(fresh))
+        assertCanonical(fresh); assertEquals(0, sqlCount("inbound_delivery_ack_outbox"))
+        gateway.assertHealthy()
+    }
+
+    @Test
+    fun knownForeignCanonicalMessagesRetainBothBodiesWhileModernHealthyPagesProgress() = runBlocking {
+        val foreign = requireNotNull(InboundDeliveryScope.create("https://foreign-canonical.invalid", "foreign-device"))
+        val bad = listOf("foreign-same-body", "foreign-different-body")
+        bad.forEach { seedCanonicalIdentity(it, foreign) }
+        val before = bad.associateWith(::canonicalOwnerSnapshot)
+        val healthy = listOf("healthy-with-foreign-head", "healthy-after-foreign-head")
+        val acknowledged = Collections.synchronizedList(mutableListOf<String>())
+        val gateway = gateway { path, body -> when (path) {
+            PULL -> {
+                val token = body.optString("page_token").takeIf { body.has("page_token") }
+                200 to when (token) {
+                    null -> progressPage(JSONArray().put(wireItem(bad[0], identityPayload(bad[0])))
+                        .put(wireItem(bad[1], identityPayload(bad[1]).put("body", "a new body cannot adopt a foreign identity")))
+                        .put(wireItem(healthy[0])), "after-foreign-head", false)
+                    "after-foreign-head" -> progressPage(JSONArray().put(wireItem(healthy[1])), null, true)
+                    else -> error("Unexpected conflict scan token")
+                }
+            }
+            ACK -> {
+                val ids = body.getJSONArray("delivery_ids").let { values -> (0 until values.length()).map(values::getString) }
+                assertTrue("foreign content must never be ACKed by this identity", ids.all { it in healthy })
+                acknowledged += ids
+                200 to ackReceipt(ids.size)
+            }
+            else -> error("Unexpected endpoint $path")
+        } }
+        configure(gateway)
+        assertTrue(runCatching { pull() }.exceptionOrNull() is InboundMessageProcessor.InboundRetryableException)
+        assertEquals(listOf(PULL, ACK, PULL, ACK), gateway.paths())
+        assertEquals(healthy, acknowledged)
+        assertNull(db.providerPullFrontierDao().get())
+        assertEquals(4, sqlCount("messages"))
+        bad.forEach { id ->
+            assertEquals(before.getValue(id), canonicalOwnerSnapshot(id))
+            assertEquals(0, sqlCount("inbound_delivery_ledger", "gateway_url='${gateway.baseUrl}' AND delivery_id='$id'"))
+            assertEquals(0, sqlCount("inbound_delivery_ack_outbox", "delivery_id='$id'"))
+            assertEquals("no current-scope operation claim", 1, sqlCount("operation_ledger", "op_id='operation-$id'"))
+        }
+        healthy.forEach { assertCanonical(it); assertEquals("acked", ackState(it)) }
+        assertEquals(0, sqlCount("inbound_delivery_ack_outbox"))
+        gateway.assertHealthy()
+    }
+
+    @Test
+    fun unknownHistoricalCanonicalOwnerRemainsUnchangedWithoutBlockingIndependentModernPages() = runBlocking {
+        val bad = "historical-owner-unknown"
+        seedCanonicalIdentity(bad, null) // Deliberate historical fixture: no proven origin is invented.
+        val before = canonicalOwnerSnapshot(bad)
+        assertNull(before.last())
+        val healthy = "healthy-after-unknown-owner"
+        val gateway = gateway { path, body -> when (path) {
+            PULL -> 200 to if (!body.has("page_token")) {
+                progressPage(JSONArray().put(wireItem(bad, identityPayload(bad).put("body", "unverified replacement"))), "after-unknown-owner", false)
+            } else {
+                assertEquals("after-unknown-owner", body.getString("page_token"))
+                progressPage(JSONArray().put(wireItem(healthy)), null, true)
+            }
+            ACK -> {
+                assertEquals(listOf(healthy), body.getJSONArray("delivery_ids").let { values -> (0 until values.length()).map(values::getString) })
+                200 to ackReceipt()
+            }
+            else -> error("Unexpected endpoint $path")
+        } }
+        configure(gateway)
+        assertTrue(runCatching { pull() }.exceptionOrNull() is InboundMessageProcessor.InboundRetryableException)
+        assertEquals(listOf(PULL, PULL, ACK), gateway.paths())
+        assertEquals(before, canonicalOwnerSnapshot(bad))
+        assertEquals(0, sqlCount("inbound_delivery_ledger", "gateway_url='${gateway.baseUrl}' AND delivery_id='$bad'"))
+        assertEquals(0, sqlCount("inbound_delivery_ack_outbox", "delivery_id='$bad'"))
+        assertEquals(1, sqlCount("operation_ledger", "op_id='operation-$bad'"))
+        assertEquals(2, sqlCount("messages")); assertCanonical(healthy)
+        assertEquals("acked", ackState(healthy)); assertNull(db.providerPullFrontierDao().get())
+        gateway.assertHealthy()
+    }
+
+    @Test
+    fun sameGatewayNewDeviceMayAckAnExactCanonicalReplayWithoutChangingItsOwner() = runBlocking {
+        val id = "same-gateway-new-device-replay"
+        val gateway = gateway { path, body -> when (path) {
+            PULL -> 200 to progressPage(JSONArray().put(wireItem(id, identityPayload(id))), null, true)
+            ACK -> {
+                assertEquals("device-a", body.getString("device_key"))
+                assertEquals(listOf(id), body.getJSONArray("delivery_ids").let { values -> (0 until values.length()).map(values::getString) })
+                200 to ackReceipt()
+            }
+            else -> error("Unexpected endpoint $path")
+        } }
+        val oldScope = requireNotNull(InboundDeliveryScope.create(gateway.baseUrl, "old-device"))
+        seedCanonicalIdentity(id, oldScope)
+        val before = canonicalOwnerSnapshot(id)
+        configure(gateway)
+        assertEquals("same Gateway and exact business payload remains a normal duplicate", 1, pull())
+        assertEquals(listOf(PULL, ACK), gateway.paths())
+        assertEquals(before, canonicalOwnerSnapshot(id))
+        assertEquals(1, sqlCount("messages"))
+        assertEquals(1, sqlCount("inbound_delivery_ledger", "gateway_url='${gateway.baseUrl}' AND device_key='device-a' AND delivery_id='$id' AND ack_state='acked'"))
+        assertEquals(1, sqlCount("inbound_delivery_ledger", "gateway_url='${gateway.baseUrl}' AND device_key='old-device' AND delivery_id='$id' AND ack_state='pending'"))
+        assertEquals(0, sqlCount("inbound_delivery_ack_outbox")); assertNull(db.providerPullFrontierDao().get())
+        gateway.assertHealthy()
+    }
+
+    @Test
+    fun sameGatewayNewDeviceCannotReplaceCanonicalContentButHealthyModernPagesContinue() = runBlocking {
+        val bad = "same-gateway-changed-content"
+        val healthy = "healthy-after-same-gateway-conflict"
+        val gateway = gateway { path, body -> when (path) {
+            PULL -> 200 to if (!body.has("page_token")) {
+                progressPage(JSONArray().put(wireItem(bad, identityPayload(bad).put("body", "different business content"))), "after-same-gateway-conflict", false)
+            } else {
+                assertEquals("after-same-gateway-conflict", body.getString("page_token"))
+                progressPage(JSONArray().put(wireItem(healthy)), null, true)
+            }
+            ACK -> {
+                assertEquals("device-a", body.getString("device_key"))
+                assertEquals(listOf(healthy), body.getJSONArray("delivery_ids").let { values -> (0 until values.length()).map(values::getString) })
+                200 to ackReceipt()
+            }
+            else -> error("Unexpected endpoint $path")
+        } }
+        seedCanonicalIdentity(bad, requireNotNull(InboundDeliveryScope.create(gateway.baseUrl, "old-device")))
+        val before = canonicalOwnerSnapshot(bad)
+        configure(gateway)
+        assertTrue(runCatching { pull() }.exceptionOrNull() is InboundMessageProcessor.InboundRetryableException)
+        assertEquals(listOf(PULL, PULL, ACK), gateway.paths())
+        assertEquals(before, canonicalOwnerSnapshot(bad))
+        assertEquals(0, sqlCount("inbound_delivery_ledger", "gateway_url='${gateway.baseUrl}' AND device_key='device-a' AND delivery_id='$bad'"))
+        assertEquals(1, sqlCount("operation_ledger", "op_id='operation-$bad'"))
+        assertEquals(0, sqlCount("inbound_delivery_ack_outbox")); assertNull(db.providerPullFrontierDao().get())
+        assertEquals(2, sqlCount("messages")); assertCanonical(healthy); assertEquals("acked", ackState(healthy))
+        gateway.assertHealthy()
+    }
+
+    @Test
+    fun knownForeignMessageDependencyIsNotAdoptedWhileIndependentModernPagesProgress() = runBlocking {
+        val foreign = requireNotNull(InboundDeliveryScope.create("https://foreign-dependent.invalid", "foreign-device"))
+        // event_id retains the existing top-level messages domain. Do not turn a
+        // top-level -> thing_sub_messages lifecycle transition into an identity conflict.
+        for (field in listOf("event_id")) {
+            val bad = "foreign-dependent-$field"
+            seedCanonicalIdentity(bad, foreign)
+            val before = canonicalOwnerSnapshot(bad)
+            val healthy = "healthy-beside-rejected-dependent-$field"
+            val gateway = gateway { path, body -> when (path) {
+                PULL -> 200 to if (!body.has("page_token")) {
+                    progressPage(JSONArray().put(wireItem(bad, identityPayload(bad).put(field, "parent-$field"))), "dependent-next", false)
+                } else {
+                    assertEquals("dependent-next", body.getString("page_token"))
+                    progressPage(JSONArray().put(wireItem(healthy)), null, true)
+                }
+                ACK -> {
+                    assertEquals(listOf(healthy), body.getJSONArray("delivery_ids").let { values -> (0 until values.length()).map(values::getString) })
+                    200 to ackReceipt()
+                }
+                else -> error("Unexpected endpoint $path")
+            } }
+            configure(gateway)
+            assertTrue(runCatching { pull() }.exceptionOrNull() is InboundMessageProcessor.InboundRetryableException)
+            assertEquals(listOf(PULL, PULL, ACK), gateway.paths())
+            assertEquals(before, canonicalOwnerSnapshot(bad))
+            assertEquals(0, sqlCount("inbound_delivery_ledger", "gateway_url='${gateway.baseUrl}' AND delivery_id='$bad'"))
+            assertEquals(0, sqlCount("inbound_delivery_ack_outbox", "delivery_id='$bad'"))
+            assertEquals(1, sqlCount("operation_ledger", "op_id='operation-$bad'"))
+            assertCanonical(healthy); assertEquals("acked", ackState(healthy))
+            assertNull(db.providerPullFrontierDao().get()?.pageToken)
+            gateway.assertHealthy()
+        }
+    }
+
+    @Test
+    fun provenDeletedDeliveryReplaySettlesWithoutTouchingAReplacementFromAnotherGateway() = runBlocking {
+        val pending = "deleted-proven-pending"
+        val acked = "deleted-proven-already-acked"
+        val ids = listOf(pending, acked)
+        val acknowledged = Collections.synchronizedList(mutableListOf<String>())
+        val gateway = gateway { path, body -> when (path) {
+            PULL -> 200 to progressPage(JSONArray(ids.map { wireItem(it, identityPayload(it)) }), null, true)
+            ACK -> {
+                val actual = body.getJSONArray("delivery_ids").let { values -> (0 until values.length()).map(values::getString) }
+                assertEquals(listOf(pending), actual)
+                acknowledged += actual
+                200 to ackReceipt(actual.size)
+            }
+            else -> error("Unexpected processed replay endpoint")
+        } }
+        configure(gateway)
+        val originalScope = requireNotNull(InboundDeliveryScope.create(gateway.baseUrl, "device-a"))
+        val replacementScope = requireNotNull(InboundDeliveryScope.create("https://replacement-canonical.invalid", "replacement-device"))
+        val fixedOldTime = System.currentTimeMillis() - 86_400_000L
+        for (id in ids) {
+            seedCanonicalIdentity(id, originalScope)
+            val fact = requireNotNull(db.inboundDeliveryLedgerDao().get(originalScope.gatewayUrl, originalScope.deviceKey, id))
+            assertEquals(true, fact.acceptanceProven)
+            val localId = requireNotNull(messages.getByMessageId(id)).id
+            messages.deleteById(localId)
+            assertNull(messages.getByMessageId(id))
+            db.openHelper.writableDatabase.execSQL(
+                "UPDATE inbound_delivery_ledger SET applied_at=?,ack_state=?,acked_at=? WHERE gateway_url=? AND device_key=? AND delivery_id=?",
+                arrayOf<Any?>(fixedOldTime, if (id == acked) "acked" else "pending", fixedOldTime.takeIf { id == acked },
+                    originalScope.gatewayUrl, originalScope.deviceKey, id),
+            )
+            val replacement = identityPayload(id).put("delivery_id", "replacement-$id").put("op_id", "replacement-operation-$id")
+                .put("body", "Replacement Gateway owns this separate content: $id")
+            val parsed = NotificationIngressParser.parse(replacement.keys().asSequence().associateWith { replacement.get(it).toString() }, "replacement-$id", null)
+                as InboundPersistenceRequest.Message
+            assertTrue(messages.insertIncoming(parsed.message, deliveryScope = replacementScope, postProcessFlags = POST_PROCESS_NOTIFICATION))
+        }
+        val replacements = ids.associateWith(::canonicalOwnerSnapshot)
+        val replacementWorkNames = ids.map { id ->
+            val localId = requireNotNull(messages.getByMessageId(id)).id
+            val locator = requireNotNull(messages.postProcessLocator(localId, replacementScope))
+            "message-post-process:${locator.tableIndex}:${locator.generation}"
+        }
+        val oldAcked = requireNotNull(db.inboundDeliveryLedgerDao().get(originalScope.gatewayUrl, originalScope.deviceKey, acked))
+        db.close(); open()
+        var derivedCallbacks = 0
+        assertEquals(2, pull { derivedCallbacks++ })
+        assertEquals(0, derivedCallbacks)
+        assertEquals(listOf(pending), acknowledged)
+        val settled = requireNotNull(db.inboundDeliveryLedgerDao().get(originalScope.gatewayUrl, originalScope.deviceKey, pending))
+        assertEquals(true, settled.acceptanceProven)
+        assertEquals(fixedOldTime, settled.appliedAt)
+        assertEquals("acked", settled.ackState)
+        assertNotNull(settled.ackedAt)
+        assertEquals(oldAcked, db.inboundDeliveryLedgerDao().get(originalScope.gatewayUrl, originalScope.deviceKey, acked))
+        db.close(); open()
+        assertEquals(2, pull { derivedCallbacks++ })
+        assertEquals(0, derivedCallbacks)
+        assertEquals(settled, db.inboundDeliveryLedgerDao().get(originalScope.gatewayUrl, originalScope.deviceKey, pending))
+        assertEquals(oldAcked, db.inboundDeliveryLedgerDao().get(originalScope.gatewayUrl, originalScope.deviceKey, acked))
+        ids.forEach { assertEquals(replacements.getValue(it), canonicalOwnerSnapshot(it)) }
+        for (name in replacementWorkNames) assertTrue("Old-scope replay must not schedule replacement work",
+            androidx.work.WorkManager.getInstance(context).getWorkInfosForUniqueWork(name).get(5, java.util.concurrent.TimeUnit.SECONDS).isEmpty())
+        assertEquals(2, sqlCount("messages", "post_process_pending=$POST_PROCESS_NOTIFICATION"))
+        assertEquals(0, sqlCount("inbound_delivery_ack_outbox"))
+        assertNull(db.providerPullFrontierDao().get())
+        assertEquals(listOf(PULL, ACK, PULL), gateway.paths())
+        gateway.assertHealthy()
+    }
+
+    @Test
+    fun unprovenLegacyClaimsCannotAckForeignOrMissingContentWhileIndependentModernPagesContinue() = runBlocking {
+        val foreignBody = "legacy-null-foreign-content"
+        val missingBody = "legacy-null-missing-content"
+        val bad = listOf(foreignBody, missingBody)
+        val foreignScope = requireNotNull(InboundDeliveryScope.create("https://legacy-foreign.invalid", "foreign-device"))
+        seedCanonicalIdentity(foreignBody, foreignScope)
+        val original = canonicalOwnerSnapshot(foreignBody)
+        val healthy = "healthy-after-unproven-legacy-claims"
+        val acknowledged = Collections.synchronizedList(mutableListOf<String>())
+        val gateway = gateway { path, body -> when (path) {
+            PULL -> 200 to if (!body.has("page_token")) {
+                progressPage(JSONArray(bad.map { wireItem(it, identityPayload(it)) }), "after-unproven-legacy", false)
+            } else {
+                assertEquals("after-unproven-legacy", body.getString("page_token"))
+                progressPage(JSONArray().put(wireItem(healthy)), null, true)
+            }
+            ACK -> {
+                val actual = body.getJSONArray("delivery_ids").let { values -> (0 until values.length()).map(values::getString) }
+                assertEquals(listOf(healthy), actual)
+                acknowledged += actual
+                200 to ackReceipt()
+            }
+            else -> error("Unexpected unproven legacy endpoint")
+        } }
+        configure(gateway)
+        val currentScope = requireNotNull(InboundDeliveryScope.create(gateway.baseUrl, "device-a"))
+        val fixedOldTime = System.currentTimeMillis() - 86_400_000L
+        // Deliberate old polluted claims, not authenticated acceptance. Both lack the new proof bit.
+        for (id in bad) {
+            assertTrue(claimInboundDelivery(db.inboundDeliveryLedgerDao(), "identity-lane", "message", id,
+                id, "operation-$id", fixedOldTime, deliveryScope = currentScope))
+            assertTrue(claimOperationScope(db.operationLedgerDao(), "identity-lane", "message", id,
+                "operation-$id", id, fixedOldTime, deliveryScope = currentScope))
+        }
+        val legacyFacts = bad.associateWith { requireNotNull(db.inboundDeliveryLedgerDao().get(currentScope.gatewayUrl, currentScope.deviceKey, it)) }
+        legacyFacts.values.forEach { assertNull(it.acceptanceProven) }
+        fun legacyOperations() = db.openHelper.readableDatabase.query(
+            "SELECT * FROM operation_ledger WHERE op_id IN (?,?) ORDER BY scope_key", arrayOf("operation-$foreignBody", "operation-$missingBody"),
+        ).use { cursor -> buildList { while (cursor.moveToNext()) add((0 until cursor.columnCount).map { if (cursor.isNull(it)) null else cursor.getString(it) }) } }
+        val operationFacts = legacyOperations()
+        repeat(2) {
+            assertTrue(runCatching { pull() }.exceptionOrNull() is InboundMessageProcessor.InboundRetryableException)
+            assertEquals(original, canonicalOwnerSnapshot(foreignBody))
+            assertNull(messages.getByMessageId(missingBody))
+            bad.forEach { id ->
+                assertEquals(legacyFacts.getValue(id), db.inboundDeliveryLedgerDao().get(currentScope.gatewayUrl, currentScope.deviceKey, id))
+                assertEquals(0, sqlCount("inbound_delivery_ack_outbox", "delivery_id='$id'"))
+            }
+            assertEquals(operationFacts, legacyOperations())
+            assertCanonical(healthy); assertEquals("acked", ackState(healthy))
+            assertNull(db.providerPullFrontierDao().get())
+            db.close(); open()
+        }
+        assertEquals(listOf(healthy), acknowledged)
+        assertEquals(2, sqlCount("messages"))
+        assertEquals(listOf(PULL, PULL, ACK, PULL, PULL), gateway.paths())
+        gateway.assertHealthy()
+    }
+
+    @Test
+    fun foreignCanonicalChildCannotBeAckedThroughACurrentParentOrConsumeOtherPendingRecovery() = runBlocking {
+        val thing = "reused-parent-with-foreign-child"
+        val bad = "foreign-existing-sub-message"
+        val waiting = "foreign-pending-preserved"
+        val healthy = "healthy-after-existing-sub-conflict"
+        val foreign = requireNotNull(InboundDeliveryScope.create("https://old-child-origin.invalid", "foreign-child-device"))
+        fun parent(delivery: String) = JSONObject().put("entity_type", "thing").put("entity_id", thing).put("thing_id", thing)
+            .put("delivery_id", delivery).put("op_id", "operation-$delivery").put("channel_id", "old-parent-channel")
+            .put("title", "Scoped parent").put("body", "Retained scoped parent").put("sent_at", "2026-01-01T00:00:00Z").put("ttl", "1")
+        suspend fun seedParent(raw: JSONObject, scope: InboundDeliveryScope) {
+            val parsed = NotificationIngressParser.parse(raw.keys().asSequence().associateWith { raw.get(it).toString() }, raw.getString("delivery_id"), null)
+                as InboundPersistenceRequest.Entity
+            assertTrue(entities.insertIncoming(parsed.record, deliveryScope = scope))
+        }
+        suspend fun seedChild(id: String, thingId: String): Boolean {
+            val raw = identityPayload(id).put("thing_id", thingId).put("occurred_at", "1767225600000")
+            val parsed = NotificationIngressParser.parse(raw.keys().asSequence().associateWith { raw.get(it).toString() }, id, null)
+                as InboundPersistenceRequest.Message
+            return messages.insertIncoming(parsed.message, deliveryScope = foreign)
+        }
+        assertFalse(seedChild(waiting, "still-missing-foreign-parent"))
+        val oldPending = requireNotNull(db.pendingThingMessageDao().getByMessageId(waiting))
+        val gateway = gateway { path, body -> when (path) {
+            PULL -> 200 to if (!body.has("page_token")) {
+                progressPage(JSONArray().put(wireItem(bad, identityPayload(bad).put("thing_id", thing)
+                    .put("occurred_at", "1767225600000"))), "after-existing-sub-conflict", false)
+            } else {
+                assertEquals("after-existing-sub-conflict", body.getString("page_token"))
+                progressPage(JSONArray().put(wireItem(healthy)), null, true)
+            }
+            ACK -> {
+                assertEquals(listOf(healthy), body.getJSONArray("delivery_ids").let { values -> (0 until values.length()).map(values::getString) })
+                200 to ackReceipt()
+            }
+            else -> error("Unexpected child acceptance endpoint")
+        } }
+        configure(gateway)
+        val current = requireNotNull(InboundDeliveryScope.create(gateway.baseUrl, "device-a"))
+        seedParent(parent("current-parent-for-child"), current)
+        val currentHead = requireNotNull(db.thingHeadDao().getByThingId(thing))
+        assertEquals(gateway.baseUrl, db.authenticatedSourceGateway(currentHead.sourceId))
+        // Explicit historical fixture: an already-present foreign canonical child.
+        // The current normal API correctly refuses to manufacture this mixed-owner
+        // state, so seed its old facts directly rather than claiming normal acceptance.
+        val oldRaw = identityPayload(bad).put("thing_id", thing).put("occurred_at", "1767225600000")
+        val parsedOld = NotificationIngressParser.parse(oldRaw.keys().asSequence().associateWith { oldRaw.get(it).toString() }, bad, null)
+            as InboundPersistenceRequest.Message
+        db.withTransaction {
+            db.thingSubMessageDao().insert(io.ethan.pushgo.data.db.ThingSubMessageEntity.fromModel(parsedOld.message))
+            db.recordResourceOrigin(parsedOld.message.id, parsedOld.message.receivedAt.toEpochMilli(), foreign)
+            assertTrue(claimInboundDelivery(db.inboundDeliveryLedgerDao(), "identity-lane", "message", bad,
+                bad, "operation-$bad", parsedOld.message.receivedAt.toEpochMilli(), deliveryScope = foreign, acceptanceProven = true))
+            assertTrue(claimOperationScope(db.operationLedgerDao(), "identity-lane", "message", bad,
+                "operation-$bad", bad, parsedOld.message.receivedAt.toEpochMilli(), deliveryScope = foreign))
+        }
+        val oldSub = requireNotNull(db.thingSubMessageDao().getByMessageId(bad))
+        val oldOwner = db.messageResourceDao().owners(oldSub.id)
+        val oldSubFact = db.inboundDeliveryLedgerDao().get(foreign.gatewayUrl, foreign.deviceKey, bad)
+        val oldPendingFact = db.inboundDeliveryLedgerDao().get(foreign.gatewayUrl, foreign.deviceKey, waiting)
+        repeat(2) {
+            assertTrue(runCatching { pull() }.exceptionOrNull() is InboundMessageProcessor.InboundRetryableException)
+            assertEquals(currentHead, db.thingHeadDao().getByThingId(thing))
+            assertEquals(oldSub, db.thingSubMessageDao().getByMessageId(bad))
+            assertEquals(oldOwner, db.messageResourceDao().owners(oldSub.id))
+            assertEquals(oldPending, db.pendingThingMessageDao().getByMessageId(waiting))
+            assertEquals(oldSubFact, db.inboundDeliveryLedgerDao().get(foreign.gatewayUrl, foreign.deviceKey, bad))
+            assertEquals(oldPendingFact, db.inboundDeliveryLedgerDao().get(foreign.gatewayUrl, foreign.deviceKey, waiting))
+            assertEquals(0, sqlCount("inbound_delivery_ledger", "gateway_url='${gateway.baseUrl}' AND delivery_id='$bad'"))
+            assertEquals(1, sqlCount("operation_ledger", "op_id='operation-$bad'"))
+            assertEquals(0, sqlCount("inbound_delivery_ack_outbox", "delivery_id='$bad'"))
+            assertEquals(1, sqlCount("thing_sub_messages")); assertEquals(1, sqlCount("pending_thing_messages"))
+            assertCanonical(healthy); assertEquals("acked", ackState(healthy))
+            assertNull(db.providerPullFrontierDao().get())
+            db.close(); open()
+        }
+        assertEquals(listOf(PULL, PULL, ACK, PULL, PULL), gateway.paths())
+        gateway.assertHealthy()
+    }
+
+    @Test
+    fun childReplayHandoffUsesItsCanonicalDomainInsteadOfAForeignTopLevelMessageWithTheSameStableId() = runBlocking {
+        val stable = "cross-domain-shared-message-id"
+        val thing = "cross-domain-current-parent"
+        val current = requireNotNull(InboundDeliveryScope.create("https://cross-domain-current.invalid", "current-device"))
+        val foreign = requireNotNull(InboundDeliveryScope.create("https://cross-domain-foreign.invalid", "foreign-device"))
+        val parent = JSONObject().put("entity_type", "thing").put("entity_id", thing).put("thing_id", thing)
+            .put("delivery_id", "cross-domain-parent-delivery").put("op_id", "cross-domain-parent-operation")
+            .put("title", "Current parent").put("body", "Current parent body").put("ttl", "1")
+        val parsedParent = NotificationIngressParser.parse(parent.keys().asSequence().associateWith { parent.get(it).toString() }, "cross-domain-parent-delivery", null)
+            as InboundPersistenceRequest.Entity
+        assertTrue(entities.insertIncoming(parsedParent.record, deliveryScope = current))
+        val childRaw = identityPayload(stable).put("thing_id", thing).put("occurred_at", "1767225600000")
+        fun parseChild() = NotificationIngressParser.parse(childRaw.keys().asSequence().associateWith { childRaw.get(it).toString() }, stable, null)
+            as InboundPersistenceRequest.Message
+        val child = parseChild()
+        assertFalse(child.shouldNotify)
+        assertTrue(messages.insertIncoming(child.message, deliveryScope = current))
+        // The separate top/sub canonical domains may already share a stable ID.
+        // Reproduce that historical state without forbidding its existing contract.
+        val topRaw = identityPayload(stable).put("body", "Foreign top-level body must not become the child handoff")
+        val top = NotificationIngressParser.parse(topRaw.keys().asSequence().associateWith { topRaw.get(it).toString() }, stable, null)
+            as InboundPersistenceRequest.Message
+        assertTrue(messages.insertIncoming(top.message, deliveryScope = foreign))
+        val originalSub = requireNotNull(db.thingSubMessageDao().getByMessageId(stable))
+        val originalTop = canonicalOwnerSnapshot(stable)
+        val originalSubOwner = db.messageResourceDao().owners(originalSub.id)
+        val originalFact = db.inboundDeliveryLedgerDao().get(current.gatewayUrl, current.deviceKey, stable)
+        db.close(); open()
+        val replay = parseChild()
+        assertNotEquals(originalSub.id, replay.message.id)
+        val handedOff = mutableListOf<Pair<String, String?>>()
+        var unexpectedRecovery = 0
+        var unexpectedNotification = 0
+        val outcome = io.ethan.pushgo.notifications.InboundPersistenceCoordinator.persistAndNotify(
+            context, messages, entities, ledger, settings, replay, deliveryScope = current,
+            postProcessRecovery = { unexpectedRecovery++ },
+            notificationPublisher = { _, _, _ -> unexpectedNotification++; false },
+            beforeMessageNotify = { canonical, _ -> handedOff += canonical.id to canonical.thingId },
+        )
+        assertEquals(io.ethan.pushgo.notifications.InboundPersistenceStatus.DUPLICATE, outcome.status)
+        assertTrue(outcome.shouldAck)
+        assertFalse(outcome.notified)
+        assertEquals(listOf(originalSub.id to thing), handedOff)
+        assertEquals(0, unexpectedRecovery)
+        assertEquals(0, unexpectedNotification)
+        assertEquals(originalTop, canonicalOwnerSnapshot(stable))
+        assertEquals(originalSub, db.thingSubMessageDao().getByMessageId(stable))
+        assertEquals(originalSubOwner, db.messageResourceDao().owners(originalSub.id))
+        assertEquals(originalFact, db.inboundDeliveryLedgerDao().get(current.gatewayUrl, current.deviceKey, stable))
+        assertEquals(1, sqlCount("messages")); assertEquals(1, sqlCount("thing_sub_messages"))
+        assertEquals(0, sqlCount("inbound_delivery_ack_outbox"))
+    }
+
+    @Test
+    fun inlineHintCannotPersistOrAckBeforeItsAuthenticatedTargetedResponse() = runBlocking {
+        val id = "inline-verified-target"
+        var requests = 0
+        val gateway = gateway { path, body -> when (path) {
+            PULL -> {
+                if (body.optString("delivery_id") == "inline-authenticated-empty") {
+                    200 to progressPage(JSONArray(), null, true)
+                } else {
+                assertEquals(id, body.getString("delivery_id"))
+                assertEquals("device-a", body.getString("device_key")); assertFalse(body.has("page_token"))
+                if (++requests == 1) 503 to JSONObject().put("success", false).put("error_code", "fixture_unavailable")
+                    .put("problem", JSONObject().put("code", "fixture_unavailable").put("status", 503).put("retryable", true).put("category", "upstream"))
+                else 200 to progressPage(JSONArray().put(wireItem(id, identityPayload(id))), null, true)
+                }
+            }
+            ACK -> { assertCanonical(id); 200 to ackReceipt() }
+            else -> error("Inline hint escaped its authenticated V2 endpoint")
+        } }
+        configure(gateway); settings.setGatewayToken("synthetic-inline-configured")
+        val advertised = identityPayload(id).put("title", "Untrusted inline title").put("body", "Untrusted inline body")
+            .put("base_url", gateway.baseUrl).put("provider_device_key", "device-a")
+        val data = advertised.keys().asSequence().associateWith { advertised.get(it).toString() }
+        val first = runCatching { actualInboundProcessor().process(context, data, "inline-transport") }.exceptionOrNull()
+        assertNotNull(first); assertTrue(io.ethan.pushgo.notifications.shouldRetryInboundFailure(requireNotNull(first)))
+        assertEquals(listOf(PULL), gateway.paths())
+        assertEquals(0, sqlCount("messages")); assertEquals(0, sqlCount("inbound_delivery_ledger")); assertEquals(0, sqlCount("inbound_delivery_ack_outbox"))
+        db.close(); open() // Same durable store, not process-death or an actual WorkManager retry.
+        actualInboundProcessor().process(context, data, "inline-transport")
+        assertCanonical(id); assertEquals("acked", ackState(id))
+        assertEquals(listOf(PULL, PULL, ACK), gateway.paths())
+        assertEquals(listOf("Bearer synthetic-inline-configured", "Bearer synthetic-inline-configured"), gateway.authorizations(PULL))
+        assertEquals(1, sqlCount("inbound_delivery_ledger", "acceptance_proven=1")); assertNull(db.providerPullFrontierDao().get())
+        val source = requireNotNull(messages.getByMessageId(id))
+        assertEquals(gateway.baseUrl, db.messageResourceDao().owners(source.id).single().let { owner ->
+            db.openHelper.readableDatabase.query("SELECT authenticated_gateway_url FROM message_resource_owners WHERE generation=?", arrayOf(owner.generation))
+                .use { cursor -> check(cursor.moveToFirst()); cursor.getString(0) }
+        })
+        val emptyHint = data + ("delivery_id" to "inline-authenticated-empty")
+        actualInboundProcessor().process(context, emptyHint, "inline-empty-transport")
+        assertEquals(listOf(PULL, PULL, ACK, PULL), gateway.paths())
+        assertEquals(1, sqlCount("messages")); assertEquals(1, sqlCount("inbound_delivery_ledger"))
+        assertEquals(0, sqlCount("inbound_delivery_ledger", "delivery_id='inline-authenticated-empty'"))
+        assertEquals(0, sqlCount("inbound_delivery_ack_outbox"))
+        gateway.assertHealthy()
+    }
+
+    @Test
+    fun inlineHintRejectsMissingTargetAndLateIdentityChangesWithoutInlineFallback() = runBlocking {
+        val id = "inline-changing-target"
+        // Read the actual context predicate without contacting this public address:
+        // clearing an explicit default-valued URL must not revive it by fallback.
+        settings.setServerAddress(AppConstants.defaultServerAddress)
+        settings.setGatewayToken("synthetic-configured-default")
+        settings.setDeviceKey("device-a")
+        val explicitDefault = channels.preparePullContext(id, strictConfiguredTarget = true)
+        assertTrue(channels.isCurrentPullContext(explicitDefault))
+        settings.setServerAddress(null)
+        assertFalse(channels.isCurrentPullContext(explicitDefault))
+        assertEquals(0, sqlCount("messages")); assertEquals(0, sqlCount("inbound_delivery_ledger"))
+        var requests = 0
+        val gateway = gateway { path, body -> when (path) {
+            PULL -> {
+                assertEquals(id, body.getString("delivery_id")); assertEquals("device-a", body.getString("device_key"))
+                if (++requests == 1) runBlocking { settings.setGatewayToken("synthetic-new-identity"); settings.setDeviceKey("device-b") }
+                200 to progressPage(JSONArray().put(wireItem(id, identityPayload(id))), null, true)
+            }
+            ACK -> { assertCanonical(id); 200 to ackReceipt() }
+            else -> error("Unverified inline hint escaped its targeted endpoint")
+        } }
+        configure(gateway)
+        val advertised = identityPayload(id).put("body", "Inline must never become canonical")
+            .put("base_url", gateway.baseUrl).put("provider_device_key", "device-a")
+        fun data() = advertised.keys().asSequence().associateWith { advertised.get(it).toString() }
+        suspend fun rejected(input: Map<String,String>, retryable: Boolean = true) {
+            val error = runCatching { actualInboundProcessor().process(context, input, "changing-inline-transport") }.exceptionOrNull()
+            assertNotNull(error); assertEquals(retryable, io.ethan.pushgo.notifications.shouldRetryInboundFailure(requireNotNull(error)))
+            assertEquals(0, sqlCount("messages")); assertEquals(0, sqlCount("inbound_delivery_ledger")); assertEquals(0, sqlCount("inbound_delivery_ack_outbox"))
+        }
+        rejected(mapOf("entity_type" to "message", "body" to "No delivery cannot be verified"), retryable = false)
+        settings.setGatewayToken(null); rejected(data())
+        settings.setGatewayToken("synthetic-original-identity"); settings.setDeviceKey(null); rejected(data())
+        settings.setDeviceKey("device-a"); advertised.put("provider_device_key", "advertised-other-device"); rejected(data())
+        advertised.put("provider_device_key", "device-a").put("base_url", "https://foreign-hint.invalid"); rejected(data())
+        assertTrue(gateway.paths().isEmpty())
+        advertised.put("base_url", gateway.baseUrl)
+        rejected(data()) // The response loses its frozen context while HTTP is in flight.
+        assertEquals(listOf(PULL), gateway.paths()); assertEquals("device-b", settings.getDeviceKey())
+        settings.setGatewayToken("synthetic-original-identity"); settings.setDeviceKey("device-a")
+        actualInboundProcessor().process(context, data(), "changing-inline-transport")
+        assertCanonical(id); assertEquals("acked", ackState(id)); assertEquals(listOf(PULL, PULL, ACK), gateway.paths())
+        assertEquals(listOf("Bearer synthetic-original-identity", "Bearer synthetic-original-identity"), gateway.authorizations(PULL))
+        assertNull(db.providerPullFrontierDao().get()); gateway.assertHealthy()
+    }
+
+    private fun actualInboundProcessor() = io.ethan.pushgo.notifications.InboundMessageProcessor(
+        runtimeResolver = io.ethan.pushgo.notifications.InboundProcessorRuntimeResolver {
+            io.ethan.pushgo.notifications.DefaultInboundProcessorRuntime(channels, messages, entities, ledger, settings)
+        },
+    )
+
+    private fun identityPayload(id: String) = payload(id).put("entity_id", id).put("channel_id", "identity-lane")
+        .put("delivery_id", id).put("op_id", "operation-$id")
+
+    private suspend fun seedCanonicalIdentity(id: String, origin: InboundDeliveryScope?) {
+        val raw = identityPayload(id)
+        val parsed = NotificationIngressParser.parse(raw.keys().asSequence().associateWith { raw.get(it).toString() }, id, null)
+            as InboundPersistenceRequest.Message
+        assertFalse(parsed.shouldNotify)
+        assertTrue(messages.insertIncoming(parsed.message, deliveryScope = origin))
+    }
+
+    private fun canonicalOwnerSnapshot(id: String): List<String?> = db.openHelper.readableDatabase.query(
+        "SELECT m.*,o.* FROM messages m JOIN message_resource_owners o ON o.source_table='messages' AND o.owner_id=m.id AND o.owner_slot=0 WHERE m.message_id=?",
+        arrayOf(id),
+    ).use { cursor ->
+        assertTrue("the exact canonical owner must remain present", cursor.moveToFirst())
+        (0 until cursor.columnCount).map { if (cursor.isNull(it)) null else cursor.getString(it) }
     }
 
     @Test
@@ -883,7 +1508,7 @@ class ProviderV2PullOnlyDeviceTest {
 
     private fun gateway(handler: (String, JSONObject) -> Pair<Int, JSONObject>): Gateway = Gateway(handler).also { servers += it }
 
-    private class Gateway(val handler: (String, JSONObject) -> Pair<Int, JSONObject>) : AutoCloseable {
+    internal class Gateway(val handler: (String, JSONObject) -> Pair<Int, JSONObject>) : AutoCloseable {
         private val socket = ServerSocket(0)
         val baseUrl = "http://127.0.0.1:${socket.localPort}"
         private val paths = Collections.synchronizedList(mutableListOf<String>())

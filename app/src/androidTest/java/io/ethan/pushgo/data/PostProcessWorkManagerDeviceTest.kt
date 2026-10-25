@@ -143,6 +143,123 @@ class PostProcessWorkManagerDeviceTest {
         app.releaseStorageForInstrumentationTest()
     }
 
+    @Test
+    fun currentRecoveryAddsSeventyExpiredResponsibilitiesAndPreservesTheKnownSeventyOneBodies() = runBlocking {
+        val app = ApplicationProvider.getApplicationContext<PushGoApp>()
+        assertNull(QualityRuntime.currentSession())
+        app.releaseStorageForInstrumentationTest()
+        val container = app.container
+        val database = container.database
+        assertEquals(39, count(database, "PRAGMA user_version"))
+        val idsBefore = database.openHelper.readableDatabase.query("SELECT id FROM messages").use { cursor ->
+            buildSet { while (cursor.moveToNext()) add(cursor.getString(0)) }
+        }
+        // Exact earlier task fixture: one named row plus one complete, single-UUID
+        // 000..069 batch. An arbitrary real database or partial old run is not adopted.
+        assertEquals(71, idsBefore.size); assertTrue("worker-canonical-synthetic" in idsBefore)
+        val pattern = Regex("^bulk-worker-([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})-([0-9]{3})$")
+        val priorBatch = idsBefore.filter { it != "worker-canonical-synthetic" }.map { requireNotNull(pattern.matchEntire(it)) }
+        assertEquals(1, priorBatch.map { it.groupValues[1] }.toSet().size)
+        assertEquals((0 until 70).toSet(), priorBatch.map { it.groupValues[2].toInt() }.toSet())
+        val original = database.messageDao().getByIds(idsBefore.toList()).associateBy { it.id }
+        for ((id, row) in original) {
+            val one = id == "worker-canonical-synthetic"
+            assertEquals(if (one) "This body must remain after alert suppression" else "Synthetic retained content; expired alert is not a content TTL", row.body)
+            assertEquals(if (one) "Expired alert, durable body" else "Synthetic expired alert", row.title)
+            assertEquals("synthetic", row.channel); assertEquals("synthetic", row.serverId)
+            assertNull(row.url); assertEquals("NORMAL", row.status); assertEquals(0, row.postProcessPending)
+            val raw = JSONObject(row.rawPayloadJson)
+            assertEquals(setOf("entity_type", "entity_id", "message_id", "delivery_id", "op_id", "ttl"), raw.keys().asSequence().toSet())
+            for (key in listOf("entity_id", "message_id", "delivery_id", "op_id")) assertEquals(id, raw.getString(key))
+            assertEquals("message", raw.getString("entity_type")); assertEquals(1L, raw.getLong("ttl"))
+        }
+        val configuredGateway = database.openHelper.readableDatabase.query("SELECT server_address FROM app_settings WHERE id=1").use {
+            if (it.moveToFirst() && !it.isNull(0)) it.getString(0) else null
+        }
+        assertTrue("no external Gateway is permitted", configuredGateway.isNullOrBlank())
+        for (table in POST_PROCESS_TABLES.drop(1)) assertEquals(0, count(database, "SELECT COUNT(*) FROM $table"))
+        assertTrue(POST_PROCESS_TABLES.indices.all { database.loadPendingPostProcess(it).isEmpty() })
+        val manager = WorkManager.getInstance(app)
+        val priorRecovery = manager.getWorkInfosForUniqueWork("message-post-process-recovery").get(5, TimeUnit.SECONDS)
+        assertTrue("do not adopt an active earlier scanner", priorRecovery.all { it.state.isFinished })
+        val priorRecoveryIds = priorRecovery.map { it.id }.toSet()
+        val scope = requireNotNull(InboundDeliveryScope.create("https://bulk-worker-current.invalid", "current-bulk-synthetic-device"))
+        val prefix = "bulk-worker-current-${UUID.randomUUID()}-"
+        val ids = (0 until 70).map { prefix + it.toString().padStart(3, '0') }
+        val body = "Synthetic current retained content; expired alert is not a content TTL"
+        for (id in ids) {
+            val raw = JSONObject().put("entity_type", "message").put("entity_id", id).put("message_id", id)
+                .put("delivery_id", id).put("op_id", id).put("ttl", 1)
+            val message = PushMessage(id, id, "Current synthetic expired alert", body, "synthetic", null, false,
+                Instant.now(), raw.toString(), MessageStatus.NORMAL, null, null, "synthetic")
+            assertTrue(container.messageRepository.insertIncoming(message, deliveryScope = scope, postProcessFlags = POST_PROCESS_NOTIFICATION))
+        }
+        val first = database.loadPendingPostProcess(0); val last = first.last()
+        val second = database.loadPendingPostProcess(0, last.flags, last.rowId)
+        assertEquals(64, first.size); assertEquals(6, second.size)
+        val locators = first + second
+        assertEquals(70, locators.map { it.generation }.toSet().size)
+        val samples = JSONArray()
+        fun snapshot(stage: String, memory: Boolean = true): JSONObject = JSONObject().put("stage", stage)
+            .put("elapsed_realtime_ms", SystemClock.elapsedRealtime()).put("process_cpu_ms", Process.getElapsedCpuTime())
+            .put("pending", count(database, "SELECT COUNT(*) FROM messages WHERE post_process_pending>0")).apply {
+                if (memory) {
+                    val info = Debug.MemoryInfo().also(Debug::getMemoryInfo)
+                    put("pss_kib", info.totalPss); put("native_heap_allocated_bytes", Debug.getNativeHeapAllocatedSize())
+                    put("java_heap_used_bytes", Runtime.getRuntime().totalMemory()-Runtime.getRuntime().freeMemory())
+                }
+            }.also { samples.put(it) }
+        val before = snapshot("before_enqueue"); val start = SystemClock.elapsedRealtimeNanos()
+        MessagePostProcessWorker.enqueueRecovery(app)
+        val enqueueReturnMs = (SystemClock.elapsedRealtimeNanos()-start)/1_000_000.0
+        withTimeout(45_000) { while (snapshot("recovering", false).getInt("pending") != 0) delay(100) }
+        val pendingZeroMs = (SystemClock.elapsedRealtimeNanos()-start)/1_000_000.0
+        var recovery: List<WorkInfo> = emptyList()
+        withTimeout(15_000) {
+            while (true) {
+                recovery = manager.getWorkInfosForUniqueWork("message-post-process-recovery").get(5, TimeUnit.SECONDS).filter { it.id !in priorRecoveryIds }
+                if (recovery.isNotEmpty() && recovery.all { it.state.isFinished }) break
+                delay(50)
+            }
+        }
+        assertTrue("the new real scanner must continue past one bounded page", recovery.size >= 2)
+        assertTrue(recovery.all { it.state == WorkInfo.State.SUCCEEDED })
+        var states = JSONArray()
+        withTimeout(15_000) {
+            while (true) {
+                states = JSONArray()
+                for (locator in locators) {
+                    val work = manager.getWorkInfosForUniqueWork("message-post-process:${locator.tableIndex}:${locator.generation}").get(5, TimeUnit.SECONDS)
+                    assertEquals(1, work.size); assertNotEquals(WorkInfo.State.FAILED, work.single().state)
+                    states.put(work.single().state.name)
+                }
+                if ((0 until states.length()).all { states.getString(it) == WorkInfo.State.SUCCEEDED.name }) break
+                delay(100)
+            }
+        }
+        val drained = snapshot("all_work_finished")
+        for ((id, row) in original) assertEquals("old fixture $id must remain byte-for-byte", row, database.messageDao().getById(id))
+        for (id in ids) {
+            assertEquals(body, container.messageRepository.getById(id)?.body)
+            assertTrue(container.inboundDeliveryLedgerRepository.shouldAckDelivery(id, scope))
+        }
+        assertEquals(141, count(database, "SELECT COUNT(*) FROM messages"))
+        val idleStart = snapshot("before_idle_10s", false)
+        delay(10_000); val idle = snapshot("idle_10s"); assertEquals(0, idle.getInt("pending"))
+        val output = File(InstrumentationRegistry.getArguments().getString("additionalTestOutputDir") ?: File(app.cacheDir, "post-process-current-bulk-output").absolutePath).apply { mkdirs() }
+        File(output, "actual-current-workmanager-70.json").writeText(JSONObject()
+            .put("kind", "actual current Worker recovery appended to a strictly verified 71-row synthetic baseline")
+            .put("baseline_ids", JSONArray(idsBefore.sorted())).put("new_ids", JSONArray(ids)).put("baseline_body_rows", 71).put("new_rows", 70).put("retained_body_rows", 141)
+            .put("preview_page_sizes", JSONArray(listOf(64, 6))).put("actual_new_scanner_states", JSONArray(recovery.map { it.state.name }))
+            .put("actual_new_scanner_ids", JSONArray(recovery.map { it.id.toString() })).put("locator_states", states)
+            .put("enqueue_call_return_ms", enqueueReturnMs).put("enqueue_to_pending_zero_ms", pendingZeroMs)
+            .put("cpu_until_all_work_finished_ms", drained.getLong("process_cpu_ms")-before.getLong("process_cpu_ms"))
+            .put("idle_cpu_ms", idle.getLong("process_cpu_ms")-idleStart.getLong("process_cpu_ms"))
+            .put("idle_elapsed_ms", idle.getLong("elapsed_realtime_ms")-idleStart.getLong("elapsed_realtime_ms")).put("samples", samples)
+            .put("limits", "Current Debug emulator actual DoWork; 64/6 is an indexed preview, actual scanner IDs/states separately observed. COUNT100ms and WorkManager/background overhead included; PSS is three points, not peak, performance comparison or energy. No media, OS publication, wire ACK or process death.").toString(2))
+        app.releaseStorageForInstrumentationTest()
+    }
+
     private fun count(database: io.ethan.pushgo.data.db.PushGoDatabase, sql: String): Int =
         database.openHelper.readableDatabase.query(sql).use { cursor -> check(cursor.moveToFirst()); cursor.getInt(0) }
 

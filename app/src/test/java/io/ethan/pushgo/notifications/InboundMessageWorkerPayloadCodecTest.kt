@@ -7,6 +7,20 @@ import org.junit.Test
 class InboundMessageWorkerPayloadCodecTest {
 
     @Test
+    fun newDurableProviderHintContainsNoInlineBodyMediaOrCredentials() {
+        val original = mapOf("delivery_id" to "delivery", "base_url" to "https://configured.invalid/path",
+            "gateway_url" to "https://configured.invalid/path", "provider_device_key" to "device",
+            "title" to "Inline title", "body" to "Inline body", "images" to "https://image.invalid/one.gif",
+            "message_id" to "untrusted-message", "token" to "must-not-be-copied", "password" to "must-not-be-copied")
+        val hint = InboundMessagePayloadCodec.providerHint(original)
+        assertEquals(setOf("provider_mode", "provider_wakeup", "delivery_id", "base_url", "gateway_url", "provider_device_key"), hint.keys)
+        for (name in listOf("delivery_id", "base_url", "gateway_url", "provider_device_key")) assertEquals(original[name], hint[name])
+        assertEquals("wakeup", hint["provider_mode"])
+        assertEquals(hint, InboundMessagePayloadCodec.decode(InboundMessagePayloadCodec.encode(hint)))
+        assertEquals("Inline body", original["body"])
+    }
+
+    @Test
     fun payloadCodec_encodeDecode_roundTripsMessageData() {
         val payload = mapOf(
             "message_id" to "msg-1",

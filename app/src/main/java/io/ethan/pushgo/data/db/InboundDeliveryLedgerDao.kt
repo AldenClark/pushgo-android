@@ -12,6 +12,35 @@ interface InboundDeliveryLedgerDao {
 
     @Query(
         """
+        SELECT * FROM inbound_delivery_ledger
+        WHERE gateway_url = :gatewayUrl
+          AND device_key = :deviceKey
+          AND delivery_id = :deliveryId
+        LIMIT 1
+        """
+    )
+    suspend fun get(
+        gatewayUrl: String,
+        deviceKey: String,
+        deliveryId: String,
+    ): InboundDeliveryLedgerEntity?
+
+    @Query(
+        """
+        UPDATE inbound_delivery_ledger SET acceptance_proven = 1
+        WHERE gateway_url = :gatewayUrl
+          AND device_key = :deviceKey
+          AND delivery_id = :deliveryId
+        """
+    )
+    suspend fun markAcceptanceProven(
+        gatewayUrl: String,
+        deviceKey: String,
+        deliveryId: String,
+    ): Int
+
+    @Query(
+        """
         SELECT ack_state FROM inbound_delivery_ledger
         WHERE gateway_url = :gatewayUrl
           AND device_key = :deviceKey
@@ -24,6 +53,16 @@ interface InboundDeliveryLedgerDao {
         deviceKey: String,
         deliveryId: String,
     ): String?
+
+    @Query(
+        """
+        SELECT ack_state FROM inbound_delivery_ledger
+        WHERE gateway_url = :gatewayUrl AND device_key = :deviceKey
+          AND delivery_id = :deliveryId AND acceptance_proven = 1
+        LIMIT 1
+        """
+    )
+    suspend fun getProvenAckState(gatewayUrl: String, deviceKey: String, deliveryId: String): String?
 
     @Query(
         """

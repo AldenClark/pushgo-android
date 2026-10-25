@@ -350,7 +350,7 @@ data class TopLevelEventHeadEntity(
     companion object {
         fun fromIncoming(entity: IncomingEntityRecord): TopLevelEventHeadEntity {
             val eventId = entity.eventId?.trim()?.takeIf { it.isNotEmpty() } ?: entity.entityId
-            val sourceId = entity.localDeliveryKey ?: entity.deliveryId ?: "event-head:$eventId"
+            val sourceId = entity.localDeliveryKey ?: entity.deliveryId ?: "${entity.entityId}:${entity.receivedAt.toEpochMilli()}"
             val now = entity.receivedAt.toEpochMilli()
             return TopLevelEventHeadEntity(
                 eventId = eventId,
@@ -463,7 +463,7 @@ data class ThingHeadEntity(
     companion object {
         fun fromIncoming(entity: IncomingEntityRecord): ThingHeadEntity {
             val thingId = entity.thingId?.trim()?.takeIf { it.isNotEmpty() } ?: entity.entityId
-            val sourceId = entity.localDeliveryKey ?: entity.deliveryId ?: "thing-head:$thingId"
+            val sourceId = entity.localDeliveryKey ?: entity.deliveryId ?: "${entity.entityId}:${entity.receivedAt.toEpochMilli()}"
             val now = entity.receivedAt.toEpochMilli()
             return ThingHeadEntity(
                 thingId = thingId,

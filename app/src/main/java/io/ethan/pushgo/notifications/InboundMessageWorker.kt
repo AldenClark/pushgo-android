@@ -80,7 +80,10 @@ class InboundMessageWorker(
             transportMessageId: String?,
             allowQualitySession: Boolean,
         ) {
-            val payload = InboundMessagePayloadCodec.encode(messageData)
+            // Preserve the existing unique work identity (and old WorkSpec compatibility),
+            // but new durable inputs contain only a pull hint, never a second body/media copy.
+            val originalPayload = InboundMessagePayloadCodec.encode(messageData)
+            val payload = InboundMessagePayloadCodec.encode(InboundMessagePayloadCodec.providerHint(messageData))
             val input = workDataOf(
                 KEY_MESSAGE_DATA_JSON to payload,
                 KEY_TRANSPORT_MESSAGE_ID to transportMessageId,
@@ -95,7 +98,7 @@ class InboundMessageWorker(
                 )
                 .build()
             WorkManager.getInstance(context.applicationContext).enqueueUniqueWork(
-                buildUniqueWorkName(transportMessageId, payload),
+                buildUniqueWorkName(transportMessageId, originalPayload),
                 ExistingWorkPolicy.KEEP,
                 request,
             )
@@ -175,6 +178,14 @@ internal fun shouldRetryInboundFailure(error: Throwable): Boolean {
 }
 
 internal object InboundMessagePayloadCodec {
+    fun providerHint(messageData: Map<String, String>): Map<String, String> = buildMap {
+        put("provider_mode", "wakeup")
+        put("provider_wakeup", "1")
+        for (name in listOf("delivery_id", "base_url", "gateway_url", "provider_device_key")) {
+            messageData[name]?.let { put(name, it) }
+        }
+    }
+
     fun encode(messageData: Map<String, String>): String {
         return JSONObject(messageData as Map<*, *>).toString()
     }

@@ -35,4 +35,6 @@ data class InboundDeliveryLedgerEntity(
     val ackState: String,
     @ColumnInfo(name = "acked_at")
     val ackedAt: Long?,
+    @ColumnInfo(name = "acceptance_proven")
+    val acceptanceProven: Boolean? = null,
 )

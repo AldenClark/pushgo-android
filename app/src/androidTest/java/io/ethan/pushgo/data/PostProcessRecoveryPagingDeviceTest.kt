@@ -41,13 +41,78 @@ class PostProcessRecoveryPagingDeviceTest {
     }
 
     @Test
+    fun schema38RuntimeIndexesAndLegacyScopeMetadataSurviveMigrationAndReopen() = runBlocking {
+        db.close()
+        context.deleteDatabase(DB)
+        seedSchema38CopyWithRuntimeIndexes()
+        open()
+        assertEquals(39, scalar("PRAGMA user_version"))
+        fun assertLegacyRetained() {
+            assertEquals(1, scalar("SELECT COUNT(*) FROM messages WHERE id='scope-old-message' AND body='Retained canonical body'"))
+            assertEquals(1, scalar("SELECT COUNT(*) FROM pending_thing_messages WHERE id='scope-old-pending' AND body='Retained pending body' AND authenticated_gateway_url IS NULL AND authenticated_device_key IS NULL"))
+            assertEquals(1, scalar("SELECT COUNT(*) FROM thing_sub_events WHERE id='scope-old-waiting-event' AND activated=0 AND body='Retained waiting body'"))
+            assertEquals(1, scalar("SELECT COUNT(*) FROM message_resource_owners WHERE owner_id='scope-old-message' AND generation='0123456789abcdef0123456789abcdef' AND origin_scope='legacy-origin-hash-kept' AND authenticated_gateway_url IS NULL AND authenticated_device_key IS NULL"))
+            assertEquals(1, scalar("SELECT COUNT(*) FROM inbound_delivery_ledger WHERE delivery_id='scope-old-pending-delivery' AND ack_state='acked' AND applied_at=$RECEIVED_AT AND acked_at=$RECEIVED_AT AND acceptance_proven IS NULL"))
+            assertEquals(1, scalar("SELECT COUNT(*) FROM inbound_delivery_ledger WHERE delivery_id='scope-uncertain' AND ack_state='pending' AND applied_at=$RECEIVED_AT AND acked_at IS NULL AND acceptance_proven IS NULL"))
+            assertEquals(1, scalar("SELECT COUNT(*) FROM inbound_delivery_ack_outbox WHERE delivery_id='scope-uncertain' AND attempt_count=2 AND last_attempt_uncertain=1"))
+            for (name in listOf("index_messages_read_received_id", "index_messages_channel_key_read_received_id", "index_messages_channel_key_received_id")) {
+                assertEquals(1, scalar("SELECT COUNT(*) FROM sqlite_master WHERE type='index' AND name='$name'"))
+            }
+        }
+        assertLegacyRetained()
+        db.openHelper.readableDatabase.query("PRAGMA table_info(inbound_delivery_ledger)").use { cursor ->
+            var found = false
+            while (cursor.moveToNext()) if (cursor.getString(cursor.getColumnIndexOrThrow("name")) == "acceptance_proven") {
+                found = true
+                assertEquals(0, cursor.getInt(cursor.getColumnIndexOrThrow("notnull")))
+                assertNull(cursor.getString(cursor.getColumnIndexOrThrow("dflt_value")))
+            }
+            assertTrue("Legacy acceptance is nullable and not inferred by a default", found)
+        }
+        val scope = requireNotNull(InboundDeliveryScope.create("https://scope-new.invalid", "scope-new-device"))
+        val fresh = message("scope-new-message", "scope-new-delivery")
+        assertTrue(messages.insertIncoming(fresh, deliveryScope = scope)) // No image is required to record authenticated origin.
+        val pending = message("scope-new-pending", "scope-new-pending-delivery").let { current ->
+            current.copy(rawPayloadJson = JSONObject(current.rawPayloadJson).put("thing_id", "missing-scope-parent")
+                .put("occurred_at", RECEIVED_AT.toString()).toString())
+        }
+        assertFalse(messages.insertIncoming(pending, deliveryScope = scope))
+        val ledger = db.inboundDeliveryLedgerDao()
+        val accepted = requireNotNull(ledger.get(scope.gatewayUrl, scope.deviceKey, "scope-new-delivery"))
+        val pendingAccepted = requireNotNull(ledger.get(scope.gatewayUrl, scope.deviceKey, "scope-new-pending-delivery"))
+        assertEquals(true, accepted.acceptanceProven)
+        assertEquals(true, pendingAccepted.acceptanceProven)
+        assertNull(ledger.get(scope.gatewayUrl, "foreign-device", accepted.deliveryId))
+        assertEquals(0, ledger.markAcceptanceProven(scope.gatewayUrl, "foreign-device", accepted.deliveryId))
+        // Repeated proof changes no acceptance/ACK timestamps and cannot renew retention.
+        assertEquals(1, ledger.markAcceptanceProven(scope.gatewayUrl, scope.deviceKey, accepted.deliveryId))
+        assertEquals(accepted, ledger.get(scope.gatewayUrl, scope.deviceKey, accepted.deliveryId))
+        val generation = db.messageResourceDao().owners(fresh.id).single().generation
+        val hash = MessageImageStore.originScope(scope)
+        // The existing generation/hash and literals cannot be reassigned to a foreign origin.
+        db.messageResourceDao().setOrigin(fresh.id, generation, hash, "https://foreign.invalid", "foreign-device")
+        db.messageResourceDao().setOrigin(fresh.id, "stale-generation", hash, scope.gatewayUrl, scope.deviceKey)
+        reopen()
+        assertLegacyRetained()
+        assertEquals(accepted, db.inboundDeliveryLedgerDao().get(scope.gatewayUrl, scope.deviceKey, accepted.deliveryId))
+        assertEquals(pendingAccepted, db.inboundDeliveryLedgerDao().get(scope.gatewayUrl, scope.deviceKey, pendingAccepted.deliveryId))
+        assertEquals(1, scalar("SELECT COUNT(*) FROM message_resource_owners WHERE owner_id='scope-new-message' AND authenticated_gateway_url='https://scope-new.invalid' AND authenticated_device_key='scope-new-device'"))
+        assertEquals(1, scalar("SELECT COUNT(*) FROM pending_thing_messages WHERE id='scope-new-pending' AND authenticated_gateway_url='https://scope-new.invalid' AND authenticated_device_key='scope-new-device' AND body='Same exact durable body'"))
+        // A real replacement of the canonical incarnation clears both old identity forms.
+        db.openHelper.writableDatabase.execSQL("UPDATE messages SET received_at=received_at+1 WHERE id='scope-new-message'")
+        assertEquals(1, scalar("SELECT COUNT(*) FROM message_resource_owners WHERE owner_id='scope-new-message' AND origin_scope IS NULL AND authenticated_gateway_url IS NULL AND authenticated_device_key IS NULL"))
+        assertNotEquals(generation, db.messageResourceDao().owners(fresh.id).single().generation)
+        assertEquals(fresh.body, messages.getById(fresh.id)?.body)
+    }
+
+    @Test
     fun schema36RowsKeepTheirContentAndStartWithNoHistoricalPostProcessingClaim() = runBlocking {
         db.close()
         context.deleteDatabase(DB)
         seedSchema36Copy()
         open()
 
-        assertEquals(38, scalar("PRAGMA user_version"))
+        assertEquals(39, scalar("PRAGMA user_version"))
         for (name in listOf("index_messages_read_received_id", "index_messages_channel_key_read_received_id", "index_messages_channel_key_received_id")) {
             assertEquals("onOpen restores runtime performance index $name", 1,
                 scalar("SELECT COUNT(*) FROM sqlite_master WHERE type='index' AND name='$name'"))
@@ -192,6 +257,43 @@ class PostProcessRecoveryPagingDeviceTest {
         arrayOf<Any>("messages", 0, 0L, POST_PROCESS_PAGE_SIZE),
     ).use { cursor ->
         buildList { while (cursor.moveToNext()) add(cursor.getString(cursor.getColumnIndexOrThrow("detail"))) }
+    }
+
+    private fun seedSchema38CopyWithRuntimeIndexes() {
+        // Explicit exported v38 schema plus its real runtime-only index definitions;
+        // no user database, inferred identity, old binary or migrated timestamp claim.
+        val schema = InstrumentationRegistry.getInstrumentation().context.assets.open("38.json").bufferedReader()
+            .use { JSONObject(it.readText()).getJSONObject("database") }
+        val file = context.getDatabasePath(DB).apply { parentFile?.mkdirs() }
+        SQLiteDatabase.openOrCreateDatabase(file, null).use { sql ->
+            sql.beginTransaction()
+            try {
+                val entities = schema.getJSONArray("entities")
+                for (index in 0 until entities.length()) {
+                    val entity = entities.getJSONObject(index)
+                    val table = entity.getString("tableName")
+                    sql.execSQL(entity.getString("createSql").replace("\${TABLE_NAME}", table))
+                    val indices = entity.optJSONArray("indices")
+                    if (indices != null) for (i in 0 until indices.length()) {
+                        sql.execSQL(indices.getJSONObject(i).getString("createSql").replace("\${TABLE_NAME}", table))
+                    }
+                }
+                val setup = schema.getJSONArray("setupQueries")
+                for (index in 0 until setup.length()) sql.execSQL(setup.getString(index))
+                sql.execSQL("CREATE INDEX index_messages_read_received_id ON messages(is_read,received_at DESC,id DESC)")
+                sql.execSQL("CREATE INDEX index_messages_channel_key_read_received_id ON messages(COALESCE(NULLIF(TRIM(channel), ''), ''),is_read,received_at DESC,id DESC)")
+                sql.execSQL("CREATE INDEX index_messages_channel_key_received_id ON messages(COALESCE(NULLIF(TRIM(channel), ''), ''),received_at DESC,id DESC)")
+                sql.execSQL("INSERT INTO messages(id,message_id,title,body,is_read,received_at,raw_payload_json,status,body_preview,entity_type) VALUES(?,?,?,?,?,?,?,?,?,?)", arrayOf<Any>("scope-old-message", "scope-old-message-id", "Historical", "Retained canonical body", 0, RECEIVED_AT, "{\"entity_type\":\"message\"}", "NORMAL", "Historical", "message"))
+                sql.execSQL("INSERT INTO pending_thing_messages(id,message_id,title,body,received_at,raw_payload_json,status,body_preview,entity_type,thing_id) VALUES(?,?,?,?,?,?,?,?,?,?)", arrayOf<Any>("scope-old-pending", "scope-old-pending-id", "Historical", "Retained pending body", RECEIVED_AT, "{\"entity_type\":\"message\",\"delivery_id\":\"scope-old-pending-delivery\"}", "NORMAL", "Historical", "message", "old-scope-thing"))
+                sql.execSQL("INSERT INTO thing_sub_events(id,entity_id,title,body,raw_payload_json,received_at,event_id,thing_id,activated) VALUES(?,?,?,?,?,?,?,?,?)", arrayOf<Any>("scope-old-waiting-event", "scope-old-event", "Historical", "Retained waiting body", "{\"entity_type\":\"event\"}", RECEIVED_AT, "scope-old-event", "old-scope-thing", 0))
+                sql.execSQL("INSERT INTO message_resource_owners(source_table,owner_id,owner_slot,generation,origin_scope) VALUES(?,?,?,?,?)", arrayOf<Any>("messages", "scope-old-message", 0, "0123456789abcdef0123456789abcdef", "legacy-origin-hash-kept"))
+                sql.execSQL("INSERT INTO inbound_delivery_ledger(gateway_url,device_key,delivery_id,entity_type,applied_at,ack_state,acked_at) VALUES(?,?,?,?,?,?,?)", arrayOf<Any>("https://scope-old.invalid", "scope-old-device", "scope-old-pending-delivery", "message", RECEIVED_AT, "acked", RECEIVED_AT))
+                sql.execSQL("INSERT INTO inbound_delivery_ledger(gateway_url,device_key,delivery_id,entity_type,applied_at,ack_state) VALUES(?,?,?,?,?,?)", arrayOf<Any>("https://scope-old.invalid", "scope-old-device", "scope-uncertain", "message", RECEIVED_AT, "pending"))
+                sql.execSQL("INSERT INTO inbound_delivery_ack_outbox(delivery_id,gateway_url,device_key,ack_contract,source,enqueued_at,updated_at,attempt_count,last_attempt_uncertain) VALUES(?,?,?,?,?,?,?,?,?)", arrayOf<Any>("scope-uncertain", "https://scope-old.invalid", "scope-old-device", "v2_batch", "provider_pull", RECEIVED_AT, RECEIVED_AT, 2, 1))
+                sql.version = 38
+                sql.setTransactionSuccessful()
+            } finally { sql.endTransaction() }
+        }
     }
 
     private fun seedSchema36Copy() {

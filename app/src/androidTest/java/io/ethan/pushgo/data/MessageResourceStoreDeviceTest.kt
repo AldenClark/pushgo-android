@@ -452,7 +452,7 @@ class MessageResourceStoreDeviceTest {
         }
         db = PushGoDatabase.buildForTest(context, "v35-copy.db"); newStore()
         assertEquals(old.body, db.messageDao().getById(old.id)?.body)
-        assertEquals(38, scalar("PRAGMA user_version"))
+        assertEquals(39, scalar("PRAGMA user_version"))
         requireNotNull(store.acquire(store.imageModel(old, url))).use { assertArrayEquals(imageA, it.file?.readBytes()) }
         assertTrue(legacy.exists()); assertEquals(0, fixture.requests.size)
         assertEquals(1, scalar("SELECT COUNT(*) FROM message_resource_owners WHERE owner_id='migration'"))

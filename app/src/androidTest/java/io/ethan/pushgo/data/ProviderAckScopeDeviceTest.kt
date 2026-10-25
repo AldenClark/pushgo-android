@@ -134,6 +134,7 @@ class ProviderAckScopeDeviceTest {
     @Test
     fun definitiveLegacyFailureClearsThePreSendCrashMarker() = runBlocking {
         val identity = identity(GATEWAY_URL, DEVICE_KEY)
+        seedAcceptedOutboxFixture(identity, listOf("legacy-definitive-false"))
         ledgerRepository.enqueueAcks(listOf("legacy-definitive-false"), identity)
         val fresh = ledgerRepository.loadPendingAcks().single()
 
@@ -191,6 +192,30 @@ class ProviderAckScopeDeviceTest {
     }
 
     @Test
+    fun unprovenLegacyReceiptRetriesRealAcceptanceButAProvedDeletedEntityCannotBeRecreatedByStaging() = runBlocking {
+        val destination = ProviderAckDestination(GATEWAY_URL, DEVICE_KEY)
+        val legacyIdentity = requireNotNull(ProviderAckIdentity.create(destination, ProviderAckContract.LEGACY_SINGLE, "legacy_provider_staging"))
+        val item = event("legacy-null-receipt", "legacy-null-receipt-event")
+        seedAcceptedLegacyPull(destination, requireNotNull(item.deliveryId))
+        // Explicit old migration output: destructive receipt plus an unproved
+        // delivery claim, before any canonical business write succeeded.
+        database.openHelper.writableDatabase.execSQL(
+            "INSERT INTO inbound_delivery_ledger(gateway_url,device_key,delivery_id,channel_id,entity_type,entity_id,op_id,applied_at,ack_state,acked_at,acceptance_proven) VALUES(?,?,?,?,'event',?,?,?,'pending',NULL,NULL)",
+            arrayOf<Any>(legacyIdentity.gatewayUrl, legacyIdentity.deviceKey, requireNotNull(item.deliveryId), requireNotNull(item.channel),
+                item.entityId, requireNotNull(item.opId), item.receivedAt.toEpochMilli()),
+        )
+        assertEquals(false, ledgerRepository.shouldAck(requireNotNull(item.deliveryId), legacyIdentity))
+        assertTrue(entityRepository.insertIncoming(item, legacyIdentity))
+        assertTrue(ledgerRepository.shouldAck(requireNotNull(item.deliveryId), legacyIdentity))
+        entityRepository.deleteEvent(item.entityId)
+        assertTrue(ledgerRepository.loadPendingLegacyPull().isNotEmpty())
+        assertEquals(false, entityRepository.insertIncoming(item, legacyIdentity))
+        assertEquals(null, entityRepository.getEventProjectionDetail(item.entityId))
+        assertTrue(ledgerRepository.shouldAck(requireNotNull(item.deliveryId), legacyIdentity))
+        assertEquals(1, ledgerRepository.loadPendingLegacyPull().size)
+    }
+
+    @Test
     fun ackedTombstonePrune_outlivesGatewayReplayWindowAndRemainsBatchedAndReferenceSafe() = runBlocking {
         val now = TimeUnit.DAYS.toMillis(60)
         val old = now - TimeUnit.DAYS.toMillis(37)
@@ -237,6 +262,8 @@ class ProviderAckScopeDeviceTest {
     fun ackDrainKickSignal_onlyFiresOnEmptyToNonEmptyTransition() = runBlocking {
         val identity = identity(GATEWAY_URL, DEVICE_KEY)
 
+        seedAcceptedOutboxFixture(identity, listOf("delivery-first") + (0 until 100).map { "delivery-burst-$it" } +
+            listOf("delivery-after-empty-read", "delivery-after-edge"))
         assertTrue(ledgerRepository.enqueueAcks(listOf("delivery-first"), identity))
         repeat(100) { index ->
             assertEquals(
@@ -262,6 +289,8 @@ class ProviderAckScopeDeviceTest {
     fun fairAckLoad_reservesCapacityForASecondGatewayBehindLargeBacklog() = runBlocking {
         val identityA = identity("https://gateway-a.example", "device-a")
         val identityB = identity("https://gateway-b.example", "device-b")
+        seedAcceptedOutboxFixture(identityA, (0 until 250).map { "gateway-a-$it" })
+        seedAcceptedOutboxFixture(identityB, listOf("gateway-b-current"))
         ledgerRepository.enqueueAcks(
             deliveryIds = (0 until 250).map { index -> "gateway-a-$index" },
             identity = identityA,
@@ -278,6 +307,86 @@ class ProviderAckScopeDeviceTest {
         assertEquals(201, selected.size)
         assertTrue(selected.any { it.gatewayUrl == identityB.gatewayUrl })
         assertEquals(200, selected.count { it.gatewayUrl == identityA.gatewayUrl })
+    }
+
+    @Test
+    fun unresolvedLegacyOutboxDoesNotHideNewProofAndCanonicalRepairUsesTheRecoveryHandoff() = runBlocking {
+        val identity = identity(GATEWAY_URL, DEVICE_KEY)
+        val repairable = event("legacy-null-0", "legacy-null-canonical")
+        assertTrue(entityRepository.insertIncoming(repairable, identity))
+        database.openHelper.writableDatabase.execSQL(
+            "UPDATE inbound_delivery_ledger SET acceptance_proven=NULL WHERE gateway_url=? AND device_key=? AND delivery_id=?",
+            arrayOf(identity.gatewayUrl, identity.deviceKey, requireNotNull(repairable.deliveryId)),
+        )
+        // Explicit migrated-history fixtures: 249 claims have no canonical proof;
+        // one real accepted canonical source can later certify its old NULL claim.
+        for (index in 0 until 250) {
+            val id = "legacy-null-$index"
+            if (index != 0) insertLedgerRow(id, "pending", 1, null)
+            database.inboundDeliveryAckOutboxDao().insertOrIgnore(io.ethan.pushgo.data.db.InboundDeliveryAckOutboxEntity(
+                deliveryId = id, gatewayUrl = identity.gatewayUrl, deviceKey = identity.deviceKey,
+                ackContract = identity.contract.persistedValue, source = "legacy_fixture", enqueuedAt = 1, updatedAt = 1,
+            ))
+        }
+        // The same wire ID proved for another exact destination cannot authorize
+        // any of the first destination's historical outbox rows.
+        seedAcceptedOutboxFixture(this@ProviderAckScopeDeviceTest.identity("https://unrelated-proof.example", "other-device"), listOf("legacy-null-1"))
+        val outbox = database.inboundDeliveryAckOutboxDao()
+        val before = legacyImmutableFacts()
+        val oldOutbox = outbox.loadPending(300)
+        assertEquals(250, oldOutbox.size)
+        assertTrue(outbox.hasPending())
+        assertEquals(false, outbox.hasEligiblePending())
+        assertTrue(outbox.loadEligiblePending(201).isEmpty())
+        assertTrue(outbox.loadEligiblePendingDestinations(201).isEmpty())
+        assertTrue(outbox.loadEligiblePendingForDestination(identity.gatewayUrl, identity.deviceKey, identity.contract.persistedValue, 201).isEmpty())
+        assertTrue(ledgerRepository.loadFairPendingAcks(201).isEmpty())
+        val rawOld = oldOutbox.first()
+        assertEquals(0, outbox.beginAttemptIfUnchanged(rawOld.gatewayUrl, rawOld.deviceKey,
+            rawOld.deliveryId, rawOld.updatedAt, 2))
+        assertEquals(oldOutbox, outbox.loadPending(300))
+        assertEquals(false, ledgerRepository.shouldAck(requireNotNull(repairable.deliveryId), identity))
+
+        assertTrue(entityRepository.insertIncoming(event("fresh-eligible", "fresh-eligible-event"), identity))
+        assertTrue("raw unresolved rows cannot hide the eligible-empty transition",
+            ledgerRepository.enqueueAcks(listOf("fresh-eligible"), identity))
+        val fresh = ledgerRepository.loadFairPendingAcks(201)
+        assertEquals(listOf("fresh-eligible"), fresh.map { it.deliveryId })
+        assertEquals(listOf("fresh-eligible"), outbox.loadEligiblePending(201).map { it.deliveryId })
+        assertEquals(1, outbox.loadEligiblePendingDestinations(201).size)
+        assertEquals(listOf("fresh-eligible"), outbox.loadEligiblePendingForDestination(
+            identity.gatewayUrl, identity.deviceKey, identity.contract.persistedValue, 201).map { it.deliveryId })
+        ledgerRepository.markAckRecordsAcked(ledgerRepository.beginAckAttempt(fresh))
+        assertEquals(false, outbox.hasEligiblePending())
+        assertEquals(oldOutbox, outbox.loadPending(300))
+
+        assertEquals(false, entityRepository.insertIncoming(repairable, identity))
+        assertTrue(ledgerRepository.shouldAck(requireNotNull(repairable.deliveryId), identity))
+        val shouldKick = ledgerRepository.enqueueAcks(listOf(requireNotNull(repairable.deliveryId)), identity)
+        assertEquals(io.ethan.pushgo.notifications.DirectAckDrainSchedule.RECOVERY,
+            io.ethan.pushgo.notifications.directAckDrainSchedule(shouldKick, io.ethan.pushgo.notifications.InboundPersistenceStatus.DUPLICATE))
+        val repaired = ledgerRepository.loadFairPendingAcks(201)
+        assertEquals(listOf(repairable.deliveryId), repaired.map { it.deliveryId })
+        ledgerRepository.markAckRecordsAcked(ledgerRepository.beginAckAttempt(repaired))
+        assertEquals(false, outbox.hasEligiblePending())
+        assertTrue(ledgerRepository.loadFairPendingAcks(201).isEmpty())
+        assertEquals(oldOutbox.filter { it.deliveryId != repairable.deliveryId }, outbox.loadPending(300))
+        assertEquals("certification/ACK must not rewrite original source facts or acceptance time", before, legacyImmutableFacts())
+    }
+
+    private fun legacyImmutableFacts(): List<List<String?>> = database.openHelper.readableDatabase.query(
+        "SELECT gateway_url,device_key,delivery_id,channel_id,entity_type,entity_id,op_id,applied_at FROM inbound_delivery_ledger WHERE gateway_url=? AND device_key=? AND delivery_id LIKE 'legacy-null-%' ORDER BY delivery_id",
+        arrayOf(GATEWAY_URL, DEVICE_KEY),
+    ).use { cursor -> buildList {
+        while (cursor.moveToNext()) add((0 until cursor.columnCount).map { if (cursor.isNull(it)) null else cursor.getString(it) })
+    } }
+
+    /** Only the pure scheduler fixtures declare already accepted new deliveries. */
+    private fun seedAcceptedOutboxFixture(identity: ProviderAckIdentity, ids: Collection<String>) {
+        for (id in ids) database.openHelper.writableDatabase.execSQL(
+            "INSERT INTO inbound_delivery_ledger(gateway_url,device_key,delivery_id,channel_id,entity_type,entity_id,op_id,applied_at,ack_state,acked_at,acceptance_proven) VALUES(?,?,?,'fixture','message',?,NULL,1,'pending',NULL,1)",
+            arrayOf(identity.gatewayUrl, identity.deviceKey, id, id),
+        )
     }
 
     // Upgrade fixtures model receipts accepted by an old app. New apps have no

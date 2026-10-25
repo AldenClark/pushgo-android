@@ -2,9 +2,12 @@ package io.ethan.pushgo.notifications
 
 import android.content.Context
 import android.util.Log
+import androidx.room.withTransaction
 import io.ethan.pushgo.automation.PushGoAutomation
 import io.ethan.pushgo.data.EntityRepository
 import io.ethan.pushgo.data.InboundDeliveryScope
+import io.ethan.pushgo.data.InboundIdentityConflictException
+import io.ethan.pushgo.data.InboundIdentityConflictReason
 import io.ethan.pushgo.data.InboundDeliveryLedgerRepository
 import io.ethan.pushgo.data.IncomingEntityRecord
 import io.ethan.pushgo.data.MessageRepository
@@ -12,8 +15,6 @@ import io.ethan.pushgo.data.ProviderAckIdentity
 import io.ethan.pushgo.data.SettingsRepository
 import io.ethan.pushgo.data.ThingWriteTicket
 import io.ethan.pushgo.data.ThingWriteInvalidatedException
-import io.ethan.pushgo.data.hasSameEncryptedRecoveryProvenance
-import io.ethan.pushgo.data.inboundDeliveryScope
 import io.ethan.pushgo.data.model.DecryptionState
 import io.ethan.pushgo.data.model.MessageSeverity
 import io.ethan.pushgo.data.model.PushMessage
@@ -76,6 +77,7 @@ data class InboundPersistenceOutcome(
     val status: InboundPersistenceStatus,
     val notified: Boolean,
     val shouldAck: Boolean,
+    val identityConflict: InboundIdentityConflictReason? = null,
 )
 
 object InboundPersistenceCoordinator {
@@ -121,10 +123,10 @@ object InboundPersistenceCoordinator {
                     val locator = when (inbound) {
                         is InboundPersistenceRequest.Message -> messageRepository.postProcessLocator(
                             canonicalMessageId ?: inbound.message.id,
-                            deliveryScope ?: inbound.providerAckIdentity.inboundDeliveryScope(),
+                            deliveryScope,
                         )
                         is InboundPersistenceRequest.Entity -> {
-                            val scope = deliveryScope ?: inbound.providerAckIdentity.inboundDeliveryScope()
+                            val scope = deliveryScope
                             val (table, id) = entityPostProcessIdentity(inbound.record, scope)
                             messageRepository.postProcessDatabase.postProcessLocator(table, id)
                         }
@@ -163,7 +165,7 @@ object InboundPersistenceCoordinator {
                 inboundDeliveryLedgerRepository = inboundDeliveryLedgerRepository,
                 settingsRepository = settingsRepository,
                 inbound = inbound,
-                deliveryScope = deliveryScope ?: inbound.providerAckIdentity.inboundDeliveryScope(),
+                deliveryScope = deliveryScope,
                 beforeMessageNotify = beforeMessageNotify,
                 thingWriteTicket = thingWriteTicket,
                 notificationPublisher = notificationPublisher,
@@ -176,7 +178,7 @@ object InboundPersistenceCoordinator {
                 inboundDeliveryLedgerRepository = inboundDeliveryLedgerRepository,
                 settingsRepository = settingsRepository,
                 inbound = inbound,
-                deliveryScope = deliveryScope ?: inbound.providerAckIdentity.inboundDeliveryScope(),
+                deliveryScope = deliveryScope,
                 thingWriteTicket = thingWriteTicket,
                 notificationPublisher = notificationPublisher,
             )
@@ -198,23 +200,11 @@ object InboundPersistenceCoordinator {
         val providerAckIdentity = inbound.providerAckIdentity.takeIf { allowsSuccessfulAck }
         val effectiveDeliveryScope = deliveryScope.takeIf { allowsSuccessfulAck }
         val stableMessageId = inbound.message.messageId?.trim()?.takeIf { it.isNotEmpty() }
-        val existingBeforePersist = stableMessageId?.let { messageRepository.getByMessageId(it) }
-        if (
-            inbound.message.decryptionState == DecryptionState.DECRYPT_OK &&
-            existingBeforePersist != null &&
-            !hasSameEncryptedRecoveryProvenance(existingBeforePersist, inbound.message)
-        ) {
-            io.ethan.pushgo.util.SilentSink.w(
-                TAG,
-                "encrypted replay provenance mismatch messageId=$stableMessageId",
-            )
-            return InboundPersistenceOutcome(
-                status = InboundPersistenceStatus.REJECTED,
-                notified = false,
-                shouldAck = false,
-            )
-        }
-        val inserted = runCatching {
+        // Repository acceptance checks the matching domain/owner and encrypted
+        // recovery provenance atomically. A preflight lookup could instead inspect
+        // later foreign content and incorrectly deny an earlier proven deletion.
+        var acceptedReplayWithoutCurrentContent = false
+        val insertion = runCatching {
             messageRepository.insertIncoming(
                 message = inbound.message,
                 providerAckIdentity = providerAckIdentity,
@@ -224,10 +214,15 @@ object InboundPersistenceCoordinator {
                 postProcessFlags = (if (inbound.imageUrl != null) POST_PROCESS_MEDIA else 0) or
                     (if (inbound.shouldNotify && inbound.securityDisposition.allowsNotification) POST_PROCESS_NOTIFICATION else 0),
                 beforeAcceptanceCommit = { settingsRepository.reenableInboundPageInTransaction("message") },
+                onPreviouslyAcceptedReplay = { acceptedReplayWithoutCurrentContent = true },
             )
         }
             .onFailure { error ->
                 if (error is CancellationException) throw error
+                if (error is InboundIdentityConflictException) {
+                    io.ethan.pushgo.util.SilentSink.w(TAG, "message identity retained reason=${error.reason.name}; no ACK")
+                    return@onFailure
+                }
                 if (error is ThingWriteInvalidatedException) {
                     io.ethan.pushgo.util.SilentSink.i(TAG, "Thing deletion cancelled old message persistence; no ACK")
                     return@onFailure
@@ -239,15 +234,21 @@ object InboundPersistenceCoordinator {
                     category = "storage",
                 )
             }
-            .getOrNull()
+        val inserted = insertion.getOrNull()
         if (inserted == null) {
+            val identityConflict = (insertion.exceptionOrNull() as? InboundIdentityConflictException)?.reason
             return InboundPersistenceOutcome(
-                status = InboundPersistenceStatus.FAILED,
+                status = if (identityConflict != null) InboundPersistenceStatus.REJECTED else InboundPersistenceStatus.FAILED,
                 notified = false,
                 shouldAck = false,
+                identityConflict = identityConflict,
             )
         }
         refreshPageCacheAfterCommit(settingsRepository)
+        if (!inserted && acceptedReplayWithoutCurrentContent) {
+            return InboundPersistenceOutcome(InboundPersistenceStatus.DUPLICATE, false,
+                allowsSuccessfulAck && inboundDeliveryLedgerRepository.shouldAckDelivery(inbound.message.deliveryId, effectiveDeliveryScope))
+        }
         if (!inserted) {
             val pending = messageRepository.wouldPersistAsPending(inbound.message)
             val shouldAck = allowsSuccessfulAck &&
@@ -256,7 +257,7 @@ object InboundPersistenceCoordinator {
                     scope = effectiveDeliveryScope,
                 )
             if (shouldAck && !pending) {
-                val existingBeforeReplay = stableMessageId?.let { messageRepository.getByMessageId(it) }
+                val existingBeforeReplay = stableMessageId?.let { messageRepository.getCanonicalInboundReplay(inbound.message, effectiveDeliveryScope) }
                 if (
                     inbound.message.decryptionState == DecryptionState.DECRYPT_OK &&
                     existingBeforeReplay != null &&
@@ -266,7 +267,7 @@ object InboundPersistenceCoordinator {
                         existingId = existingBeforeReplay.id,
                         reparsed = inbound.message,
                     )
-                    val recovered = messageRepository.getByMessageId(stableMessageId)
+                    val recovered = messageRepository.getCanonicalInboundReplay(inbound.message, effectiveDeliveryScope)
                     if (recovered?.decryptionState != DecryptionState.DECRYPT_OK) {
                         io.ethan.pushgo.util.SilentSink.w(
                             TAG,
@@ -279,8 +280,8 @@ object InboundPersistenceCoordinator {
                         )
                     }
                 }
-                val canonicalMessage = resolveCanonicalMessageForReplay(inbound.message) { messageId ->
-                    messageRepository.getByMessageId(messageId)
+                val canonicalMessage = resolveCanonicalMessageForReplay(inbound.message) {
+                    messageRepository.getCanonicalInboundReplay(inbound.message, effectiveDeliveryScope)
                 }
                 if (canonicalMessage == null) {
                     io.ethan.pushgo.util.SilentSink.w(
@@ -385,7 +386,8 @@ object InboundPersistenceCoordinator {
                 notificationTitle = resolvedTitle,
             )
         }
-        val inserted = runCatching {
+        var acceptedReplayWithoutCurrentContent = false
+        val insertion = runCatching {
             entityRepository.insertIncoming(
                 resolvedInbound.record,
                 providerAckIdentity,
@@ -393,10 +395,15 @@ object InboundPersistenceCoordinator {
                 thingWriteTicket,
                 postProcessFlags = if (resolvedInbound.shouldNotify && resolvedInbound.securityDisposition.allowsNotification) POST_PROCESS_NOTIFICATION else 0,
                 beforeAcceptanceCommit = { settingsRepository.reenableInboundPageInTransaction(resolvedInbound.record.entityType) },
+                onPreviouslyAcceptedReplay = { acceptedReplayWithoutCurrentContent = true },
             )
         }
             .onFailure { error ->
                 if (error is CancellationException) throw error
+                if (error is InboundIdentityConflictException) {
+                    io.ethan.pushgo.util.SilentSink.w(TAG, "entity identity retained reason=${error.reason.name}; no ACK")
+                    return@onFailure
+                }
                 if (error is ThingWriteInvalidatedException) {
                     io.ethan.pushgo.util.SilentSink.i(TAG, "Thing deletion cancelled old entity persistence; no ACK")
                     return@onFailure
@@ -412,13 +419,20 @@ object InboundPersistenceCoordinator {
                     category = "storage",
                 )
             }
-            .getOrNull()
+        val inserted = insertion.getOrNull()
         if (inserted == null) {
+            val identityConflict = (insertion.exceptionOrNull() as? InboundIdentityConflictException)?.reason
             return InboundPersistenceOutcome(
-                status = InboundPersistenceStatus.FAILED,
+                status = if (identityConflict != null) InboundPersistenceStatus.REJECTED else InboundPersistenceStatus.FAILED,
                 notified = false,
                 shouldAck = false,
+                identityConflict = identityConflict,
             )
+        }
+        if (!inserted && acceptedReplayWithoutCurrentContent) {
+            refreshPageCacheAfterCommit(settingsRepository)
+            return InboundPersistenceOutcome(InboundPersistenceStatus.DUPLICATE, false,
+                allowsSuccessfulAck && inboundDeliveryLedgerRepository.shouldAckDelivery(resolvedInbound.record.deliveryId, effectiveDeliveryScope))
         }
         val displayInbound = resolveEntityNotificationDisplayAfterPersist(
             entityRepository = entityRepository,
@@ -445,6 +459,7 @@ object InboundPersistenceCoordinator {
                         entityRepository = entityRepository,
                         inbound = displayInbound,
                         thingWriteTicket = thingWriteTicket,
+                        deliveryScope = effectiveDeliveryScope,
                     )) return lifecycleChangedOutcome()
             }
             return InboundPersistenceOutcome(
@@ -459,7 +474,7 @@ object InboundPersistenceCoordinator {
         }
         if (!displayInbound.shouldNotify || !displayInbound.securityDisposition.allowsNotification) {
             if (displayInbound.record.entityType == "thing") {
-                if (!replayPendingThingChildren(messageRepository, entityRepository, displayInbound, thingWriteTicket)) {
+                if (!replayPendingThingChildren(messageRepository, entityRepository, displayInbound, thingWriteTicket, effectiveDeliveryScope)) {
                     return lifecycleChangedOutcome()
                 }
             }
@@ -477,7 +492,7 @@ object InboundPersistenceCoordinator {
         val published = publishEntityAfterCommit(context, messageRepository, entityRepository, displayInbound,
             effectiveDeliveryScope, false, notificationPublisher)
         if (displayInbound.record.entityType == "thing") {
-            if (!replayPendingThingChildren(messageRepository, entityRepository, displayInbound, thingWriteTicket)) {
+            if (!replayPendingThingChildren(messageRepository, entityRepository, displayInbound, thingWriteTicket, effectiveDeliveryScope)) {
                 return lifecycleChangedOutcome()
             }
         }
@@ -611,12 +626,20 @@ object InboundPersistenceCoordinator {
         entityRepository: EntityRepository,
         inbound: InboundPersistenceRequest.Entity,
         thingWriteTicket: ThingWriteTicket?,
+        deliveryScope: InboundDeliveryScope? = null,
     ): Boolean {
         val thingId = inbound.record.thingId?.trim()?.takeIf { it.isNotEmpty() }
             ?: inbound.record.entityId
         return try {
-            messageRepository.replayPendingForThing(thingId, thingWriteTicket)
-            entityRepository.activateStoredEventsForThing(thingId, thingWriteTicket)
+            val scope = deliveryScope
+            // Both replay consumers and the origin proof use the same Room snapshot.
+            // This transaction contains only local reads/writes, never network/publication.
+            messageRepository.postProcessDatabase.withTransaction {
+                val gateway = entityRepository.provenThingLifecycleGateway(thingId, scope)
+                messageRepository.replayPendingForThing(thingId, thingWriteTicket, deliveryScope = scope,
+                    verifiedParentGateway = gateway)
+                entityRepository.activateStoredEventsForThing(thingId, thingWriteTicket, deliveryScope = scope)
+            }
             true
         } catch (_: ThingWriteInvalidatedException) {
             // Invalidation is deliberately conservative even if an outer deletion rolls back.

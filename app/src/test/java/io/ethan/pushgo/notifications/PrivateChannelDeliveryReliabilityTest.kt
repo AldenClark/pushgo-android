@@ -114,6 +114,21 @@ class PrivateChannelDeliveryReliabilityTest {
     }
 
     @Test
+    fun rejectedIdentityCannotBorrowAnEarlierProvenPrivateAck() {
+        for (state in listOf(INBOUND_DELIVERY_ACK_STATE_PENDING, INBOUND_DELIVERY_ACK_STATE_ACKED)) {
+            val rejected = InboundPersistenceOutcome(InboundPersistenceStatus.REJECTED, false, false,
+                io.ethan.pushgo.data.InboundIdentityConflictReason.DIFFERENT_CONTENT)
+            assertEquals(PRIVATE_STREAM_ACK_STATUS_IGNORE, PrivateStreamAckPolicy.statusForDelivery(
+                handledResult = runCatching { privateStreamAcceptanceResult(rejected) },
+                ackStateBefore = state, ackStateAfter = state))
+            val duplicate = InboundPersistenceOutcome(InboundPersistenceStatus.DUPLICATE, false, false)
+            assertEquals(PRIVATE_STREAM_ACK_STATUS_OK, PrivateStreamAckPolicy.statusForDelivery(
+                handledResult = runCatching { privateStreamAcceptanceResult(duplicate) },
+                ackStateBefore = state, ackStateAfter = state))
+        }
+    }
+
+    @Test
     fun firstPrivatePersistenceResolvesAckOkInTheSameDeliveryAttempt() {
         assertEquals(
             PRIVATE_STREAM_ACK_STATUS_OK,
