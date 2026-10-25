@@ -118,10 +118,9 @@ private fun notificationPermissionState(device: UiDevice, targetPackage: String,
     val apiLevel = device.executeShellCommand("getprop ro.build.version.sdk").trim().toIntOrNull()
         ?: error("QUALITY_PRECONDITION unable to read the device API level")
     if (apiLevel < 33) return "not-applicable-api-$apiLevel"
-    val raw = device.executeShellCommand(
-        "dumpsys package $targetPackage | grep 'android.permission.POST_NOTIFICATIONS:'"
-    ).trim()
-    val rows = raw.lines().filter { it.isNotBlank() }
+    val raw = device.executeShellCommand("dumpsys package $targetPackage")
+    val rows = raw.lineSequence().map(String::trim)
+        .filter { it.startsWith("android.permission.POST_NOTIFICATIONS:") }.toList()
     val state = rows.singleOrNull()?.let {
         Regex("android\\.permission\\.POST_NOTIFICATIONS: granted=(true|false), flags=\\[([^\\r\\n]*)]")
             .matchEntire(it.trim())
