@@ -48,7 +48,7 @@ class QualityPrivateForegroundServiceJourneyInstrumentedTest : QualityAppJourney
             transportSwitchScenario = QualityTransportSwitchScenario.ACCEPTED,
             systemCapabilities = setOf(QualitySystemCapability.PRIVATE_FOREGROUND_SERVICE),
         )
-        NotificationPermissionTestSupport.grantAndVerify(app)
+        NotificationPermissionTestSupport.requireEnabled(app)
         notificationManager.cancel(PrivateChannelForegroundService.NOTIFICATION_ID)
 
         openTransportSettings()

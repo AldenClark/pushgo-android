@@ -39,6 +39,7 @@ internal fun prepareFixture(device: UiDevice, targetPackage: String) {
             "baseline fixture reset refuses to clear the production applicationId on a physical device"
         }
     }
+    val permissionBefore = notificationPermissionState(device, targetPackage, "before-fixture-reset")
     val clearOutput = device.executeShellCommand("pm clear $targetPackage")
     check(clearOutput.contains("Success")) {
         "benchmark target data could not be reset: $clearOutput"
@@ -51,7 +52,11 @@ internal fun prepareFixture(device: UiDevice, targetPackage: String) {
     check(output.contains("status=ready")) { "benchmark fixture preparation failed: $output" }
     check(output.contains("count=1000")) { "benchmark fixture did not contain 1,000 canonical rows: $output" }
     check(output.contains("title=$EXPECTED_TITLE")) { "benchmark fixture sentinel was not exact: $output" }
-    ensureNotificationPermission(device, targetPackage)
+    // This app-owned list/detail fixture does not exercise notification delivery.
+    // Keep the granted or denied baseline instead of silently granting permission.
+    check(notificationPermissionState(device, targetPackage, "after-fixture-prepare") == permissionBefore) {
+        "QUALITY_PRECONDITION notification permission state changed during fixture preparation"
+    }
 }
 
 internal fun clearFixture(device: UiDevice, targetPackage: String) {
@@ -109,19 +114,19 @@ private fun quiesceTargetProcess(device: UiDevice, targetPackage: String) {
     error("benchmark target process remained alive before fixture control")
 }
 
-private fun ensureNotificationPermission(device: UiDevice, targetPackage: String) {
+private fun notificationPermissionState(device: UiDevice, targetPackage: String, stage: String): String {
     val apiLevel = device.executeShellCommand("getprop ro.build.version.sdk").trim().toIntOrNull()
-        ?: error("unable to resolve device API level")
-    if (apiLevel < 33) return
-
-    val grantOutput = device.executeShellCommand(
-        "pm grant $targetPackage android.permission.POST_NOTIFICATIONS"
+        ?: error("QUALITY_PRECONDITION unable to read the device API level")
+    if (apiLevel < 33) return "not-applicable-api-$apiLevel"
+    val raw = device.executeShellCommand(
+        "dumpsys package $targetPackage | grep 'android.permission.POST_NOTIFICATIONS:'"
     ).trim()
-    check(grantOutput.isEmpty()) { "notification permission grant failed: $grantOutput" }
-    val permissionState = device.executeShellCommand(
-        "dumpsys package $targetPackage | grep 'android.permission.POST_NOTIFICATIONS: granted=true'"
-    )
-    check(permissionState.contains("granted=true")) {
-        "notification permission was not granted for the measured journey"
-    }
+    val rows = raw.lines().filter { it.isNotBlank() }
+    val state = rows.singleOrNull()?.let {
+        Regex("android\\.permission\\.POST_NOTIFICATIONS: granted=(true|false), flags=\\[([^\\r\\n]*)]")
+            .matchEntire(it.trim())
+    } ?: error("QUALITY_PRECONDITION unable to read one complete POST_NOTIFICATIONS state/flags line")
+    val observed = "granted=${state.groupValues[1]};flags=[${state.groupValues[2]}]"
+    println("QUALITY_READONLY_PERMISSION stage=$stage package=$targetPackage state=$observed")
+    return observed
 }

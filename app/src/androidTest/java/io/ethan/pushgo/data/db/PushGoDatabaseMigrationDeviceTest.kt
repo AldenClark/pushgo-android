@@ -1,10 +1,8 @@
 package io.ethan.pushgo.data.db
 
-import android.Manifest
 import android.content.Context
 import android.content.Intent
 import android.database.sqlite.SQLiteDatabase
-import android.os.Build
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertTextContains
 import androidx.compose.ui.test.junit4.createEmptyComposeRule
@@ -62,12 +60,6 @@ class PushGoDatabaseMigrationDeviceTest {
         cleanupDatabaseFamily("pushgo.db")
         cleanupDatabaseFamily("pushgo-v21.db")
         cleanupDatabaseFamily("pushgo-v22.db")
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            InstrumentationRegistry.getInstrumentation().uiAutomation.grantRuntimePermission(
-                context.packageName,
-                Manifest.permission.POST_NOTIFICATIONS,
-            )
-        }
     }
 
     @After

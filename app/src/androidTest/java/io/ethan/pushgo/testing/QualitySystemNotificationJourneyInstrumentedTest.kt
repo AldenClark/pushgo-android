@@ -78,7 +78,7 @@ class QualitySystemNotificationJourneyInstrumentedTest : QualityAppJourneyTestCa
         )
 
         configureAndLaunch(fixture = QualityFixture.EMPTY_CLEAN)
-        grantAndVerifyNotificationPermission()
+        requireNotificationPermission()
         notificationManager.cancelAll()
 
         // Remove the Activity so the production notification policy must use the system surface.
@@ -194,7 +194,7 @@ class QualitySystemNotificationJourneyInstrumentedTest : QualityAppJourneyTestCa
         val messageBody = "Exact message selected after replacing the warm Thing detail."
 
         configureAndLaunch(fixture = QualityFixture.EMPTY_CLEAN)
-        grantAndVerifyNotificationPermission()
+        requireNotificationPermission()
         notificationManager.cancelAll()
 
         scenario?.close()
@@ -354,8 +354,8 @@ class QualitySystemNotificationJourneyInstrumentedTest : QualityAppJourneyTestCa
         Unit
     }
 
-    private fun grantAndVerifyNotificationPermission() {
-        NotificationPermissionTestSupport.grantAndVerify(app)
+    private fun requireNotificationPermission() {
+        NotificationPermissionTestSupport.requireEnabled(app)
     }
 
     private fun enqueueAndAwaitSuccess(

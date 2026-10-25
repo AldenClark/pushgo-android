@@ -92,7 +92,13 @@ else
     printf '%s\n' "$device_listing" | awk \
       'NR > 1 && $2 == "device" && $1 ~ /^emulator-/ { print; found = 1; exit }
        END { if (!found) exit 1 }'
-  )" || device_line="$(printf '%s\n' "$device_listing" | awk 'NR > 1 && $2 == "device" { print; exit }')"
+  )" || device_line=""
+  # Host-only validation may observe inventory, but must not select a personal
+  # phone merely because no emulator is running. Explicit selections above keep
+  # their existing unavailable-device failure semantics.
+  if [[ -z "$device_line" && "$allow_no_device" != true ]]; then
+    device_line="$(printf '%s\n' "$device_listing" | awk 'NR > 1 && $2 == "device" { print; exit }')"
+  fi
 fi
 if [[ -z "$device_line" ]]; then
   if [[ "$allow_no_device" == true ]]; then

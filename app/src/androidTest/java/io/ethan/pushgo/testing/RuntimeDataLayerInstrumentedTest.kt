@@ -247,7 +247,7 @@ class RuntimeDataLayerInstrumentedTest {
 
     @Test
     fun durableMessageDeleteReplayCancelsNotificationWhenRoomRowIsAlreadyGone() = runBlocking {
-        grantNotificationPermissionIfNeeded()
+        requireNotificationPermission()
         val db = openFreshDatabase().database
         val messageId = "durable-delete-replay-message"
         val notificationId = messageId.hashCode()
@@ -1764,8 +1764,8 @@ class RuntimeDataLayerInstrumentedTest {
         return args.getString("pushgo.runtime.include100k")?.toBooleanStrictOrNull() == true
     }
 
-    private fun grantNotificationPermissionIfNeeded() {
-        NotificationPermissionTestSupport.grantAndVerify(context)
+    private fun requireNotificationPermission() {
+        NotificationPermissionTestSupport.requireEnabled(context)
     }
 
     private suspend fun awaitNotificationState(

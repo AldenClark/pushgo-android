@@ -6,7 +6,7 @@ import io.ethan.pushgo.data.db.PushGoDatabase
 internal suspend fun PushGoDatabase.recordResourceOrigin(id: String, receivedAt: Long, scope: InboundDeliveryScope?) {
     if (scope == null) return
     val origin = MessageImageStore.originScope(scope)
-    messageResourceDao().identityOwners(id).filter { it.receivedAt == receivedAt }.forEach {
+    messageResourceDao().owners(id).filter { it.receivedAt == receivedAt }.forEach {
         messageResourceDao().setOrigin(id, it.generation, origin, scope.gatewayUrl, scope.deviceKey)
     }
 }

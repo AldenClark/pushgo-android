@@ -660,9 +660,10 @@ adb_with_timeout() {
             / "app/src/androidTest/java/io/ethan/pushgo/testing/QualitySystemNotificationJourneyInstrumentedTest.kt"
         ).read_text()
         system_class = "io.ethan.pushgo.testing.QualitySystemNotificationJourneyInstrumentedTest"
+        self.assertIn("private fun requireNotificationPermission()", journey)
         method = journey.split(
             "fun entityInboundNotificationsOpenExactColdEventAndWarmThingDetails()", 1
-        )[1].split("private fun grantAndVerifyNotificationPermission()", 1)[0]
+        )[1].split("private fun requireNotificationPermission()", 1)[0]
 
         self.assertIn(system_class, runner)
         self.assertNotIn(system_class, runner.split('positive_device_scopes="', 1)[1].split('"', 1)[0])

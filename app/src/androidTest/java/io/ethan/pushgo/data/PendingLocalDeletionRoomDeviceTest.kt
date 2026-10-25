@@ -172,7 +172,7 @@ class PendingLocalDeletionRoomDeviceTest {
 
     @Test
     fun channelNotificationRetryUsesPersistedOperationAfterDatabaseReopen() = runBlocking {
-        grantNotificationPermissionIfNeeded()
+        requireNotificationPermission()
         val operation = PendingLocalDeletionOperation.channel(
             id = TARGET_CHANNEL_ID,
             expectedGatewayUrl = "https://gateway.example",
@@ -238,7 +238,7 @@ class PendingLocalDeletionRoomDeviceTest {
 
     @Test
     fun entityNotificationReplayUsesActiveGroupMetadataAfterRoomRowsAreGone() {
-        grantNotificationPermissionIfNeeded()
+        requireNotificationPermission()
         val manager = notificationManager()
         manager.createNotificationChannel(
             NotificationChannel(TEST_NOTIFICATION_CHANNEL, "Deletion replay", NotificationManager.IMPORTANCE_LOW)
@@ -289,8 +289,8 @@ class PendingLocalDeletionRoomDeviceTest {
         DATABASE_NAME,
     ).build()
 
-    private fun grantNotificationPermissionIfNeeded() {
-        NotificationPermissionTestSupport.grantAndVerify(context)
+    private fun requireNotificationPermission() {
+        NotificationPermissionTestSupport.requireEnabled(context)
     }
 
     private fun postChannelNotifications() {

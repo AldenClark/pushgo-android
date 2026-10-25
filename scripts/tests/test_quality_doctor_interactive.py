@@ -10,6 +10,37 @@ REPO = Path(__file__).resolve().parents[2]
 
 
 class QualityDoctorInteractiveTests(unittest.TestCase):
+    def test_host_allow_no_device_does_not_query_an_unselected_physical_phone(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            calls = root / "calls"
+            adb = root / "adb"
+            adb.write_text(
+                "#!/bin/sh\n"
+                "printf '%s\\n' \"$*\" >> \"$FAKE_ADB_CALLS\"\n"
+                "if [ \"$1\" = devices ]; then\n"
+                "  printf 'List of devices attached\\nphysical-phone device product:personal model:Phone\\n'\n"
+                "  exit 0\n"
+                "fi\n"
+                "exit 64\n"
+            )
+            adb.chmod(adb.stat().st_mode | stat.S_IXUSR)
+            process = subprocess.run(
+                [str(REPO / "scripts/quality_doctor.sh"), "--allow-no-device"],
+                cwd=REPO,
+                env={
+                    "PATH": f"{root}:/usr/bin:/bin:/usr/sbin:/sbin",
+                    "FAKE_ADB_CALLS": str(calls),
+                },
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                check=False,
+            )
+            self.assertEqual(0, process.returncode, process.stdout)
+            self.assertIn("device=NOT_RUN", process.stdout)
+            self.assertEqual(["devices -l"], calls.read_text().splitlines())
+
     def test_doctor_bounds_all_adb_queries(self):
         doctor = (REPO / "scripts/quality_doctor.sh").read_text(encoding="utf-8")
 

@@ -39,7 +39,7 @@ class QualityThingEventActivationUiTest : QualityAppJourneyTestCase() {
         val channelId = "01H00000000000000000000000"
 
         configureAndLaunch(fixture = QualityFixture.EMPTY_CLEAN)
-        NotificationPermissionTestSupport.grantAndVerify(app)
+        NotificationPermissionTestSupport.requireEnabled(app)
         val notificationManager = app.getSystemService(NotificationManager::class.java)
         notificationManager.cancelAll()
 

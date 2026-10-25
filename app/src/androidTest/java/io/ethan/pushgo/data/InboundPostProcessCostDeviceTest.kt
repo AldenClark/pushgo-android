@@ -148,7 +148,7 @@ class InboundPostProcessCostDeviceTest {
         assertTrue(ledger.shouldAck(value.deliveryId, identity))
     }
 
-    @Test fun originRecordingDoesNotLoadBodiesAndKeepsAllDomainTimeAndOwnerFences() = runBlocking {
+    @Test fun originRecordingKeepsAllDomainTimeAndOwnerFencesAndReportsSharedQueryCost() = runBlocking {
         val id = "origin-same-id-across-domains"
         val received = 1_800_000_000_000L
         val largeBody = "x".repeat(40 * 1024)
@@ -202,12 +202,13 @@ class InboundPostProcessCostDeviceTest {
             assertEquals(6, rows)
         }
         assertEquals(bodyRowsBefore, bodyRows(id))
-        emit("origin-projection", JSONObject().put("sql", sql).put("canonical_domains", 5)
+        emit("origin-fences-and-query-cost", JSONObject().put("sql", sql).put("canonical_domains", 5)
             .put("owner_rows", owners.size).put("time_matched_generations", expected.size)
             .put("foreign_generation_retained", true)
-            .put("wide_body_bytes_which_old_projection_returns", owners.sumOf { it.rawPayloadJson.toByteArray(Charsets.UTF_8).size })
-            .put("scope", "SQL projection/identity equivalence oracle; projected bytes are not allocated-heap or performance measurements"))
-        assertEquals("origin registration must not fetch unused canonical bodies", 0, sql.getInt("wide_owner_projection_selects"))
+            .put("wide_body_bytes_returned_by_shared_query", owners.sumOf { it.rawPayloadJson.toByteArray(Charsets.UTF_8).size })
+            .put("scope", "Shared-query identity/time correctness and diagnostic cost; returned bytes are not allocated-heap or performance benefits"))
+        assertEquals("origin registration uses the one shared owner query; this count is diagnostic, not a performance benefit",
+            1, sql.getInt("wide_owner_projection_selects"))
     }
 
     private fun bodyRows(id: String): Map<String, String> = buildMap {
