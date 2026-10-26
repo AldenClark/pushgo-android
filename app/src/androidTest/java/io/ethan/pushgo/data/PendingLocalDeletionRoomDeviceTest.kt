@@ -33,7 +33,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 
 @Database(
-    entities = [PendingLocalDeletionEntity::class],
+    entities = [PendingLocalDeletionEntity::class, io.ethan.pushgo.data.db.ChannelSubscriptionEntity::class],
     version = 1,
     exportSchema = false,
 )
@@ -59,76 +59,82 @@ class PendingLocalDeletionRoomDeviceTest {
     }
 
     @Test
-    fun pendingAndCommittingRowsSurviveCloseAndRecover() = runBlocking {
+    fun oldQueuedUndoRequestSurvivesReopenWithoutForceClaimOrInventedConsent() = runBlocking {
         var database = openDatabase()
-        var repository = RoomPendingLocalDeletionRepository(
-            database = database,
-            dao = database.pendingLocalDeletionDao(),
-        )
-        val record = repository.enqueue(
-            summary = "message",
-            operation = PendingLocalDeletionOperation.messages(setOf("m1", "m2")),
-            requestedAtEpochMillis = 1_000L,
-            undoWindowMillis = 5_000L,
-        )
-        repository.claim(record.id, nowEpochMillis = 2_000L, force = true)
+        var repository = RoomPendingLocalDeletionRepository(database, database.pendingLocalDeletionDao())
+        val id = "186df7cc-ae66-4e2a-8230-7e0e1dd799e1"
+        val old = repository.enqueue("old", PendingLocalDeletionOperation.messages(setOf(id)), 1_000L, 120_000L)
+        val original = database.pendingLocalDeletionDao().findById(old.id)
+        assertEquals(PendingLocalDeletionState.NEEDS_CONFIRMATION, old.state)
+        assertTrue(repository.loadActive().isEmpty())
+        assertEquals(null, repository.claim(old.id, 2_000L, true))
         database.close()
-
         database = openDatabase()
-        repository = RoomPendingLocalDeletionRepository(
-            database = database,
-            dao = database.pendingLocalDeletionDao(),
-        )
-        val reopened = repository.loadActive().single()
-        assertEquals(PendingLocalDeletionState.COMMITTING, reopened.state)
-        assertEquals(setOf("m1", "m2"), reopened.operation.targetIds)
-
-        assertEquals(1, repository.recoverInterruptedClaims(nowEpochMillis = 3_000L))
-        val recovered = repository.loadActive().single()
-        assertEquals(PendingLocalDeletionState.PENDING, recovered.state)
-        assertEquals(3_000L, recovered.nextAttemptAtEpochMillis)
+        repository = RoomPendingLocalDeletionRepository(database, database.pendingLocalDeletionDao())
+        assertEquals(null, repository.claim(old.id, 500_000L, true))
+        assertEquals(0, repository.recoverInterruptedClaims(500_000L))
+        assertFalse(repository.retryFailed(old.id, 500_000L))
+        assertEquals(original, database.pendingLocalDeletionDao().findById(old.id))
+        assertTrue(repository.cancelUnconfirmed(old.id))
+        assertFalse(repository.cancelUnconfirmed(old.id))
         database.close()
     }
 
     @Test
-    fun failedAcceptedIntentSurvivesReopenAndExplicitRetryKeepsExactTarget() = runBlocking {
-        var database = openDatabase()
-        var repository = RoomPendingLocalDeletionRepository(database, database.pendingLocalDeletionDao())
-        val operation = PendingLocalDeletionOperation.events(setOf("event-1"))
-        val record = repository.enqueue("event", operation, 1_000L, 5_000L)
-        repository.claim(record.id, 1_500L, true)
-        assertTrue(repository.failClaimed(record.id, 2_000L, "storage unavailable"))
-        database.close()
-        database = openDatabase()
-        repository = RoomPendingLocalDeletionRepository(database, database.pendingLocalDeletionDao())
+    fun corruptAndInterruptedOldRowsRemainExactAndCannotCancelRetryOrClaim() = runBlocking {
+        val database = openDatabase()
+        val dao = database.pendingLocalDeletionDao()
+        val repository = RoomPendingLocalDeletionRepository(database, dao)
+        val seed = PendingLocalDeletionEntity(summary = "original", operationKind = "CHANNEL", targetIdsJson = "[\"c1\"]",
+            expectedGatewayUrl = "https://original.example", expectedUpdatedAt = 42L, expectedUseProvider = false,
+            requestedAtEpochMillis = 100L, undoDeadlineEpochMillis = 5100L, state = "PENDING", attemptCount = 0,
+            nextAttemptAtEpochMillis = 100L, updatedAtEpochMillis = 100L, lastError = "original failure")
+        for (bad in listOf(seed.copy(targetIdsJson = "not-json"), seed.copy(operationKind = "UNKNOWN"),
+            seed.copy(state = "UNKNOWN"), seed.copy(state = "COMMITTING", attemptCount = 1),
+            seed.copy(state = "FAILED", attemptCount = 2), seed.copy(confirmationProven = true, targetIdsJson = "corrupt"),
+            seed.copy(confirmationProven = true, state = "COMMITTING", attemptCount = 1, targetIdsJson = "corrupt"))) {
+            val id = dao.insert(bad)
+            val original = dao.findById(id)
+            assertFalse(repository.cancelUnconfirmed(id))
+            assertFalse(repository.retryFailed(id, 9000L))
+            assertEquals(null, repository.claim(id, 9000L, true))
+            repository.recoverInterruptedClaims(9000L)
+            assertEquals(original, dao.findById(id))
+        }
         assertTrue(repository.loadActive().isEmpty())
-        assertEquals(operation, repository.loadFailures().single().operation)
-        assertEquals("storage unavailable", repository.loadFailures().single().lastError)
-        assertTrue(repository.retryFailed(record.id, 3_000L))
-        assertFalse(repository.retryFailed(record.id, 3_000L))
-        assertEquals(operation, repository.claim(record.id, 3_000L, true)!!.operation)
-        assertTrue(repository.completeClaimed(record.id))
+        assertEquals(7, repository.loadFailures().size)
+        assertTrue(repository.loadFailures().all { it.state == PendingLocalDeletionState.QUARANTINED })
         database.close()
-        database = openDatabase()
-        repository = RoomPendingLocalDeletionRepository(database, database.pendingLocalDeletionDao())
-        assertTrue(repository.loadActive().isEmpty())
+    }
+
+    @Test
+    fun concurrentCancellationOfDecodedUnstartedRequestHasOneWinner() = runBlocking {
+        val database = openDatabase()
+        val repository = RoomPendingLocalDeletionRepository(database, database.pendingLocalDeletionDao())
+        val old = repository.enqueue("event no incarnation", PendingLocalDeletionOperation.events(setOf("event-1")), 1000L, 5000L)
+        coroutineScope {
+            val cancelled = listOf(async(Dispatchers.Default) { repository.cancelUnconfirmed(old.id) },
+                async(Dispatchers.Default) { repository.cancelUnconfirmed(old.id) }).map { it.await() }
+            assertEquals(1, cancelled.count { it })
+        }
         assertTrue(repository.loadFailures().isEmpty())
         database.close()
     }
 
     @Test
-    fun concurrentLegacyClaimsHaveOneOwner() = runBlocking {
+    fun concurrentCurrentlyConfirmedChannelClaimsHaveOneOwner() = runBlocking {
         val database = openDatabase()
         val repository = RoomPendingLocalDeletionRepository(database, database.pendingLocalDeletionDao())
-        val record = repository.enqueue("event", PendingLocalDeletionOperation.events(setOf("event-1")), 1_000L, 5_000L)
+        // Explicit current-confirmation fixture, distinct from every old Undo row above.
+        val operation = PendingLocalDeletionOperation.channel("confirmed", "https://captured.example", 42L, false)
+        val row = repository.enqueue("confirmed", operation, 1000L, 0L, confirmationProven = true)
         coroutineScope {
-            val claims = listOf(
-                async(Dispatchers.Default) { repository.claim(record.id, 1_001L, true) },
-                async(Dispatchers.Default) { repository.claim(record.id, 1_001L, true) },
-            ).map { it.await() }
+            val claims = listOf(async(Dispatchers.Default) { repository.claim(row.id, 1001L, true) },
+                async(Dispatchers.Default) { repository.claim(row.id, 1001L, true) }).map { it.await() }
             assertEquals(1, claims.count { it != null })
+            assertEquals(operation, claims.single { it != null }!!.operation)
         }
-        assertTrue(repository.completeClaimed(record.id))
+        assertTrue(repository.completeClaimed(row.id))
         database.close()
     }
 
@@ -149,6 +155,7 @@ class PendingLocalDeletionRoomDeviceTest {
             ),
             requestedAtEpochMillis = 1_000L,
             undoWindowMillis = 5_000L,
+            confirmationProven = true, // Synthetic current channel confirmation, not old enqueue/Undo.
         )
         repository.claim(failed.id, nowEpochMillis = 2_000L, force = true)
         assertTrue(repository.failClaimed(failed.id, 3_000L, "newer subscription version"))
@@ -166,7 +173,8 @@ class PendingLocalDeletionRoomDeviceTest {
             requestedAtEpochMillis = 4_000L,
             undoWindowMillis = 5_000L,
         )
-        assertEquals(followUp.id, repository.loadActive().single().id)
+        assertTrue(repository.loadActive().isEmpty())
+        assertTrue(repository.loadFailures().any { it.id == followUp.id })
         database.close()
     }
 
@@ -186,6 +194,7 @@ class PendingLocalDeletionRoomDeviceTest {
             operation = operation,
             requestedAtEpochMillis = 1_000L,
             undoWindowMillis = 5_000L,
+            confirmationProven = true, // Synthetic current channel confirmation, not old enqueue/Undo.
         )
         repository.claim(record.id, nowEpochMillis = 2_000L, force = true)
         assertTrue(

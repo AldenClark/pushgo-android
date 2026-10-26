@@ -19,6 +19,11 @@ class ChannelSubscriptionStore(
         block: suspend () -> T,
     ): T = mutationBarrier.withLock(gatewayUrl, channelId, block)
 
+    suspend fun hasCommittedDeletionEvidence(gatewayUrl: String, channelId: String, expectedUpdatedAt: Long): Boolean {
+        val row = dao.getById(gatewayUrl, channelId) ?: return false
+        return row.isDeleted && row.deletedAt != null && row.updatedAt == expectedUpdatedAt
+    }
+
     suspend fun pendingDeletionTargetState(
         gatewayUrl: String,
         channelId: String,

@@ -23,6 +23,9 @@ class RepositoryPendingChannelDeletionBackend(
         block = block,
     )
 
+    override suspend fun hasCommittedDeletionEvidence(operation: PendingLocalDeletionOperation): Boolean =
+        store.hasCommittedDeletionEvidence(requireNotNull(operation.expectedGatewayUrl), operation.targetIds.single(), requireNotNull(operation.expectedUpdatedAt))
+
     override suspend fun inspect(
         operation: PendingLocalDeletionOperation,
     ): PendingChannelDeletionTargetState {

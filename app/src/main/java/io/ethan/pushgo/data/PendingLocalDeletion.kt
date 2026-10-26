@@ -79,6 +79,8 @@ enum class PendingLocalDeletionState {
     PENDING,
     COMMITTING,
     FAILED,
+    NEEDS_CONFIRMATION,
+    QUARANTINED,
 }
 
 class PermanentPendingLocalDeletionException(
@@ -107,6 +109,9 @@ data class PendingLocalDeletionRecord(
     val nextAttemptAtEpochMillis: Long,
     val updatedAtEpochMillis: Long,
     val lastError: String?,
+    val confirmationProven: Boolean = false,
+    val legacyState: String? = null,
+    val canCancelUnconfirmed: Boolean = false,
 )
 
 /**
@@ -116,8 +121,16 @@ data class PendingLocalDeletionRecord(
 fun interface PendingLocalDeletionExecutor {
     suspend fun execute(operation: PendingLocalDeletionOperation)
 
-    /** Foreground-only validation; legacy accepted rows continue through execute. */
+    /** Capture only the current exact deletion footprint; never infer historical confirmation. */
     suspend fun captureConfirmation(operation: PendingLocalDeletionOperation): OrdinaryDeletionConfirmation.Identity? = null
+
+    /** Only production implementations with an atomic queue/deletion transaction support this. */
+    suspend fun executeReconfirmed(record: PendingLocalDeletionRecord, identity: OrdinaryDeletionConfirmation.Identity?) {
+        error("Atomic legacy deletion recovery is unavailable")
+    }
+
+    /** A committed tombstone can finish cleanup without authorizing another deletion. */
+    suspend fun recoverCommittedCleanup(record: PendingLocalDeletionRecord) = Unit
 
     suspend fun executeConfirmed(
         operation: PendingLocalDeletionOperation,
@@ -128,4 +141,20 @@ fun interface PendingLocalDeletionExecutor {
 /** The channel implementation must reconcile remote/local state so repeated execution is idempotent. */
 fun interface PendingChannelDeletionExecutor {
     suspend fun execute(operation: PendingLocalDeletionOperation)
+    suspend fun cleanupCommittedCredentialOnly(operation: PendingLocalDeletionOperation): Boolean = false
+}
+
+/** The legacy review must use the same effective transport as the current producer/backend. */
+internal fun validateLegacyChannelContext(
+    operation: PendingLocalDeletionOperation,
+    selectedGateway: String?,
+    actualVersion: Long,
+    deleted: Boolean,
+    providerPreference: Boolean,
+    fcmAvailable: Boolean,
+) {
+    require(operation.kind == PendingLocalDeletionKind.CHANNEL)
+    if (deleted || actualVersion != operation.expectedUpdatedAt ||
+        selectedGateway?.trim()?.trimEnd('/') != operation.expectedGatewayUrl?.trim()?.trimEnd('/') ||
+        (providerPreference && fcmAvailable) != operation.expectedUseProvider) throw OrdinaryDeletionTargetChangedException()
 }

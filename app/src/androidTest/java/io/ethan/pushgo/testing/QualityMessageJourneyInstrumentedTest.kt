@@ -30,6 +30,7 @@ import java.io.InputStream
 import java.security.MessageDigest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -1132,33 +1133,56 @@ class QualityMessageJourneyInstrumentedTest : QualityAppJourneyTestCase() {
     }
 
     @Test
-    fun legacyFailedDeleteCanRetryItsOriginalTargetWithoutDiscardAcrossReopen() {
+    fun legacyLocalUuidRequiresFreshConfirmationAndCanBeCancelledAcrossReopen() {
         configureAndLaunch(fixture = QualityFixture.CHANNELS_STANDARD)
-        val repository = io.ethan.pushgo.data.RoomPendingLocalDeletionRepository(app.container.database, app.container.database.pendingLocalDeletionDao())
-        runBlocking { app.container.database.withTransaction {
-            val row = repository.enqueue("Quality Delete History Message", io.ethan.pushgo.data.PendingLocalDeletionOperation.messages(setOf("quality-channel-delete-message")), System.currentTimeMillis(), 0L)
-            repository.claim(row.id, System.currentTimeMillis(), true)
-            repository.failClaimed(row.id, System.currentTimeMillis(), "Legacy local storage unavailable")
-        } }
-        composeRule.waitUntil(timeoutMillis = 5_000) {
-            composeRule.onAllNodes(hasTestTag("action.delete.recovery.retry")).fetchSemanticsNodes().isNotEmpty()
+        val id = java.util.UUID.randomUUID().toString()
+        val original = runBlocking { checkNotNull(app.container.messageRepository.getById("quality-channel-delete-message")) }
+        runBlocking {
+            app.container.messageRepository.insert(original.copy(id = id, messageId = id, title = "Legacy review target"))
+            val repository = io.ethan.pushgo.data.RoomPendingLocalDeletionRepository(app.container.database, app.container.database.pendingLocalDeletionDao())
+            repository.enqueue("Legacy review target", io.ethan.pushgo.data.PendingLocalDeletionOperation.messages(setOf(id)), System.currentTimeMillis(), 120_000L)
         }
-        composeRule.onNodeWithText("Quality Delete History Message\nLegacy local storage unavailable").assertIsDisplayed()
+        composeRule.waitUntil(timeoutMillis = 5_000) {
+            composeRule.onAllNodes(hasTestTag("action.delete.recovery.review")).fetchSemanticsNodes().isNotEmpty()
+        }
+        assertNotNull(runBlocking { app.container.messageRepository.getById(id) })
+        composeRule.onNodeWithTag("action.delete.recovery.retry").assertDoesNotExist()
+        composeRule.onNodeWithTag("action.delete.recovery.dismiss").assertDoesNotExist()
         scenario?.close()
         app.releaseStorageForInstrumentationTest()
         scenario = launchMainActivity()
         composeRule.waitUntil(timeoutMillis = 8_000) {
-            composeRule.onAllNodes(hasTestTag("action.delete.recovery.retry")).fetchSemanticsNodes().isNotEmpty()
+            composeRule.onAllNodes(hasTestTag("action.delete.recovery.review")).fetchSemanticsNodes().isNotEmpty()
         }
-        composeRule.onNodeWithTag("action.delete.recovery.retry").assertIsDisplayed().performClick()
-        composeRule.waitUntil(timeoutMillis = 8_000) {
-            composeRule.onAllNodes(hasTestTag("message.row.quality-channel-delete-message")).fetchSemanticsNodes().isEmpty()
+        composeRule.onNodeWithTag("action.delete.recovery.review").performClick()
+        composeRule.onNodeWithTag("action.delete.confirm").assertIsDisplayed()
+        assertNotNull(runBlocking { app.container.messageRepository.getById(id) })
+        composeRule.onNodeWithTag("action.delete.cancel").performClick()
+        composeRule.waitUntil(timeoutMillis = 5_000) {
+            composeRule.onAllNodes(hasTestTag("action.delete.recovery.cancel")).fetchSemanticsNodes().isNotEmpty()
         }
-        val reopenedRepository = io.ethan.pushgo.data.RoomPendingLocalDeletionRepository(app.container.database, app.container.database.pendingLocalDeletionDao())
-        assertTrue(runBlocking { reopenedRepository.loadFailures().isEmpty() })
-        composeRule.onNodeWithText("Quality Keep History Message").assertIsDisplayed().performClick()
-        composeRule.onNodeWithTag("field.message.detail.body")
-            .assertTextContains("Deterministic history owned by 01H00000000000000000000001.")
+        composeRule.onNodeWithTag("action.delete.recovery.cancel").performClick()
+        composeRule.waitUntil(timeoutMillis = 5_000) {
+            runBlocking { app.container.database.pendingLocalDeletionDao().loadUnconfirmed().isEmpty() }
+        }
+        assertNotNull(runBlocking { app.container.messageRepository.getById(id) })
+        assertEquals(original.body, runBlocking { app.container.messageRepository.getById(original.id)?.body })
+        val corruptId = runBlocking {
+            app.container.database.pendingLocalDeletionDao().insert(io.ethan.pushgo.data.db.PendingLocalDeletionEntity(
+                summary = "Unrecognized previous request", operationKind = "UNKNOWN", targetIdsJson = "broken-json",
+                expectedGatewayUrl = null, expectedUpdatedAt = null, expectedUseProvider = null,
+                requestedAtEpochMillis = 100L, undoDeadlineEpochMillis = 5100L, state = "PENDING", attemptCount = 0,
+                nextAttemptAtEpochMillis = 100L, updatedAtEpochMillis = 100L, lastError = "original error"))
+        }
+        val corruptBefore = runBlocking { app.container.database.pendingLocalDeletionDao().findById(corruptId) }
+        composeRule.waitUntil(timeoutMillis = 5_000) {
+            composeRule.onAllNodes(hasTestTag("action.delete.recovery.acknowledge")).fetchSemanticsNodes().isNotEmpty()
+        }
+        composeRule.onNodeWithTag("action.delete.recovery.review").assertDoesNotExist()
+        composeRule.onNodeWithTag("action.delete.recovery.cancel").assertDoesNotExist()
+        composeRule.onNodeWithTag("action.delete.recovery.acknowledge").performClick()
+        assertEquals(corruptBefore, runBlocking { app.container.database.pendingLocalDeletionDao().findById(corruptId) })
+        assertNotNull(runBlocking { app.container.messageRepository.getById(id) })
     }
 
     @Test

@@ -491,18 +491,31 @@ fun PushGoAppRoot(
     }
 
     deletionFailures.firstOrNull { it.id !in dismissedDeletionFailures }?.let { failed ->
+        val legacy = !failed.confirmationProven || failed.state == io.ethan.pushgo.data.PendingLocalDeletionState.QUARANTINED
+        val reviewable = legacy && failed.state == io.ethan.pushgo.data.PendingLocalDeletionState.NEEDS_CONFIRMATION
         val requestFailedText = stringResource(R.string.error_request_failed)
+        val title = stringResource(if (legacy) R.string.legacy_deletion_title else R.string.error_request_failed)
+        val explanation = if (!legacy) failed.lastError.orEmpty() else stringResource(
+            if (reviewable) R.string.legacy_deletion_review_body
+            else if (failed.operation.kind == io.ethan.pushgo.data.PendingLocalDeletionKind.CHANNEL && !failed.canCancelUnconfirmed) R.string.legacy_deletion_channel_cleanup_body
+            else if (!failed.canCancelUnconfirmed) R.string.legacy_deletion_interrupted_body
+            else R.string.legacy_deletion_unknown_body,
+        )
+        val target = if (legacy) listOfNotNull(
+            failed.summary, failed.operation.targetIds.sorted().joinToString("\n"), failed.operation.expectedGatewayUrl,
+        ).filter { it.isNotBlank() }.joinToString("\n") else failed.summary
         PushGoAlertDialog(
             onDismissRequest = { dismissedDeletionFailures = dismissedDeletionFailures + failed.id },
-            paneTitle = stringResource(R.string.error_request_failed),
-            title = { Text(stringResource(R.string.error_request_failed)) },
-            text = { Text(failed.summary + "\n" + failed.lastError.orEmpty()) },
+            paneTitle = title,
+            title = { Text(title) },
+            text = { Text(target + "\n" + explanation) },
             confirmButton = {
                 TextButton(onClick = {
                     dismissedDeletionFailures = dismissedDeletionFailures + failed.id
-                    appScope.launch {
+                    if (!legacy || reviewable) appScope.launch {
                         try {
-                            container.pendingLocalDeletionCoordinator.retryFailed(failed.id)
+                            if (legacy) container.pendingLocalDeletionCoordinator.reconfirmLegacy(failed.id)
+                            else container.pendingLocalDeletionCoordinator.retryFailed(failed.id)
                         } catch (error: kotlinx.coroutines.CancellationException) {
                             throw error
                         } catch (error: Exception) {
@@ -511,13 +524,25 @@ fun PushGoAppRoot(
                             dismissedDeletionFailures = dismissedDeletionFailures - failed.id
                         }
                     }
-                }, modifier = Modifier.testTag("action.delete.recovery.retry")) {
-                    Text(stringResource(R.string.action_retry))
+                }, modifier = if (reviewable) Modifier.testTag("action.delete.recovery.review") else if (legacy) Modifier.testTag("action.delete.recovery.acknowledge") else Modifier.testTag("action.delete.recovery.retry")) {
+                    Text(stringResource(if (reviewable) R.string.legacy_deletion_review else if (legacy) R.string.label_got_it else R.string.action_retry))
                 }
             },
             dismissButton = {
-                TextButton(onClick = { dismissedDeletionFailures = dismissedDeletionFailures + failed.id }) {
-                    Text(stringResource(R.string.label_got_it))
+                if (!legacy || failed.canCancelUnconfirmed) TextButton(onClick = {
+                    if (legacy) appScope.launch {
+                        try {
+                            if (container.pendingLocalDeletionCoordinator.cancelLegacy(failed.id)) {
+                                dismissedDeletionFailures = dismissedDeletionFailures + failed.id
+                            }
+                        } catch (error: kotlinx.coroutines.CancellationException) {
+                            throw error
+                        } catch (error: Exception) {
+                            android.widget.Toast.makeText(context, error.localizedMessage ?: requestFailedText, android.widget.Toast.LENGTH_LONG).show()
+                        }
+                    } else dismissedDeletionFailures = dismissedDeletionFailures + failed.id
+                }, modifier = if (legacy) Modifier.testTag("action.delete.recovery.cancel") else Modifier.testTag("action.delete.recovery.dismiss")) {
+                    Text(stringResource(if (legacy) R.string.legacy_deletion_cancel else R.string.label_got_it))
                 }
             },
         )

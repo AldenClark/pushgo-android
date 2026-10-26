@@ -44,39 +44,57 @@ class PendingLocalDeletionWorkBoundaryDeviceTest {
     }
 
     @Test
-    fun durableRoomRow_isRecoveredThroughTheRealWorkerAfterStorageReopen() = runBlocking {
+    fun oldEnqueueBeforeUndoCannotDeleteContentThroughRealWorkerAfterReopen() = runBlocking {
         val firstContainer = app.container
-        val firstRepository = RoomPendingLocalDeletionRepository(
-            firstContainer.database,
-            firstContainer.database.pendingLocalDeletionDao(),
-        )
-        firstRepository.enqueue(
-            summary = "worker boundary",
-            operation = PendingLocalDeletionOperation.messages(setOf("already-absent-message")),
-            requestedAtEpochMillis = 1L,
-            undoWindowMillis = 0L,
-        )
-        assertTrue(firstRepository.loadActive().isNotEmpty())
-
+        val firstRepository = RoomPendingLocalDeletionRepository(firstContainer.database, firstContainer.database.pendingLocalDeletionDao())
+        val id = java.util.UUID.randomUUID().toString()
+        val message = io.ethan.pushgo.data.model.PushMessage(id, id, "Worker must preserve", "Original content", null, null,
+            false, java.time.Instant.now(), "{}", io.ethan.pushgo.data.model.MessageStatus.NORMAL, null, null, null)
+        firstContainer.messageRepository.insert(message)
+        val row = firstRepository.enqueue("old Undo not yet shown", PendingLocalDeletionOperation.messages(setOf(id)), 1L, 5000L)
+        val original = firstContainer.database.pendingLocalDeletionDao().findById(row.id)
+        assertTrue(firstRepository.loadActive().isEmpty())
+        val workManager = WorkManager.getInstance(context)
+        val before = workManager.getWorkInfosByTag(WorkManagerPendingLocalDeletionDrainScheduler.WORK_TAG).get(10, TimeUnit.SECONDS).map { it.id }.toSet()
         app.releaseStorageForInstrumentationTest()
         WorkManagerPendingLocalDeletionDrainScheduler(context).scheduleImmediate()
-
-        var remainingCount = Int.MAX_VALUE
         withTimeout(15_000L) {
-            do {
-                delay(50L)
-                val reopened = app.container
-                val reopenedRepository = RoomPendingLocalDeletionRepository(
-                    reopened.database,
-                    reopened.database.pendingLocalDeletionDao(),
-                )
-                remainingCount = reopenedRepository.loadActive().size
-            } while (remainingCount != 0)
+            while (workManager.getWorkInfosByTag(WorkManagerPendingLocalDeletionDrainScheduler.WORK_TAG).get(10, TimeUnit.SECONDS)
+                    .none { it.id !in before && it.state == WorkInfo.State.SUCCEEDED }) delay(50L)
         }
-        assertTrue(
-            "storageError=${app.startupStorageErrorMessage()} remainingCount=$remainingCount",
-            remainingCount == 0,
-        )
+        val reopened = app.container
+        assertTrue(reopened.messageRepository.getById(id)?.body == message.body)
+        assertTrue(reopened.database.pendingLocalDeletionDao().findById(row.id) == original)
+        val recovered = RoomPendingLocalDeletionRepository(reopened.database, reopened.database.pendingLocalDeletionDao())
+        assertTrue(recovered.loadFailures().single().id == row.id)
+    }
+
+    @Test
+    fun explicitlyConfirmedChannelCleanupContinuesThroughRealWorkerAfterReopen() = runBlocking {
+        val first = app.container
+        val gateway = "https://captured.example"
+        val target = io.ethan.pushgo.data.db.ChannelSubscriptionEntity(gateway, "worker-confirmed-channel", "captured target", 42L, null, true, 100L)
+        val control = target.copy(channelId = "worker-control", isDeleted = false, deletedAt = null)
+        first.database.channelSubscriptionDao().insert(target)
+        first.database.channelSubscriptionDao().insert(control)
+        val repository = RoomPendingLocalDeletionRepository(first.database, first.database.pendingLocalDeletionDao())
+        // Explicit fixture: the current dialog confirmed this exact context, local
+        // deletion committed, and process exit interrupted its remaining cleanup.
+        val accepted = repository.enqueue("confirmed cleanup", PendingLocalDeletionOperation.channel(target.channelId, gateway, 42L, false),
+            100L, 0L, confirmationProven = true)
+        assertTrue(repository.loadActive().any { it.id == accepted.id })
+        val workManager = WorkManager.getInstance(context)
+        val before = workManager.getWorkInfosByTag(WorkManagerPendingLocalDeletionDrainScheduler.WORK_TAG).get(10, TimeUnit.SECONDS).map { it.id }.toSet()
+        app.releaseStorageForInstrumentationTest()
+        WorkManagerPendingLocalDeletionDrainScheduler(context).scheduleImmediate()
+        withTimeout(15_000L) {
+            while (workManager.getWorkInfosByTag(WorkManagerPendingLocalDeletionDrainScheduler.WORK_TAG).get(10, TimeUnit.SECONDS)
+                    .none { it.id !in before && it.state == WorkInfo.State.SUCCEEDED }) delay(50L)
+        }
+        val reopened = app.container
+        assertTrue(reopened.database.pendingLocalDeletionDao().findById(accepted.id) == null)
+        assertTrue(reopened.database.channelSubscriptionDao().getById(gateway, target.channelId)?.isDeleted == true)
+        assertTrue(reopened.database.channelSubscriptionDao().getById(gateway, control.channelId) == control)
     }
 
     @Test

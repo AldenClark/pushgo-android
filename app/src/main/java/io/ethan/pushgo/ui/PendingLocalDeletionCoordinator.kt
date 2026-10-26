@@ -47,6 +47,7 @@ class PendingLocalDeletionCoordinator(
     val failures: StateFlow<List<PendingLocalDeletionRecord>> = _failures.asStateFlow()
     private val drainMutex = Mutex()
     private var started = false
+    private var committedCleanupCursor = 0L
 
     fun start() = synchronized(requestLock) {
         if (started) return@synchronized
@@ -62,6 +63,23 @@ class PendingLocalDeletionCoordinator(
         onCompletion: (Result<Unit>) -> Unit = {},
     ): Boolean {
         require(operation.kind in LOCAL_KINDS && operation.targetIds.size == 1)
+        return confirmAndExecute(summary, operation, null, onCompletion)
+    }
+
+    suspend fun reconfirmLegacy(id: Long): Boolean {
+        val row = repository.findUnconfirmed(id) ?: return false
+        if (row.state != PendingLocalDeletionState.NEEDS_CONFIRMATION) return false
+        return confirmAndExecute(row.summary, row.operation, row) { it.getOrThrow() }
+    }
+
+    suspend fun cancelLegacy(id: Long): Boolean = repository.cancelUnconfirmed(id)
+
+    private suspend fun confirmAndExecute(
+        summary: String,
+        operation: PendingLocalDeletionOperation,
+        legacy: PendingLocalDeletionRecord?,
+        onCompletion: (Result<Unit>) -> Unit,
+    ): Boolean {
         val snapshot = operation.copy(targetIds = operation.targetIds.toSet())
         val pending = synchronized(requestLock) {
             if (request != null || snapshot in executing) return false
@@ -81,13 +99,22 @@ class PendingLocalDeletionCoordinator(
             synchronized(requestLock) {
                 _confirmation.value = pending.confirmation.copy(
                     summary = if (identity == null) pending.confirmation.summary
-                        else identity.displayTitle?.trim().orEmpty(),
+                        else (if (legacy != null) identity.recoverySummary else identity.displayTitle)?.trim().orEmpty(),
                 )
             }
             if (!pending.answer.await()) return false
             synchronized(requestLock) { executing.add(snapshot) }
             val result = try {
-                withContext(NonCancellable) { operationExecutor.executeConfirmed(snapshot, identity) }
+                withContext(NonCancellable) {
+                    if (legacy == null) operationExecutor.executeConfirmed(snapshot, identity)
+                    else {
+                        operationExecutor.executeReconfirmed(legacy, identity)
+                        if (snapshot.kind == PendingLocalDeletionKind.CHANNEL) {
+                            drainScheduler.scheduleImmediate()
+                            drainRecoverable()
+                        }
+                    }
+                }
                 Result.success(Unit)
             } catch (error: CancellationException) {
                 throw error
@@ -128,7 +155,7 @@ class PendingLocalDeletionCoordinator(
         synchronized(requestLock) { if (!executing.add(operation)) return }
         try {
             val row = repository.loadActive().firstOrNull { it.operation == operation }
-                ?: repository.enqueue(summary, operation, wallClockEpochMillis(), undoWindowMillis = 0L)
+                ?: repository.enqueue(summary, operation, wallClockEpochMillis(), undoWindowMillis = 0L, confirmationProven = true)
             drainScheduler.scheduleImmediate()
             drainRecoverable()
             val active = repository.loadActive().firstOrNull { it.id == row.id }
@@ -144,7 +171,7 @@ class PendingLocalDeletionCoordinator(
         }
     }
 
-    /** Old accepted local requests ignore their retired Undo deadline. No new local rows enter here. */
+    /** Only explicitly confirmed durable operations can retry without another decision. */
     suspend fun retryFailed(id: Long) {
         if (repository.retryFailed(id, wallClockEpochMillis())) {
             drainScheduler.scheduleImmediate()
@@ -156,11 +183,17 @@ class PendingLocalDeletionCoordinator(
         withContext(NonCancellable) { repository.recoverInterruptedClaims(wallClockEpochMillis()) }
         while (true) {
             val now = wallClockEpochMillis()
-            val rows = repository.loadActive()
+            val rows = repository.loadActive().filter { it.confirmationProven && it.state in setOf(PendingLocalDeletionState.PENDING, PendingLocalDeletionState.COMMITTING) }
             val due = rows.firstOrNull {
                 it.state == PendingLocalDeletionState.PENDING && it.nextAttemptAtEpochMillis <= now
             }
             if (due == null) {
+                // The bounded query selects matching scope/version tombstone candidates.
+                // The executor decodes/checks their exact target before any cleanup; unknown
+                // data never enters remote deletion or delays ordinary queue progress.
+                val committed = repository.loadCommittedChannelCleanup(committedCleanupCursor, 32)
+                committedCleanupCursor = committed.lastOrNull()?.id ?: 0L
+                for (legacy in committed) operationExecutor.recoverCommittedCleanup(legacy)
                 rows.minOfOrNull { it.nextAttemptAtEpochMillis }?.let(drainScheduler::scheduleAt)
                 return@withLock rows.isNotEmpty()
             }

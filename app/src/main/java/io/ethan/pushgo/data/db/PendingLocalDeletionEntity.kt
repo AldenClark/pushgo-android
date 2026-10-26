@@ -38,4 +38,6 @@ data class PendingLocalDeletionEntity(
     val updatedAtEpochMillis: Long,
     @ColumnInfo(name = "last_error")
     val lastError: String?,
+    @ColumnInfo(name = "confirmation_proven", defaultValue = "0")
+    val confirmationProven: Boolean = false,
 )

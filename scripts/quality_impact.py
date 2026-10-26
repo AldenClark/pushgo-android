@@ -116,13 +116,20 @@ SYSTEM_NOTIFICATION_PROFILE_SCOPES = {
 # The replacement must be a real runnable method in the same current class.
 DELETE_CONFIRMATION_TEST_REPLACEMENTS = {
     "app/src/androidTest/java/io/ethan/pushgo/data/PendingLocalDeletionRoomDeviceTest.kt": {
-        "cancelIsDurableAcrossCloseAndReopen": "failedAcceptedIntentSurvivesReopenAndExplicitRetryKeepsExactTarget",
-        "cancelRequiresTimeBeforeDeadlineAndClaimIsAtomicWithIt": "concurrentLegacyClaimsHaveOneOwner",
-        "retryPendingCannotBeCancelledAfterFirstClaim": "failedAcceptedIntentSurvivesReopenAndExplicitRetryKeepsExactTarget",
+        "pendingAndCommittingRowsSurviveCloseAndRecover": "oldQueuedUndoRequestSurvivesReopenWithoutForceClaimOrInventedConsent",
+        "failedAcceptedIntentSurvivesReopenAndExplicitRetryKeepsExactTarget": "corruptAndInterruptedOldRowsRemainExactAndCannotCancelRetryOrClaim",
+        "concurrentLegacyClaimsHaveOneOwner": "concurrentCancellationOfDecodedUnstartedRequestHasOneWinner",
+        "cancelIsDurableAcrossCloseAndReopen": "oldQueuedUndoRequestSurvivesReopenWithoutForceClaimOrInventedConsent",
+        "cancelRequiresTimeBeforeDeadlineAndClaimIsAtomicWithIt": "concurrentCancellationOfDecodedUnstartedRequestHasOneWinner",
+        "retryPendingCannotBeCancelledAfterFirstClaim": "corruptAndInterruptedOldRowsRemainExactAndCannotCancelRetryOrClaim",
     },
     "app/src/androidTest/java/io/ethan/pushgo/testing/QualityMessageJourneyInstrumentedTest.kt": {
+        "legacyFailedDeleteCanRetryItsOriginalTargetWithoutDiscardAcrossReopen": "legacyLocalUuidRequiresFreshConfirmationAndCanBeCancelledAcrossReopen",
         "deleteUndoRestoresTheSameObjectAcrossActivityRelaunch": "deleteCancelPreservesTheSameObjectAcrossActivityRelaunch",
         "deleteWithoutUndoPermanentlyRemovesOnlyTargetAcrossStorageRecreation": "confirmedDeletePermanentlyRemovesOnlyTargetAcrossStorageRecreation",
+    },
+    "app/src/androidTest/java/io/ethan/pushgo/ui/PendingLocalDeletionWorkBoundaryDeviceTest.kt": {
+        "durableRoomRow_isRecoveredThroughTheRealWorkerAfterStorageReopen": "oldEnqueueBeforeUndoCannotDeleteContentThroughRealWorkerAfterReopen",
     },
     "app/src/androidTest/java/io/ethan/pushgo/ui/accessibility/SharedAccessibilitySemanticsTest.kt": {
         "pendingDeletionBar_announcesUndoWindowAsLiveRegion": "deleteConfirmationExposesExactTargetAndBothActions",

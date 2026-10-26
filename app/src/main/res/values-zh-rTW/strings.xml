@@ -368,4 +368,11 @@
     <string name="action_local_network_allow">允許存取</string>
     <string name="action_local_network_settings">應用程式設定</string>
     <string name="label_local_network_not_allowed">未允許；僅區域網路閘道需要</string>
+    <string name="legacy_deletion_title">檢查以前的刪除請求</string>
+    <string name="legacy_deletion_review">檢查並重新確認</string>
+    <string name="legacy_deletion_cancel">取消以前的刪除</string>
+    <string name="legacy_deletion_review_body">舊請求不能證明你已確認。請先檢查所列原目標的目前內容；不會自動刪除。</string>
+    <string name="legacy_deletion_unknown_body">無法核實原目標的具體實例或歸屬，內容已保留。你可以取消這條尚未執行的請求，再單獨使用正常刪除入口。</string>
+    <string name="legacy_deletion_interrupted_body">此請求可能已開始執行，或復原資料無法識別。相關責任已隔離，不會刪除目前內容，也不會自動捨棄。</string>
+    <string name="legacy_deletion_channel_cleanup_body">以前的頻道操作可能已影響伺服器。舊通知群組沒有 Gateway 歸屬，相關責任繼續隔離保留，不會刪除目前內容或取消目前通知。</string>
 </resources>

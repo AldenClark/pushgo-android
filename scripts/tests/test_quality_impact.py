@@ -503,7 +503,9 @@ class RuntimeExtendedJourneyInstrumentedTest {{
 
         self.assertEqual("nightly", plan["recommended_lane"])
         self.assertEqual("focused", plan["device_scope_selection"])
-        self.assertEqual(6, len(plan["required_device_scopes"]))
+        self.assertEqual(7, len(plan["required_device_scopes"]))
+        self.assertTrue(any("oldEnqueueBeforeUndoCannotDeleteContentThroughRealWorkerAfterReopen" in scope for scope in plan["required_device_scopes"]))
+        self.assertTrue(any("explicitlyConfirmedChannelCleanupContinuesThroughRealWorkerAfterReopen" in scope for scope in plan["required_device_scopes"]))
         self.assertTrue(any("QualitySystemNotificationJourney" in scope for scope in plan["required_device_scopes"]))
         self.assertTrue(any("RuntimeChannelSwitch" in scope for scope in plan["required_device_scopes"]))
 

@@ -365,4 +365,11 @@
     <string name="action_local_network_allow">允许访问</string>
     <string name="action_local_network_settings">应用设置</string>
     <string name="label_local_network_not_allowed">未允许；仅本地网关需要</string>
+    <string name="legacy_deletion_title">检查以前的删除请求</string>
+    <string name="legacy_deletion_review">检查并重新确认</string>
+    <string name="legacy_deletion_cancel">取消以前的删除</string>
+    <string name="legacy_deletion_review_body">旧请求不能证明你已确认。请先检查所列原目标的当前内容；不会自动删除。</string>
+    <string name="legacy_deletion_unknown_body">无法核实原目标的具体实例或归属，内容已保留。你可以取消这条尚未执行的请求，再单独使用正常删除入口。</string>
+    <string name="legacy_deletion_interrupted_body">此请求可能已开始执行，或恢复数据无法识别。相关责任已隔离，不会删除当前内容，也不会自动丢弃。</string>
+    <string name="legacy_deletion_channel_cleanup_body">以前的频道操作可能已影响服务器。旧通知分组没有 Gateway 归属，相关责任继续隔离保留，不会删除当前内容或取消当前通知。</string>
 </resources>

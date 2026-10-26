@@ -18,8 +18,59 @@ class RepositoryPendingLocalDeletionExecutor(
     private val appContext = context.applicationContext
     private val confirmation = OrdinaryDeletionConfirmation(database)
 
-    override suspend fun captureConfirmation(operation: PendingLocalDeletionOperation) =
-        confirmation.capture(operation)
+    override suspend fun captureConfirmation(operation: PendingLocalDeletionOperation): OrdinaryDeletionConfirmation.Identity =
+        if (operation.kind == PendingLocalDeletionKind.CHANNEL) captureChannel(operation) else confirmation.capture(operation)
+
+    private suspend fun captureChannel(operation: PendingLocalDeletionOperation): OrdinaryDeletionConfirmation.Identity = database.withTransaction {
+        val gateway = requireNotNull(operation.expectedGatewayUrl)
+        val channel = database.channelSubscriptionDao().getById(gateway, operation.targetIds.single())
+            ?: throw OrdinaryDeletionTargetChangedException()
+        val settings = database.appSettingsDao().get()
+        val fcmAvailable = io.ethan.pushgo.util.FcmSupport.isAvailable(appContext)
+        validateLegacyChannelContext(operation, settings?.serverAddress, channel.updatedAt, channel.isDeleted,
+            settings?.useFcmChannel ?: true, fcmAvailable)
+        val material = listOf(gateway, channel.channelId, channel.updatedAt, channel.displayName,
+            settings?.serverAddress, settings?.useFcmChannel, fcmAvailable, settings?.notificationKeyUpdatedAt, settings?.keyEncoding).joinToString("\u0000")
+        val fingerprint = java.security.MessageDigest.getInstance("SHA-256").digest(material.toByteArray()).joinToString("") { "%02x".format(it) }
+        OrdinaryDeletionConfirmation.Identity(fingerprint, channel.displayName,
+            listOf(channel.displayName, channel.channelId, gateway, if (operation.expectedUseProvider == true) "FCM" else "Private").joinToString("\n"))
+    }
+
+    override suspend fun executeReconfirmed(record: PendingLocalDeletionRecord, identity: OrdinaryDeletionConfirmation.Identity?) {
+        database.withTransaction {
+            val dao = database.pendingLocalDeletionDao()
+            val current = dao.findById(record.id) ?: throw OrdinaryDeletionTargetChangedException()
+            if (current.confirmationProven || current.state != "PENDING" || current.attemptCount != 0 ||
+                current.decodedOperation() != record.operation) throw OrdinaryDeletionTargetChangedException()
+            if (record.operation.kind == PendingLocalDeletionKind.CHANNEL) {
+                if (captureChannel(record.operation).fingerprint != requireNotNull(identity).fingerprint) throw OrdinaryDeletionTargetChangedException()
+                // The complete captured destination/version/mode is already durable. It
+                // receives proof only after this new explicit UI decision and validation.
+                check(dao.confirmUnstartedChannel(record.id, System.currentTimeMillis()) == 1)
+            } else {
+                require(record.operation.kind == PendingLocalDeletionKind.MESSAGES)
+                confirmation.validate(requireNotNull(identity), record.operation)
+                check(dao.cancelUnconfirmed(record.id) == 1)
+                notificationCleanup.captureAndRecord(record.operation)
+                messageRepository.deleteByIds(record.operation.targetIds)
+            }
+        }
+        if (record.operation.kind == PendingLocalDeletionKind.MESSAGES) notificationCleanup.recover()
+    }
+
+    override suspend fun recoverCommittedCleanup(record: PendingLocalDeletionRecord) {
+        if (record.operation.kind != PendingLocalDeletionKind.CHANNEL || record.confirmationProven) return
+        try {
+            channelExecutor.cleanupCommittedCredentialOnly(record.operation)
+            // A same-version committed tombstone proves credential ownership only. Old OS
+            // groups lack gateway identity, so retain the old request and its exact fields
+            // as isolated responsibility. Independent exact notification receipts still recover.
+        } catch (error: kotlinx.coroutines.CancellationException) {
+            throw error
+        } catch (_: Exception) {
+            // A cleanup failure also leaves the original responsibility untouched.
+        }
+    }
 
     override suspend fun executeConfirmed(
         operation: PendingLocalDeletionOperation,

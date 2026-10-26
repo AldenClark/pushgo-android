@@ -379,3 +379,8 @@ Gateway 的正向终点不再停在地址持久化或旧行消失：现有 `serv
 首轮 Python3.9/测试类归属清单失败和设备选择器因注解同行而在执行前 BLOCKED 均保留；修正运行环境、既有清单计数及注解格式后形成上述新证据，没有业务断言失败或业务重试。影响计划 READY/release 仅为计划；用户明确限定必要检查及不测性能，未执行累计 Release/nightly、性能、真机/OEM、真实 Provider/FCM/Private 网络、签名安装/降级或发布。旧 baseline/startup profile 只删除失效 DAO/构造引用，未重新采样或宣称性能结果。
 
 证据 `build/quality-results/thing-event-lifecycle-20261013/{pr,data-final,ui}/`（最终两批 native-results 独立保存），`source-identity.json` 绑定未提交 HEAD 2cd780b 的最终源码哈希；验证后源码哈希未漂移。任务 AVD 已关闭，实体 Redmi 未操作。改动保留本地未提交、未推送、未发布，完成后停止。
+
+
+## 2026-10-26 旧删除责任更新（未运行的新路径）
+
+旧 `acceptedLegacyLocalIntentIgnoresOldDeadlineAndSettlesOnceAcrossReopen` 的 force-delete 期待不再成立，改以 `oldEnqueueBeforeUndoNeverBecomesConsentEvenAfterDeadlineOrReopen` 为反证；旧 Room 排队/COMMITTING 不再构成确认。原 worker 旧无确认请求执行测试改为 `oldEnqueueBeforeUndoCannotDeleteContentThroughRealWorkerAfterReopen`；新增 `explicitlyConfirmedChannelCleanupContinuesThroughRealWorkerAfterReopen` 保留真实已确认责任的 Worker 正控。当前 channel transient retry、原上下文、通知失败清理与 independent notification journal 保留。旧 UI Retry 自动删除改为实际 Review→确认或取消，方法总数未减少。最终原生结果仍待当前源码编译/设备，旧回执仅属旧实现。

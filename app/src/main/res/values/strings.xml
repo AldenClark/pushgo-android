@@ -369,4 +369,11 @@
     <string name="action_local_network_allow">Allow access</string>
     <string name="action_local_network_settings">App settings</string>
     <string name="label_local_network_not_allowed">Not allowed; needed only for local Gateways</string>
+    <string name="legacy_deletion_title">Review a previous deletion</string>
+    <string name="legacy_deletion_review">Review and confirm</string>
+    <string name="legacy_deletion_cancel">Cancel previous deletion</string>
+    <string name="legacy_deletion_review_body">This older request is not proof of confirmation. Review its exact current target before deciding; nothing will be deleted automatically.</string>
+    <string name="legacy_deletion_unknown_body">The original target incarnation or ownership cannot be verified. Its content is preserved. You can cancel this unstarted request and use the normal delete action separately.</string>
+    <string name="legacy_deletion_interrupted_body">This request may have started, or its recovery data is unrecognized. Its responsibility is isolated; it will not delete current content or be silently discarded.</string>
+    <string name="legacy_deletion_channel_cleanup_body">The previous channel action may already have affected the server. Old notification groups do not identify their Gateway, so this responsibility stays isolated. Current content and notifications will not be removed.</string>
 </resources>

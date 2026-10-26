@@ -224,6 +224,31 @@ class DurablePendingChannelDeletionExecutorTest {
         assertEquals(1, backend.cleanupCredentialCount)
     }
 
+    @Test
+    fun legacyCredentialCleanupRequiresCommittedEvidenceAndNeverCancelsUnknownOsOwnership() = runBlocking {
+        for (state in PendingChannelDeletionTargetState.entries) {
+            val backend = FakeBackend(state)
+            assertFalse(DurablePendingChannelDeletionExecutor(backend).cleanupCommittedCredentialOnly(OPERATION))
+            assertEquals(0, backend.remoteUnsubscribeCount)
+            assertEquals(0, backend.localDeleteCount)
+            assertEquals(0, backend.cleanupCredentialCount)
+        }
+        val backend = FakeBackend(PendingChannelDeletionTargetState.ALREADY_DELETED, cleanupFailuresRemaining = 1)
+        backend.committedEvidence = true
+        val owner = DurablePendingChannelDeletionExecutor(backend)
+        assertTrue(runCatching { owner.cleanupCommittedCredentialOnly(OPERATION) }.isFailure)
+        assertTrue(owner.cleanupCommittedCredentialOnly(OPERATION))
+        assertEquals(0, backend.remoteUnsubscribeCount)
+        assertEquals(0, backend.localDeleteCount)
+        assertEquals(0, backend.existingTokenReadCount)
+        assertEquals(2, backend.cleanupCredentialCount)
+        assertEquals(0, backend.notificationReconcileCount)
+        backend.state = PendingChannelDeletionTargetState.ACTIVE_EXPECTED_VERSION
+        assertFalse(owner.cleanupCommittedCredentialOnly(OPERATION))
+        assertEquals(0, backend.remoteUnsubscribeCount)
+        assertEquals(0, backend.localDeleteCount)
+    }
+
     private class FakeBackend(
         var state: PendingChannelDeletionTargetState,
         private val providerToken: String? = "cached-token",
@@ -235,6 +260,7 @@ class DurablePendingChannelDeletionExecutorTest {
         private var failCredentialCleanupAfterLocalDelete: Boolean = false,
         private var failNotificationCleanupAfterLocalDelete: Boolean = false,
     ) : PendingChannelDeletionBackend {
+        var committedEvidence = false
         var remoteUnsubscribeCount = 0
         var localDeleteCount = 0
         var restoreCount = 0
@@ -250,6 +276,9 @@ class DurablePendingChannelDeletionExecutorTest {
             mutationLockCount += 1
             return block()
         }
+
+        override suspend fun hasCommittedDeletionEvidence(operation: PendingLocalDeletionOperation) =
+            committedEvidence && state == PendingChannelDeletionTargetState.ALREADY_DELETED
 
         override suspend fun inspect(operation: PendingLocalDeletionOperation) = state
 

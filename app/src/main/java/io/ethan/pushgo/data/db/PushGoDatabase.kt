@@ -38,7 +38,7 @@ import java.io.File
         DeletionNotificationCleanupEntity::class,
         ProviderPullFrontierEntity::class,
     ],
-    version = 39,
+    version = 40,
     exportSchema = true,
 )
 abstract class PushGoDatabase : RoomDatabase() {
@@ -378,6 +378,14 @@ abstract class PushGoDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_39_40 = object : Migration(39, 40) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                // Enqueue preceded Undo in older versions. Neither state nor deadline proves consent.
+                // Preserve all original operation/target/timing/error fields for runtime review.
+                db.execSQL("ALTER TABLE pending_local_deletions ADD COLUMN confirmation_proven INTEGER NOT NULL DEFAULT 0")
+            }
+        }
+
         private val MIGRATION_38_39 = object : Migration(38, 39) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 // Do not infer historical ownership. New acceptance writes these
@@ -595,6 +603,7 @@ abstract class PushGoDatabase : RoomDatabase() {
                     MIGRATION_36_37,
                     MIGRATION_37_38,
                     MIGRATION_38_39,
+                    MIGRATION_39_40,
                 )
                 .setJournalMode(RoomDatabase.JournalMode.WRITE_AHEAD_LOGGING)
                 .addCallback(object : RoomDatabase.Callback() {

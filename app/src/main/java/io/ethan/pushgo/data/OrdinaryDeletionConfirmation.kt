@@ -13,10 +13,17 @@ class OrdinaryDeletionTargetChangedException : IllegalStateException(
 
 /** A foreground-only digest of the exact rows ordinary deletion will remove. */
 class OrdinaryDeletionConfirmation(private val database: PushGoDatabase) {
-    class Identity internal constructor(internal val fingerprint: String, val displayTitle: String?)
+    class Identity internal constructor(internal val fingerprint: String, val displayTitle: String?, val recoverySummary: String? = null)
 
     suspend fun capture(operation: PendingLocalDeletionOperation): Identity = database.withTransaction {
-        require(operation.targetIds.size == 1)
+        require(operation.targetIds.isNotEmpty())
+        if (operation.targetIds.size > 1) {
+            val snapshots = operation.targetIds.sorted().map { capture(operation.copy(targetIds = setOf(it))) }
+            val combined = snapshots.joinToString("") { it.fingerprint }
+            val fingerprint = MessageDigest.getInstance("SHA-256").digest(combined.toByteArray()).joinToString("") { "%02x".format(it) }
+            return@withTransaction Identity(fingerprint, snapshots.mapNotNull { it.displayTitle }.joinToString("\n"),
+                snapshots.mapNotNull { it.recoverySummary }.joinToString("\n"))
+        }
         val target = operation.targetIds.single().trim()
         require(target.isNotEmpty())
         val digest = FootprintDigest()
@@ -72,7 +79,25 @@ class OrdinaryDeletionConfirmation(private val database: PushGoDatabase) {
             }
             else -> error("Ordinary confirmation requires a Message, Event, or Thing")
         }
-        Identity(digest.finish(), displayTitle?.takeIf { it.isNotBlank() })
+        if (operation.kind == PendingLocalDeletionKind.MESSAGES) {
+            database.openHelper.readableDatabase.query(
+                "SELECT source_table,owner_slot,generation,origin_scope,authenticated_gateway_url,authenticated_device_key " +
+                    "FROM message_resource_owners WHERE owner_id=? AND source_table IN ('messages','thing_sub_messages') ORDER BY source_table,owner_slot",
+                arrayOf(target),
+            ).use { cursor ->
+                while (cursor.moveToNext()) digest.appendRow("canonical_owner", *(0 until cursor.columnCount).map {
+                    if (cursor.isNull(it)) null else cursor.getString(it)
+                }.toTypedArray())
+            }
+        }
+        val origin = if (operation.kind == PendingLocalDeletionKind.MESSAGES) {
+            database.openHelper.readableDatabase.query(
+                "SELECT authenticated_gateway_url FROM message_resource_owners WHERE owner_id=? AND source_table IN ('messages','thing_sub_messages') AND authenticated_gateway_url IS NOT NULL",
+                arrayOf(target),
+            ).use { cursor -> buildList { while (cursor.moveToNext()) add(cursor.getString(0)) }.distinct().joinToString("\n") }
+        } else ""
+        Identity(digest.finish(), displayTitle?.takeIf { it.isNotBlank() },
+            listOfNotNull(displayTitle, target, origin.takeIf { it.isNotEmpty() }).joinToString("\n"))
     }
 
     /** Caller must hold the same Room transaction through validation and deletion. */

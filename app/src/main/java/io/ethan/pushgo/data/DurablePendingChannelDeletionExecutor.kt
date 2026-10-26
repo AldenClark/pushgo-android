@@ -12,6 +12,8 @@ interface PendingChannelDeletionBackend {
         block: suspend () -> T,
     ): T = block()
 
+    suspend fun hasCommittedDeletionEvidence(operation: PendingLocalDeletionOperation): Boolean = false
+
     suspend fun inspect(operation: PendingLocalDeletionOperation): PendingChannelDeletionTargetState
     suspend fun reconcileDeletedChannelNotifications(operation: PendingLocalDeletionOperation)
     suspend fun cleanupCredential(operation: PendingLocalDeletionOperation)
@@ -30,6 +32,17 @@ interface PendingChannelDeletionBackend {
 class DurablePendingChannelDeletionExecutor(
     private val backend: PendingChannelDeletionBackend,
 ) : PendingChannelDeletionExecutor {
+    override suspend fun cleanupCommittedCredentialOnly(operation: PendingLocalDeletionOperation): Boolean =
+        backend.withChannelMutationLock(operation) {
+            if (!backend.hasCommittedDeletionEvidence(operation)) return@withChannelMutationLock false
+            // Never call the ordinary deletion state machine here: a target that became
+            // active between candidate selection and this lock cannot be unsubscribed.
+            // Legacy OS groups carry only channel ID, without gateway ownership. They
+            // cannot authorize cancelling notifications/playback for another gateway.
+            backend.cleanupCredential(operation)
+            true
+        }
+
     override suspend fun execute(operation: PendingLocalDeletionOperation) {
         try {
             backend.withChannelMutationLock(operation) {

@@ -658,6 +658,106 @@ class OrdinaryDeletionConsistencyDeviceTest {
         return app.container.also { assertNull(app.startupStorageErrorMessage()) }
     }
 
+    @Test
+    fun legacyUuidReviewRollsBackQueueAndContentTogetherThenConfirmsExactlyOnceAfterReopen() = runBlocking {
+        var container = app.container
+        val uuid = java.util.UUID.randomUUID().toString()
+        val target = message("legacy-source").copy(id = uuid, messageId = uuid)
+        assertTrue(container.messageRepository.insertIncoming(target))
+        val control = seedMessage(container, "legacy-control")
+        var repository = RoomPendingLocalDeletionRepository(container.database, container.database.pendingLocalDeletionDao())
+        val old = repository.enqueue("old UUID target", PendingLocalDeletionOperation.messages(setOf(uuid)), 100L, 120_000L)
+        val original = container.database.pendingLocalDeletionDao().findById(old.id)
+        assertNull(repository.claim(old.id, 200L, true))
+        container = reopen()
+        repository = RoomPendingLocalDeletionRepository(container.database, container.database.pendingLocalDeletionDao())
+        assertEquals(original, container.database.pendingLocalDeletionDao().findById(old.id))
+        coroutineScope {
+            val owner = container.pendingLocalDeletionCoordinator
+            val review = async { runCatching { owner.reconfirmLegacy(old.id) } }
+            val token = withTimeout(5_000L) { owner.confirmation.filterNotNull().first() }
+            container.database.openHelper.writableDatabase.execSQL(
+                "CREATE TRIGGER fail_legacy_delete BEFORE DELETE ON messages WHEN OLD.id='$uuid' BEGIN SELECT RAISE(ABORT,'legacy rollback oracle'); END")
+            owner.confirm(token.id)
+            owner.confirm(token.id)
+            assertTrue(review.await().isFailure)
+            assertEquals(original, container.database.pendingLocalDeletionDao().findById(old.id))
+            assertEquals(target.body, container.database.messageDao().getById(uuid)?.body)
+            container.database.openHelper.writableDatabase.execSQL("DROP TRIGGER fail_legacy_delete")
+            val second = async { owner.reconfirmLegacy(old.id) }
+            val fresh = withTimeout(5_000L) { owner.confirmation.filterNotNull().first() }
+            owner.confirm(fresh.id)
+            owner.confirm(fresh.id)
+            assertTrue(second.await())
+            assertFalse(owner.reconfirmLegacy(old.id))
+        }
+        assertNull(container.database.pendingLocalDeletionDao().findById(old.id))
+        assertNull(container.database.messageDao().getById(uuid))
+        assertEquals(control.body, container.database.messageDao().getById(control.id)?.body)
+        val reopened = reopen()
+        assertNull(reopened.database.pendingLocalDeletionDao().findById(old.id))
+        assertNull(reopened.database.messageDao().getById(uuid))
+        assertEquals(control.body, reopened.database.messageDao().getById(control.id)?.body)
+    }
+
+    @Test
+    fun legacyUuidConfirmationRejectsConfigurationChangeWithoutConsumingOldRequest() = runBlocking {
+        val container = app.container
+        val uuid = java.util.UUID.randomUUID().toString()
+        val target = message("legacy-config").copy(id = uuid, messageId = uuid)
+        assertTrue(container.messageRepository.insertIncoming(target))
+        val repository = RoomPendingLocalDeletionRepository(container.database, container.database.pendingLocalDeletionDao())
+        val row = repository.enqueue("old UUID target", PendingLocalDeletionOperation.messages(setOf(uuid)), 100L, 5000L)
+        val original = container.database.pendingLocalDeletionDao().findById(row.id)
+        coroutineScope {
+            val owner = container.pendingLocalDeletionCoordinator
+            val review = async { runCatching { owner.reconfirmLegacy(row.id) } }
+            val token = withTimeout(5_000L) { owner.confirmation.filterNotNull().first() }
+            val settings = container.database.appSettingsDao().get()
+            container.database.appSettingsDao().upsert(settings?.copy(serverAddress = "https://changed.invalid")
+                ?: AppSettingsEntity(serverAddress = "https://changed.invalid", token = null, notificationKeyUpdatedAt = null, fcmToken = null))
+            owner.confirm(token.id)
+            assertTrue(review.await().exceptionOrNull() is OrdinaryDeletionTargetChangedException)
+        }
+        assertEquals(original, container.database.pendingLocalDeletionDao().findById(row.id))
+        assertEquals(target.body, container.database.messageDao().getById(uuid)?.body)
+        assertTrue(repository.cancelUnconfirmed(row.id))
+        assertEquals(target.body, container.database.messageDao().getById(uuid)?.body)
+    }
+
+    @Test
+    fun exactCommittedLegacyChannelTombstoneKeepsUnknownOsResponsibilityAndForeignTarget() = runBlocking {
+        val container = app.container
+        val gateway = "https://original-captured.invalid"
+        val operation = PendingLocalDeletionOperation.channel("old-channel", gateway, 42L, false)
+        val repository = RoomPendingLocalDeletionRepository(container.database, container.database.pendingLocalDeletionDao())
+        val old = repository.enqueue("old interrupted channel", operation, 100L, 5000L)
+        container.database.openHelper.writableDatabase.execSQL(
+            "UPDATE pending_local_deletions SET state='COMMITTING',attempt_count=1,last_error='original interrupted remote result' WHERE id=?", arrayOf(old.id))
+        val retained = container.database.pendingLocalDeletionDao().findById(old.id)
+        assertFalse(repository.cancelUnconfirmed(old.id))
+        assertNull(repository.claim(old.id, 9000L, true))
+        container.pendingLocalDeletionCoordinator.drainRecoverable()
+        assertEquals(retained, container.database.pendingLocalDeletionDao().findById(old.id))
+        val tombstone = io.ethan.pushgo.data.db.ChannelSubscriptionEntity(gateway, "old-channel", "old committed target", 42L, null, true, 200L)
+        val control = tombstone.copy(gatewayUrl = "https://foreign-selected.invalid", isDeleted = false, deletedAt = null)
+        container.database.channelSubscriptionDao().insert(tombstone)
+        container.database.channelSubscriptionDao().insert(control)
+        val settings = container.database.appSettingsDao().get()
+        container.database.appSettingsDao().upsert(settings?.copy(serverAddress = control.gatewayUrl)
+            ?: AppSettingsEntity(serverAddress = control.gatewayUrl, token = null, notificationKeyUpdatedAt = null, fcmToken = null))
+        val foreignMessage = message("foreign-same-channel-notification").copy(channel = control.channelId)
+        assertTrue(container.messageRepository.insertIncoming(foreignMessage,
+            deliveryScope = requireNotNull(InboundDeliveryScope.create(control.gatewayUrl, "foreign-device"))))
+        val foreignNotification = post(foreignMessage)
+        container.pendingLocalDeletionCoordinator.drainRecoverable()
+        assertPresent(foreignNotification)
+        assertEquals(foreignMessage.body, container.database.messageDao().getById(foreignMessage.id)?.body)
+        assertEquals(retained, container.database.pendingLocalDeletionDao().findById(old.id))
+        assertEquals(tombstone, container.database.channelSubscriptionDao().getById(gateway, tombstone.channelId))
+        assertEquals(control, container.database.channelSubscriptionDao().getById(control.gatewayUrl, control.channelId))
+    }
+
     private suspend fun seedMessage(container: AppContainer, suffix: String, thingId: String? = null): PushMessage {
         val message = message(suffix, thingId)
         assertTrue(container.messageRepository.insertIncoming(message))
