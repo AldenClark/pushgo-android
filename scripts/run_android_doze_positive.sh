@@ -415,6 +415,46 @@ open_settings_from_root() {
   wait_for_node "screen.settings.content" 10 || failed "PushGo did not open Settings"
 }
 
+# Resolve the fixed Doze resource against the independently read configured locales.
+# Application-only locale can differ from the emulator's system language.
+app_locale_output="[]"
+device_api="$(adb_with_timeout -s "$device_serial" shell getprop ro.build.version.sdk | tr -d '\r')"
+[[ "$device_api" =~ ^[0-9]+$ ]] || blocked "Could not read the device API for the locale oracle"
+if (( device_api >= 33 )); then
+  app_locale_output="$(adb_with_timeout -s "$device_serial" shell cmd locale get-app-locales "$package_name" --user 0)" || \
+    blocked "Could not independently read the app locale for the Doze oracle"
+fi
+system_locale_tags="$(adb_with_timeout -s "$device_serial" shell settings get system system_locales | tr -d '\r')"
+if [[ -z "$system_locale_tags" || "$system_locale_tags" == "null" ]]; then
+  system_locale_tags="$(adb_with_timeout -s "$device_serial" shell getprop persist.sys.locale | tr -d '\r')"
+fi
+expected_doze_title="$(python3 - "$repo_root" "$app_locale_output" "$system_locale_tags" <<'PY_LOCALE'
+from pathlib import Path
+import re
+import sys
+import xml.etree.ElementTree as ET
+
+match = re.search(r"\[([^\]]*)\]\s*$", sys.argv[2].strip())
+if match is None or not sys.argv[3].strip():
+    raise SystemExit("Configured locale is unavailable; do not infer it from visible text")
+# These are the three resource locales shipped by this app. App locales precede system locales.
+tags = (match.group(1) + "," + sys.argv[3]).replace("_", "-").split(",")
+folder = "values"
+for raw in tags:
+    tag = raw.strip().lower()
+    if tag == "en" or tag.startswith("en-"):
+        break
+    if tag == "zh" or tag.startswith("zh-"):
+        folder = "values-zh-rTW" if any(x in tag.split("-") for x in ("hant", "tw", "hk", "mo")) else "values-zh-rCN"
+        break
+root = ET.parse(Path(sys.argv[1]) / "app/src/main/res" / folder / "strings.xml").getroot()
+value = root.find("string[@name='label_disable_doze_title']")
+if value is None or not value.text:
+    raise SystemExit("Expected fixed Doze resource is missing")
+print(value.text)
+PY_LOCALE
+)" || blocked "Could not resolve the exact localized Doze title"
+
 adb_with_timeout -s "$device_serial" shell pm grant "$package_name" "$permission"
 adb_with_timeout -s "$device_serial" shell pm clear-permission-flags \
   "$package_name" "$permission" user-set user-fixed
@@ -425,7 +465,7 @@ launch_app
 wait_for_node "field.delivery_guard.title" 10 || \
   failed "PushGo did not explain the active battery optimization risk"
 dump_ui || failed "Doze explanation UI could not be captured"
-[[ "$(node_text "field.delivery_guard.title")" == "Battery optimization is enabled" ]] || \
+[[ "$(node_text "field.delivery_guard.title")" == "$expected_doze_title" ]] || \
   failed "PushGo showed the wrong delivery-risk explanation"
 wait_for_node "field.delivery_guard.message" 3 || failed "PushGo did not explain delayed delivery"
 wait_for_node "field.delivery_guard.urgency" 3 || failed "PushGo did not explain Doze urgency"
