@@ -468,15 +468,18 @@ class RuntimePrivateChannelStateFlowInstrumentedTest {
             )
             withContext(Dispatchers.Main) { vm.refreshChannelUiStateForTesting() }
         }
-        val privateState = awaitUiState(vm) { state ->
-            state.isChannelModeLoaded && !state.useFcmChannel
-        }
-        assertFalse(privateState.useFcmChannel)
-        assertNull(privateState.deviceToken)
         val expectedPrivateSummary = harness.privateChannelClient.summarizeConnectionStatus(
             snapshot = harness.privateChannelClient.readConnectionSnapshot(),
             privateModeEnabled = true,
         )
+        // Mode and connection are separate upstream flows. Await their complete projection,
+        // rather than accepting the valid intermediate private/not-connected state.
+        val privateState = awaitUiState(vm) { state ->
+            state.isChannelModeLoaded && !state.useFcmChannel &&
+                state.deviceToken == null && state.privateTransportStatus == expectedPrivateSummary
+        }
+        assertFalse(privateState.useFcmChannel)
+        assertNull(privateState.deviceToken)
         assertEquals(expectedPrivateSummary, privateState.privateTransportStatus)
 
         harness.privateChannelClient.injectSessionEventForTesting(
