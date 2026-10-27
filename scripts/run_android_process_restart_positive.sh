@@ -606,14 +606,6 @@ wait_for_node resource "screen.channels.list" 10 || \
 tap_node resource "action.channels.settings"
 wait_for_node resource "screen.settings" 10 || \
   failed "the restarted App could not reach Settings before opening documentation"
-for _ in 1 2 3 4 5; do
-  if wait_for_node resource "row.settings.docs.getting_started" 1; then
-    break
-  fi
-  scroll_settings_content
-done
-wait_for_node resource "row.settings.docs.getting_started" 3 || \
-  failed "the visible Getting Started documentation row was not reachable"
 # Match PushGoDocumentation.urlFor's language prefix using configuration, not browser text.
 app_locale_output="[]"
 device_api="$(adb_with_timeout -s "$device_serial" shell getprop ro.build.version.sdk | tr -d '\r')"
@@ -643,6 +635,14 @@ print("https://pushgo.dev" + prefix + "/guides/getting-started/")
 PY_DOCUMENTATION_LOCALE
 )" || blocked "Could not resolve the exact localized documentation URL"
 expected_documentation_display="${documentation_url#https://}"
+for _ in 1 2 3 4 5; do
+  if wait_for_node resource "row.settings.docs.getting_started" 1; then
+    break
+  fi
+  scroll_settings_content
+done
+wait_for_node resource "row.settings.docs.getting_started" 3 || \
+  failed "the visible Getting Started documentation row was not reachable"
 tap_node resource "row.settings.docs.getting_started"
 external_surface_open=1
 deadline=$((SECONDS + 10))
