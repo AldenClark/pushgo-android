@@ -72,6 +72,9 @@ class AppContainer(
     private val qualitySession = QualityRuntime.currentSession()
     private val qualityTransportScenario =
         qualitySession?.transportSwitchScenario ?: QualityTransportSwitchScenario.NONE
+    internal val qualityTransportWriterObservation = qualitySession?.let {
+        QualityTransportWriterObservation(it.sessionId, System.identityHashCode(this))
+    }
     init {
         check(qualitySession?.faults?.failLocalStoreInitialization != true) {
             "Quality-injected local persistent storage initialization failure."
@@ -387,6 +390,7 @@ class AppContainer(
         onRemoteRoute = { transportSwitchCoordinator.observeRoute(it) },
     )
     val transportSwitchCoordinator: TransportSwitchCoordinator = TransportSwitchCoordinator(
+        writerObserver = qualityTransportWriterObservation?.let { captured -> captured::record },
         gateway = if (qualityTransportScenario == QualityTransportSwitchScenario.NONE) {
             privateChannelClient
         } else {
@@ -1426,3 +1430,41 @@ internal fun <T> selectTransportCapabilityProbe(
     (session?.transportSwitchScenario ?: QualityTransportSwitchScenario.NONE) != QualityTransportSwitchScenario.NONE ||
     (session?.channelMutationScenario ?: QualityChannelMutationScenario.NONE) != QualityChannelMutationScenario.NONE
 ) controlledProbe else realProbe
+
+/** Bounded QA-only memory, captured by this container; never attributes old jobs to a new session. */
+internal class QualityTransportWriterObservation(
+    private val capturedSessionId: String,
+    private val containerInstanceId: Int,
+) {
+    private val requested = AtomicInteger()
+    private val acquired = AtomicInteger()
+    private val released = AtomicInteger()
+    private val loadEntered = AtomicInteger()
+    private val loadFinished = AtomicInteger()
+    private val switchEntered = AtomicInteger()
+    private val switchFinished = AtomicInteger()
+    @Volatile private var coordinatorInstanceId: Int = 0
+    @Volatile private var owner: String? = null
+    @Volatile private var lastEvent: String? = null
+
+    fun record(instanceId: Int, operation: String, phase: String) {
+        coordinatorInstanceId = instanceId
+        lastEvent = "$operation:$phase"
+        when (phase) {
+            "requested" -> requested.incrementAndGet()
+            "acquired" -> { acquired.incrementAndGet(); owner = operation }
+            "released" -> { released.incrementAndGet(); owner = null }
+        }
+        when ("$operation:$phase") {
+            "gateway.load:entered" -> loadEntered.incrementAndGet()
+            "gateway.load:finished" -> loadFinished.incrementAndGet()
+            "gateway.switch:entered" -> switchEntered.incrementAndGet()
+            "gateway.switch:finished" -> switchFinished.incrementAndGet()
+        }
+    }
+
+    fun snapshot(): String = "capturedSession=$capturedSessionId container=$containerInstanceId " +
+        "coordinator=$coordinatorInstanceId owner=$owner requested=${requested.get()} " +
+        "acquired=${acquired.get()} released=${released.get()} load=${loadEntered.get()}/${loadFinished.get()} " +
+        "switch=${switchEntered.get()}/${switchFinished.get()} last=$lastEvent"
+}

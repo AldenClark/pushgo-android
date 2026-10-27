@@ -532,7 +532,7 @@ class QualitySettingsJourneyInstrumentedTest : QualityAppJourneyTestCase() {
         retryAddressField.performTextClearance()
         retryAddressField.performTextInput("$normalizedAddress/")
         saveGatewayFromEditor()
-        waitForTagToDisappear("sheet.settings.gateway")
+        waitForTagToDisappear("sheet.settings.gateway", expectedGateway = normalizedAddress)
         composeRule.onNodeWithTag("row.settings.gateway")
             .assertTextContains(normalizedAddress)
 
@@ -611,7 +611,7 @@ class QualitySettingsJourneyInstrumentedTest : QualityAppJourneyTestCase() {
         retryField.performTextClearance()
         retryField.performTextInput("$candidateAddress/")
         saveGatewayFromEditor()
-        waitForTagToDisappear("sheet.settings.gateway")
+        waitForTagToDisappear("sheet.settings.gateway", expectedGateway = candidateAddress)
         composeRule.onNodeWithTag("row.settings.gateway").assertTextContains(candidateAddress)
 
         scenario?.close()
@@ -1096,8 +1096,8 @@ class QualitySettingsJourneyInstrumentedTest : QualityAppJourneyTestCase() {
         composeRule.onNodeWithTag(tag).assertIsDisplayed()
     }
 
-    private fun waitForTagToDisappear(tag: String, timeoutMillis: Long = 8_000) {
-        observeSettingsWait("disappear $tag") {
+    private fun waitForTagToDisappear(tag: String, timeoutMillis: Long = 8_000, expectedGateway: String? = null) {
+        observeSettingsWait("disappear $tag", expectedGateway) {
             composeRule.waitUntil(timeoutMillis = timeoutMillis) {
                 composeRule.onAllNodes(hasTestTag(tag)).fetchSemanticsNodes().isEmpty()
             }
@@ -1105,7 +1105,7 @@ class QualitySettingsJourneyInstrumentedTest : QualityAppJourneyTestCase() {
         composeRule.onNodeWithTag(tag).assertDoesNotExist()
     }
 
-    private fun observeSettingsWait(checkpoint: String, wait: () -> Unit) {
+    private fun observeSettingsWait(checkpoint: String, expectedGateway: String? = null, wait: () -> Unit) {
         try {
             wait()
         } catch (failure: Throwable) {
@@ -1114,7 +1114,13 @@ class QualitySettingsJourneyInstrumentedTest : QualityAppJourneyTestCase() {
                 val session = QualityRuntime.currentSession()
                 val container = app.container
                 val local = runBlocking {
-                    "gatewayIsDefault=${container.settingsRepository.getServerAddress() == io.ethan.pushgo.data.AppConstants.defaultServerAddress}, " +
+                    val rawGateway = container.settingsRepository.getServerAddress()
+                    val defaultGateway = io.ethan.pushgo.data.AppConstants.defaultServerAddress
+                    val effectiveGateway = io.ethan.pushgo.util.UrlValidators.normalizeGatewayBaseUrl(rawGateway?.trim()?.ifEmpty { null } ?: defaultGateway)
+                    val expected = expectedGateway?.let(io.ethan.pushgo.util.UrlValidators::normalizeGatewayBaseUrl)
+                    "gatewayRawPresent=${!rawGateway.isNullOrBlank()}, " +
+                        "gatewayNormalizedDefault=${effectiveGateway == io.ethan.pushgo.util.UrlValidators.normalizeGatewayBaseUrl(defaultGateway)}, " +
+                        "expectedCandidateMatch=${expected?.let { effectiveGateway == it }}, " +
                         "useFcm=${container.settingsRepository.getUseFcmChannel()}, " +
                         "tokenPresent=${!container.settingsRepository.getFcmToken().isNullOrBlank()}"
                 }
@@ -1123,13 +1129,13 @@ class QualitySettingsJourneyInstrumentedTest : QualityAppJourneyTestCase() {
                         "actualDB=${container.database.openHelper.databaseName}, " +
                         "mutation=${session?.channelMutationScenario}, transport=${session?.transportSwitchScenario}, " +
                         "faults=${session?.faults}, $local")
+                QualityUiFailureDiagnostics.logText("$checkpoint writer",
+                    "${container.qualityTransportWriterObservation?.snapshot()}, ${container.transportSwitchCoordinator.diagnosticLockState()}")
                 for (tag in listOf("feedback.settings.gateway", "feedback.settings.notification_transport")) {
                     QualityUiFailureDiagnostics.logText("$checkpoint $tag",
                         composeRule.onAllNodes(hasTestTag(tag)).fetchSemanticsNodes()
                             .joinToString("\n") { it.config.toString() })
                 }
-                QualityUiFailureDiagnostics.logWindowHierarchy(
-                    UiDevice.getInstance(InstrumentationRegistry.getInstrumentation()), checkpoint)
             }.onFailure {
                 QualityUiFailureDiagnostics.logText("$checkpoint observation unavailable", it.javaClass.simpleName)
             }

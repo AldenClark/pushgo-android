@@ -53,6 +53,28 @@ class TransportSwitchCoordinatorTest {
         assertFalse(h.useFcm); assertEquals(0, h.writes); assertEquals(1, h.reads)
     }
 
+    @Test fun throwingObserverCannotChangeWritesOriginalFailureOrReleaseOfWriterLock() = runBlocking {
+        val h = Harness()
+        var observations = 0
+        val coordinator = TransportSwitchCoordinator(h.gateway, h.applier, { h.gatewayUrl }, { h.deviceKey },
+            writerObserver = { _, _, _ -> observations++; error("observer failure") })
+        coordinator.switchToPrivate()
+        assertFalse(h.useFcm)
+        assertEquals("private", h.route.channelType)
+        assertEquals(1, h.writes)
+        h.reject = true
+        val originalFailure = runCatching { coordinator.switchToFcm("candidate") }.exceptionOrNull()
+        assertEquals("rejected", originalFailure?.message)
+        assertEquals(2, h.writes)
+        assertFalse(h.useFcm)
+        h.reject = false
+        coordinator.switchToFcm("fresh")
+        assertTrue(h.useFcm)
+        assertEquals(3, h.writes)
+        assertTrue(observations > 0)
+        assertTrue(coordinator.diagnosticLockState().contains("observerAvailable=false"))
+    }
+
     @Test fun directSwitchInBothDirectionsUsesOneWriteEachAndScopesProviderToken() = runBlocking {
         val h = Harness(); val c = h.coordinator()
         c.switchToPrivate(); assertFalse(h.useFcm); assertEquals("private", h.route.channelType)
