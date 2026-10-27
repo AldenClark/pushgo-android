@@ -1138,7 +1138,16 @@ class QualityMessageJourneyInstrumentedTest : QualityAppJourneyTestCase() {
         val id = java.util.UUID.randomUUID().toString()
         val original = runBlocking { checkNotNull(app.container.messageRepository.getById("quality-channel-delete-message")) }
         runBlocking {
-            app.container.messageRepository.insert(original.copy(id = id, messageId = id, title = "Legacy review target"))
+            app.container.messageRepository.insert(original.copy(
+                id = id,
+                messageId = id,
+                title = "Legacy review target",
+                rawPayloadJson = JSONObject(original.rawPayloadJson)
+                    .put("message_id", id)
+                    .put("delivery_id", "quality-delivery-$id")
+                    .put("title", "Legacy review target")
+                    .toString(),
+            ))
             val repository = io.ethan.pushgo.data.RoomPendingLocalDeletionRepository(app.container.database, app.container.database.pendingLocalDeletionDao())
             repository.enqueue("Legacy review target", io.ethan.pushgo.data.PendingLocalDeletionOperation.messages(setOf(id)), System.currentTimeMillis(), 120_000L)
         }
