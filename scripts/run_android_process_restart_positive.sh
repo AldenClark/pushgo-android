@@ -614,6 +614,35 @@ for _ in 1 2 3 4 5; do
 done
 wait_for_node resource "row.settings.docs.getting_started" 3 || \
   failed "the visible Getting Started documentation row was not reachable"
+# Match PushGoDocumentation.urlFor's language prefix using configuration, not browser text.
+app_locale_output="[]"
+device_api="$(adb_with_timeout -s "$device_serial" shell getprop ro.build.version.sdk | tr -d '\r')"
+[[ "$device_api" =~ ^[0-9]+$ ]] || blocked "Could not read the device API for the documentation locale oracle"
+if (( device_api >= 33 )); then
+  app_locale_output="$(adb_with_timeout -s "$device_serial" shell cmd locale get-app-locales "$package_name" --user 0)" || \
+    blocked "Could not independently read the app locale for the documentation oracle"
+fi
+system_locale_tags="$(adb_with_timeout -s "$device_serial" shell settings get system system_locales | tr -d '\r')"
+if [[ -z "$system_locale_tags" || "$system_locale_tags" == "null" ]]; then
+  system_locale_tags="$(adb_with_timeout -s "$device_serial" shell getprop persist.sys.locale | tr -d '\r')"
+fi
+documentation_url="$(python3 - "$app_locale_output" "$system_locale_tags" <<'PY_DOCUMENTATION_LOCALE'
+import re
+import sys
+
+match = re.search(r"\[([^\]]*)\]\s*$", sys.argv[1].strip())
+if match is None:
+    raise SystemExit("Configured app locale is unavailable; do not infer it from browser text")
+app_tags = [tag.strip() for tag in match.group(1).split(",") if tag.strip()]
+system_tags = [tag.strip() for tag in sys.argv[2].split(",") if tag.strip() and tag != "null"]
+tags = app_tags or system_tags
+if not tags:
+    raise SystemExit("Configured default language is unavailable")
+prefix = "/zh" if tags[0].lower().startswith("zh") else ""
+print("https://pushgo.dev" + prefix + "/guides/getting-started/")
+PY_DOCUMENTATION_LOCALE
+)" || blocked "Could not resolve the exact localized documentation URL"
+expected_documentation_display="${documentation_url#https://}"
 tap_node resource "row.settings.docs.getting_started"
 external_surface_open=1
 deadline=$((SECONDS + 10))
