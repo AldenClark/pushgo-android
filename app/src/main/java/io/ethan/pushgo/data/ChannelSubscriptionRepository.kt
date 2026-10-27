@@ -65,6 +65,7 @@ interface ChannelMutationRoundTrip {
         password: String,
     ): ChannelRenameResult
     suspend fun unsubscribe(gatewayUrl: String, channelId: String)
+    suspend fun retireGatewayRoute(previous: GatewayTransitionSnapshot, channelType: String)
 }
 
 /** Classification used by durable old-route cleanup and its focused tests. */
@@ -947,12 +948,16 @@ class ChannelSubscriptionRepository(
         deviceKey: String,
         channelType: String,
     ): GatewayRouteRetirement = try {
-        service.deleteDeviceChannel(
-            baseUrl = previous.address.orEmpty(),
-            token = previous.gatewayToken,
-            deviceKey = deviceKey,
-            channelType = channelType,
-        )
+        if (channelMutationRoundTrip != null) {
+            channelMutationRoundTrip.retireGatewayRoute(previous, channelType)
+        } else {
+            service.deleteDeviceChannel(
+                baseUrl = previous.address.orEmpty(),
+                token = previous.gatewayToken,
+                deviceKey = deviceKey,
+                channelType = channelType,
+            )
+        }
         GatewayRouteRetirement.SUCCESS
     } catch (error: CancellationException) {
         throw error

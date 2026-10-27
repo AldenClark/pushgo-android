@@ -5,6 +5,13 @@ import androidx.room.Room
 import androidx.room.RoomDatabase
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import io.ethan.pushgo.data.ChannelMutationRoundTrip
+import io.ethan.pushgo.data.ChannelSubscribeResult
+import io.ethan.pushgo.data.ChannelRenameResult
+import io.ethan.pushgo.data.ChannelSubscriptionException
+import io.ethan.pushgo.data.GatewayErrorCategory
+import io.ethan.pushgo.data.GatewayTransitionSnapshot
+import io.ethan.pushgo.data.GatewayTransitionStage
 import io.ethan.pushgo.data.ChannelSubscriptionRepository
 import io.ethan.pushgo.data.ChannelSubscriptionService
 import io.ethan.pushgo.data.ChannelSubscriptionStore
@@ -75,6 +82,69 @@ class RuntimeChannelSwitchInstrumentedTest {
         cleanupDatabaseFamily(DATABASE_NAME)
         context.getSharedPreferences(settingsCacheName, Context.MODE_PRIVATE).edit().clear().commit()
         context.getSharedPreferences(SECRET_PREFS_NAME, Context.MODE_PRIVATE).edit().clear().commit()
+    }
+
+    /** Room/encoded-journal boundary: a fake route must never fall through to real HTTP.
+     * Keeps captured credentials and failed cleanup across recreation; no UI or network, ~1s.
+     */
+    @Test
+    fun controlledRouteRetirementRetainsCapturedResponsibilityAcrossReopenAndRetry() = runBlocking {
+        val priorAddress = "https://quality-prior.invalid/api"
+        val candidateAddress = "https://quality-candidate.invalid/api"
+        val retired = mutableListOf<GatewayTransitionSnapshot>()
+        var networkAttempts = 0
+        val blockedService = ChannelSubscriptionService(requireNetworkAccess = {
+            networkAttempts++
+            throw AssertionError("Controlled route fell through to real Channel HTTP")
+        })
+        val roundTrip = object : ChannelMutationRoundTrip {
+            override suspend fun ensureProviderRoute(gatewayUrl: String, providerToken: String): String =
+                if (gatewayUrl == priorAddress) "prior-device" else {
+                    assertEquals(candidateAddress, gatewayUrl)
+                    "candidate-device"
+                }
+            override suspend fun subscribe(gatewayUrl: String, channelId: String?, channelName: String?, password: String): ChannelSubscribeResult = error("Unexpected subscribe")
+            override suspend fun rename(gatewayUrl: String, channelId: String, channelName: String, password: String): ChannelRenameResult = error("Unexpected rename")
+            override suspend fun unsubscribe(gatewayUrl: String, channelId: String) = error("Unexpected unsubscribe")
+            override suspend fun retireGatewayRoute(previous: GatewayTransitionSnapshot, channelType: String) {
+                assertEquals(priorAddress, previous.address)
+                assertEquals("prior-device", previous.deviceKey)
+                assertEquals("prior-auth", previous.gatewayToken)
+                assertEquals("fcm", channelType)
+                retired += previous
+                if (retired.size == 1) throw ChannelSubscriptionException.local(
+                    message = "Synthetic retirement failure", code = "quality_retirement_retry",
+                    category = GatewayErrorCategory.UPSTREAM,
+                )
+            }
+        }
+        db?.close()
+        openRepositories(settingsCacheName, controlledRoundTrip = roundTrip, channelService = blockedService)
+        settingsRepository.setServerAddress(priorAddress)
+        settingsRepository.setGatewayToken("prior-auth")
+        settingsRepository.setUseFcmChannel(true)
+        channelRepository.syncProviderDeviceToken("prior-provider")
+        assertEquals("prior-device", settingsRepository.getDeviceKey())
+        val prepared = channelRepository.prepareGatewaySwitch(candidateAddress, "candidate-auth", "candidate-provider", "fcm")
+        channelRepository.commitGatewaySwitch(prepared)
+        assertFalse(channelRepository.cleanupCommittedGatewayTransition().completed)
+        val pending = checkNotNull(settingsRepository.getGatewayTransitionJournal())
+        assertEquals(GatewayTransitionStage.COMMITTED, pending.stage)
+        assertTrue(pending.fcmCleanupPending)
+        assertEquals(priorAddress, pending.previous.address)
+        assertEquals(candidateAddress, settingsRepository.getServerAddress())
+        assertEquals("candidate-device", settingsRepository.getDeviceKey())
+        db?.close()
+        openRepositories(settingsCacheName, controlledRoundTrip = roundTrip, channelService = blockedService)
+        assertEquals(pending, settingsRepository.getGatewayTransitionJournal())
+        assertTrue(channelRepository.cleanupCommittedGatewayTransition().completed)
+        assertEquals(null, settingsRepository.getGatewayTransitionJournal())
+        assertEquals(2, retired.size)
+        assertEquals(retired[0], retired[1])
+        assertEquals(candidateAddress, settingsRepository.getServerAddress())
+        assertEquals("candidate-device", settingsRepository.getDeviceKey())
+        assertEquals("candidate-auth", settingsRepository.getGatewayToken())
+        assertEquals(0, networkAttempts)
     }
 
     @Test
@@ -377,6 +447,8 @@ class RuntimeChannelSwitchInstrumentedTest {
     private fun openRepositories(
         settingsCacheName: String,
         onRemoteRoute: suspend (DeviceRouteSnapshot) -> Unit = {},
+        controlledRoundTrip: ChannelMutationRoundTrip? = null,
+        channelService: ChannelSubscriptionService? = null,
     ) {
         val openedDb = PushGoDatabase.buildForTest(context, DATABASE_NAME)
         openedDb.openHelper.writableDatabase.query("PRAGMA journal_mode=WAL").close()
@@ -427,7 +499,8 @@ class RuntimeChannelSwitchInstrumentedTest {
             pushTokenProvider = object : PushTokenProvider {
                 override suspend fun fetchToken(timeoutMs: Long): String? = null
             },
-            service = ChannelSubscriptionService(ioDispatcher = Dispatchers.IO),
+            service = channelService ?: ChannelSubscriptionService(ioDispatcher = Dispatchers.IO),
+            channelMutationRoundTrip = controlledRoundTrip,
             onRemoteRoute = onRemoteRoute,
         )
         privateChannelClient = PrivateChannelClient(

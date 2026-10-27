@@ -72,6 +72,7 @@ class AppContainer(
     private val qualitySession = QualityRuntime.currentSession()
     private val qualityTransportScenario =
         qualitySession?.transportSwitchScenario ?: QualityTransportSwitchScenario.NONE
+    private val qualityControlsChannelRoutes = selectTransportCapabilityProbe(qualitySession, false, true)
     internal val qualityTransportWriterObservation = qualitySession?.let {
         QualityTransportWriterObservation(it.sessionId, System.identityHashCode(this))
     }
@@ -82,10 +83,12 @@ class AppContainer(
     }
     val coroutineDispatchers = AppCoroutineDispatchers()
     val pushTokenProvider: PushTokenProvider =
-        if (qualityTransportScenario != QualityTransportSwitchScenario.NONE) {
+        if (qualityControlsChannelRoutes) {
             object : PushTokenProvider {
                 override suspend fun fetchToken(timeoutMs: Long): String =
-                    "quality-transport-fcm-token"
+                    if (qualityTransportScenario != QualityTransportSwitchScenario.NONE) {
+                        "quality-transport-fcm-token"
+                    } else "quality-channel-provider-token"
             }
         } else {
             FirebasePushTokenProvider()
@@ -169,7 +172,12 @@ class AppContainer(
         onPullContinuation = { isCurrent -> scheduleProviderPullContinuation(isCurrent) },
         service = ChannelSubscriptionService(
             ioDispatcher = coroutineDispatchers.io,
-            requireNetworkAccess = { io.ethan.pushgo.util.LocalNetworkPermission.requireAccess(appContext, it) },
+            requireNetworkAccess = {
+                if (qualityControlsChannelRoutes) {
+                    throw AssertionError("Controlled channel fixture fell through to real Channel HTTP")
+                }
+                io.ethan.pushgo.util.LocalNetworkPermission.requireAccess(appContext, it)
+            },
         ),
         eventCloseRoundTrip = QualityRuntime.currentSession()?.eventCloseScenario
             ?.takeUnless { it == QualityEventCloseScenario.NONE }
@@ -232,9 +240,10 @@ class AppContainer(
                     }
                 }
             },
-        channelMutationRoundTrip = QualityRuntime.currentSession()?.channelMutationScenario
-            ?.takeUnless { it == QualityChannelMutationScenario.NONE }
-            ?.let { scenario ->
+        channelMutationRoundTrip = qualitySession
+            ?.takeIf { qualityControlsChannelRoutes }
+            ?.let { controlledSession ->
+            val scenario = controlledSession.channelMutationScenario
             object : ChannelMutationRoundTrip {
                 private var subscribeAttempts = 0
                 private var renameAttempts = 0
@@ -296,6 +305,9 @@ class AppContainer(
                 ): ChannelSubscribeResult {
                     requireExpectedGateway(gatewayUrl)
                     check(password.isNotBlank()) { "quality channel subscribe requires a password" }
+                    check(scenario != QualityChannelMutationScenario.NONE) {
+                        "Transport-only fixture does not authorize channel mutations"
+                    }
                     subscribeAttempts += 1
                     if (
                         scenario == QualityChannelMutationScenario.REJECT_ONCE_THEN_ACCEPTED &&
@@ -349,6 +361,9 @@ class AppContainer(
                 ): ChannelRenameResult {
                     requireExpectedGateway(gatewayUrl)
                     check(password.isNotBlank()) { "quality channel rename requires a password" }
+                    check(scenario != QualityChannelMutationScenario.NONE) {
+                        "Transport-only fixture does not authorize channel mutations"
+                    }
                     renameAttempts += 1
                     if (
                         scenario == QualityChannelMutationScenario.RENAME_REJECT_ONCE_THEN_ACCEPTED &&
@@ -363,6 +378,26 @@ class AppContainer(
                     return ChannelRenameResult(channelId = channelId, channelName = channelName)
                 }
 
+                override suspend fun retireGatewayRoute(previous: GatewayTransitionSnapshot, channelType: String) {
+                    val journal = checkNotNull(settingsRepository.getGatewayTransitionJournal()) {
+                        "quality route retirement requires its durable journal"
+                    }
+                    check(journal.stage == GatewayTransitionStage.COMMITTED && journal.previous == previous) {
+                        "quality retirement must use the committed captured previous route"
+                    }
+                    check(previous.deviceKey == "quality-channel-device") {
+                        "quality retirement cannot claim an unowned device"
+                    }
+                    check(UrlValidators.normalizeGatewayBaseUrl(previous.address.orEmpty()) != null)
+                    check(channelType == "fcm" || channelType == "private")
+                    check(journal.previousChannelType == channelType) {
+                        "quality retirement requires its captured channel type"
+                    }
+                    check(if (channelType == "fcm") journal.fcmCleanupPending else journal.privateCleanupPending) {
+                        "quality retirement requires a pending captured responsibility"
+                    }
+                }
+
                 override suspend fun unsubscribe(gatewayUrl: String, channelId: String) {
                     requireExpectedGateway(gatewayUrl)
                     check(channelId.isNotBlank()) { "quality channel unsubscribe requires an id" }
@@ -372,6 +407,9 @@ class AppContainer(
                     ) {
                         existingSubscriptionWasCompensated = true
                         return
+                    }
+                    check(scenario != QualityChannelMutationScenario.NONE) {
+                        "Transport-only fixture does not authorize channel mutations"
                     }
                     activeCreatedChannelIds -= channelId
                 }
