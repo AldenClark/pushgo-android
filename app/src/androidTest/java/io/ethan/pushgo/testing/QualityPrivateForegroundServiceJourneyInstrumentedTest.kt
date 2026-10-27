@@ -97,11 +97,20 @@ class QualityPrivateForegroundServiceJourneyInstrumentedTest : QualityAppJourney
             ?.toString()
             ?.trim()
         assertTrue("Private Service notification status was empty", !systemStatusText.isNullOrEmpty())
+        assertTrue("Private notification was not a promoted foreground Service",
+            checkNotNull(serviceNotification).notification.flags and Notification.FLAG_FOREGROUND_SERVICE != 0)
         composeRule.onNodeWithTag("screen.settings.content")
             .performScrollToNode(hasTestTag("row.settings.private_transport"))
         composeRule.onNodeWithTag("row.settings.private_transport")
             .assertIsDisplayed()
             .assertTextContains(checkNotNull(systemStatusText))
+        awaitServiceRegistration(expected = true)
+        // Existing instances also owe foreground promotion for every new start request.
+        PrivateChannelServiceManager.refreshForMode(app, useFcmChannel = false)
+        PrivateChannelServiceManager.refreshForMode(app, useFcmChannel = false)
+        assertTrue("Repeated Private starts lost foreground promotion",
+            checkNotNull(awaitPrivateServiceNotification(expected = true)).notification.flags and
+                Notification.FLAG_FOREGROUND_SERVICE != 0)
         awaitServiceRegistration(expected = true)
 
         scenario?.close()

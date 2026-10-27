@@ -15,6 +15,9 @@ import androidx.core.app.NotificationCompat
 import io.ethan.pushgo.MainActivity
 import io.ethan.pushgo.PushGoApp
 import io.ethan.pushgo.R
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -27,40 +30,71 @@ class PrivateChannelForegroundService : Service() {
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private var notificationWatchdogJob: Job? = null
 
+    private var initializationJob: Job? = null
+    @Volatile private var latestStartId = 0
+    @Volatile private var activeClient: PrivateChannelClient? = null
+
     override fun onCreate() {
         super.onCreate()
-        val container = appContainer()
-        val shouldRun = container != null && shouldRunService(container)
-        if (container == null || !shouldRun || !startForegroundSafely()) {
-            stopSelf()
-            return
-        }
-        container.privateChannelClient.setKeepaliveServiceActive(true)
-        ensureWatchdog()
+        // Fulfil the OS foreground obligation before any Room/storage qualification.
+        if (!startForegroundSafely()) stopSelf()
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        val container = appContainer() ?: return START_NOT_STICKY
-        val shouldRun = shouldRunService(container)
-        if (!shouldRun) {
-            stopSelf()
+        latestStartId = startId
+        // A new request can reach an existing/stopping instance without onCreate.
+        if (!startForegroundSafely()) {
+            stopSelfResult(startId)
             return START_NOT_STICKY
         }
         if (intent?.action == ACTION_NOTIFICATION_DISMISSED) {
-            container.privateChannelClient.onKeepaliveNotificationDismissed("notification dismissed")
-            stopSelf()
+            activeClient?.onKeepaliveNotificationDismissed("notification dismissed")
+            stopSelfResult(startId)
             return START_NOT_STICKY
         }
-        container.privateChannelClient.setKeepaliveServiceActive(true)
-        updateNotification()
-        ensureWatchdog()
+        if (initializationJob?.isActive != true) {
+            // Merge requests into one worker: a synchronous container getter may not cancel.
+            initializationJob = serviceScope.launch(Dispatchers.Main.immediate) {
+                var requestedStartId = latestStartId
+                try {
+                    do {
+                        requestedStartId = latestStartId
+                        val (container, shouldRun) = withContext(Dispatchers.Default) {
+                            val container = appContainer()
+                            container to (container != null && shouldRunService())
+                        }
+                        if (latestStartId != requestedStartId) continue
+                        if (container == null || !shouldRun) {
+                            stopSelfResult(requestedStartId)
+                        } else {
+                            val client = container.privateChannelClient
+                            if (activeClient !== client) activeClient?.setKeepaliveServiceActive(false)
+                            activeClient = client
+                            client.setKeepaliveServiceActive(true)
+                            updateNotification()
+                            ensureWatchdog()
+                        }
+                        break
+                    } while (isActive)
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (error: Exception) {
+                    io.ethan.pushgo.util.SilentSink.w(TAG, "Private Service qualification failed", error)
+                    stopSelfResult(requestedStartId)
+                }
+            }
+        }
         return START_STICKY
     }
 
     override fun onDestroy() {
+        initializationJob?.cancel()
+        initializationJob = null
         notificationWatchdogJob?.cancel()
         notificationWatchdogJob = null
-        appContainer()?.privateChannelClient?.setKeepaliveServiceActive(false)
+        serviceScope.cancel()
+        activeClient?.setKeepaliveServiceActive(false)
+        activeClient = null
         super.onDestroy()
     }
 
@@ -139,7 +173,7 @@ class PrivateChannelForegroundService : Service() {
     }
 
     private fun currentStatusSummary(): String {
-        val client = appContainer()?.privateChannelClient
+        val client = activeClient
         if (client == null) {
             return getString(R.string.private_transport_status_disconnected)
         }
@@ -191,7 +225,7 @@ class PrivateChannelForegroundService : Service() {
         return manager.activeNotifications.any { record -> record.id == NOTIFICATION_ID }
     }
 
-    private fun shouldRunService(container: io.ethan.pushgo.data.AppContainer): Boolean {
+    private fun shouldRunService(): Boolean {
         val app = application as? PushGoApp ?: return false
         return app.shouldRunPrivateChannelForegroundService()
     }
