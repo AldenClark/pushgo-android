@@ -4,6 +4,7 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.text.format.DateFormat
+import androidx.annotation.StringRes
 import androidx.compose.ui.test.*
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.core.view.ViewCompat
@@ -26,7 +27,7 @@ class QualityChannelJourneyInstrumentedTest : QualityAppJourneyTestCase() {
         assertCreateFailureThenRetry(
             scenario = QualityChannelMutationScenario.REJECT_ONCE_THEN_ACCEPTED,
             faults = QualityFaults(),
-            expectedFailureText = "Channel password is incorrect. Check the password and try again.",
+            expectedFailureTextRes = R.string.error_gateway_channel_password_incorrect,
         )
     }
 
@@ -35,7 +36,7 @@ class QualityChannelJourneyInstrumentedTest : QualityAppJourneyTestCase() {
         assertCreateFailureThenRetry(
             scenario = QualityChannelMutationScenario.REQUIRE_CREATE_COMPENSATION,
             faults = QualityFaults(failChannelSubscriptionPersistenceOnce = true),
-            expectedFailureText = null,
+            expectedFailureTextRes = null,
         )
     }
 
@@ -83,7 +84,7 @@ class QualityChannelJourneyInstrumentedTest : QualityAppJourneyTestCase() {
             QualityRuntime.globalErrorPresentationCount(),
         )
 
-        composeRule.onNodeWithText("Cancel").performClick()
+        composeRule.onNodeWithText(currentActivityString(R.string.label_cancel)).performClick()
         composeRule.onNodeWithTag("action.channels.add").performClick()
         composeRule.onNodeWithTag("mode.channels.entry.subscribe").performClick()
         composeRule.onNodeWithTag("field.channels.subscribe.id")
@@ -260,7 +261,7 @@ class QualityChannelJourneyInstrumentedTest : QualityAppJourneyTestCase() {
     private fun assertCreateFailureThenRetry(
         scenario: QualityChannelMutationScenario,
         faults: QualityFaults,
-        expectedFailureText: String?,
+        @StringRes expectedFailureTextRes: Int?,
     ) {
         configureAndLaunch(
             fixture = QualityFixture.CHANNELS_STANDARD,
@@ -292,11 +293,11 @@ class QualityChannelJourneyInstrumentedTest : QualityAppJourneyTestCase() {
             hostErrorPresentationBaseline,
             QualityRuntime.globalErrorPresentationCount(),
         )
-        expectedFailureText?.let { expected ->
-            composeRule.onNodeWithTag("feedback.channels.entry").assertTextEquals(expected)
+        expectedFailureTextRes?.let { expected ->
+            composeRule.onNodeWithTag("feedback.channels.entry").assertTextEquals(currentActivityString(expected))
         }
 
-        composeRule.onNodeWithText("Cancel").performClick()
+        composeRule.onNodeWithText(currentActivityString(R.string.label_cancel)).performClick()
         openMessages()
         openChannels()
         composeRule.onNodeWithTag("channel.row.01H00000000000000000000003").assertDoesNotExist()
@@ -314,6 +315,14 @@ class QualityChannelJourneyInstrumentedTest : QualityAppJourneyTestCase() {
         composeRule.onNodeWithTag("channel.row.01H00000000000000000000003")
             .assertIsDisplayed()
             .assertTextContains("Quality Retry Channel")
+    }
+
+    private fun currentActivityString(@StringRes resourceId: Int): String {
+        var value: String? = null
+        checkNotNull(scenario).onActivity { activity ->
+            value = activity.getString(resourceId)
+        }
+        return checkNotNull(value)
     }
 
     private fun openChannels() {
