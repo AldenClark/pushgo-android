@@ -384,3 +384,14 @@ Gateway 的正向终点不再停在地址持久化或旧行消失：现有 `serv
 ## 2026-10-26 旧删除责任更新（未运行的新路径）
 
 旧 `acceptedLegacyLocalIntentIgnoresOldDeadlineAndSettlesOnceAcrossReopen` 的 force-delete 期待不再成立，改以 `oldEnqueueBeforeUndoNeverBecomesConsentEvenAfterDeadlineOrReopen` 为反证；旧 Room 排队/COMMITTING 不再构成确认。原 worker 旧无确认请求执行测试改为 `oldEnqueueBeforeUndoCannotDeleteContentThroughRealWorkerAfterReopen`；新增 `explicitlyConfirmedChannelCleanupContinuesThroughRealWorkerAfterReopen` 保留真实已确认责任的 Worker 正控。当前 channel transient retry、原上下文、通知失败清理与 independent notification journal 保留。旧 UI Retry 自动删除改为实际 Review→确认或取消，方法总数未减少。最终原生结果仍待当前源码编译/设备，旧回执仅属旧实现。
+
+
+## 2026-10-27 旧删除与完整原始 release 最终输入验收
+
+原 `scripts/quality_test.sh release` 在干净运行输入 `d2bd3c1` 上完整执行并通过（`final-release-20261027-15`），没有拼接子阶段或跳过失败。实际 JVM345、UI35、数据77、资源生命周期3、权限返回1、系统通知/前台服务3、中文大字体1、100k Room1 和 Macrobenchmark2 均无失败/跳过；原 Doze、进程恢复/精确文档交接、删除确认/取消两个新 PID 用例、慢加载负控、unsigned Release 隔离及真实更新安装/原数据保留均完成。更新安装是宿主驱动，不能计作 JUnit 方法。Macrobenchmark 明确为 emulator dry-run，不能当物理性能。
+
+最终 normal `ad754e2852acd8c74e3c68c216efa4537bb3f5182cee3be535f71be186f5c5a0`、test `1394da95b762f4ebfdacfefdc2f631025fd7811042b7a4928b836bd1dde63a09` 与实际安装字节一致。独立 Ordinary17、Save07原 PNG/GIF 字节/播放、真实 JNI1 在相同 normal 的第13轮前置实际执行通过；第13→最终只改无关状态投影测试谓词、主机文档本地化观察和文档，选定19项及共享 fixture/assets 未变，等同性桥接另存，不声称19在最终 test 包再次执行。KSP实际生成 schema40 已提交，迁移/Room/Worker/有限重新确认路径由当前数据/UI阶段覆盖。
+
+原05/06四个 Settings 超时及10解密超时仍原因未证实，不作 flake 豁免；12已证受控 QA provider/setup 与旧 route cleanup 可落穿真实HTTP，现有 seam 补齐并以发网前 guard 负控和失败→重开→重试 Room 正控验证，但不声称唯一定位了12实际 register/upsert挂点。13只等待 mode 的测试谓词误接纳中间连接摘要，修为原8秒内等待原精确完整状态；14精确英文文档地址与产品明确中文路由合同不符，修为独立配置决定的唯一精确地址。所有首败保留，不由最终一次通过清除历史稳定性限制。
+
+临时系统状态精确恢复，PN/LNP完整flags保持原基线，benchmark/macro卸载，最终normal/test按批准保留而非字节回滚；克隆安全关机、正式租约释放均通过。真实设备/Provider/FCM、TLS/Private wire、OEM/低内存/reboot、物理音频/TalkBack/性能、正式签名及发布仍未验收。唯一权威收据为 `whole-goals-acceptance-20261026/android/final-native-20261027/summary.json`；本条为运行后docs-only后继，不产生新的运行。
