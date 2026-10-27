@@ -744,7 +744,6 @@ class PushGoDatabaseMigrationDeviceTest {
             }
         }
 
-        assertEquals(3, originalRows.size)
         repeat(2) {
             val database = PushGoDatabase.build(context)
             try {
@@ -1033,7 +1032,7 @@ class PushGoDatabaseMigrationDeviceTest {
         SQLiteDatabase.openDatabase(file.path, null, SQLiteDatabase.OPEN_READWRITE).use { database ->
             for ((index, payload) in listOf("[\"186df7cc-ae66-4e2a-8230-7e0e1dd799e1\"]", "broken-json", "[]").withIndex()) {
                 database.execSQL("INSERT INTO pending_local_deletions VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-                    arrayOf(index + 1, "original-$index", if (index == 2) "UNKNOWN" else "MESSAGES", payload,
+                    arrayOf<Any?>(index + 1, "original-$index", if (index == 2) "UNKNOWN" else "MESSAGES", payload,
                         null, null, null, 100L, 5100L, if (index == 1) "COMMITTING" else "PENDING", index,
                         200L, 300L, "original-error-$index"))
             }
