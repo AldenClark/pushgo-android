@@ -5,6 +5,7 @@ import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.toPixelMap
 import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.semantics.getOrNull
 import androidx.compose.ui.test.*
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
@@ -1131,6 +1132,29 @@ class QualitySettingsJourneyInstrumentedTest : QualityAppJourneyTestCase() {
                         "faults=${session?.faults}, $local")
                 QualityUiFailureDiagnostics.logText("$checkpoint writer",
                     "${container.qualityTransportWriterObservation?.snapshot()}, ${container.transportSwitchCoordinator.diagnosticLockState()}")
+                if (checkpoint == "appear feedback.settings.decryption") {
+                    // Post-deadline state only; omit all editable contents.
+                    for (tag in listOf("sheet.settings.decryption", "action.settings.decryption.save",
+                        "feedback.settings.decryption")) {
+                        val nodes = composeRule.onAllNodes(hasTestTag(tag), useUnmergedTree = true)
+                            .fetchSemanticsNodes()
+                        QualityUiFailureDiagnostics.logText("$checkpoint $tag geometry",
+                            "count=${nodes.size} " + nodes.joinToString { node ->
+                                "bounds=${node.boundsInWindow} placed=${node.layoutInfo.isPlaced} " +
+                                    "disabled=${node.config.contains(SemanticsProperties.Disabled)}"
+                            })
+                    }
+                    val editors = composeRule.onAllNodes(hasSetTextAction(), useUnmergedTree = true)
+                        .fetchSemanticsNodes()
+                    QualityUiFailureDiagnostics.logText("$checkpoint editor geometry",
+                        "count=${editors.size} " + editors.joinToString { node ->
+                            "bounds=${node.boundsInWindow} " +
+                                "editableLength=${node.config.getOrNull(SemanticsProperties.EditableText)?.length}"
+                        })
+                    QualityUiFailureDiagnostics.logText("$checkpoint dialog after deadline",
+                        sheetDialogWindowState().substringBefore('\n').take(240))
+                    QualityUiFailureDiagnostics.logWindowRoots("$checkpoint after deadline")
+                }
                 for (tag in listOf("feedback.settings.gateway", "feedback.settings.notification_transport")) {
                     QualityUiFailureDiagnostics.logText("$checkpoint $tag",
                         composeRule.onAllNodes(hasTestTag(tag)).fetchSemanticsNodes()
