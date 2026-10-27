@@ -11,6 +11,8 @@ import androidx.compose.ui.test.hasContentDescription
 import androidx.compose.ui.test.hasAnyAncestor
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.isDisplayed
+import androidx.compose.ui.test.printToString
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
@@ -85,9 +87,46 @@ class QualityImageShareInstrumentedTest : QualityAppJourneyTestCase() {
                 val pause = app.getString(R.string.a11y_action_pause_image)
                 fun control(label: String) = hasContentDescription(label) and hasAnyAncestor(hasTestTag("dialog.image.preview"))
                 fun visible(label: String) = composeRule.onAllNodes(control(label)).fetchSemanticsNodes().isNotEmpty()
-                composeRule.waitUntil(5_000) { visible(play) || visible(pause) }
-                if (visible(pause)) composeRule.onNode(control(pause)).performClick()
-                composeRule.onNode(control(play)).assertIsDisplayed().performClick()
+                var pausedByTest = false
+                fun assertPlayDisplayed(stage: String, readyByMillis: Long) {
+                    try {
+                        // A pause replaces the animated request with its poster. The overlay
+                        // is absent while that request loads; keep the original 5s deadline.
+                        composeRule.waitUntil((readyByMillis - android.os.SystemClock.uptimeMillis()).coerceAtLeast(1L)) {
+                            composeRule.onNode(control(play)).isDisplayed()
+                        }
+                        composeRule.onNode(control(play)).assertIsDisplayed()
+                    } catch (failure: Throwable) {
+                        runCatching {
+                            for (label in listOf(play, pause)) {
+                                val nodes = composeRule.onAllNodes(control(label)).fetchSemanticsNodes()
+                                QualityUiFailureDiagnostics.logText("Save07 $stage control",
+                                    "label=$label count=${nodes.size} pausedByTest=$pausedByTest " +
+                                        nodes.joinToString { "root=${it.boundsInRoot} window=${it.boundsInWindow} placed=${it.layoutInfo.isPlaced}" })
+                            }
+                            QualityUiFailureDiagnostics.logText("Save07 $stage preview",
+                                composeRule.onNodeWithTag("dialog.image.preview", useUnmergedTree = true)
+                                    .printToString(maxDepth = 20))
+                            val output = InstrumentationRegistry.getArguments().getString("additionalTestOutputDir")
+                            QualityUiFailureDiagnostics.logWindowState(
+                                UiDevice.getInstance(InstrumentationRegistry.getInstrumentation()),
+                                "Save07 $stage", output?.let { File(it, "save07-$stage-window.xml") })
+                        }.onFailure {
+                            QualityUiFailureDiagnostics.logText("Save07 $stage observation unavailable", it.javaClass.simpleName)
+                        }
+                        throw failure
+                    }
+                }
+                val playReadyBy = android.os.SystemClock.uptimeMillis() + 5_000L
+                composeRule.waitUntil(5_000) {
+                    composeRule.onNode(control(play)).isDisplayed() || composeRule.onNode(control(pause)).isDisplayed()
+                }
+                if (visible(pause)) {
+                    pausedByTest = true
+                    composeRule.onNode(control(pause)).performClick()
+                }
+                assertPlayDisplayed("first-play", playReadyBy)
+                composeRule.onNode(control(play)).performClick()
                 observe("gif64-active-start")
                 val bounds = composeRule.onNodeWithTag("dialog.image.preview").fetchSemanticsNode().boundsInWindow
                 val colors = linkedSetOf<Int>()
@@ -103,8 +142,12 @@ class QualityImageShareInstrumentedTest : QualityAppJourneyTestCase() {
                     Thread.sleep(1_000) // fixed observation sampling interval, never a navigation/retry synchronization
                 }
                 assertTrue("The actual display must show distinct frames", colors.size >= 2)
-                if (visible(pause)) composeRule.onNode(control(pause)).performClick()
-                composeRule.onNode(control(play)).assertIsDisplayed()
+                val posterReadyBy = android.os.SystemClock.uptimeMillis() + 5_000L
+                if (visible(pause)) {
+                    pausedByTest = true
+                    composeRule.onNode(control(pause)).performClick()
+                }
+                assertPlayDisplayed("paused-final", posterReadyBy)
                 observe("gif64-paused")
             }
             composeRule.onNodeWithTag("action.dialog.image_preview.save").assertIsDisplayed().performClick()

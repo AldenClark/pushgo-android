@@ -323,9 +323,10 @@ class OrdinaryDeletionConsistencyDeviceTest {
     @Test
     fun committedThingDeletionRecoversChildMessageAndRelatedEntityNotifications() = runBlocking {
         val container = app.container
-        val thing = seedEntity(container, "thing", "cascade-thing")
-        val child = seedMessage(container, "cascade-child", thingId = thing.entityId)
-        val event = seedEntity(container, "event", "cascade-event", thingId = thing.entityId)
+        val scope = checkNotNull(InboundDeliveryScope.create("https://cleanup-origin.invalid", "cleanup-device"))
+        val thing = seedEntity(container, "thing", "cascade-thing", deliveryScope = scope)
+        val child = seedMessage(container, "cascade-child", thingId = thing.entityId, deliveryScope = scope)
+        val event = seedEntity(container, "event", "cascade-event", thingId = thing.entityId, deliveryScope = scope)
         val targets = listOf(post(thing), post(child), post(event))
         val control = seedMessage(container, "cascade-control")
         val controlNotification = post(control)
@@ -349,8 +350,9 @@ class OrdinaryDeletionConsistencyDeviceTest {
     @Test
     fun eventCleanupRemovesAssociatedThingNotificationWhileThingStillExists() = runBlocking {
         val container = app.container
-        val thing = seedEntity(container, "thing", "retained-thing")
-        val event = seedEntity(container, "event", "deleted-event", thingId = thing.entityId)
+        val scope = checkNotNull(InboundDeliveryScope.create("https://cleanup-origin.invalid", "cleanup-device"))
+        val thing = seedEntity(container, "thing", "retained-thing", deliveryScope = scope)
+        val event = seedEntity(container, "event", "deleted-event", thingId = thing.entityId, deliveryScope = scope)
         val eventNotification = post(event)
         val thingNotification = post(thing.copy(eventId = event.entityId))
         val control = seedMessage(container, "association-control")
@@ -572,11 +574,11 @@ class OrdinaryDeletionConsistencyDeviceTest {
         assertEquals("Existing v34 body", stored.body)
         assertEquals(RECEIVED_AT, stored.receivedAt)
         assertFalse(stored.isRead)
-        assertEquals(39, container.database.openHelper.readableDatabase.version)
+        assertEquals(40, container.database.openHelper.readableDatabase.version)
         assertNoDeletionRows(container)
         val reopened = reopen()
         assertEquals(stored, reopened.database.messageDao().getById(stored.id))
-        assertEquals(39, reopened.database.openHelper.readableDatabase.version)
+        assertEquals(40, reopened.database.openHelper.readableDatabase.version)
         assertNoDeletionRows(reopened)
     }
 
@@ -758,9 +760,23 @@ class OrdinaryDeletionConsistencyDeviceTest {
         assertEquals(control, container.database.channelSubscriptionDao().getById(control.gatewayUrl, control.channelId))
     }
 
-    private suspend fun seedMessage(container: AppContainer, suffix: String, thingId: String? = null): PushMessage {
-        val message = message(suffix, thingId)
-        assertTrue(container.messageRepository.insertIncoming(message))
+    private suspend fun seedMessage(
+        container: AppContainer, suffix: String, thingId: String? = null, deliveryScope: InboundDeliveryScope? = null,
+    ): PushMessage {
+        val unscoped = message(suffix, thingId)
+        val message = if (deliveryScope == null) unscoped else unscoped.copy(
+            serverId = deliveryScope.gatewayUrl,
+            rawPayloadJson = JSONObject(unscoped.rawPayloadJson)
+                .put("message_id", unscoped.messageId)
+                .put("delivery_id", id("delivery-$suffix"))
+                .toString(),
+        )
+        assertTrue(container.messageRepository.insertIncoming(message, deliveryScope = deliveryScope))
+        if (deliveryScope != null) {
+            val deliveryId = checkNotNull(message.deliveryId)
+            assertEquals(deliveryScope.gatewayUrl, container.database.provenInboundGateway(
+                deliveryId, scopedSourceId = deliveryScope.scopedDeliveryStorageKey(deliveryId)))
+        }
         return message
     }
 
@@ -779,8 +795,18 @@ class OrdinaryDeletionConsistencyDeviceTest {
 
     private suspend fun seedEntity(
         container: AppContainer, kind: String, suffix: String, thingId: String? = null,
-    ): IncomingEntityRecord = entity(kind, suffix, thingId).also {
-        assertTrue(container.entityRepository.insertIncoming(it))
+        deliveryScope: InboundDeliveryScope? = null,
+    ): IncomingEntityRecord = entity(kind, suffix, thingId).let { unscoped ->
+        val entity = if (deliveryScope == null) unscoped else unscoped.copy(
+            serverId = deliveryScope.gatewayUrl,
+            rawPayloadJson = JSONObject(unscoped.rawPayloadJson).put("delivery_id", unscoped.deliveryId).toString(),
+        )
+        assertTrue(container.entityRepository.insertIncoming(entity, deliveryScope = deliveryScope))
+        if (deliveryScope != null) {
+            val sourceId = deliveryScope.scopedDeliveryStorageKey(checkNotNull(entity.deliveryId))
+            assertEquals(deliveryScope.gatewayUrl, container.database.authenticatedSourceGateway(sourceId))
+        }
+        entity
     }
 
     private fun entity(kind: String, suffix: String, thingId: String? = null): IncomingEntityRecord {
