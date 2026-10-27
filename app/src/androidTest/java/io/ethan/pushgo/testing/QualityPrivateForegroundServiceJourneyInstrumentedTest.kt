@@ -12,6 +12,7 @@ import androidx.test.uiautomator.Until
 import io.ethan.pushgo.R
 import io.ethan.pushgo.notifications.PrivateChannelForegroundService
 import io.ethan.pushgo.notifications.PrivateChannelServiceManager
+import java.io.File
 import java.io.BufferedReader
 import java.io.InputStreamReader
 import kotlinx.coroutines.delay
@@ -123,10 +124,29 @@ class QualityPrivateForegroundServiceJourneyInstrumentedTest : QualityAppJourney
         )
         device.openNotification()
         val title = app.getString(R.string.private_channel_service_notification_title)
-        assertTrue(
-            "System shade did not expose the exact Private Service notification title",
-            device.wait(Until.hasObject(By.text(title)), 8_000),
-        )
+        try {
+            assertTrue(
+                "System shade did not expose the exact Private Service notification title",
+                device.wait(Until.hasObject(By.text(title)), 8_000),
+            )
+        } catch (failure: Throwable) {
+            runCatching {
+                QualityUiFailureDiagnostics.logText("FGS shade notification state",
+                    "pnGranted=${androidx.core.content.ContextCompat.checkSelfPermission(app, android.Manifest.permission.POST_NOTIFICATIONS) == android.content.pm.PackageManager.PERMISSION_GRANTED} " +
+                        "serviceRegistered=${shell("dumpsys activity services ${app.packageName}").contains("PrivateChannelForegroundService")} " +
+                        "privateSelected=${!app.container.settingsRepository.getUseFcmChannel()} " +
+                        "records=" + notificationManager.activeNotifications.filter {
+                            it.id == PrivateChannelForegroundService.NOTIFICATION_ID
+                        }.joinToString { record ->
+                            "id=${record.id} flags=${record.notification.flags} " +
+                                "titleMatches=${record.notification.extras.getCharSequence(Notification.EXTRA_TITLE)?.toString() == title}"
+                        })
+                val output = InstrumentationRegistry.getArguments().getString("additionalTestOutputDir")
+                QualityUiFailureDiagnostics.logWindowState(device, "FGS shade title missing",
+                    output?.let { File(it, "fgs-shade-title-window.xml") })
+            }.onFailure { QualityUiFailureDiagnostics.logText("FGS shade observation unavailable", it.javaClass.simpleName) }
+            throw failure
+        }
         device.findObject(By.text(title)).click()
         assertTrue(
             "Private Service PendingIntent did not return to PushGo",
