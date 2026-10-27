@@ -887,10 +887,12 @@ class QualitySettingsJourneyInstrumentedTest : QualityAppJourneyTestCase() {
             .assertDoesNotExist()
 
         privateOption.performClick()
-        composeRule.waitUntil(timeoutMillis = 8_000) {
-            composeRule.onAllNodes(
-                hasTestTag("option.settings.notification_transport.private") and isSelected()
-            ).fetchSemanticsNodes().isNotEmpty()
+        observeSettingsWait("private transport committed selection") {
+            composeRule.waitUntil(timeoutMillis = 8_000) {
+                composeRule.onAllNodes(
+                    hasTestTag("option.settings.notification_transport.private") and isSelected()
+                ).fetchSemanticsNodes().isNotEmpty()
+            }
         }
         privateOption.assertIsSelected()
         fcmOption.assertIsNotSelected()
@@ -981,10 +983,12 @@ class QualitySettingsJourneyInstrumentedTest : QualityAppJourneyTestCase() {
 
         // The single remote switch succeeded; local save retry must finish without
         // an inverse remote write or another tap.
-        composeRule.waitUntil(timeoutMillis = 8_000) {
-            composeRule.onAllNodes(
-                hasTestTag("option.settings.notification_transport.private") and isSelected()
-            ).fetchSemanticsNodes().isNotEmpty()
+        observeSettingsWait("private transport committed after persistence failure") {
+            composeRule.waitUntil(timeoutMillis = 8_000) {
+                composeRule.onAllNodes(
+                    hasTestTag("option.settings.notification_transport.private") and isSelected()
+                ).fetchSemanticsNodes().isNotEmpty()
+            }
         }
         composeRule.onNodeWithTag("option.settings.notification_transport.private")
             .assertIsSelected()
@@ -1084,17 +1088,53 @@ class QualitySettingsJourneyInstrumentedTest : QualityAppJourneyTestCase() {
     }
 
     private fun waitForTag(tag: String, timeoutMillis: Long = 8_000) {
-        composeRule.waitUntil(timeoutMillis = timeoutMillis) {
-            composeRule.onAllNodes(hasTestTag(tag)).fetchSemanticsNodes().isNotEmpty()
+        observeSettingsWait("appear $tag") {
+            composeRule.waitUntil(timeoutMillis = timeoutMillis) {
+                composeRule.onAllNodes(hasTestTag(tag)).fetchSemanticsNodes().isNotEmpty()
+            }
         }
         composeRule.onNodeWithTag(tag).assertIsDisplayed()
     }
 
     private fun waitForTagToDisappear(tag: String, timeoutMillis: Long = 8_000) {
-        composeRule.waitUntil(timeoutMillis = timeoutMillis) {
-            composeRule.onAllNodes(hasTestTag(tag)).fetchSemanticsNodes().isEmpty()
+        observeSettingsWait("disappear $tag") {
+            composeRule.waitUntil(timeoutMillis = timeoutMillis) {
+                composeRule.onAllNodes(hasTestTag(tag)).fetchSemanticsNodes().isEmpty()
+            }
         }
         composeRule.onNodeWithTag(tag).assertDoesNotExist()
+    }
+
+    private fun observeSettingsWait(checkpoint: String, wait: () -> Unit) {
+        try {
+            wait()
+        } catch (failure: Throwable) {
+            // Observe only after the original deadline; never retry an action or extend it.
+            runCatching {
+                val session = QualityRuntime.currentSession()
+                val container = app.container
+                val local = runBlocking {
+                    "gatewayIsDefault=${container.settingsRepository.getServerAddress() == io.ethan.pushgo.data.AppConstants.defaultServerAddress}, " +
+                        "useFcm=${container.settingsRepository.getUseFcmChannel()}, " +
+                        "tokenPresent=${!container.settingsRepository.getFcmToken().isNullOrBlank()}"
+                }
+                QualityUiFailureDiagnostics.logText(checkpoint,
+                    "session=${session?.sessionId}, expectedDB=${session?.databaseName}, " +
+                        "actualDB=${container.database.openHelper.databaseName}, " +
+                        "mutation=${session?.channelMutationScenario}, transport=${session?.transportSwitchScenario}, " +
+                        "faults=${session?.faults}, $local")
+                for (tag in listOf("feedback.settings.gateway", "feedback.settings.notification_transport")) {
+                    QualityUiFailureDiagnostics.logText("$checkpoint $tag",
+                        composeRule.onAllNodes(hasTestTag(tag)).fetchSemanticsNodes()
+                            .joinToString("\n") { it.config.toString() })
+                }
+                QualityUiFailureDiagnostics.logWindowHierarchy(
+                    UiDevice.getInstance(InstrumentationRegistry.getInstrumentation()), checkpoint)
+            }.onFailure {
+                QualityUiFailureDiagnostics.logText("$checkpoint observation unavailable", it.javaClass.simpleName)
+            }
+            throw failure
+        }
     }
 
     private fun sheetDialogWindowState(): String {
