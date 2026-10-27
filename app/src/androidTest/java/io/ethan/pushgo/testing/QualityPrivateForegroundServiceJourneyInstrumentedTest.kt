@@ -1,8 +1,14 @@
 package io.ethan.pushgo.testing
 
 import android.app.Notification
+import android.app.LocaleManager
 import android.app.NotificationManager
+import android.content.res.Configuration
+import android.content.res.Resources
+import android.os.Build
+import android.os.LocaleList
 import android.os.ParcelFileDescriptor
+import androidx.appcompat.app.AppCompatDelegate
 import androidx.compose.ui.test.*
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
@@ -123,7 +129,10 @@ class QualityPrivateForegroundServiceJourneyInstrumentedTest : QualityAppJourney
             awaitPrivateServiceNotification(expected = true) != null,
         )
         device.openNotification()
-        val title = app.getString(R.string.private_channel_service_notification_title)
+        // A retained Application resource can still be English under instrumentation while the
+        // Service notification follows the persisted per-app locale. Resolve the independent
+        // exact expectation from that locale configuration, not from the notification itself.
+        val title = expectedLocalizedServiceTitle()
         try {
             assertTrue(
                 "System shade did not expose the exact Private Service notification title",
@@ -186,6 +195,24 @@ class QualityPrivateForegroundServiceJourneyInstrumentedTest : QualityAppJourney
         assertTrue(app.container.settingsRepository.getUseFcmChannel())
         awaitPrivateServiceNotification(expected = false)
         awaitServiceRegistration(expected = false)
+    }
+
+    private fun expectedLocalizedServiceTitle(): String {
+        val (applicationTags, systemTags) = if (Build.VERSION.SDK_INT >= 33) {
+            val manager = app.getSystemService(LocaleManager::class.java)
+            manager.applicationLocales.toLanguageTags() to manager.systemLocales.toLanguageTags()
+        } else {
+            AppCompatDelegate.getApplicationLocales().toLanguageTags() to
+                Resources.getSystem().configuration.locales.toLanguageTags()
+        }
+        // Android resolves app-specific locales first, followed by the system fallback locales.
+        val tags = (applicationTags.split(',') + systemTags.split(','))
+            .filter { it.isNotBlank() }.distinct().joinToString(",")
+        val configuration = Configuration(app.resources.configuration).apply {
+            if (tags.isNotEmpty()) setLocales(LocaleList.forLanguageTags(tags))
+        }
+        return app.createConfigurationContext(configuration)
+            .getString(R.string.private_channel_service_notification_title)
     }
 
     private fun openTransportSettings() {
