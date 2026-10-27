@@ -131,6 +131,12 @@ class QualityPrivateForegroundServiceJourneyInstrumentedTest : QualityAppJourney
             )
         } catch (failure: Throwable) {
             runCatching {
+                val channel = notificationManager.getNotificationChannel("pushgo_private_channel_service")
+                val group = channel?.group?.let { notificationManager.getNotificationChannelGroup(it) }
+                QualityUiFailureDiagnostics.logText("FGS shade channel state",
+                    "notificationsEnabled=${notificationManager.areNotificationsEnabled()} " +
+                        "channelExists=${channel != null} importance=${channel?.importance} " +
+                        "groupExists=${group != null} groupBlocked=${group?.isBlocked}")
                 QualityUiFailureDiagnostics.logText("FGS shade notification state",
                     "pnGranted=${androidx.core.content.ContextCompat.checkSelfPermission(app, android.Manifest.permission.POST_NOTIFICATIONS) == android.content.pm.PackageManager.PERMISSION_GRANTED} " +
                         "serviceRegistered=${shell("dumpsys activity services ${app.packageName}").contains("PrivateChannelForegroundService")} " +
