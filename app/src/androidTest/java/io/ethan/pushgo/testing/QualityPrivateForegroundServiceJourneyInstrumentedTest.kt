@@ -56,10 +56,27 @@ class QualityPrivateForegroundServiceJourneyInstrumentedTest : QualityAppJourney
         val privateOption = composeRule.onNodeWithTag("option.settings.notification_transport.private")
         fcmOption.assertIsSelected()
         privateOption.assertIsNotSelected().performClick()
-        composeRule.waitUntil(timeoutMillis = 8_000) {
-            composeRule.onAllNodes(
-                hasTestTag("option.settings.notification_transport.private") and isSelected(),
-            ).fetchSemanticsNodes().isNotEmpty()
+        try {
+            composeRule.waitUntil(timeoutMillis = 8_000) {
+                composeRule.onAllNodes(
+                    hasTestTag("option.settings.notification_transport.private") and isSelected(),
+                ).fetchSemanticsNodes().isNotEmpty()
+            }
+        } catch (failure: Throwable) {
+            runCatching {
+                val container = app.container
+                QualityUiFailureDiagnostics.logText("FGS private selection wait",
+                    "session=${QualityRuntime.currentSession()?.sessionId} " +
+                        "expectedDB=${QualityRuntime.currentSession()?.databaseName} actualDB=${container.database.openHelper.databaseName} " +
+                        "localUseFcm=${container.settingsRepository.getUseFcmChannel()} " +
+                        "tokenPresent=${!container.settingsRepository.getFcmToken().isNullOrBlank()} " +
+                        "lnpGranted=${io.ethan.pushgo.util.LocalNetworkPermission.isGranted(app)} " +
+                        "${container.qualityTransportWriterObservation?.snapshot()} ${container.transportSwitchCoordinator.diagnosticLockState()}")
+                QualityUiFailureDiagnostics.logText("FGS actual transport feedback",
+                    composeRule.onAllNodes(hasTestTag("feedback.settings.notification_transport"))
+                        .fetchSemanticsNodes().joinToString("\n") { it.config.toString() })
+            }.onFailure { QualityUiFailureDiagnostics.logText("FGS selection observation unavailable", it.javaClass.simpleName) }
+            throw failure
         }
         privateOption.assertIsSelected()
         fcmOption.assertIsNotSelected()
