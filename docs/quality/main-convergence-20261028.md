@@ -1,0 +1,31 @@
+# Android main convergence — 2026-10-28
+
+Integration unit: fast-forward local `main` from `b831a5eadbe8f67b64535868af91aa74dbe1ba3f` to the documentation successor of `c396da947c1b23589f6c5aca67fc60f30d7a1247`. No product bytes change during this convergence audit. Actual read-only `git ls-remote --heads origin` observed remote main `8623fb517b7732f16e6b6267b9c623c146e13e32`; both main tips are ancestors of the candidate. Push and deletion remain root-coordinated separate actions.
+
+## Implementation and source identity
+
+The candidate includes all nine current codex workstream branches and the validation/feed-note branches by ancestry. It retains the original ordinary deletion confirmation boundary, durable exact notification cleanup, authenticated direct-ingress ownership and V2 Pull checkpoint/ACK context, limited legacy local-UUID reconfirmation and conservative isolation of unprovable old requests. Room version40 and its actual KSP export are committed. Migration39→40 adds only default-false `confirmation_proven`, preserving original intent fields; runtime confirmation validates current content, owner generation and configuration in the deletion transaction. Historical Thing/Event IDs and interrupted remote operations do not acquire guessed authority.
+
+Normal JNI manifest uses the formal Warp Git URL and exact `344a0486a69764da2e52441618d481fdcb43fbcf` for both direct dependencies; all four lock entries use that same source. There is no tracked path dependency, Cargo patch/replace, source replacement or test trust default. The existing `.cargo/audit.toml` is advisory audit configuration. Explicit isolated QA build options remain opt-in and forbid Release; they are not normal build inputs.
+
+The old `backup/main-before-squash-20260321-180615` has22 commits outside candidate ancestry. It is a March21 historical checkpoint, diverging at `7c67e76ab8f23a7cad60ebfa9eadb66daf8cd494`, before the March21 main refactor `f2853cf`. Its snapshot differs from that refactor in103 paths including old models, UI, tests and resources; it is not an additional October fix series. Do not merge the historical snapshot wholesale or declare every old byte semantically equivalent. Retain this backup ref for recovery; no new required product change was identified there.
+
+## Validation and limits
+
+Fresh cheap checks: cumulative `git diff --check b831a5e c396da9`, JNI/toolchain/workflow contract, localization completeness and AI-history10-task contract passed. Documentation impact selection passed with installed Python3.14:273 tool tests, recommended lane `not-run`; product lane NOT RUN. The initial system-Python3.9 tool run failed3 unsupported-API/import checks and is preserved in `build/quality-results/main-convergence-quality-changed.log`; the classified environment correction is recorded separately in `main-convergence-quality-changed-python314.log`. No Gradle/Cargo build, emulator or device is started for this docs-only successor.
+
+Reuse the exact-source prior normal JNI3-ABI Release compilation/link/export/alignment and5 JNI host tests at `c396da9`; convergence changes no inputs. The root report and `resource-content-20261024/evidence/overall-plan-20261024/warp-gateway-handoff-20261028/android/` bind those inputs and receipts. Prior full Android release-lane run15 on `d2bd3c1` proves its earlier product input: JVM345, UI35, data77, resource3, permission-return1, system3, accessibility1, Room100k1, macro2. Later documentation and Warp pin do not turn that older APK into a new-pin installed-product result. New APK packaging/install, physical/real-provider/OEM/reboot, current signed distribution and CI execution remain NOT RUN. Preserve original unexplained Settings/decryption timeouts; no blanket stability claim.
+
+## Main push and PR effects
+
+`.github/workflows/android-quality.yml` runs host `pr` and emulator `pr-ui` on main push and ordinary PR events, uploading evidence with contents-read permission. A new main push therefore has CI compute/device cost; it does not invoke signing, deployment or release publication. `android-release.yml` accepts only `v*` tag pushes or manual dispatch; it contains production signing, GitHub assets/update-feed publication and feed-state commits. Do not push tags or manually dispatch it as part of convergence. The flake diagnostic is only a specifically labeled PR workflow.
+
+## Inventory and cleanup boundary
+
+All registered worktrees were inspected, including paths under `gateway/build/quality-results`; none were registered outside the PushGo root. Main and every live codex worktree are Git-clean. No stash exists. Actual remote heads are main, three codex evidence heads and three validation heads; every one is a candidate ancestor.
+
+After verified main integration, the following branch/worktree pairs have no unique commits and are eligible for root-managed retirement only after checking ignored build/evidence ownership and open processes: android-api37-permission, android-back-focus-evidence, android-focus-evidence, android-normal-release-bootstrap, android-resource-content and android-warp-b474. Their registered directories are under the corresponding `warp-b474-consumers-20261018/worktrees/` or `resource-content-20261024/android` paths. The final delivery candidate branch/worktree is eligible only after root has consumed its exact docs successor. Do not recursively delete those directories merely because Git is clean: ignored build outputs can contain evidence.
+
+The c18-private128 and private-frame64 worktree registrations point to nonexistent directories and are explicitly marked prunable by Git; their branches are candidate ancestors. The fix/update-feed-notes-main and validation/android-compose-exit-133 local refs are also ancestors with no worktree. The remote evidence/validation refs likewise carry no unique commits, but remote deletion is a separate authorized root action. Keep the March historical backup ref.
+
+The detached `delivery-replay-load-20261024/worktrees/android-baseline` remains protected: it contains untracked `app/src/androidTest/java/io/ethan/pushgo/data/DeliveryBoundedLoadDeviceTest.kt`. Do not remove, clean or reset it. No stash, unknown file or evidence was deleted in this audit.
